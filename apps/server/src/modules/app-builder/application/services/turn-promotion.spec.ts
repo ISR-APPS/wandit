@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { TurnRunHandle } from "../../domain/ports/turn-task-starter";
 import type { BuilderTurnRow } from "../../infrastructure/persistence/builder-turns.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
@@ -38,6 +39,7 @@ function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 		startedAt: null,
 		status: "waiting",
 		triggerRunId: null,
+		runner: "trigger",
 		turnNumber: 1,
 		userId: "user-1",
 		...overrides,
@@ -64,7 +66,12 @@ function setup(
 			? vi.fn(async () => {
 					throw options.startError;
 				})
-			: vi.fn(async () => ({ runId: "run-1" })),
+			: vi.fn(
+					async (): Promise<TurnRunHandle> => ({
+						runId: "run-1",
+						runner: "trigger",
+					}),
+				),
 	};
 
 	return {
@@ -93,11 +100,24 @@ describe("TurnPromoter.promoteNext", () => {
 		expect(await lock.holder("project-1")).toBe("turn-2");
 		expect(starter.start).toHaveBeenCalledWith({
 			actorUserId: "user-1",
+			// A promoted turn has no waiting HTTP request to time.
+			apiCreateMs: null,
 			organizationId: null,
 			projectId: "project-1",
 			turnId: "turn-2",
 		});
 		expect(turns.setTriggerRunId).toHaveBeenCalledWith("turn-2", "run-1");
+	});
+
+	it("stores no Trigger run id when the host runs the promoted turn", async () => {
+		const { promoter, starter, turns } = setup({
+			promoted: turnRow({ id: "turn-2" }),
+		});
+		starter.start.mockResolvedValueOnce({ runner: "host" });
+
+		await promoter.promoteNext("project-1");
+
+		expect(turns.setTriggerRunId).not.toHaveBeenCalled();
 	});
 
 	it("reverts the row to waiting when the lock is taken", async () => {

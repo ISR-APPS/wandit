@@ -1,6 +1,12 @@
+/**
+ * The pager row at the bottom of a portal table card: "Page 2 of 5" and
+ * the previous and next pill buttons. The referrals, commissions, and
+ * payouts tables render it. The page owns the page number.
+ */
+import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 
@@ -12,6 +18,7 @@ type PortalPaginationProps = {
 	total: number;
 };
 
+/** Previous and next buttons for a 1-based page. It shows nothing when the list is empty on page 1. */
 export function PortalPagination({
 	disabled = false,
 	onPageChange,
@@ -28,8 +35,8 @@ export function PortalPagination({
 	}
 
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
-			<p className="text-muted-foreground text-xs">
+		<div className="flex flex-wrap items-center justify-between gap-3 border-night/[0.06] border-t px-4 py-3 sm:px-6 dark:border-white/[0.06]">
+			<p className="text-night/60 text-xs tabular-nums dark:text-foreground/60">
 				{t("affiliates.pagination.pageOf", {
 					page: formatNumber(visiblePage, locale),
 					total: formatNumber(totalPages, locale),
@@ -40,13 +47,14 @@ export function PortalPagination({
 					type="button"
 					variant="outline"
 					size="sm"
+					className="rounded-full font-grotesk"
 					disabled={disabled || visiblePage <= 1}
 					onClick={() => onPageChange(Math.max(1, visiblePage - 1))}
 				>
-					<ChevronLeft
-						data-icon="inline-start"
-						className="rtl:rotate-180"
+					<CaretLeftIcon
 						aria-hidden
+						weight="bold"
+						className="size-3.5 rtl:-scale-x-100"
 					/>
 					{t("affiliates.pagination.previous")}
 				</Button>
@@ -54,14 +62,15 @@ export function PortalPagination({
 					type="button"
 					variant="outline"
 					size="sm"
+					className="rounded-full font-grotesk"
 					disabled={disabled || visiblePage >= totalPages}
 					onClick={() => onPageChange(Math.min(totalPages, visiblePage + 1))}
 				>
 					{t("affiliates.pagination.next")}
-					<ChevronRight
-						data-icon="inline-end"
-						className="rtl:rotate-180"
+					<CaretRightIcon
 						aria-hidden
+						weight="bold"
+						className="size-3.5 rtl:-scale-x-100"
 					/>
 				</Button>
 			</div>

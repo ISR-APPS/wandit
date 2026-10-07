@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "Ouvrir",
 	"menuViewLive": "Voir en ligne",
-	"menuViewLiveMock": "Démo",
 	"menuRename": "Renommer",
 	"menuDelete": "Supprimer",
 	"cardMenuLabel": "Actions du projet",
@@ -63,7 +62,6 @@
 		"leads": "Leads",
 		"assets": "Médias",
 		"analytics": "Statistiques",
-		"buildApp": "Crée ton app",
 		"support": "Support"
 	},
 	"assetsPage": {
@@ -128,6 +126,16 @@
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
 		"modeLabel": "Mode",
+		"platforms": {
+			"web": {
+				"label": "App web",
+				"description": "S'ouvre dans le navigateur, sur tous les appareils."
+			},
+			"mobile": {
+				"label": "App mobile",
+				"description": "Pour iPhone et Android. Teste-la sur ton téléphone."
+			}
+		},
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
 		"skillLibraryLabel": "Conçu par Wandit",

@@ -1,4 +1,17 @@
+/**
+ * The Wandit brand mark: the Spark icon, its SPARK_PATH, and the Logo with the wordmark.
+ * The nav, the auth modal, the dashboard, the workspace, and the landing panels
+ * render them.
+ */
+
 import { cn } from "@wandit/ui/lib/utils";
+
+/**
+ * Path of the four-point spark in a 24 x 24 box. The landing closing panel
+ * animates its stroke, so it needs the path itself.
+ */
+export const SPARK_PATH =
+	"M12 2c1.05 4.44 3.94 7.33 10 10-6.06 1.06-8.95 3.95-10 10-1.05-4.44-3.94-7.33-10-10 6.06-1.06 8.95-3.95 10-10Z";
 
 /** Four-point ember spark — the Wandit brand mark. */
 export function Spark({ className }: { className?: string }) {
@@ -9,7 +22,7 @@ export function Spark({ className }: { className?: string }) {
 			aria-hidden="true"
 			className={cn("size-4 shrink-0", className)}
 		>
-			<path d="M12 2c1.05 4.44 3.94 7.33 10 10-6.06 1.06-8.95 3.95-10 10-1.05-4.44-3.94-7.33-10-10 6.06-1.06 8.95-3.95 10-10Z" />
+			<path d={SPARK_PATH} />
 		</svg>
 	);
 }

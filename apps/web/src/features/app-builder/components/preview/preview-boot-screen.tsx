@@ -1,0 +1,511 @@
+/**
+ * The screen over the preview while the app is not on screen yet: the
+ * server room or the app drawing, the real start-up steps, and an
+ * elapsed timer; the asleep note with its wake button while the app sleeps;
+ * the waiting note while the project holds only the template; or the
+ * planning note while Plan Mode plans the first version.
+ * PreviewPanel renders it until the app shows. It reads its content from
+ * lib/boot-state.ts, draws with BootPlan, and calls the wake route through
+ * useWakeSandbox.
+ */
+
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
+import { Check, CircleAlert } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { type CSSProperties, useEffect, useState } from "react";
+
+import { getApiErrorMessage } from "@/lib/api-client";
+import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { useWakeSandbox } from "../../api/app-builder.mutations";
+import {
+	type BootContext,
+	type BootScene,
+	type BootStep,
+	type BootView,
+	bootViewOf,
+	formatElapsed,
+	INITIAL_BOOT_MEMORY,
+	rememberBoot,
+	sceneOf,
+} from "../../lib/boot-state";
+import { BOOT_EASE, DETAIL_STEP_MS } from "../../lib/constants";
+import { BootPlan } from "./boot-plan";
+
+/**
+ * How long the mark shows before the asleep or the waiting note, ms. The chat
+ * stream of a new project connects in about a second. The project refetch at
+ * a turn end is faster.
+ */
+const NOTE_DELAY_MS = 1200;
+/** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
+const TIMER_TICK_MS = 250;
+/**
+ * How long the screen waits for the app after an accepted wake, ms.
+ * A wake boots in 10 to 60 s; a boot from the image takes a few minutes. A
+ * click after the limit during a slow boot answers `busy` and waits again.
+ */
+const WAKE_WAIT_LIMIT_MS = 3 * 60_000;
+
+// Soft blobs of the brand colors on the night ground, like the device screen backdrop of device-panel.tsx.
+// They have about half its strength. So the drawing stays the brightest part.
+// Each blob fades out before the top and bottom edges. So the flat night bands of the phone frame meet no seam.
+const BACKDROP_STYLE: CSSProperties = {
+	backgroundImage: [
+		"radial-gradient(60% 32% at 10% 30%, color-mix(in oklab, var(--color-ember) 40%, transparent), transparent 70%)",
+		"radial-gradient(55% 40% at 100% 60%, color-mix(in oklab, var(--color-spark) 20%, transparent), transparent 72%)",
+		"radial-gradient(75% 30% at 22% 72%, color-mix(in oklab, var(--color-cream) 14%, transparent), transparent 72%)",
+	].join(", "),
+};
+
+/** Opacity of the ember glow behind the picture, per scene. It is brightest when the app opens and lowest when it did not start. */
+const WASH_OPACITY: Record<BootScene, string> = {
+	loading: "opacity-30",
+	create: "opacity-55",
+	wake: "opacity-40",
+	open: "opacity-100",
+	asleep: "opacity-22",
+	stopped: "opacity-12",
+};
+
+/** Props of the boot screen. PreviewPanel passes them. */
+export type PreviewBootScreenProps = {
+	/** The open project. The wake button of the asleep note wakes its sandbox. */
+	projectId: string;
+	/** Status of the preview token, without `error` and `blocked`: PreviewPanel shows its own alert for them. */
+	tokenStatus: "loading" | "waking" | "ready";
+	/** The running turn and the backend state, from app-builder-page.tsx through PreviewPanel. */
+	bootContext: BootContext;
+};
+
+/**
+ * Keeps the boot memory and the shown variant, and renders the stage. A
+ * first `waking` answer waits 1.2 s before the asleep note: on a new
+ * project the running turn often connects in that time. The waiting note
+ * always waits 1.2 s, so a turn end does not flash it before the app shows.
+ * An accepted wake shows the wake scene while the token poll waits for the
+ * app, for 3 min at most.
+ */
+export function PreviewBootScreen({
+	projectId,
+	tokenStatus,
+	bootContext,
+}: PreviewBootScreenProps) {
+	const { t } = useTranslation();
+	const wake = useWakeSandbox(projectId);
+	const { isSuccess: wakeAccepted, reset: resetWake } = wake;
+	// True after an accepted wake waited past the limit. The asleep note then says that the wake failed.
+	const [isWakeTimedOut, setIsWakeTimedOut] = useState(false);
+	const signals = { ...bootContext, tokenStatus, wakeAccepted };
+
+	const [memory, setMemory] = useState(INITIAL_BOOT_MEMORY);
+	const nextMemory = rememberBoot(memory, signals);
+	if (nextMemory !== memory) setMemory(nextMemory);
+	const view = bootViewOf(signals, nextMemory);
+
+	const [shownVariant, setShownVariant] =
+		useState<BootView["variant"]>("loading");
+	// The asleep note waits on first paint for a resumed turn. The waiting note
+	// always waits: at a turn end the project refetch is often still on its way.
+	const heldNote =
+		shownVariant !== view.variant &&
+		((view.variant === "asleep" && shownVariant === "loading") ||
+			view.variant === "waiting")
+			? view.variant
+			: null;
+	if (heldNote === null && shownVariant !== view.variant) {
+		setShownVariant(view.variant);
+	}
+	useEffect(() => {
+		if (heldNote === null) return;
+		const timer = setTimeout(() => setShownVariant(heldNote), NOTE_DELAY_MS);
+		return () => clearTimeout(timer);
+	}, [heldNote]);
+	const shown: BootView = heldNote === null ? view : { variant: "loading" };
+	const scene = sceneOf(shown);
+	const database =
+		shown.variant === "booting"
+			? (shown.steps.find((step) => step.id === "database")?.state ?? null)
+			: null;
+
+	// The server does not report a failed boot to the web, and a dead dev server never answers.
+	// The screen unmounts when the app shows, so the cleanup stops the timer then.
+	// LIMIT: a failed boot shows only after 3 min. Upgrade: the preview-token route reports a failed wake.
+	useEffect(() => {
+		if (!wakeAccepted) return;
+		const timer = setTimeout(() => {
+			resetWake();
+			setIsWakeTimedOut(true);
+		}, WAKE_WAIT_LIMIT_MS);
+		return () => clearTimeout(timer);
+	}, [wakeAccepted, resetWake]);
+	const wakeErrorText = wake.isError
+		? getApiErrorMessage(wake.error)
+		: isWakeTimedOut
+			? t("appBuilder.preview.boot.asleep.wakeFailed")
+			: null;
+	const requestWake = () => {
+		setIsWakeTimedOut(false);
+		wake.mutate();
+	};
+
+	return (
+		// The stage is a night panel in both themes, like the device screens and the landing build log.
+		// So the dark tokens apply inside.
+		<div
+			className="dark @container-size relative flex size-full items-center justify-center overflow-hidden bg-night text-white/92"
+			style={BACKDROP_STYLE}
+		>
+			<p role="status" className="sr-only">
+				{announcementOf(shown, t)}
+			</p>
+			{/* On wide stages the frame edges and the text edges line up; the width follows the stage height. */}
+			<motion.div
+				variants={{ leave: { scale: 1.04 } }}
+				transition={{ duration: 0.26, ease: BOOT_EASE }}
+				className="relative flex @max-[560px]:w-[min(300px,calc(100cqw_-_48px))] w-[clamp(280px,calc(100cqh_-_300px),420px)] flex-col"
+			>
+				{/* data-scene names the picture for the specs. */}
+				<div className="relative" data-scene={scene}>
+					<div
+						aria-hidden="true"
+						className={cn(
+							"-translate-1/2 pointer-events-none absolute top-1/2 left-1/2 @max-[560px]:size-[440px] h-[460px] w-[640px] bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-ember)_32%,transparent),transparent)] transition-opacity duration-800",
+							WASH_OPACITY[scene],
+						)}
+					/>
+					<BootPlan scene={scene} database={database} />
+				</div>
+				{/* The reserved height holds the longest step list, so a late row or a variant change never moves the drawing. */}
+				<motion.div
+					variants={{ leave: { opacity: 0, transition: { duration: 0.12 } } }}
+					className="relative @max-[560px]:mt-6 mt-8 @max-[560px]:min-h-[236px] min-h-[214px]"
+				>
+					<AnimatePresence mode="popLayout">
+						<motion.div
+							key={shown.variant}
+							initial={{ opacity: 0 }}
+							animate={{
+								opacity: 1,
+								transition: { duration: 0.3, delay: 0.25, ease: BOOT_EASE },
+							}}
+							exit={{
+								opacity: 0,
+								transition: { duration: 0.15, ease: BOOT_EASE },
+							}}
+						>
+							<BootCopy
+								view={shown}
+								onWake={requestWake}
+								isWakePending={wake.isPending}
+								wakeErrorText={wakeErrorText}
+							/>
+						</motion.div>
+					</AnimatePresence>
+				</motion.div>
+			</motion.div>
+		</div>
+	);
+}
+
+/** The text a screen reader hears. The timer and the cycling detail stay silent, so it does not speak every few seconds. */
+function announcementOf(
+	view: BootView,
+	t: (key: TranslationKey) => string,
+): string {
+	switch (view.variant) {
+		case "loading":
+			return t("appBuilder.preview.boot.loading");
+		case "asleep":
+			return view.stopped
+				? `${t("appBuilder.preview.boot.stopped.title")}. ${t("appBuilder.preview.boot.stopped.body")}`
+				: `${t("appBuilder.preview.boot.asleep.title")}. ${t("appBuilder.preview.boot.asleep.body")}`;
+		case "waiting":
+			// The title ends with an ellipsis, so no period joins the two.
+			return `${t("appBuilder.preview.boot.waiting.title")} ${t("appBuilder.preview.boot.waiting.body")}`;
+		case "planning":
+			return `${t("appBuilder.preview.boot.planning.title")}. ${t("appBuilder.preview.boot.planning.body")}`;
+		case "booting": {
+			const active = view.steps.find(
+				(step) => step.state === "active" && step.id !== "database",
+			);
+			return active === undefined
+				? t("appBuilder.preview.boot.title")
+				: `${t("appBuilder.preview.boot.title")}. ${t(active.label)}`;
+		}
+	}
+}
+
+/** The text under the drawing. The loading variant shows none. */
+function BootCopy({
+	view,
+	onWake,
+	isWakePending,
+	wakeErrorText,
+}: {
+	view: BootView;
+	/** Sends the wake request. Only the asleep note shows the button, not the stopped, waiting, or planning note. */
+	onWake: () => void;
+	/** True while the wake request runs. The button then shows a spinner and is disabled. */
+	isWakePending: boolean;
+	/** Text of the failed wake request, or of a wake that passed the wait limit. Null hides the line. */
+	wakeErrorText: string | null;
+}) {
+	const { t } = useTranslation();
+
+	if (view.variant === "loading") return null;
+
+	if (view.variant !== "booting") {
+		const note =
+			view.variant === "asleep"
+				? view.stopped
+					? "stopped"
+					: "asleep"
+				: view.variant;
+		return (
+			<div>
+				<h2 className="text-balance font-grotesk font-semibold @max-[560px]:text-[17px] text-[20px] text-white leading-[1.25] tracking-[-0.02em] rtl:tracking-normal">
+					{t(`appBuilder.preview.boot.${note}.title`)}
+				</h2>
+				<p className="mt-2 text-pretty @max-[560px]:text-[13.5px] text-[14px] text-white/62 leading-normal">
+					{t(`appBuilder.preview.boot.${note}.body`)}
+				</p>
+				{/* Only a sleeping app gets the button. A stopped note follows a failed start that the chat explains. */}
+				{note === "asleep" ? (
+					<>
+						{/* The amber pill of the retry button in preview-panel.tsx. It reads on the night stage in both themes. */}
+						<Button
+							size="sm"
+							className="mt-4 bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
+							disabled={isWakePending}
+							onClick={onWake}
+						>
+							{isWakePending ? (
+								<CircleNotchIcon
+									aria-hidden
+									weight="bold"
+									className="animate-spin motion-reduce:animate-none"
+								/>
+							) : null}
+							{t("appBuilder.preview.boot.asleep.wake")}
+						</Button>
+						{wakeErrorText === null ? null : (
+							<p
+								role="alert"
+								className="mt-2 text-pretty text-[12.5px] text-destructive leading-[18px]"
+							>
+								{wakeErrorText}
+							</p>
+						)}
+					</>
+				) : null}
+			</div>
+		);
+	}
+
+	return (
+		<div>
+			<div className="flex items-baseline justify-between gap-3">
+				<h2 className="text-balance font-grotesk font-semibold @max-[560px]:text-[17px] text-[20px] text-white leading-[1.25] tracking-[-0.02em] rtl:tracking-normal">
+					{t("appBuilder.preview.boot.title")}
+				</h2>
+				<ElapsedTime />
+			</div>
+			<ol className="mt-3.5">
+				{view.steps.map((step) => (
+					<StepRow key={step.id} step={step} />
+				))}
+			</ol>
+		</div>
+	);
+}
+
+/** Label color of a main step, per state. */
+const LABEL_CLASSES: Record<BootStep["state"], string> = {
+	pending: "text-white/50",
+	active: "font-medium text-white/92",
+	done: "text-white/62",
+	failed: "text-white/62",
+};
+
+/** One step: its icon, its label, and its detail line. The database row runs in the background, so it is quieter. */
+function StepRow({ step }: { step: BootStep }) {
+	const { t } = useTranslation();
+	const isDatabase = step.id === "database";
+
+	return (
+		<li
+			className={cn(
+				"grid grid-cols-[16px_1fr] gap-x-3 py-[7px]",
+				isDatabase && "mt-2 border-white/9 border-t pt-[15px]",
+			)}
+		>
+			<span className="grid h-5 w-4 place-items-center">
+				<AnimatePresence mode="popLayout" initial={false}>
+					<motion.span
+						key={step.state}
+						className="grid place-items-center"
+						initial={{ opacity: 0, scale: 0.6 }}
+						animate={{ opacity: 1, scale: 1 }}
+						exit={{ opacity: 0 }}
+						transition={{ duration: 0.24, ease: BOOT_EASE }}
+					>
+						<StepIcon state={step.state} isDatabase={isDatabase} />
+					</motion.span>
+				</AnimatePresence>
+			</span>
+			<span
+				className={cn(
+					"@max-[560px]:text-[13.5px] text-[14px] leading-5 transition-colors duration-150",
+					isDatabase && step.state === "active"
+						? "text-white/66"
+						: LABEL_CLASSES[step.state],
+				)}
+			>
+				{t(step.label)}
+			</span>
+			{step.details.length > 0 ? (
+				<DetailLine
+					lines={step.details}
+					// The caret marks the one main step that works now.
+					withCaret={step.state === "active" && !isDatabase}
+				/>
+			) : null}
+		</li>
+	);
+}
+
+/** The icon of a step state. The database spinner turns three times slower. */
+function StepIcon({
+	state,
+	isDatabase,
+}: {
+	state: BootStep["state"];
+	/** True for the background database row. */
+	isDatabase: boolean;
+}) {
+	switch (state) {
+		case "pending":
+			return (
+				<span className="size-[13px] rounded-full border-[1.5px] border-white/25" />
+			);
+		case "active":
+			return (
+				<svg
+					viewBox="0 0 16 16"
+					aria-hidden="true"
+					className={cn(
+						"size-4 motion-reduce:animate-none",
+						isDatabase ? "animate-spin-slow" : "animate-spin",
+					)}
+				>
+					<circle
+						cx="8"
+						cy="8"
+						r="6.25"
+						fill="none"
+						strokeWidth="1.5"
+						className="stroke-white/12"
+					/>
+					<path
+						d="M8 1.75A6.25 6.25 0 0 1 14.25 8"
+						fill="none"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						className={isDatabase ? "stroke-spark/75" : "stroke-spark"}
+					/>
+				</svg>
+			);
+		case "done":
+			// The amber check of the landing build log.
+			return (
+				<Check
+					className="size-4 text-spark"
+					strokeWidth={3.2}
+					aria-hidden="true"
+				/>
+			);
+		case "failed":
+			return (
+				<CircleAlert
+					className="size-4 text-destructive"
+					strokeWidth={1.75}
+					aria-hidden="true"
+				/>
+			);
+	}
+}
+
+/**
+ * The detail under a label. It shows each line for 3.2 s and keeps the
+ * last one: a loop would read as "it started again". A shorter new list
+ * shows its last line.
+ */
+function DetailLine({
+	lines,
+	withCaret,
+}: {
+	lines: TranslationKey[];
+	/** True for the main active step: an amber caret blinks after the text. */
+	withCaret: boolean;
+}) {
+	const { t } = useTranslation();
+	const [index, setIndex] = useState(0);
+	const lastIndex = lines.length - 1;
+	const line = lines[Math.min(index, lastIndex)];
+
+	useEffect(() => {
+		if (index >= lastIndex) return;
+		const timer = setTimeout(() => setIndex(index + 1), DETAIL_STEP_MS);
+		return () => clearTimeout(timer);
+	}, [index, lastIndex]);
+
+	return (
+		// A cycling line stays silent: the status line already names the step.
+		<span
+			aria-hidden={lines.length > 1}
+			className="relative col-start-2 text-pretty text-[12.5px] text-white/50 leading-[18px]"
+		>
+			<AnimatePresence mode="popLayout" initial={false}>
+				<motion.span
+					key={line}
+					className="inline-block"
+					initial={{ opacity: 0, y: 3 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0, y: -3 }}
+					transition={{ duration: 0.2, ease: BOOT_EASE }}
+				>
+					{line === undefined ? null : t(line)}
+				</motion.span>
+			</AnimatePresence>
+			{withCaret ? (
+				<span className="ms-[3px] inline-block h-[11px] w-px animate-caret bg-spark align-[-1px] motion-reduce:animate-none" />
+			) : null}
+		</span>
+	);
+}
+
+/** `m:ss` since the step list showed. It restarts when the list mounts again, for example after the asleep note. */
+function ElapsedTime() {
+	const [startedAt] = useState(() => Date.now());
+	const [elapsedMs, setElapsedMs] = useState(0);
+
+	useEffect(() => {
+		const timer = setInterval(
+			() => setElapsedMs(Date.now() - startedAt),
+			TIMER_TICK_MS,
+		);
+		return () => clearInterval(timer);
+	}, [startedAt]);
+
+	return (
+		<span
+			dir="ltr"
+			aria-hidden="true"
+			className="shrink-0 font-mono text-[12.5px] text-white/50 tabular-nums leading-none tracking-normal"
+		>
+			{formatElapsed(elapsedMs)}
+		</span>
+	);
+}

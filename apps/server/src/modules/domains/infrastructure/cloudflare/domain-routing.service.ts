@@ -1,3 +1,8 @@
+/**
+ * Writes and deletes the `domain:{host}` KV pointers that the edge Worker
+ * reads. The domains, sites, and publish code and the admin suspend switch
+ * call it. It calls the Cloudflare KV REST API.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 
@@ -47,12 +52,10 @@ export class DomainRoutingService {
 	}
 
 	/**
-	 * Re-point every active custom domain of a project. Currently uncalled by
-	 * design: published bytes live at an R2 key derived from projectId alone
-	 * (published/{projectId}/current.html), so `domain:{host}` pointers are
-	 * version-free ({projectId, source}) and never need a per-publish refresh.
-	 * Only reach for this if the pointer shape ever grows per-publish data —
-	 * and prefer not to let it.
+	 * Re-points every active custom domain of a project. The V2 publish task
+	 * and the admin suspend switch call it with `appHostPointer`, so each
+	 * domain gets `kind: "app"` and the suspended state. V1 pointers stay
+	 * version-free and never need a refresh.
 	 */
 	async refreshProjectDomains(
 		projectId: string,

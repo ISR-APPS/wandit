@@ -11,6 +11,7 @@ describe("LLM_MODEL_PRICES", () => {
 		// The allow-listed Anthropic models each need a row.
 		const ids = LLM_MODEL_PRICES.map((row) => row.modelId);
 		expect(ids).toContain("anthropic/claude-sonnet-5");
+		expect(ids).toContain("anthropic/claude-opus-5.5");
 		expect(ids).toContain("anthropic/claude-opus-5");
 		expect(ids).toContain("anthropic/claude-haiku-4-5");
 	});
@@ -27,6 +28,18 @@ describe("priceUsdMicros", () => {
 				cacheWriteTokens: 0,
 			}),
 		).toBe(12_000_000);
+	});
+
+	it("prices the Opus 5.5 default at $4 in and $20 out", () => {
+		// The dotted id is the gateway id; the proxy forwards it unchanged.
+		expect(
+			priceUsdMicros("anthropic/claude-opus-5.5", {
+				inputTokens: 1_000_000,
+				outputTokens: 1_000_000,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			}),
+		).toBe(24_000_000);
 	});
 
 	it("applies cache-read and cache-write rates", () => {

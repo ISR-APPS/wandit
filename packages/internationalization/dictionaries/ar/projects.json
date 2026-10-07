@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "فتح",
 	"menuViewLive": "عرض مباشر",
-	"menuViewLiveMock": "تجريبي",
 	"menuRename": "إعادة تسمية",
 	"menuDelete": "حذف",
 	"cardMenuLabel": "إجراءات المشروع",
@@ -63,7 +62,6 @@
 		"leads": "العملاء المحتملون",
 		"assets": "الوسائط",
 		"analytics": "التحليلات",
-		"buildApp": "أنشئ تطبيقك",
 		"support": "الدعم"
 	},
 	"assetsPage": {
@@ -128,6 +126,16 @@
 			"signInFirst": "سجّل الدخول لإرفاق الملفات"
 		},
 		"modeLabel": "الوضع",
+		"platforms": {
+			"web": {
+				"label": "تطبيق ويب",
+				"description": "يفتح في المتصفح، على أي جهاز."
+			},
+			"mobile": {
+				"label": "تطبيق جوال",
+				"description": "لأجهزة iPhone وAndroid. جرّبه على هاتفك."
+			}
+		},
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
 		"skillLibraryLabel": "من إنشاء Wandit",

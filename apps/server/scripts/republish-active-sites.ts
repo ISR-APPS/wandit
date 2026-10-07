@@ -254,6 +254,8 @@ async function loadWorkList(
 		.where(
 			and(
 				eq(deployments.status, "active"),
+				// A V2 app row has no page HTML to republish (WANDIT-178).
+				eq(deployments.kind, "page"),
 				...(options.projectId
 					? [eq(deployments.projectId, options.projectId)]
 					: []),
@@ -261,9 +263,15 @@ async function loadWorkList(
 		)
 		.orderBy(asc(deployments.createdAt), asc(deployments.id));
 
+	// The check `deployments_kind_source_ck` gives every page row a version,
+	// so the filter only narrows the type.
+	const pages = rows.flatMap((row) =>
+		row.versionId === null ? [] : [{ ...row, versionId: row.versionId }],
+	);
+
 	// At most one active row per project (deployments_active_project_uq), so
 	// this list is small enough to trim in memory and keep the query one shape.
-	return options.limit === null ? rows : rows.slice(0, options.limit);
+	return options.limit === null ? pages : pages.slice(0, options.limit);
 }
 
 async function republishProject(

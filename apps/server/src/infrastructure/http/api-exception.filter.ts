@@ -13,6 +13,8 @@ import {
 	Logger,
 } from "@nestjs/common";
 import {
+	type BackendLimitDetails,
+	backendLimitDetailsSchema,
 	type PaymentRequiredDetails,
 	type ProjectCreditCapDetails,
 	paymentRequiredDetailsSchema,
@@ -31,6 +33,7 @@ type ValidationErrorDetail = {
 type NormalizedError = {
 	code: string;
 	details?:
+		| BackendLimitDetails
 		| PaymentRequiredDetails
 		| ProjectCreditCapDetails
 		| ValidationErrorDetail[];
@@ -106,12 +109,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
 			statusCode === HttpStatus.PAYMENT_REQUIRED
 				? this.extractPaymentRequiredDetails(response)
 				: undefined;
-		const projectCreditCapDetails =
+		const forbiddenDetails =
 			statusCode === HttpStatus.FORBIDDEN
-				? this.extractProjectCreditCapDetails(response)
+				? this.extractForbiddenDetails(response)
 				: undefined;
 		const details =
-			paymentRequiredDetails ?? projectCreditCapDetails ?? validationDetails;
+			paymentRequiredDetails ?? forbiddenDetails ?? validationDetails;
 
 		return {
 			code: validationDetails
@@ -147,9 +150,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
 		return legacy.success ? legacy.data : undefined;
 	}
 
-	private extractProjectCreditCapDetails(
+	/** The typed `details` of a 403: the plan limit of a backend, or the project credit cap. */
+	private extractForbiddenDetails(
 		response: string | object,
-	): ProjectCreditCapDetails | undefined {
+	): BackendLimitDetails | ProjectCreditCapDetails | undefined {
 		if (typeof response === "string") {
 			return undefined;
 		}
@@ -157,6 +161,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
 		// SAFETY: HttpExceptionResponse only marks optional unknown fields on
 		// the response object; the schema parse does the real check.
 		const body = response as HttpExceptionResponse;
+
+		// Plan and limit go out only with their own code, so no other 403 sends them.
+		if (body.code === "BACKEND_LIMIT_REACHED") {
+			const limit = backendLimitDetailsSchema.safeParse(body.details);
+			return limit.success ? limit.data : undefined;
+		}
+
 		const parsed = projectCreditCapDetailsSchema.safeParse(body.details);
 
 		return parsed.success ? parsed.data : undefined;

@@ -1,15 +1,25 @@
+import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
+
 import { describe, expect, it } from "vitest";
 
 import { SandboxEnvRejectedError } from "../../domain/errors/sandbox-env-rejected.error";
-import { buildSandboxEnv, SANDBOX_ENV_ALLOW_LIST } from "./sandbox-env";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "./fake-sandbox.provider";
+import {
+	buildSandboxEnv,
+	SANDBOX_ENV_ALLOW_LIST,
+	syncBackendEnvFile,
+	WAIT_FOR_DEV_PORT_SCRIPT,
+} from "./sandbox-env";
 
 const INPUT = {
 	previewHost: null,
 	proxyBaseUrl: "https://llm-proxy.test",
 	proxyToken: "run-token-1",
 	runId: "run-1",
-	supabaseAnonKey: "anon-key-1",
-	supabaseUrl: "https://project.supabase.co",
 };
 
 describe("buildSandboxEnv", () => {
@@ -22,20 +32,7 @@ describe("buildSandboxEnv", () => {
 			ANTHROPIC_API_KEY: "",
 			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-			VITE_SUPABASE_ANON_KEY: "anon-key-1",
-			VITE_SUPABASE_URL: "https://project.supabase.co",
 		});
-	});
-
-	it("omits the VITE_SUPABASE names when the backend row is missing", () => {
-		const env = buildSandboxEnv({
-			...INPUT,
-			supabaseAnonKey: null,
-			supabaseUrl: null,
-		});
-
-		expect(env).not.toHaveProperty("VITE_SUPABASE_URL");
-		expect(env).not.toHaveProperty("VITE_SUPABASE_ANON_KEY");
 	});
 
 	it("adds WANDIT_PREVIEW_HOST only when the caller passes a host", () => {
@@ -48,12 +45,13 @@ describe("buildSandboxEnv", () => {
 		expect(buildSandboxEnv(INPUT).WANDIT_PREVIEW_HOST).toBeUndefined();
 	});
 
-	it("rejects a platform secret passed through extra", () => {
+	// A Supabase name in the process env would win over the `.env` value in Vite.
+	it.each([
+		"VERCEL_SANDBOX_TOKEN",
+		"EXPO_PUBLIC_SUPABASE_URL",
+	])("rejects %s passed through extra", (name) => {
 		expect(() =>
-			buildSandboxEnv({
-				...INPUT,
-				extra: { VERCEL_SANDBOX_TOKEN: "secret" },
-			}),
+			buildSandboxEnv({ ...INPUT, extra: { [name]: "value" } }),
 		).toThrow(SandboxEnvRejectedError);
 	});
 
@@ -81,6 +79,75 @@ describe("buildSandboxEnv", () => {
 
 		for (const name of Object.keys(env)) {
 			expect(allowed.has(name)).toBe(true);
+		}
+	});
+});
+
+describe("syncBackendEnvFile", () => {
+	it("writes the four lines when they differ and leaves an equal file alone", async () => {
+		const sandboxes = new FakeSandboxProvider();
+		const sandbox = await sandboxes.getOrCreate("p1", {
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			env: {},
+			framework: "mobile-app",
+			organizationId: null,
+			ownerUserId: "user-1",
+			templateVersion: "mobile-app@1.1.0",
+		});
+		const envPath = `${FAKE_WORKSPACE_DIR}/.env`;
+		await sandbox.writeFiles([
+			{ content: "VITE_SUPABASE_URL=https://old.supabase.co\n", path: envPath },
+		]);
+		// The dev port wait of the write; a fake port answers at once.
+		sandboxes.respondTo("bash", { exitCode: 0, stderr: "", stdout: "" });
+		const backend = {
+			anonKey: "anon-key-1",
+			url: "https://abcdefghijklmnopqrst.supabase.co",
+		};
+
+		await syncBackendEnvFile(sandbox, backend);
+		// Each write restarts Vite, so a second turn with the same row must not write.
+		await syncBackendEnvFile(sandbox, backend);
+
+		// One write by the setup above, one by the first sync, none by the second.
+		expect(
+			sandboxes.calls.filter((call) => call.method === "writeFiles"),
+		).toHaveLength(2);
+		const bytes = await sandbox.readFile(envPath);
+		expect(bytes === null ? null : new TextDecoder().decode(bytes)).toBe(
+			[
+				"VITE_SUPABASE_URL=https://abcdefghijklmnopqrst.supabase.co",
+				"VITE_SUPABASE_ANON_KEY=anon-key-1",
+				"EXPO_PUBLIC_SUPABASE_URL=https://abcdefghijklmnopqrst.supabase.co",
+				"EXPO_PUBLIC_SUPABASE_ANON_KEY=anon-key-1",
+				"",
+			].join("\n"),
+		);
+	});
+});
+
+describe("WAIT_FOR_DEV_PORT_SCRIPT", () => {
+	it("exits 0 for an open port and 1 after its tries on a closed one", async () => {
+		const server = createServer();
+		await new Promise<void>((resolve) =>
+			server.listen(0, "127.0.0.1", resolve),
+		);
+		const address = server.address();
+		const openPort = typeof address === "object" && address ? address.port : 0;
+		// Port 1 is privileged and never listens in a test.
+		const runScript = (tries: string, ports: string[]) =>
+			spawnSync(
+				"bash",
+				["-c", WAIT_FOR_DEV_PORT_SCRIPT, "wait-for-dev-port", tries, ...ports],
+				{ timeout: 10_000 },
+			).status;
+
+		try {
+			expect(runScript("2", ["1", String(openPort)])).toBe(0);
+			expect(runScript("1", ["1"])).toBe(1);
+		} finally {
+			server.close();
 		}
 	});
 });

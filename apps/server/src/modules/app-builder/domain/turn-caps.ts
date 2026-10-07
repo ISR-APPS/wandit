@@ -5,11 +5,13 @@
  */
 
 /**
- * Default per-turn cap in centi-credits: 50 credits = $1.60 of provider
- * cost at $0.032/credit. The plan default until WANDIT-184 entitlements; a
- * `project_cost_caps.perTurnCapCredits` row overrides it.
+ * Default per-turn cap in centi-credits: 10,000 credits = $320 of provider
+ * cost at $0.032/credit. Zack's choice: a full first build on Opus 5.5 cost
+ * more than the old 50-credit cap and failed mid-turn. The LLM proxy daily
+ * cap per user (`LLM_PROXY_DAILY_USER_CAP_USD`) still applies. A
+ * `project_cost_caps.perTurnCapCredits` row overrides this default.
  */
-export const DEFAULT_PER_TURN_CAP_CREDITS = 5000;
+export const DEFAULT_PER_TURN_CAP_CREDITS = 1_000_000;
 
 /**
  * First instant of the UTC calendar month `now` falls in. The monthly cap

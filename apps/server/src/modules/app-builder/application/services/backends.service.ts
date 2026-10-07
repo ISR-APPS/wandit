@@ -1,8 +1,11 @@
 /**
  * Provisions the hidden Supabase backend of a new V2 project (D18).
- * `AppProjectsService.create` is the only caller: after the create
- * transaction, before the first turn. Writes the `app_backends` row
- * through `AppBackendsRepository` and hands off to the
+ * `AppProjectsService.create` calls it after the create transaction.
+ * The Cloud route `POST backend` also calls it.
+ * `TurnsService.create` calls it for each new chat message.
+ * Both provision a missing row or a failed (`error`) row again.
+ * It checks the plan entitlement (D3, WANDIT-184), writes the
+ * `app_backends` row through `AppBackendsRepository`, and hands off to the
  * `provision-backend` task through `ProvisionBackendTaskStarter`.
  * Picks the region with pickSupabaseRegion from the request country code.
  */
@@ -11,6 +14,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { type SupabaseRegion, supabaseRegionSchema } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
+import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
+import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { subjectPayer } from "../../../credits/domain/credit-owner";
+import { assertBackendEntitlement } from "../../domain/backend-lifecycle";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import {
 	PROVISION_BACKEND_TASK_STARTER,
 	type ProvisionBackendTaskStarter,
@@ -30,18 +38,30 @@ export class BackendsService {
 		@Inject(AppBackendsRepository)
 		private readonly backends: Pick<
 			AppBackendsRepository,
-			"findByProjectId" | "insertCreating" | "setTriggerRunId" | "markError"
+			| "findByProjectId"
+			| "writeCreatingWithinLimit"
+			| "setTriggerRunId"
+			| "markError"
 		>,
 		@Inject(PROVISION_BACKEND_TASK_STARTER)
 		private readonly starter: ProvisionBackendTaskStarter,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
+		/** The payer's subscription; the plan decides the backend limit. */
+		@Inject(SubscriptionsRepository)
+		private readonly subscriptions: Pick<
+			SubscriptionsRepository,
+			"findActiveByOwner"
+		>,
 	) {}
 
 	/**
-	 * The single entry of backend provisioning, called once per project
-	 * create. Answers the `app_backends` row; null means provisioning is
-	 * not configured and nothing was written.
+	 * The single entry of backend provisioning: project create, the Cloud
+	 * route `POST backend`, and each new chat message call it. An `error`
+	 * row gets a new run; any other row comes back as it is. Answers the
+	 * `app_backends` row; null means provisioning is not configured and
+	 * nothing was written. Throws
+	 * `BackendLimitReachedError` when the payer's plan has no free slot.
 	 */
 	async provisionBackend(
 		projectId: string,
@@ -66,10 +86,19 @@ export class BackendsService {
 			return null;
 		}
 
+		// Only a failed row needs the locked write: it provisions again.
 		const existing = await this.backends.findByProjectId(projectId);
-		if (existing !== null) {
+		if (existing !== null && existing.status !== "error") {
 			return existing;
 		}
+
+		// D3 product rule: the payer's plan caps the backends it holds. The
+		// payer is the org of an org project, else the user.
+		const subject = {
+			actorUserId: input.userId,
+			organizationId: input.organizationId,
+		};
+		const plan = await resolveBillingPlan(this.subscriptions, subject);
 
 		let region: SupabaseRegion = pickSupabaseRegion(input.countryCode);
 		const regionOverride = this.v2Env.SUPABASE_PLATFORM_REGION;
@@ -86,31 +115,42 @@ export class BackendsService {
 			}
 		}
 
-		const inserted = await this.backends.insertCreating({
-			organizationId: input.organizationId,
-			projectId,
-			region,
-			requestKey: randomUUID(),
-			userId: input.userId,
-		});
-		const row = inserted ?? (await this.backends.findByProjectId(projectId));
-		if (row === null) {
-			throw new Error(
-				`app_backends insert returned no row for project ${projectId}`,
+		// The count and the write run under one lock per payer, so two
+		// parallel creates cannot both pass the limit, and two retries of one
+		// `error` row cannot both start a run.
+		const outcome = await this.backends.writeCreatingWithinLimit(
+			{
+				organizationId: input.organizationId,
+				projectId,
+				region,
+				requestKey: randomUUID(),
+				userId: input.userId,
+			},
+			subjectPayer(subject),
+			(ownedBackends) => assertBackendEntitlement(plan, ownedBackends),
+		);
+		if (outcome.kind === "refused") {
+			this.logger.warn(
+				`supabase.provisioning.limit-reached project=${projectId} plan=${plan} limit=${outcome.refusal.limit}`,
+			);
+			throw new BackendLimitReachedError(
+				outcome.refusal.plan,
+				outcome.refusal.limit,
 			);
 		}
-		if (inserted === null) {
-			// The insert answered null: a concurrent create wrote the row first
-			// and already queued its task, so this call starts nothing.
+		const row = outcome.row;
+		if (outcome.kind === "exists") {
+			// A concurrent create or retry wrote the row first and already
+			// queued its task, so this call starts nothing.
 			return row;
 		}
 
+		let runId: string;
 		try {
-			const { runId } = await this.starter.start({
+			({ runId } = await this.starter.start({
 				projectId,
 				requestKey: row.requestKey,
-			});
-			await this.backends.setTriggerRunId(projectId, runId);
+			}));
 		} catch (error) {
 			// A start failure must not fail project creation: the project
 			// exists and the user can work; the row carries the failure for
@@ -119,7 +159,7 @@ export class BackendsService {
 			this.logger.error(
 				`supabase.provisioning.start-failed project=${projectId}: ${message}`,
 			);
-			await this.backends.markError(projectId, {
+			await this.backends.markError(projectId, row.requestKey, {
 				error: message,
 				failureCode: "backend_provision_start_failed",
 				failureKind: "internal",
@@ -130,6 +170,16 @@ export class BackendsService {
 				sentryEventId: null,
 			});
 			return this.backends.findByProjectId(projectId);
+		}
+
+		// The run id is a trace field. A failed write must not fail a run
+		// that Trigger accepted, so the error only goes to the log.
+		try {
+			await this.backends.setTriggerRunId(projectId, runId);
+		} catch (error) {
+			this.logger.error(
+				`supabase.provisioning.run-id-write-failed project=${projectId} run=${runId}: ${getErrorMessage(error)}`,
+			);
 		}
 
 		return row;

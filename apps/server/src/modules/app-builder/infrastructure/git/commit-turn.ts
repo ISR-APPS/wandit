@@ -3,7 +3,8 @@
  * The builder-turn task and the restore flow call it after a turn's file
  * changes. It runs git inside the sandbox through `SandboxHandle.exec`,
  * stores the patch and numstat in R2, pushes to code.storage, writes the
- * `app_commits` row, and moves the `main` head compare-and-swap.
+ * `app_commits` row, and moves the `main` head compare-and-swap. The task
+ * calls it through `commitTurnUnlessClean`, which skips a turn with no change.
  */
 import { type GitNumstatEntry, parseNumstat } from "../../domain/git-numstat";
 import type { GitStore } from "../../domain/ports/git-store";
@@ -17,14 +18,18 @@ import type {
 } from "../persistence/app-commits.repository";
 import { VersionConflictError } from "../persistence/app-commits.repository";
 import { authenticatedRemoteUrl, redactRemoteUrl } from "./git-remote-url";
-import { mustRunGit } from "./sandbox-git";
+import { mustRunGit, SAFE_GIT_CONFIG_ARGS } from "./sandbox-git";
 
 // LIMIT: 1 MiB of patch bytes per commit. Upgrade: diff on demand through
 // `git diff` in the sandbox for larger commits.
 const PATCH_MAX_BYTES = 1_048_576;
-// Git credentials for a push live only for the command; 600 s covers a
-// slow push of a big pack.
-const PUSH_CREDENTIAL_TTL_SECONDS = 600;
+// A short life limits the use of a stolen push JWT (WANDIT-282). A push
+// fails when its JWT expires during the upload: a live probe saw a 7 s JWT
+// fail a 10 s push. So the TTL covers one whole push, and each push mints a
+// new JWT.
+// LIMIT: one push uploads in 120 s, about 240 MB at the 2 MB/s of the probe
+// link. Upgrade: scale the TTL with the pack size.
+const PUSH_CREDENTIAL_TTL_SECONDS = 120;
 
 /** What `commitTurn` persists; `VersionsService` answers it on restore. */
 export type CommitTurnResult = {
@@ -38,8 +43,9 @@ export type CommitTurnResult = {
 };
 
 /**
- * One `app_commits` row, the CAS head write, and the head read the
- * crash-recovery branch needs, for the turn write order.
+ * One `app_commits` row, the CAS head write, and the `main` head read.
+ * The head read decides the ensure before the first push and the crash
+ * recovery.
  */
 export type CommitTurnStore = Pick<
 	AppCommitsRepository,
@@ -70,7 +76,7 @@ export type CommitTurnInput = {
 	chatId: string | null;
 	/** The `builder_turns` row; null on a restore, which is not a turn. */
 	turnId: string | null;
-	/** Assistant message id; `restore-<uuid>` on a restore. */
+	/** Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore. */
 	messageId: string;
 	source: "agent" | "wip" | "restore";
 	summary: string;
@@ -139,12 +145,15 @@ export async function commitTurn(
 		if (input.restoredFromSha !== undefined) {
 			trailers.push("-m", `Wandit-Restore-From: ${input.restoredFromSha}`);
 		}
+		// `--no-verify` skips the pre-commit and commit-msg hooks a second way,
+		// next to the `core.hooksPath` flag of `mustRunGit` (WANDIT-282).
 		await exec([
 			"-c",
 			"user.name=wandit",
 			"-c",
 			"user.email=builder@wandit.dev",
 			"commit",
+			"--no-verify",
 			"--allow-empty",
 			...trailers,
 		]);
@@ -179,22 +188,22 @@ export async function commitTurn(
 		JSON.stringify(numstat),
 	);
 
-	const credential = await deps.gitStore.issueCredential(
-		input.projectId,
-		PUSH_CREDENTIAL_TTL_SECONDS,
-	);
-	const pushUrl = authenticatedRemoteUrl(credential.remoteUrl, credential);
-	const pushed = await pushOnce(sandbox, pushUrl);
-	if (pushed.exitCode !== 0) {
-		// A missing remote fails the first push of a project; creating it and
-		// retrying once is cheaper than a `remoteReady` bookkeeping column.
+	// A project with no branch head never pushed, so its repository does not
+	// exist yet. Create it first, so the one push retry stays for a real failure.
+	if ((await deps.appCommits.findBranch(input.projectId, "main")) === null) {
 		await deps.gitStore.ensureRepository(input.projectId);
-		const retried = await pushOnce(sandbox, pushUrl);
-		if (retried.exitCode !== 0) {
+	}
+	const pushed = await pushOnce(sandbox, deps.gitStore, input.projectId);
+	if (pushed.result.exitCode !== 0) {
+		// A transient error or a lost repository fails a push. `ensureRepository`
+		// is idempotent, so one ensure and one retry cover both.
+		await deps.gitStore.ensureRepository(input.projectId);
+		const retried = await pushOnce(sandbox, deps.gitStore, input.projectId);
+		if (retried.result.exitCode !== 0) {
 			// Git echoes the remote URL in stderr; the JWT it carries is masked.
-			const stderr = retried.stderr.replaceAll(credential.password, "***");
+			const stderr = retried.result.stderr.replaceAll(retried.password, "***");
 			throw new CommitTurnError(
-				`git push ${redactRemoteUrl(pushUrl)} failed (${retried.exitCode}): ${stderr}`,
+				`git push ${redactRemoteUrl(retried.pushUrl)} failed (${retried.result.exitCode}): ${stderr}`,
 			);
 		}
 	}
@@ -230,6 +239,41 @@ export async function commitTurn(
 	}
 
 	return { sha, parentSha, numstat, patchKey, commit };
+}
+
+/**
+ * The builder-turn commit: `commitTurn`, or null when the turn changed no
+ * file. A text-only turn then costs one sandbox command and one row read
+ * instead of about 7 s of git, R2, and push work. A failed status read
+ * commits as before: an unknown tree must not lose work. The restore also
+ * calls it to save uncommitted files before its reset.
+ */
+export async function commitTurnUnlessClean(
+	sandbox: SandboxHandle,
+	deps: CommitTurnDeps,
+	input: CommitTurnInput,
+): Promise<CommitTurnResult | null> {
+	// One command: `git status` lists every changed or new file, and the
+	// marker line carries HEAD. An empty list plus the stored head means
+	// the code.storage history already holds this tree.
+	const state = await sandbox.exec(
+		"sh",
+		["-c", 'git status --porcelain && echo "HEAD=$(git rev-parse HEAD)"'],
+		{ cwd: sandbox.workspaceDir },
+	);
+	const lines = state.stdout.split("\n").filter((line) => line.trim() !== "");
+	const headLine = lines.at(-1);
+	const isClean =
+		state.exitCode === 0 &&
+		lines.length === 1 &&
+		headLine?.startsWith("HEAD=") === true;
+	if (isClean && headLine !== undefined) {
+		const branch = await deps.appCommits.findBranch(input.projectId, "main");
+		if (branch?.headSha === headLine.slice("HEAD=".length).trim()) {
+			return null;
+		}
+	}
+	return commitTurn(sandbox, deps, input);
 }
 
 // A crash between the push and the CAS leaves `app_branches.headSha`
@@ -270,13 +314,42 @@ async function recoverPushedHead(
 	}
 }
 
-// The push carries the JWT inside the URL. It must not throw on the
-// first failure; a missing repository earns one retry after `ensure`.
+// One push gets a new "push-main" credential. The retry runs after
+// `ensureRepository`, which can take minutes, so it never reuses the first
+// JWT. It must not throw on the first failure; a missing repository earns
+// one retry after `ensure`. The push carries the JWT inside the URL.
+// LIMIT: sandbox code can still get the JWT while the push runs. A same-user
+// process reads it from /proc/<pid>/cmdline (the Vercel sandbox has no
+// hidepid). These git config keys in `.git/config` or `~/.gitconfig` still
+// apply: `url.<base>.insteadOf`, `include.path`, and `http.*`. A live probe
+// sent the JWT to the host that `insteadOf` set. An `http.proxy` with
+// `http.sslVerify=false` also exposes the JWT. The refs claim and the TTL
+// stop a force push, a push to another ref, and a late use. They do not stop
+// a delete of `main` (see the LIMIT at `PUSH_MAIN_REFS`).
+// Upgrade: push from the Trigger worker with a git bundle made in the
+// sandbox, or through the code.storage commit API.
 async function pushOnce(
 	sandbox: SandboxHandle,
-	pushUrl: string,
-): Promise<SandboxExecResult> {
-	return sandbox.exec("git", ["push", pushUrl, "HEAD:main"], {
-		cwd: sandbox.workspaceDir,
-	});
+	gitStore: GitStore,
+	projectId: string,
+): Promise<{
+	result: SandboxExecResult;
+	/** The JWT of this push, to mask in an error message. */
+	password: string;
+	/** The authenticated URL; print it only through `redactRemoteUrl`. */
+	pushUrl: string;
+}> {
+	const credential = await gitStore.issueCredential(
+		projectId,
+		PUSH_CREDENTIAL_TTL_SECONDS,
+		"push-main",
+	);
+	const pushUrl = authenticatedRemoteUrl(credential.remoteUrl, credential);
+	// `--no-verify` skips the pre-push hook a second way, next to the flags.
+	const result = await sandbox.exec(
+		"git",
+		[...SAFE_GIT_CONFIG_ARGS, "push", "--no-verify", pushUrl, "HEAD:main"],
+		{ cwd: sandbox.workspaceDir },
+	);
+	return { result, password: credential.password, pushUrl };
 }

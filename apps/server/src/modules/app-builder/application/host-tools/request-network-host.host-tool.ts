@@ -1,9 +1,9 @@
 /**
  * The `request_network_host` host tool of the builder turn (WANDIT-180).
  * `BuilderHostToolRegistry` builds it once per turn with `user-approval`, so
- * the user approves before it runs. On approval it stores the host on the
- * project, applies it to the live sandbox, and writes an audit row. It runs
- * in the task process, never in the sandbox.
+ * the user approves before it runs. On approval one transaction stores the
+ * host on the project, writes an audit row, and applies the host to the
+ * live sandbox last. It runs in the task process, never in the sandbox.
  */
 import {
 	type RequestNetworkHostToolInput,
@@ -15,12 +15,21 @@ import { type Tool, tool } from "ai";
 import type { HostToolContext } from "../../domain/ports/host-tools";
 import type { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
 import type { ProjectNetworkHostsRepository } from "../../infrastructure/persistence/project-network-hosts.repository";
-import { isValidNetworkHost } from "../../infrastructure/sandbox/network-policy";
+import {
+	isSupabaseHost,
+	isValidNetworkHost,
+} from "../../infrastructure/sandbox/network-policy";
 
 /** What the registry hands the network-host tool factory. */
 export type RequestNetworkHostHostToolDeps = {
-	/** Appends the approved host to `projects.networkAllowedHosts`. */
-	networkHosts: Pick<ProjectNetworkHostsRepository, "appendHost">;
+	/**
+	 * Appends the approved host to `projects.networkAllowedHosts`. Its
+	 * `transaction` holds the host write and the audit row as one unit.
+	 */
+	networkHosts: Pick<
+		ProjectNetworkHostsRepository,
+		"appendHost" | "transaction"
+	>;
 	/** Writes the `network.host_allowed` audit row. */
 	audit: Pick<AuditEventsRepository, "insert">;
 	/** Warn sink for a failed policy update; `logger` in the task. */
@@ -60,24 +69,46 @@ export function createRequestNetworkHostTool(
 					status: "denied",
 				};
 			}
+			// Security (WANDIT-283): the sandbox reaches only its own Supabase
+			// host. Another `supabase.co` project or `supabase.com` can receive
+			// stolen data.
+			if (isSupabaseHost(normalized)) {
+				return {
+					reason:
+						"Supabase hosts are not allowed; the sandbox reaches the project's own backend while it is active",
+					status: "denied",
+				};
+			}
 			try {
-				// Persist first, so the grant survives a fresh sandbox, then
-				// apply it to the live sandbox without a restart.
-				await deps.networkHosts.appendHost(context.projectId, normalized);
-				await context.sandbox.allowHost(normalized);
-				await deps.audit.insert({
-					action: "network.host_allowed",
-					actorUserId: context.actorUserId,
-					metadata: { host: normalized, reason },
-					organizationId: context.organizationId,
-					projectId: context.projectId,
-					targetId: context.projectId,
-					targetType: "project",
+				// One transaction: a failed step leaves no stored host and no
+				// audit row. The live allow has no undo, so it runs last.
+				await deps.networkHosts.transaction(async (tx) => {
+					await deps.networkHosts.appendHost(context.projectId, normalized, tx);
+					await deps.audit.insert(
+						{
+							action: "network.host_allowed",
+							actorUserId: context.actorUserId,
+							metadata: { host: normalized, reason },
+							organizationId: context.organizationId,
+							projectId: context.projectId,
+							targetId: context.projectId,
+							targetType: "project",
+						},
+						tx,
+					);
+					// LIMIT: until this vendor call ends, the transaction locks the
+					// projects row. It also holds one pool connection. A Trigger task
+					// has only one, so its other writes wait. Upgrade: commit first,
+					// apply live after, and undo both rows when the live call fails.
+					// LIMIT: a failed commit after this call leaves the host live
+					// until the sandbox stops, with no stored host and no audit
+					// row. Upgrade: a remove call on the harness session policy.
+					await context.sandbox.allowHost(normalized);
 				});
 				return { host: normalized, status: "allowed" };
 			} catch (error) {
-				// A failed live update leaves the persisted host for the next
-				// start; the tool tells the agent the host is not reachable yet.
+				// The transaction rolled back, so the next start does not allow
+				// the host either. The agent hears that it is not reachable.
 				deps.logger.warn("host-tool.request_network_host.failed", {
 					message: error instanceof Error ? error.message : String(error),
 					projectId: context.projectId,

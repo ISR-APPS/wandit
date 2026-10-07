@@ -32,9 +32,8 @@ import { cn } from "@wandit/ui/lib/utils";
 // small React component that renders an inline SVG.
 import { Check, Loader2 } from "lucide-react";
 
-// thumbGradient(seed) deterministically turns a number into a CSS gradient
-// string — same seed, same colors. Shared with the project cards on the
-// dashboard so version thumbnails feel related to their project.
+// thumbGradient(seed) turns a number into a CSS gradient string. The same
+// seed gives the same colors. Only this version thumbnail uses it now.
 import { thumbGradient } from "@/features/projects";
 // i18n hook: t("some.key") looks up the translated string for the current
 // language (en/fr/ar). Never hardcode user-facing text — Algeria market means

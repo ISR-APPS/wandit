@@ -1,44 +1,65 @@
 {
+	// Wrangler config of the preview proxy Worker. The Worker gates every preview origin of a generated app.
+	// preview-proxy-deploy.yml deploys the top-level block on a push to main and env staging on a push to staging.
+	// vitest.config.ts reads the top-level block for the test bindings.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "wandit-preview-proxy",
 	"main": "src/index.ts",
 	"account_id": "6b421048e434497bce142970530e4eb1",
 	"compatibility_date": "2025-10-11",
 	// One wildcard route catches every preview origin:
-	// r-<rid12>--p-<projectId>.wanditpreview.app (one origin per project run).
+	// r-<rid12>--p-<projectId>.wanditpreview.app (one origin per project run: the cookie exchange and the phone-link mint route),
+	// f-<frameId>--p-<projectId>.wanditpreview.app (the builder iframe of one run and one user),
+	// m-<phoneId>--p-<projectId>.wanditpreview.app (one Expo Go phone link).
 	"routes": [{ "pattern": "*.wanditpreview.app/*", "zone_name": "wanditpreview.app" }],
 	"vars": {
 		"PREVIEW_DOMAIN": "wanditpreview.app",
 		// The origins allowed to frame a preview (security.md 9.3 item 4).
-		"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev http://localhost:*"
+		// preview.wandit.dev is the staging web app, not a preview host.
+		"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev http://localhost:*"
 	},
 	// PREVIEW_TOKEN_SIGNING_KEY is a secret: `wrangler secret put
 	// PREVIEW_TOKEN_SIGNING_KEY`. It must equal the API env of the same name.
 	// Keys `preview:last-seen:{projectId}` feed the idle sweep heartbeat.
-	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
-	// 600 requests per token id (jti) per minute.
-	"ratelimits": [{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }],
+	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "28db1b4d50af412399277764c3b4fea1" }],
+	// PREVIEW_RATE: 600 requests per token id (jti) per minute.
+	// PREVIEW_FRAME_IP_RATE: frame host requests per client IP per minute, before the claims read.
+	// 30,000 is 50 users behind one venue NAT IP at the full jti budget.
+	"ratelimits": [
+		{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } },
+		{ "name": "PREVIEW_FRAME_IP_RATE", "namespace_id": "1002", "simple": { "limit": 30000, "period": 60 } }
+	],
 	"analytics_engine_datasets": [
 		{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
 	],
+	// One PreviewFrame object per builder frame host (f-<frameId>) holds the claims of its newest token.
+	"durable_objects": { "bindings": [{ "name": "PREVIEW_FRAME", "class_name": "PreviewFrame" }] },
+	// migrations IS inherited by env staging. Never edit a tag that a deploy applied; add a new one.
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PreviewFrame"] }],
 	"observability": { "enabled": true },
 	"env": {
-		// vars, kv_namespaces, ratelimits, analytics_engine_datasets, and routes
-		// are NOT inherited by an environment block; repeat each one here.
-		// No routes: the staging preview domain is not decided yet (WANDIT-155).
+		// vars, kv_namespaces, ratelimits, analytics_engine_datasets, and
+		// durable_objects are NOT inherited by an environment block; repeat each one here.
 		"staging": {
+			// routes IS inherited. The empty list keeps the staging Worker off the
+			// production route until WANDIT-155 decides a staging preview domain.
+			"routes": [],
+			// No workers.dev host: the proxy returns 404 for a host outside PREVIEW_DOMAIN.
+			"workers_dev": false,
 			"vars": {
 				"PREVIEW_DOMAIN": "wanditpreview.app",
-				// Staging also frames previews from Vercel preview deploys.
-				"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev https://*.vercel.app http://localhost:*"
+				// No https://*.vercel.app: any Vercel user can deploy there and frame a preview (WANDIT-281).
+				"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev http://localhost:*"
 			},
-			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "c47f46ef7fa7451388c0ff3c329daea0" }],
 			"ratelimits": [
-				{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }
+				{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } },
+				{ "name": "PREVIEW_FRAME_IP_RATE", "namespace_id": "1002", "simple": { "limit": 30000, "period": 60 } }
 			],
 			"analytics_engine_datasets": [
 				{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
-			]
+			],
+			"durable_objects": { "bindings": [{ "name": "PREVIEW_FRAME", "class_name": "PreviewFrame" }] }
 		}
 	}
 }

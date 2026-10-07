@@ -155,7 +155,25 @@ export class SandboxSessionsRepository {
 			);
 	}
 
-	/** Stamps activity on the live row; turn start/end and preview heartbeats call it. */
+	/**
+	 * Remembers the egress policy the provider last pushed to the vendor, as
+	 * a SHA-256 hex digest. The next turn on a running sandbox compares its
+	 * own digest and skips the vendor update when they match. Ignored when
+	 * the row already left a live state.
+	 */
+	async markNetworkPolicyHash(id: string, hash: string): Promise<void> {
+		await this.db
+			.update(sandboxSessions)
+			.set({ networkPolicyHash: hash })
+			.where(
+				and(
+					eq(sandboxSessions.id, id),
+					inArray(sandboxSessions.status, [...LIVE_STATUSES]),
+				),
+			);
+	}
+
+	/** Stamps activity on the live row; the turn and each preview-token mint call it. */
 	async touchActivity(projectId: string): Promise<void> {
 		await this.db
 			.update(sandboxSessions)
@@ -194,6 +212,7 @@ export type SandboxSessionsStore = Pick<
 	| "listIdleSince"
 	| "markDestroyed"
 	| "markError"
+	| "markNetworkPolicyHash"
 	| "markRunning"
 	| "markStopped"
 	| "touchActivity"

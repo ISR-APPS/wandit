@@ -1,6 +1,44 @@
+/**
+ * The prompt composer of the dashboard (variant "hero") and the workspace
+ * chat pane (variant "compact"). Uploads attachments, picks the mode and the
+ * output, then reports the prompt through `onSubmit`. For a V2 create, the
+ * mode menu picks the app type, web or mobile, through `platformChoice`,
+ * and the Plan chip of the app-builder feature sets `planChoice`.
+ * Calls the attachments upload service and the voice dictation hook.
+ */
+
+import type { Icon } from "@phosphor-icons/react";
+import { BrainIcon } from "@phosphor-icons/react/Brain";
+import { BrowserIcon } from "@phosphor-icons/react/Browser";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { CpuIcon } from "@phosphor-icons/react/Cpu";
+import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
+import { FileTextIcon } from "@phosphor-icons/react/FileText";
+import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
+import { FlaskIcon } from "@phosphor-icons/react/Flask";
+import { ImageIcon } from "@phosphor-icons/react/Image";
+import { LayoutIcon } from "@phosphor-icons/react/Layout";
+import { MagicWandIcon } from "@phosphor-icons/react/MagicWand";
+import { MegaphoneIcon } from "@phosphor-icons/react/Megaphone";
+import { MicrophoneIcon } from "@phosphor-icons/react/Microphone";
+import { PaletteIcon } from "@phosphor-icons/react/Palette";
+import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
+import { PlugsIcon } from "@phosphor-icons/react/Plugs";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { SealCheckIcon } from "@phosphor-icons/react/SealCheck";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
+import { StackIcon } from "@phosphor-icons/react/Stack";
+import { StethoscopeIcon } from "@phosphor-icons/react/Stethoscope";
+import { TargetIcon } from "@phosphor-icons/react/Target";
+import { TruckIcon } from "@phosphor-icons/react/Truck";
+import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import {
 	type ComposerMetadata,
 	projectPromptMaxLength,
+	type TargetPlatform,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -36,42 +74,27 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	ArrowUp,
-	BadgeCheck,
-	BrainCircuit,
-	Captions,
-	ChartLine,
 	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	FileText,
-	Gauge,
-	ImageIcon,
-	Layers,
-	LayoutTemplate,
 	Loader2,
-	type LucideIcon,
-	Megaphone,
 	Mic,
-	Palette,
 	Paperclip,
-	Plug,
 	Plus,
 	RefreshCw,
 	SlidersHorizontal,
-	Sparkles,
-	Stethoscope,
-	Target,
-	Truck,
-	Users,
-	WandSparkles,
 	X,
 } from "lucide-react";
 import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Spark } from "@/components/logo";
+import { PlanModeToggle } from "@/features/app-builder";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
+import { KeycapButton } from "@/features/landing";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
@@ -113,7 +136,7 @@ type OptionGroup = {
 // the `projects.promptBox.routeModes` dictionary namespace.
 type RouteModeDef = {
 	id: RouteMode;
-	icon: LucideIcon;
+	icon: Icon;
 };
 
 // Skill ids are the EXACT server slugs: the director loads the matching ads
@@ -135,7 +158,7 @@ type SkillGroupId = "ads";
 type SkillFileDef = {
 	id: SkillFileId;
 	fileName: string;
-	icon: LucideIcon;
+	icon: Icon;
 };
 
 type SkillFileGroup = {
@@ -161,7 +184,7 @@ type GenerationOutputId =
 type GenerationOutputDef = {
 	id: GenerationOutputId;
 	mode: ConcreteMode;
-	icon: LucideIcon;
+	icon: Icon;
 	options: readonly OptionGroup[];
 };
 
@@ -238,22 +261,58 @@ function isFileDrag(dataTransfer: DataTransfer): boolean {
 }
 
 const ROUTE_MODES: readonly RouteModeDef[] = [
-	{ id: "auto", icon: Sparkles },
-	{ id: "page", icon: FileText },
-	{ id: "marketing", icon: Megaphone },
+	{ id: "auto", icon: SparkleIcon },
+	{ id: "page", icon: FileTextIcon },
+	{ id: "marketing", icon: MegaphoneIcon },
 	{ id: "image", icon: ImageIcon },
 ];
+
+// Non-copy app type config of a V2 create: id + icon, the icons of the project
+// card. Label/description live in the `projects.promptBox.platforms` namespace.
+const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
+	{ id: "web", icon: BrowserIcon },
+	{ id: "mobile", icon: DeviceMobileIcon },
+];
+
+// The hero chips copy the landing pills. A chip at rest has a soft night tint.
+// An open chip is a solid night pill, or a spark pill in dark mode.
+// The open look keys on aria-expanded: a tooltip on the same button overwrites data-state.
+const HERO_CHIP_CLASS =
+	"group/trigger rounded-full border-transparent bg-night/[0.05] font-grotesk font-medium text-night/75 shadow-none transition-colors duration-200 hover:bg-night/[0.09] hover:text-night aria-expanded:bg-night aria-expanded:text-paper dark:border-transparent dark:bg-white/[0.06] dark:text-foreground/75 dark:aria-expanded:bg-spark dark:aria-expanded:text-night dark:hover:bg-white/[0.1] dark:hover:text-foreground";
+
+// The `sm` button pads a chip with an svg child by 10 px through `has-[>svg]`.
+// That beats a plain padding class, so the chip sets its padding with the same variant.
+const HERO_MEDALLION_CHIP_CLASS = cn(
+	HERO_CHIP_CLASS,
+	"h-9 gap-2 has-[>svg]:ps-1 has-[>svg]:pe-3",
+);
+const HERO_ICON_CHIP_CLASS = cn(
+	HERO_CHIP_CLASS,
+	"size-9 text-night dark:text-foreground",
+);
+
+// A white coin at the start of the hero mode chip. It turns spark while the menu is open.
+const HERO_MEDALLION_CLASS =
+	"grid size-[26px] shrink-0 place-items-center rounded-full bg-white text-ember shadow-[0_1px_0_rgb(11_16_51/0.1)] transition-colors duration-200 group-aria-expanded/trigger:bg-spark group-aria-expanded/trigger:text-night dark:bg-white/10 dark:text-spark dark:group-aria-expanded/trigger:bg-night dark:group-aria-expanded/trigger:text-spark";
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	{
 		id: "ads",
 		skills: [
-			{ id: "ads-fundamentals", fileName: "ads-fundamentals", icon: Layers },
-			{ id: "ads-creative", fileName: "ads-creative", icon: Palette },
-			{ id: "ads-audiences", fileName: "ads-audiences", icon: Users },
-			{ id: "ads-measurement", fileName: "ads-measurement", icon: ChartLine },
-			{ id: "ads-cod-maghreb", fileName: "ads-cod-maghreb", icon: Truck },
-			{ id: "ads-diagnostic", fileName: "ads-diagnostic", icon: Stethoscope },
+			{ id: "ads-fundamentals", fileName: "ads-fundamentals", icon: StackIcon },
+			{ id: "ads-creative", fileName: "ads-creative", icon: PaletteIcon },
+			{ id: "ads-audiences", fileName: "ads-audiences", icon: UsersThreeIcon },
+			{
+				id: "ads-measurement",
+				fileName: "ads-measurement",
+				icon: ChartLineIcon,
+			},
+			{ id: "ads-cod-maghreb", fileName: "ads-cod-maghreb", icon: TruckIcon },
+			{
+				id: "ads-diagnostic",
+				fileName: "ads-diagnostic",
+				icon: StethoscopeIcon,
+			},
 		],
 	},
 ];
@@ -266,7 +325,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "landing-page",
 			mode: "page",
-			icon: FileText,
+			icon: FileTextIcon,
 			options: [
 				{
 					id: "goal",
@@ -286,7 +345,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "site-vitrine",
 			mode: "page",
-			icon: LayoutTemplate,
+			icon: LayoutIcon,
 			options: [
 				{
 					id: "goal",
@@ -304,7 +363,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "ad-copy",
 			mode: "marketing",
-			icon: BadgeCheck,
+			icon: SealCheckIcon,
 			options: [
 				{
 					id: "platform",
@@ -340,7 +399,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "marketing-strategy",
 			mode: "marketing",
-			icon: Target,
+			icon: TargetIcon,
 			options: [
 				{
 					id: "strategy",
@@ -370,7 +429,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "video-script",
 			mode: "marketing",
-			icon: Captions,
+			icon: FilmScriptIcon,
 			options: [
 				{
 					id: "format",
@@ -400,7 +459,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "creative-brief",
 			mode: "marketing",
-			icon: FileText,
+			icon: FileTextIcon,
 			options: [
 				{
 					id: "channel",
@@ -416,7 +475,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "html-asset",
 			mode: "marketing",
-			icon: FileText,
+			icon: FileTextIcon,
 			options: [
 				{
 					id: "asset",
@@ -489,7 +548,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "ad-creative",
 			mode: "image",
-			icon: Megaphone,
+			icon: MegaphoneIcon,
 			options: [
 				{
 					id: "platform",
@@ -567,25 +626,55 @@ function restoreOutputOptions(
 	return restored;
 }
 
-function IconTile({
-	icon: Icon,
+/**
+ * The round icon at the start of a menu or settings row. The picked row gets
+ * the spark circle and the filled glyph of the active sidebar link.
+ */
+function RowMedallion({
+	icon: RowIcon,
 	active = false,
 }: {
-	icon: LucideIcon;
+	icon: Icon;
+	/** True on the row that holds the current pick. */
 	active?: boolean;
 }) {
 	return (
 		<span
 			aria-hidden
 			className={cn(
-				"flex size-7 shrink-0 items-center justify-center rounded-lg border transition-colors",
+				"grid size-8 shrink-0 place-items-center rounded-full transition-colors",
 				active
-					? "border-primary/30 bg-primary/10 text-primary"
-					: "border-border bg-muted/60 text-muted-foreground",
+					? "bg-spark text-night dark:bg-night dark:text-spark"
+					: "bg-popover-foreground/[0.05] text-popover-foreground/60",
 			)}
 		>
-			<Icon className="size-3.5" />
+			{/* text-current opts out of the menu rule that dims every icon without a text color. */}
+			<RowIcon
+				weight={active ? "fill" : "duotone"}
+				className="size-[18px] text-current"
+			/>
 		</span>
+	);
+}
+
+/**
+ * The check at the end of a picked row. Without `visible`, it follows the
+ * checked state that Radix sets on the radio row (the `group/row` parent).
+ */
+function RowCheck({ visible }: { visible?: boolean }) {
+	return (
+		<CheckIcon
+			aria-hidden
+			weight="bold"
+			className={cn(
+				"ms-auto size-4 shrink-0 text-primary transition-[opacity,scale] motion-reduce:transition-none",
+				visible === undefined
+					? "scale-90 opacity-0 group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100"
+					: visible
+						? "scale-100 opacity-100"
+						: "scale-90 opacity-0",
+			)}
+		/>
 	);
 }
 
@@ -601,10 +690,8 @@ function SkillFileRows({
 		<>
 			{SKILL_FILE_GROUPS.map((group, groupIndex) => (
 				<div key={group.id}>
-					{groupIndex > 0 ? (
-						<DropdownMenuSeparator className="my-1 bg-border/70" />
-					) : null}
-					<DropdownMenuLabel className="px-2 pt-2 pb-1 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+					{groupIndex > 0 ? <DropdownMenuSeparator /> : null}
+					<DropdownMenuLabel>
 						{pb.skillGroups[group.id].label}
 					</DropdownMenuLabel>
 					{group.skills.map((skill) => {
@@ -613,27 +700,22 @@ function SkillFileRows({
 						return (
 							<DropdownMenuItem
 								key={skill.id}
-								className="items-start gap-2.5 rounded-lg px-2 py-2"
+								className="items-start"
 								onSelect={() => onToggleSkill(skill)}
 							>
-								<IconTile icon={skill.icon} active={selected} />
+								<RowMedallion icon={skill.icon} active={selected} />
 								<span className="min-w-0">
-									<span className="flex items-center gap-2 font-medium text-sm leading-tight">
+									<span className="flex items-center gap-2 font-semibold leading-tight">
 										{skillCopy.label}
-										<span className="font-mono text-[10px] text-muted-foreground">
+										<span className="font-mono font-normal text-[10px] text-muted-foreground">
 											{skill.fileName}
 										</span>
 									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+									<span className="mt-0.5 block font-normal font-sans text-muted-foreground text-xs leading-snug">
 										{skillCopy.description}
 									</span>
 								</span>
-								<Check
-									className={cn(
-										"ms-auto size-4 shrink-0 text-primary transition-opacity",
-										selected ? "opacity-100" : "opacity-0",
-									)}
-								/>
+								<RowCheck visible={selected} />
 							</DropdownMenuItem>
 						);
 					})}
@@ -654,12 +736,12 @@ function AddContextMenu({
 }: {
 	selectedSkillIds: readonly SkillFileId[];
 	onToggleSkill: (skill: SkillFileDef) => void;
-	/** False on the signed-out hero — the row stays visible but inert with the
-	 *  signInFirst hint (attachments cannot survive the auth redirect). */
+	/** False keeps the row visible but inert, with the signInFirst hint. Uploads need a session. */
 	attachmentsEnabled: boolean;
 	onAttach: () => void;
 	connectorsEnabled: boolean;
-	onConnectApps: () => void;
+	/** Opens the connectors dialog. Undefined hides the connectors row. */
+	onConnectApps: (() => void) | undefined;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
@@ -674,15 +756,21 @@ function AddContextMenu({
 							variant="outline"
 							size="icon-sm"
 							aria-label={addMenuLabel}
-							className={cn(
-								"rounded-full border-border bg-transparent shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
-								// Compact = ink plus icon on a plain hairline circle (dc reference).
+							className={
 								isHero
-									? "size-9 text-muted-foreground"
-									: "size-[30px] text-foreground",
-							)}
+									? HERO_ICON_CHIP_CLASS
+									: cn(
+											"rounded-full border-border bg-transparent shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
+											// Compact = ink plus icon on a plain hairline circle (dc reference).
+											"size-[30px] text-foreground",
+										)
+							}
 						>
-							<Plus className={isHero ? "size-4" : "size-[15px]"} />
+							{isHero ? (
+								<PlusIcon weight="bold" className="size-4" />
+							) : (
+								<Plus className="size-[15px]" />
+							)}
 						</Button>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
@@ -692,22 +780,20 @@ function AddContextMenu({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-64 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-64"
 			>
 				<DropdownMenuSub>
-					<DropdownMenuSubTrigger className="rounded-xl px-2 py-2">
-						<WandSparkles className="size-4 text-primary" />
+					<DropdownMenuSubTrigger>
+						<MagicWandIcon aria-hidden weight="duotone" />
 						<span>{t("projects.promptBox.addSkillLabel")}</span>
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent
 						sideOffset={10}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)]"
 					>
-						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
-							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-								{t("projects.promptBox.skillLibraryLabel")}
-							</span>
-						</div>
+						<DropdownMenuLabel>
+							{t("projects.promptBox.skillLibraryLabel")}
+						</DropdownMenuLabel>
 						<SkillFileRows
 							selectedIds={selectedSkillIds}
 							onToggleSkill={onToggleSkill}
@@ -715,7 +801,6 @@ function AddContextMenu({
 					</DropdownMenuSubContent>
 				</DropdownMenuSub>
 				<DropdownMenuItem
-					className="rounded-xl px-2 py-2"
 					disabled={!attachmentsEnabled}
 					onSelect={(event) => {
 						if (!attachmentsEnabled) {
@@ -725,37 +810,38 @@ function AddContextMenu({
 						onAttach();
 					}}
 				>
-					<Paperclip className="size-4" />
+					<PaperclipIcon aria-hidden weight="duotone" />
 					<span className="flex min-w-0 flex-col">
 						<span>{t("projects.promptBox.attachLabel")}</span>
-						<span className="truncate text-muted-foreground text-xs">
+						<span className="truncate font-normal font-sans text-muted-foreground text-xs">
 							{attachmentsEnabled
 								? t("projects.promptBox.attachHint")
 								: t("projects.promptBox.attachments.signInFirst")}
 						</span>
 					</span>
 				</DropdownMenuItem>
-				<DropdownMenuItem
-					className="rounded-xl px-2 py-2"
-					disabled={!connectorsEnabled}
-					onSelect={(event) => {
-						if (!connectorsEnabled) {
-							event.preventDefault();
-							return;
-						}
-						onConnectApps();
-					}}
-				>
-					<Plug className="size-4" />
-					<span className="flex min-w-0 flex-col">
-						<span>{t("projects.promptBox.connectApps")}</span>
-						{!connectorsEnabled ? (
-							<span className="truncate text-muted-foreground text-xs">
-								{t("projects.connectors.signInFirst")}
-							</span>
-						) : null}
-					</span>
-				</DropdownMenuItem>
+				{onConnectApps ? (
+					<DropdownMenuItem
+						disabled={!connectorsEnabled}
+						onSelect={(event) => {
+							if (!connectorsEnabled) {
+								event.preventDefault();
+								return;
+							}
+							onConnectApps();
+						}}
+					>
+						<PlugsIcon aria-hidden weight="duotone" />
+						<span className="flex min-w-0 flex-col">
+							<span>{t("projects.promptBox.connectApps")}</span>
+							{!connectorsEnabled ? (
+								<span className="truncate font-normal font-sans text-muted-foreground text-xs">
+									{t("projects.connectors.signInFirst")}
+								</span>
+							) : null}
+						</span>
+					</DropdownMenuItem>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -792,7 +878,7 @@ function AttachedSkillChips({
 						key={skill.id}
 						className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 text-foreground text-xs"
 					>
-						<SkillIcon className="size-3.5 shrink-0 text-primary" />
+						<SkillIcon aria-hidden className="size-3.5 shrink-0 text-primary" />
 						<span className="truncate">{label}</span>
 						<span className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
 							{skill.fileName}
@@ -830,13 +916,11 @@ function AttachedSkillChips({
 						align="start"
 						sideOffset={8}
 						collisionPadding={12}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)]"
 					>
-						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
-							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-								{t("projects.promptBox.skillLibraryLabel")}
-							</span>
-						</div>
+						<DropdownMenuLabel>
+							{t("projects.promptBox.skillLibraryLabel")}
+						</DropdownMenuLabel>
 						<SkillFileRows
 							selectedIds={selectedSkillIds}
 							onToggleSkill={onToggleSkill}
@@ -947,20 +1031,30 @@ function AttachmentChips({
 	);
 }
 
-function ModePicker({
+/** One row of the mode menu, with its copy already read from the dictionary. */
+type ModeOption<Id extends string> = {
+	id: Id;
+	icon: Icon;
+	label: string;
+	description: string;
+};
+
+/** The mode chip and its menu. It lists the V1 route modes, or the V2 app types. */
+function ModePicker<Id extends string>({
+	options,
 	value,
 	onValueChange,
 	isHero,
 }: {
-	value: RouteMode;
-	onValueChange: (mode: RouteMode) => void;
+	/** The menu rows, in display order. `value` is the id of one row. */
+	options: readonly ModeOption<Id>[];
+	value: Id;
+	onValueChange: (id: Id) => void;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
-	const pb = useDictionary().projects.promptBox;
-	const selectedMode = getMode(value);
-	const SelectedIcon = selectedMode.icon;
-	const selectedModeCopy = pb.routeModes[value];
+	const selected = options.find((option) => option.id === value) ?? options[0];
+	const SelectedIcon = selected.icon;
 
 	return (
 		<DropdownMenu>
@@ -969,137 +1063,75 @@ function ModePicker({
 					type="button"
 					variant="outline"
 					size="sm"
-					aria-label={`${t("projects.promptBox.modeLabel")}: ${selectedModeCopy.label}`}
-					className={cn(
-						// The mode chip is a small jewel: an ember medallion nested at the
-						// start of a parchment pill. Hover tints the hairline and lifts it
-						// a touch; open blooms a soft ember halo around it.
-						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
-						"hover:border-primary/35 hover:text-foreground hover:shadow-[0_2px_10px_-4px_rgb(0_0_0_/_0.2)]",
-						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10",
+					aria-label={`${t("projects.promptBox.modeLabel")}: ${selected.label}`}
+					className={
 						isHero
-							? "h-9 gap-2 ps-[5px] pe-3 text-muted-foreground"
-							: "h-[30px] gap-1.5 ps-1 pe-2.5 text-[13px] text-foreground",
-					)}
+							? HERO_MEDALLION_CHIP_CLASS
+							: cn(
+									// The mode chip is a small jewel: an ember medallion nested at the
+									// start of a parchment pill. Hover tints the hairline and lifts it
+									// a touch; open blooms a soft ember halo around it.
+									"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+									"hover:border-primary/35 hover:text-foreground hover:shadow-[0_2px_10px_-4px_rgb(0_0_0_/_0.2)]",
+									"data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10",
+									"h-[30px] gap-1.5 ps-1 pe-2.5 text-[13px] text-foreground",
+								)
+					}
 				>
 					<span
 						aria-hidden
-						className={cn(
-							"grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary transition-colors duration-200 group-hover/trigger:bg-primary/15 group-data-[state=open]/trigger:bg-primary/15",
-							isHero ? "size-[26px]" : "size-[22px]",
-						)}
+						className={
+							isHero
+								? HERO_MEDALLION_CLASS
+								: cn(
+										"grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary transition-colors duration-200 group-hover/trigger:bg-primary/15 group-data-[state=open]/trigger:bg-primary/15",
+										"size-[22px]",
+									)
+						}
 					>
-						<SelectedIcon className={isHero ? "size-3.5" : "size-3"} />
+						<SelectedIcon
+							weight={isHero ? "duotone" : "bold"}
+							className={isHero ? "size-4" : "size-3"}
+						/>
 					</span>
-					<span className="max-w-24 truncate">{selectedModeCopy.label}</span>
-					<ChevronDown
-						className={cn(
-							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
-							isHero ? "size-3.5" : "size-[11px] opacity-50",
-						)}
-					/>
+					<span className="max-w-24 truncate">{selected.label}</span>
+					{/* The caret turns over while the menu is open. */}
+					{isHero ? (
+						<CaretDownIcon
+							weight="bold"
+							className="size-3.5 transition-transform duration-200 group-aria-expanded/trigger:rotate-180 motion-reduce:transition-none"
+						/>
+					) : (
+						<ChevronDown className="size-[11px] opacity-50 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
+					)}
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-72"
 			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{t("projects.promptBox.modeLabel")}
-				</DropdownMenuLabel>
 				<DropdownMenuRadioGroup
 					value={value}
-					onValueChange={(next) => onValueChange(next as RouteMode)}
+					onValueChange={(next) => {
+						// Radix reports a plain string. The lookup gives the typed id back.
+						const picked = options.find((option) => option.id === next);
+						if (picked) onValueChange(picked.id);
+					}}
 				>
-					{ROUTE_MODES.map((mode) => {
-						const modeCopy = pb.routeModes[mode.id];
-						return (
-							<DropdownMenuRadioItemBare
-								key={mode.id}
-								value={mode.id}
-								className="data-[state=checked]:bg-primary/10"
-							>
-								<IconTile icon={mode.icon} active={value === mode.id} />
-								<span className="min-w-0">
-									<span className="block font-medium text-sm leading-tight">
-										{modeCopy.label}
-									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{modeCopy.description}
-									</span>
+					{options.map((option) => (
+						<DropdownMenuRadioItemBare key={option.id} value={option.id}>
+							<RowMedallion icon={option.icon} active={value === option.id} />
+							<span className="min-w-0">
+								<span className="block font-semibold leading-tight">
+									{option.label}
 								</span>
-								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-							</DropdownMenuRadioItemBare>
-						);
-					})}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
-}
-
-// Dev-only chip next to the mode picker: overrides the page-builder model per
-// message (composer options.builderModel). Hidden outside local dev builds.
-function BuilderModelPicker({
-	value,
-	onValueChange,
-	isHero,
-}: {
-	value: string;
-	onValueChange: (id: string) => void;
-	isHero: boolean;
-}) {
-	const selected = getBuilderModelOption(value);
-
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					aria-label={`Builder model: ${selected.label}`}
-					className={cn(
-						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
-						"hover:border-primary/35 hover:text-foreground",
-						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground",
-						isHero
-							? "h-9 gap-1.5 px-3 text-muted-foreground"
-							: "h-[30px] gap-1.5 px-2.5 text-[13px] text-foreground",
-					)}
-				>
-					<Gauge className={isHero ? "size-3.5" : "size-3"} />
-					<span className="max-w-32 truncate">{selected.label}</span>
-					<ChevronDown
-						className={cn(
-							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
-							isHero ? "size-3.5" : "size-[11px] opacity-50",
-						)}
-					/>
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="start"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-60 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
-			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					Builder model (dev)
-				</DropdownMenuLabel>
-				<DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
-					{BUILDER_MODELS.map((model) => (
-						<DropdownMenuRadioItemBare
-							key={model.id}
-							value={model.id}
-							className="data-[state=checked]:bg-primary/10"
-						>
-							<span className="min-w-0 flex-1 truncate text-sm">
-								{model.label}
+								<span className="mt-0.5 block font-normal font-sans text-muted-foreground text-xs leading-snug">
+									{option.description}
+								</span>
 							</span>
-							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+							<RowCheck />
 						</DropdownMenuRadioItemBare>
 					))}
 				</DropdownMenuRadioGroup>
@@ -1108,70 +1140,118 @@ function BuilderModelPicker({
 	);
 }
 
-// Dev-only chip next to the builder-model picker: overrides the page-builder
-// reasoning effort per message (composer options.builderReasoning). "Auto"
-// sends nothing — the provider decides. Hidden outside local dev builds.
-function BuilderReasoningPicker({
-	value,
-	onValueChange,
+// Dev-only chip next to the mode picker. It overrides the page-builder model
+// and its reasoning effort per message (composer options.builderModel and
+// options.builderReasoning). One icon chip holds both pickers, so the dev
+// controls take one slot of the toolbar. Hidden outside local dev builds.
+function BuilderSettingsPicker({
+	model,
+	onModelChange,
+	reasoning,
+	onReasoningChange,
 	isHero,
 }: {
-	value: string;
-	onValueChange: (id: string) => void;
+	/** Id of a BUILDER_MODELS row. "default" lets the server pick. */
+	model: string;
+	onModelChange: (id: string) => void;
+	/** Id of a BUILDER_REASONING_LEVELS row. "auto" sends nothing, so the provider decides. */
+	reasoning: string;
+	onReasoningChange: (id: string) => void;
 	isHero: boolean;
 }) {
-	const selected = getBuilderReasoningOption(value);
+	const selectedModel = getBuilderModelOption(model);
+	const selectedReasoning = getBuilderReasoningOption(reasoning);
+	// The chip has no text, so a dot tells the developer that a pick is not the default.
+	const isOverridden =
+		model !== DEFAULT_BUILDER_MODEL.id ||
+		reasoning !== DEFAULT_BUILDER_REASONING.id;
+	const chipLabel = `Builder (dev): model ${selectedModel.label}, reasoning ${selectedReasoning.label}`;
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					aria-label={`Builder reasoning: ${selected.label}`}
-					className={cn(
-						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
-						"hover:border-primary/35 hover:text-foreground",
-						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground",
-						isHero
-							? "h-9 gap-1.5 px-3 text-muted-foreground"
-							: "h-[30px] gap-1.5 px-2.5 text-[13px] text-foreground",
-					)}
-				>
-					<BrainCircuit className={isHero ? "size-3.5" : "size-3"} />
-					<span className="max-w-32 truncate">{selected.label}</span>
-					<ChevronDown
-						className={cn(
-							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
-							isHero ? "size-3.5" : "size-[11px] opacity-50",
-						)}
-					/>
-				</Button>
-			</DropdownMenuTrigger>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<DropdownMenuTrigger asChild>
+						<Button
+							type="button"
+							variant="outline"
+							size="icon-sm"
+							aria-label={chipLabel}
+							className={cn(
+								"relative",
+								isHero
+									? HERO_ICON_CHIP_CLASS
+									: // aria-expanded, not data-state: the tooltip on this button overwrites data-state.
+										"size-[30px] rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground aria-expanded:border-primary/30 aria-expanded:bg-primary/10 aria-expanded:text-foreground",
+							)}
+						>
+							<FlaskIcon
+								aria-hidden
+								weight="duotone"
+								className={isHero ? "size-[18px]" : "size-4"}
+							/>
+							{isOverridden ? (
+								<span
+									aria-hidden
+									className="absolute end-0.5 top-0.5 size-2 rounded-full bg-ember ring-2 ring-paper dark:ring-card"
+								/>
+							) : null}
+						</Button>
+					</DropdownMenuTrigger>
+				</TooltipTrigger>
+				<TooltipContent>{chipLabel}</TooltipContent>
+			</Tooltip>
 			<DropdownMenuContent
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-52 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-64"
 			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					Builder reasoning (dev)
-				</DropdownMenuLabel>
-				<DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
-					{BUILDER_REASONING_LEVELS.map((level) => (
-						<DropdownMenuRadioItemBare
-							key={level.id}
-							value={level.id}
-							className="data-[state=checked]:bg-primary/10"
+				<DropdownMenuLabel>Builder (dev)</DropdownMenuLabel>
+				{/* Each setting opens its own list, so the menu stays two rows tall. */}
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger>
+						<CpuIcon aria-hidden weight="duotone" />
+						<span className="flex-1">Model</span>
+						<span className="max-w-28 truncate font-normal font-sans text-muted-foreground text-xs">
+							{selectedModel.label}
+						</span>
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent sideOffset={10} className="w-56">
+						<DropdownMenuRadioGroup value={model} onValueChange={onModelChange}>
+							{BUILDER_MODELS.map((option) => (
+								<DropdownMenuRadioItemBare key={option.id} value={option.id}>
+									<span className="min-w-0 flex-1 truncate">
+										{option.label}
+									</span>
+									<RowCheck />
+								</DropdownMenuRadioItemBare>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger>
+						<BrainIcon aria-hidden weight="duotone" />
+						<span className="flex-1">Reasoning</span>
+						<span className="font-normal font-sans text-muted-foreground text-xs">
+							{selectedReasoning.label}
+						</span>
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent sideOffset={10} className="w-44">
+						<DropdownMenuRadioGroup
+							value={reasoning}
+							onValueChange={onReasoningChange}
 						>
-							<span className="min-w-0 flex-1 truncate text-sm">
-								{level.label}
-							</span>
-							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-						</DropdownMenuRadioItemBare>
-					))}
-				</DropdownMenuRadioGroup>
+							{BUILDER_REASONING_LEVELS.map((level) => (
+								<DropdownMenuRadioItemBare key={level.id} value={level.id}>
+									<span className="min-w-0 flex-1 truncate">{level.label}</span>
+									<RowCheck />
+								</DropdownMenuRadioItemBare>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -1265,11 +1345,11 @@ function OutputSettings({
 
 	const typePanel = hasTypeStep ? (
 		<>
-			<div className="border-border border-b px-4 py-3">
-				<div className="flex items-center gap-2">
-					<IconTile icon={getMode(output.mode).icon} active />
+			<div className="border-popover-foreground/[0.07] border-b px-4 py-3">
+				<div className="flex items-center gap-2.5">
+					<RowMedallion icon={getMode(output.mode).icon} />
 					<div className="min-w-0">
-						<p className="font-medium text-sm leading-tight">
+						<p className="font-grotesk font-semibold text-sm leading-tight">
 							{t("projects.promptBox.outputsHeading", {
 								mode: modeCopy.label,
 							})}
@@ -1291,25 +1371,22 @@ function OutputSettings({
 							aria-pressed={selected}
 							onClick={() => onSelectOutput(item)}
 							className={cn(
-								"flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
-								selected ? "bg-primary/10" : "hover:bg-accent/70",
+								"flex w-full items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-start transition-colors",
+								selected
+									? "bg-spark/[0.14]"
+									: "hover:bg-popover-foreground/[0.05]",
 							)}
 						>
-							<IconTile icon={item.icon} active={selected} />
+							<RowMedallion icon={item.icon} active={selected} />
 							<span className="min-w-0 flex-1">
-								<span className="block font-medium text-sm leading-tight">
+								<span className="block font-grotesk font-semibold text-sm leading-tight">
 									{itemCopy.label}
 								</span>
 								<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
 									{itemCopy.description}
 								</span>
 							</span>
-							<Check
-								className={cn(
-									"ms-auto size-4 shrink-0 text-primary transition-[opacity,transform]",
-									selected ? "scale-100 opacity-100" : "scale-90 opacity-0",
-								)}
-							/>
+							<RowCheck visible={selected} />
 						</button>
 					);
 				})}
@@ -1319,11 +1396,11 @@ function OutputSettings({
 
 	const optionsPanel = (
 		<>
-			<div className="border-border border-b px-4 py-3">
-				<div className="flex items-center gap-2">
-					<IconTile icon={OutputIcon} active />
+			<div className="border-popover-foreground/[0.07] border-b px-4 py-3">
+				<div className="flex items-center gap-2.5">
+					<RowMedallion icon={OutputIcon} />
 					<div className="min-w-0">
-						<p className="font-medium text-sm leading-tight">
+						<p className="font-grotesk font-semibold text-sm leading-tight">
 							{outputCopy.label}
 						</p>
 						<p className="mt-0.5 text-muted-foreground text-xs">
@@ -1340,7 +1417,7 @@ function OutputSettings({
 					const groupCopy = optionsCopy[group.id];
 					return (
 						<div key={group.id}>
-							<p className="mb-2 text-muted-foreground text-xs">
+							<p className="mb-2 font-grotesk font-semibold text-popover-foreground/60 text-xs">
 								{groupCopy.label}
 							</p>
 							<div
@@ -1360,11 +1437,12 @@ function OutputSettings({
 											key={choice.id}
 											type="button"
 											onClick={() => onValueChange(group.id, choice.id)}
+											// A picked choice is a night pill, like the active language in the sidebar.
 											className={cn(
-												"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+												"min-h-9 rounded-xl px-3 py-2 text-center font-grotesk font-medium text-xs transition-[translate,color,background-color] duration-200 motion-safe:active:translate-y-px",
 												selected
-													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-													: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+													? "bg-night text-paper dark:bg-spark dark:text-night"
+													: "bg-popover-foreground/[0.05] text-popover-foreground/70 hover:bg-popover-foreground/[0.09] hover:text-popover-foreground",
 												group.layout === "grid" && "min-h-14",
 											)}
 										>
@@ -1393,10 +1471,12 @@ function OutputSettings({
 							variant="outline"
 							size="icon-sm"
 							aria-label={`${settingsLabel}: ${outputCopy.label}`}
-							className={cn(
-								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
-								isHero ? "size-9" : "size-[30px]",
-							)}
+							className={
+								isHero
+									? HERO_ICON_CHIP_CLASS
+									: // aria-expanded, not data-state: the tooltip on this button overwrites data-state.
+										"size-[30px] rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground aria-expanded:border-primary/30 aria-expanded:bg-primary/10 aria-expanded:text-foreground"
+							}
 						>
 							<SlidersHorizontal className="size-4" />
 						</Button>
@@ -1408,7 +1488,7 @@ function OutputSettings({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-[22rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
+				className="w-[22rem] max-w-[calc(100vw-1.5rem)] overflow-hidden p-0"
 			>
 				{hasTypeStep ? (
 					<>
@@ -1444,14 +1524,16 @@ function OutputSettings({
 								</div>
 							</motion.div>
 						</motion.div>
-						<div className="flex items-center gap-2 border-border border-t px-3 py-2.5">
+						<div className="flex items-center gap-2 border-popover-foreground/[0.07] border-t px-3 py-2.5">
 							<div aria-hidden className="flex items-center gap-1">
 								{SETTINGS_STEPS.map((id) => (
 									<span
 										key={id}
 										className={cn(
 											"h-1.5 rounded-full transition-all duration-300",
-											id === step ? "w-4 bg-primary" : "w-1.5 bg-border",
+											id === step
+												? "w-4 bg-primary"
+												: "w-1.5 bg-popover-foreground/15",
 										)}
 									/>
 								))}
@@ -1502,7 +1584,7 @@ function OutputSettings({
 				) : (
 					<>
 						{optionsPanel}
-						<div className="flex items-center justify-end border-border border-t px-3 py-2.5">
+						<div className="flex items-center justify-end border-popover-foreground/[0.07] border-t px-3 py-2.5">
 							<Button
 								type="button"
 								size="sm"
@@ -1553,6 +1635,19 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
+	/** Set only for a V2 create. The mode menu then lists web app and mobile
+	 * app instead of the V1 modes, and the "+" menu shows no connectors. */
+	platformChoice?: {
+		/** App type of the new project. The caller owns this state. */
+		value: TargetPlatform;
+		onChange: (platform: TargetPlatform) => void;
+	};
+	/** The Plan chip of a V2 create. It shows only with `platformChoice`. */
+	planChoice?: {
+		/** True: the first turn asks questions and shows a plan before it builds. The caller owns this state. */
+		value: boolean;
+		onChange: (isPlanMode: boolean) => void;
+	};
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
@@ -1589,6 +1684,8 @@ export function PromptBox({
 	variant = "hero",
 	placeholder,
 	showBanner = false,
+	platformChoice,
+	planChoice,
 	isSubmitting = false,
 	disabled = false,
 	initialValue = "",
@@ -2063,13 +2160,21 @@ export function PromptBox({
 			onDrop={handleFileDrop}
 		>
 			{/* Soft ember focus ring (DESIGN.md --wd-ring) — the composer itself is
-			    the one richly-shadowed surface, so focus stays quiet. */}
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.10)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
-			/>
+			    the one richly-shadowed surface, so focus stays quiet. The hero box
+			    has no ring: the dashboard lifts the whole key on focus instead. */}
+			{isHero ? null : (
+				<div
+					aria-hidden
+					className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.10)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
+				/>
+			)}
 			<InputGroup
-				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
+				className={
+					isHero
+						? // The paper face of the dashboard key. The ring-0 removes the input group focus ring.
+							"relative h-auto flex-col items-stretch rounded-3xl border-0 bg-paper shadow-none has-[[data-slot=input-group-control]:focus-visible]:ring-0 dark:bg-card"
+						: "relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
+				}
 				data-disabled={submissionPending || disabled}
 			>
 				{topSlot ? (
@@ -2113,13 +2218,15 @@ export function PromptBox({
 					maxLength={projectPromptMaxLength}
 					disabled={submissionPending || disabled}
 					className={cn(
-						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground disabled:opacity-60",
 						isHero
-							? "min-h-[78px] px-5 pb-1 text-base"
-							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
+							? // The base textarea drops to text-sm from md up, so the hero size repeats at md.
+								"min-h-[84px] w-full overflow-y-auto px-5 py-0 pb-1 text-[1.0625rem] text-night leading-relaxed caret-ember placeholder:text-night/40 disabled:opacity-60 md:text-[1.0625rem] dark:text-foreground dark:placeholder:text-foreground/40"
+							: "min-h-[38px] w-full overflow-y-auto px-4 py-0 pb-0 text-[15px] text-foreground leading-[1.5] placeholder:text-muted-foreground disabled:opacity-60",
 						attachedSkills.length > 0 || attachments.length > 0
 							? "pt-2"
-							: "pt-4",
+							: isHero
+								? "pt-5"
+								: "pt-4",
 					)}
 				/>
 				<InputGroupAddon
@@ -2136,36 +2243,62 @@ export function PromptBox({
 							attachmentsEnabled={attachmentsEnabled}
 							onAttach={() => fileInputRef.current?.click()}
 							connectorsEnabled={Boolean(session)}
-							onConnectApps={() => setConnectorsOpen(true)}
+							// Product rule: a V2 create offers only files and skills, no connectors.
+							onConnectApps={
+								platformChoice ? undefined : () => setConnectorsOpen(true)
+							}
 							isHero={isHero}
 						/>
-						<ModePicker
-							value={routeMode}
-							onValueChange={handleModeChange}
-							isHero={isHero}
-						/>
-						{import.meta.env.DEV ? (
-							<>
-								<BuilderModelPicker
-									value={builderModel}
-									onValueChange={setBuilderModel}
-									isHero={isHero}
-								/>
-								<BuilderReasoningPicker
-									value={builderReasoning}
-									onValueChange={setBuilderReasoning}
-									isHero={isHero}
-								/>
-							</>
+						{platformChoice ? (
+							<ModePicker
+								options={PLATFORM_MODES.map((platform) => ({
+									...platform,
+									...pb.platforms[platform.id],
+								}))}
+								value={platformChoice.value}
+								onValueChange={platformChoice.onChange}
+								isHero={isHero}
+							/>
+						) : (
+							<ModePicker
+								options={ROUTE_MODES.map((mode) => ({
+									...mode,
+									label: pb.routeModes[mode.id].label,
+									description: pb.routeModes[mode.id].description,
+								}))}
+								value={routeMode}
+								onValueChange={handleModeChange}
+								isHero={isHero}
+							/>
+						)}
+						{platformChoice && planChoice ? (
+							<PlanModeToggle
+								isPlanMode={planChoice.value}
+								onPlanModeChange={planChoice.onChange}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
 						) : null}
-						<OutputSettings
-							outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
-							output={selectedOutput}
-							onSelectOutput={chooseOutput}
-							values={outputOptions}
-							onValueChange={updateOutputOption}
-							isHero={isHero}
-						/>
+						{import.meta.env.DEV ? (
+							<BuilderSettingsPicker
+								model={builderModel}
+								onModelChange={setBuilderModel}
+								reasoning={builderReasoning}
+								onReasoningChange={setBuilderReasoning}
+								isHero={isHero}
+							/>
+						) : null}
+						{/* A V2 create has no V1 output settings, even if a restored V1 draft holds a mode. */}
+						{platformChoice ? null : (
+							<OutputSettings
+								outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
+								output={selectedOutput}
+								onSelectOutput={chooseOutput}
+								values={outputOptions}
+								onValueChange={updateOutputOption}
+								isHero={isHero}
+							/>
+						)}
 						<div className="ms-auto flex items-center gap-1">
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -2182,14 +2315,35 @@ export function PromptBox({
 											isTranscribing ||
 											disabled
 										}
-										className={cn(
-											"rounded-full text-muted-foreground hover:text-foreground",
-											isHero ? "size-9" : "size-[30px]",
-											isRecording &&
-												"animate-pulse bg-destructive/10 text-destructive hover:text-destructive",
-										)}
+										className={
+											isHero
+												? cn(
+														"size-9 rounded-full text-night/60 hover:bg-night/[0.06] hover:text-night dark:text-foreground/60 dark:hover:bg-white/[0.08] dark:hover:text-foreground",
+														// The dark and hover colors of the hero mic must yield to the red too.
+														isRecording &&
+															"animate-pulse bg-destructive/10 text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-destructive dark:hover:bg-destructive/10 dark:hover:text-destructive",
+													)
+												: cn(
+														"rounded-full text-muted-foreground hover:text-foreground",
+														"size-[30px]",
+														isRecording &&
+															"animate-pulse bg-destructive/10 text-destructive hover:text-destructive",
+													)
+										}
 									>
-										{isTranscribing ? (
+										{isHero ? (
+											isTranscribing ? (
+												<CircleNotchIcon
+													weight="bold"
+													className="size-[18px] animate-spin"
+												/>
+											) : (
+												<MicrophoneIcon
+													weight="duotone"
+													className="size-[18px]"
+												/>
+											)
+										) : isTranscribing ? (
 											<Loader2 className="animate-spin" />
 										) : (
 											<Mic />
@@ -2198,47 +2352,68 @@ export function PromptBox({
 								</TooltipTrigger>
 								<TooltipContent>{micAriaLabel}</TooltipContent>
 							</Tooltip>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										type="button"
-										size="icon"
-										aria-label={submitLabel}
-										onClick={() => void handleSubmit()}
-										disabled={!canSubmit}
-										className={cn(
-											// The send circle is the gradient's one licensed cameo
-											// on a control (DESIGN.md, Gradient System).
-											"rounded-full bg-gradient-ember shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity disabled:opacity-40",
-											submitOverride
-												? isHero
-													? "h-9 w-auto gap-1.5 px-3"
-													: "h-[30px] w-auto gap-1.5 px-3"
-												: isHero
-													? "size-9"
+							{isHero && !submitOverride ? (
+								// The dashboard send is the landing build key with a visible
+								// label, so it needs no tooltip. Night focus shows on paper,
+								// white focus shows on the dark card.
+								<KeycapButton
+									size="md"
+									type="button"
+									onClick={() => void handleSubmit()}
+									disabled={!canSubmit}
+									className="focus-visible:outline-night dark:focus-visible:outline-white"
+								>
+									{submissionPending ? (
+										<CircleNotchIcon
+											weight="bold"
+											className="size-4 animate-spin"
+										/>
+									) : (
+										<Spark className="size-4" />
+									)}
+									{submitLabel}
+								</KeycapButton>
+							) : (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											size="icon"
+											aria-label={submitLabel}
+											onClick={() => void handleSubmit()}
+											disabled={!canSubmit}
+											className={cn(
+												// The send circle is the gradient's one licensed cameo
+												// on a control (DESIGN.md, Gradient System).
+												"rounded-full bg-gradient-ember shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity disabled:opacity-40",
+												submitOverride
+													? isHero
+														? "h-9 w-auto gap-1.5 px-3"
+														: "h-[30px] w-auto gap-1.5 px-3"
 													: "size-[30px]",
-										)}
-									>
-										{submitOverride ? (
-											<>
-												{submissionPending ? (
-													<Loader2 className="size-3.5 animate-spin" />
-												) : (
-													<Check className="size-3.5" strokeWidth={2.4} />
-												)}
-												<span className="font-medium text-xs">
-													{submitOverride.label}
-												</span>
-											</>
-										) : submissionPending ? (
-											<Loader2 className="animate-spin" />
-										) : (
-											<ArrowUp className="size-3.5" strokeWidth={2.2} />
-										)}
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent>{submitLabel}</TooltipContent>
-							</Tooltip>
+											)}
+										>
+											{submitOverride ? (
+												<>
+													{submissionPending ? (
+														<Loader2 className="size-3.5 animate-spin" />
+													) : (
+														<Check className="size-3.5" strokeWidth={2.4} />
+													)}
+													<span className="font-medium text-xs">
+														{submitOverride.label}
+													</span>
+												</>
+											) : submissionPending ? (
+												<Loader2 className="animate-spin" />
+											) : (
+												<ArrowUp className="size-3.5" strokeWidth={2.2} />
+											)}
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent>{submitLabel}</TooltipContent>
+								</Tooltip>
+							)}
 						</div>
 					</TooltipProvider>
 				</InputGroupAddon>
@@ -2263,7 +2438,11 @@ export function PromptBox({
 				{showBanner ? (
 					<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
 						<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
-							<Sparkles className="size-3 text-primary" />
+							<SparkleIcon
+								aria-hidden
+								weight="fill"
+								className="size-3 text-primary"
+							/>
 							{t("projects.promptBox.banner")}
 						</div>
 						{box}

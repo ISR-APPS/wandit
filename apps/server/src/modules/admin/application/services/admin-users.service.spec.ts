@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import {
 	type AdminSetAdminViewsInput,
 	type AdminSetRoleInput,
@@ -10,6 +11,7 @@ import {
 import { env } from "@wandit/env/server";
 import { describe, expect, it, vi } from "vitest";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import { mapAdminUserDetail } from "../../infrastructure/mappers/admin-user.mapper";
 import type {
 	AdminProjectRow,
 	AdminRepository,
@@ -536,6 +538,124 @@ describe("AdminUsersService.setAdminViews", () => {
 			}),
 		).rejects.toThrow("Only support accounts have admin views");
 		expect(adminViewGrantsRepository.upsertViews).not.toHaveBeenCalled();
+	});
+});
+
+describe("AdminUsersService.grantCredits", () => {
+	const TARGET_ID = "target-1";
+	const REQUEST_ID = "11111111-1111-4111-8111-111111111111";
+	const DETAIL = mapAdminUserDetail(
+		{
+			banReason: null,
+			banned: false,
+			countryCode: null,
+			createdAt: PROJECT_CREATED_AT,
+			creditsBalance: 0,
+			creditsConsumed: 0,
+			email: "target@example.com",
+			emailVerified: true,
+			id: TARGET_ID,
+			image: null,
+			lastSeenAt: null,
+			name: "Target",
+			phone: null,
+			plan: null,
+			projectsCount: 0,
+			role: "user",
+			updatedAt: PROJECT_UPDATED_AT,
+		},
+		null,
+		[],
+		[],
+		[],
+		{ meteredOperations: 0, totalCostUsdMicros: 0 },
+		null,
+	);
+
+	// getUserDetail has its own specs above. Here it only returns a fixed detail.
+	class GrantOnlyAdminUsersService extends AdminUsersService {
+		override async getUserDetail(): Promise<AdminUserDetail> {
+			return DETAIL;
+		}
+	}
+
+	function setupGrant(targetId: string) {
+		const findUserAccess = vi
+			.fn<AdminRepository["findUserAccess"]>()
+			.mockResolvedValue({ id: targetId, role: "user" });
+		const grant = vi.fn<CreditsService["grant"]>();
+		const adminRepository: Pick<AdminRepository, "findUserAccess"> = {
+			findUserAccess,
+		};
+		const creditsService: Pick<CreditsService, "grant"> = { grant };
+		const service = new GrantOnlyAdminUsersService(
+			// SAFETY: grantCredits reads only findUserAccess on this repository.
+			adminRepository as AdminRepository,
+			// SAFETY: grantCredits never reads organizations.
+			{} as AdminOrganizationsRepository,
+			// SAFETY: grantCredits calls only grant on the credits service.
+			creditsService as CreditsService,
+			// SAFETY: grantCredits never reads view grants.
+			{} as AdminViewGrantsRepository,
+		);
+
+		return { grant, service };
+	}
+
+	it.each([
+		"support",
+		"user,support",
+	])("rejects a self-grant by a %s account before the credit write", async (role) => {
+		const { grant, service } = setupGrant(TARGET_ID);
+
+		await expect(
+			service.grantCredits({ id: TARGET_ID, role }, TARGET_ID, {
+				amount: 10,
+				requestId: REQUEST_ID,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(grant).not.toHaveBeenCalled();
+	});
+
+	it("lets support grant to another user and records the granter", async () => {
+		const { grant, service } = setupGrant(TARGET_ID);
+
+		await expect(
+			service.grantCredits({ id: "support-1", role: "support" }, TARGET_ID, {
+				amount: 2.5,
+				reason: "Refund for a failed build",
+				requestId: REQUEST_ID,
+			}),
+		).resolves.toBe(DETAIL);
+		// 2.5 decimal credits reach the ledger as 250 centi-credits.
+		expect(grant).toHaveBeenCalledWith(
+			{ type: "user", userId: TARGET_ID },
+			250,
+			{
+				bucket: "promo",
+				idempotencyKey: `admin-grant:${TARGET_ID}:${REQUEST_ID}`,
+				meta: {
+					grantedBy: "support-1",
+					note: "Refund for a failed build",
+					reason: "admin_grant",
+				},
+			},
+		);
+	});
+
+	it("lets an admin grant to the admin's own account", async () => {
+		const { grant, service } = setupGrant("admin-1");
+
+		await service.grantCredits(
+			{ id: "admin-1", role: "user,admin" },
+			"admin-1",
+			{
+				amount: 10,
+				requestId: REQUEST_ID,
+			},
+		);
+
+		expect(grant).toHaveBeenCalledOnce();
 	});
 });
 

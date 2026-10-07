@@ -10,6 +10,7 @@ import {
 	GatewayResponseError,
 } from "@ai-sdk/gateway";
 import { HttpException } from "@nestjs/common";
+import { DrizzleQueryError } from "@wandit/db";
 import {
 	AISDKError,
 	APICallError,
@@ -524,6 +525,22 @@ describe("classifyAiError worked examples", () => {
 			retryable: true,
 			source: "ours",
 		});
+	});
+
+	// A failed message insert showed the provider demand copy, because its params held "setTimeout".
+	it("classifies a failed database query as internal, whatever text its params hold", () => {
+		const error = new DrizzleQueryError(
+			'insert into "messages" ("parts") values ($1)',
+			['[{"output":"setTimeout(run, 50)"}]'],
+			new Error("unsupported Unicode escape sequence"),
+		);
+
+		expect(
+			classifyAiError(
+				error,
+				context({ model: "anthropic/claude-opus-5.5", route: "none" }),
+			),
+		).toMatchObject({ kind: "internal", provider: null, source: "ours" });
 	});
 });
 

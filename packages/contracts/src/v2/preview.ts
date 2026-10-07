@@ -1,26 +1,88 @@
 /**
- * Shared contract for the V2 preview token route.
+ * Shared contract for the V2 preview token route, the phone link, and the
+ * sandbox wake route that brings a sleeping preview back.
  *
  * The browser asks the API for a signed preview URL of the app's running
  * sandbox port; the preview domain (D5) validates the token. The
- * preview-proxy Worker also parses its host and posts its error messages
- * with the helpers and schema in this file.
+ * preview-proxy Worker also parses its host, mints the phone link for
+ * Expo Go (WANDIT-193), and posts its error messages with this file.
+ * The web builder parses the messages of the template dev bridge here, and
+ * the turn body and `builder_turns.spec` reuse the picked targets.
  */
 import { z } from "zod";
 import { isoDateTimeSchema, uuidSchema } from "../v1/shared/primitives";
 
 /**
- * Answer of the preview-token route. `token` signs `previewUrl`; the
- * preview edge rejects the URL once `expiresAt` passes.
+ * Answer of the preview-token route. `token` signs both URLs; the preview
+ * edge rejects them once `expiresAt` passes.
  */
 export const previewTokenResponseSchema = z.object({
 	token: z.string(),
+	/**
+	 * `?wt=` URL that the builder iframe loads: the frame host of the run and
+	 * the user. With `client=phone`, the run host, which has the phone-link route.
+	 */
 	previewUrl: z.url(),
+	/**
+	 * `?wt=` URL on the run host, for a top-level tab ("Open in a new tab").
+	 * The frame host label is a bearer secret, so no address bar may show it.
+	 */
+	tabUrl: z.url(),
 	expiresAt: isoDateTimeSchema,
 });
 
 /** TypeScript preview-token response. */
 export type PreviewTokenResponse = z.infer<typeof previewTokenResponseSchema>;
+
+/**
+ * Expo account name that the user types for the store Expo Go on an
+ * iPhone. Expo Go opens a dev server only when the manifest names the
+ * signed-in account. Letters, digits, `.`, `_`, and `-`, at most 64.
+ */
+export const expoUsernameSchema = z
+	.string()
+	.max(64)
+	.regex(/^[A-Za-z0-9._-]+$/);
+
+/**
+ * Query of `GET /api/v2/projects/:id/preview-token`. No `client` gives the
+ * iframe token. `client=phone` gives a token for the phone-link route of the
+ * Worker, and only that form takes `expoUsername`.
+ */
+export const previewTokenQuerySchema = z
+	.object({
+		client: z.literal("phone").optional(),
+		expoUsername: expoUsernameSchema.optional(),
+	})
+	.refine(
+		(query) => query.expoUsername === undefined || query.client === "phone",
+		{
+			message: "expoUsername needs client=phone",
+			path: ["expoUsername"],
+		},
+	);
+
+/** TypeScript preview-token query. */
+export type PreviewTokenQuery = z.infer<typeof previewTokenQuerySchema>;
+
+/**
+ * Answer of `POST /api/v2/projects/:id/sandbox/wake`, always HTTP 202. The
+ * route takes no body and charges no credits. After each status, the web
+ * polls the preview-token route until the token is ready.
+ */
+export const sandboxWakeResponseSchema = z.object({
+	/**
+	 * `running`: the sandbox runs already, so nothing boots.
+	 * `starting`: the API started the boot. A resume takes 10 to 60 s. A
+	 * rebuild from the image takes a few minutes.
+	 * `busy`: a turn, a restore, or another wake holds the project lock.
+	 * That work boots the sandbox, so the wake starts nothing.
+	 */
+	status: z.enum(["running", "starting", "busy"]),
+});
+
+/** The parsed wake answer. The web does not branch on `status`: every value counts as an accepted wake. */
+export type SandboxWakeResponse = z.infer<typeof sandboxWakeResponseSchema>;
 
 /**
  * Claims inside the signed preview token. The API `PreviewTokenService`
@@ -40,16 +102,19 @@ export const previewTokenClaimsSchema = z.object({
 	exp: z.int(),
 	/** Token id, at least 16 characters. The Worker rate-limits on it. */
 	jti: z.string().min(16),
+	/** Expo Go account of the user, only on a phone token. The Worker writes it into the Expo manifest. */
+	expoUsername: expoUsernameSchema.optional(),
 });
 
 /** TypeScript preview-token claims. */
 export type PreviewTokenClaims = z.infer<typeof previewTokenClaimsSchema>;
 
 /**
- * Name of the cookie that carries the token after the `?wt=` redirect.
- * The `__Host-` prefix makes the browser accept the cookie only with
- * `Secure`, `Path=/`, and no `Domain`. So the generated app cannot set a
- * domain cookie that overwrites it (security.md 9.1).
+ * Name of the cookie that carries the token after the `?wt=` redirect on a
+ * run host. A frame host uses no cookie. The `__Host-` prefix makes the
+ * browser accept the cookie only with `Secure`, `Path=/`, and no `Domain`.
+ * So the generated app cannot set a domain cookie that overwrites it
+ * (security.md 9.1).
  */
 export const PREVIEW_COOKIE_NAME = "__Host-wandit_preview" as const;
 
@@ -62,9 +127,48 @@ export const PREVIEW_TOKEN_TTL_SECONDS = 900 as const;
 /**
  * Query parameter that carries the token on the first request
  * (`?wt=<token>`). Short name: it sits in every preview URL the API
- * returns. The Worker answers it with the cookie and a redirect.
+ * returns. The Worker stores the token in the cookie on a run host, or its
+ * claims in the Durable Object of a frame host. Then it redirects without it.
  */
 export const PREVIEW_TOKEN_QUERY = "wt" as const;
+
+/**
+ * Phone link lifetime in seconds. 60 minutes, not 15: Expo Go sends no
+ * cookie, so the link cannot renew during a Fast Refresh session (D4 note).
+ */
+export const PHONE_LINK_TTL_SECONDS = 3600 as const;
+
+/**
+ * Path of the Worker route that mints a phone link. The caller POSTs a
+ * phone preview token as the plain-text body to the run host. Only the
+ * Worker answers it; the sandbox never sees it.
+ */
+export const PHONE_LINK_PATH = "/__wandit/phone-link" as const;
+
+/**
+ * Answer of the phone-link route. `expoUrl` is the `exps://` URL that Expo
+ * Go opens; the Worker rejects it once `expiresAt` passes.
+ */
+export const phonePreviewLinkResponseSchema = z.object({
+	expoUrl: z.string().startsWith("exps://"),
+	expiresAt: isoDateTimeSchema,
+});
+
+/** TypeScript phone-link response. */
+export type PhonePreviewLinkResponse = z.infer<
+	typeof phonePreviewLinkResponseSchema
+>;
+
+/**
+ * The part of an Expo Go manifest that the Worker changes: the username in
+ * `extra.expoGo` (Expo CLI `ManifestMiddleware`, SDK 57). Loose objects
+ * keep every other field, so the Worker writes the rest back unchanged.
+ */
+export const expoGoManifestSchema = z.looseObject({
+	extra: z.looseObject({
+		expoGo: z.looseObject({ username: z.string().optional() }),
+	}),
+});
 
 /**
  * First 12 hex characters of a run id without dashes. The host label uses
@@ -89,28 +193,109 @@ export function previewHostFor(
 }
 
 /**
- * Parses a preview host back into its project id and `rid12`. Returns null
- * for every host that does not match `r-<rid12>--p-<projectId>.<domain>`.
- * So the Worker answers 404 on the apex domain and on foreign hosts.
+ * Supabase auth redirect pattern that matches every preview run host of
+ * one project. The provisioning and the login URL sync (WANDIT-190) put it
+ * in `uri_allow_list`. The frame host needs no pattern: the templates allow
+ * only email and password sign-in, which has no redirect.
+ */
+export function previewAuthRedirectPattern(
+	projectId: string,
+	previewDomain: string,
+): string {
+	// Security check: the run label is the 12 hex characters of `rid12Of`.
+	// A `*` also matches `@` and `?`. Then `https://r-@<attacker-host>?--p-...`
+	// matches, and the login token goes to the attacker host. The glob library
+	// of Supabase Auth accepts one range per class, so the class lists the
+	// 16 characters.
+	const runLabel = "[0123456789abcdef]".repeat(12);
+	return `https://r-${runLabel}--p-${projectId}.${previewDomain}/**`;
+}
+
+/**
+ * Phone host of one phone link: `m-<phoneId>--p-<projectId>.<domain>`.
+ * `phoneId` is 21 lower-case base32 characters, so the label has 63
+ * characters, exactly the DNS limit.
+ */
+export function phonePreviewHostFor(
+	projectId: string,
+	phoneId: string,
+	domain: string,
+): string {
+	return `m-${phoneId}--p-${projectId}.${domain}`;
+}
+
+/**
+ * Frame host of the preview iframe: `f-<frameId>--p-<projectId>.<domain>`.
+ * `previewFrameIdFor` derives `frameId` from the run and the user, so a token
+ * renewal keeps the origin and the app storage. The host needs no cookie: the
+ * `PreviewFrame` Durable Object of the Worker holds the claims.
+ */
+export function framePreviewHostFor(
+	projectId: string,
+	frameId: string,
+	domain: string,
+): string {
+	return `f-${frameId}--p-${projectId}.${domain}`;
+}
+
+/**
+ * Fixed Metro host of one project: `p-<projectId>.<domain>`. The sandbox
+ * sets `EXPO_PACKAGER_PROXY_URL=https://<this host>`, so every manifest URL
+ * names it. The Worker serves no request on it and writes the phone host
+ * over it in each manifest.
+ */
+export function packagerHostFor(projectId: string, domain: string): string {
+	return `p-${projectId}.${domain}`;
+}
+
+/**
+ * A parsed preview host. `run` is the host of one sandbox run: the cookie
+ * exchange and the phone-link mint route. `phone` is the host of one phone
+ * link, and `frame` is the iframe host of one run and one user. The
+ * `PREVIEW_KV` row of a phone id, or the Durable Object of a frame id, holds
+ * the claims.
+ */
+export type PreviewHost =
+	| { kind: "run"; projectId: string; rid12: string }
+	| { kind: "phone"; projectId: string; phoneId: string }
+	| { kind: "frame"; projectId: string; frameId: string };
+
+/**
+ * Parses a preview host into its kind and ids. Returns null for every host
+ * that is not `r-<rid12>--p-<projectId>.<domain>`,
+ * `m-<phoneId>--p-<projectId>.<domain>`, or `f-<frameId>--p-<projectId>.<domain>`.
+ * So the Worker answers 404 on the apex domain, on the Metro host, and on
+ * foreign hosts.
  */
 export function parsePreviewHost(
 	host: string,
 	domain: string,
-): { projectId: string; rid12: string } | null {
+): PreviewHost | null {
 	// A bare `.` in a regex matches any character. The domain holds dots, so
 	// the code escapes each regex metacharacter in it.
 	const escapedDomain = domain
 		.toLowerCase()
 		.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const match = new RegExp(
-		`^r-([0-9a-f]{12})--p-([0-9a-f-]{36})\\.${escapedDomain}$`,
+		`^(?:r-([0-9a-f]{12})|m-([a-z2-7]{21})|f-([a-z2-7]{21}))--p-([0-9a-f-]{36})\\.${escapedDomain}$`,
 	).exec(host.toLowerCase());
 	const rid12 = match?.[1];
-	const projectId = match?.[2];
-	if (rid12 === undefined || projectId === undefined) {
+	const phoneId = match?.[2];
+	const frameId = match?.[3];
+	const projectId = match?.[4];
+	if (projectId === undefined) {
 		return null;
 	}
-	return { projectId, rid12 };
+	if (rid12 !== undefined) {
+		return { kind: "run", projectId, rid12 };
+	}
+	if (phoneId !== undefined) {
+		return { kind: "phone", projectId, phoneId };
+	}
+	if (frameId !== undefined) {
+		return { kind: "frame", projectId, frameId };
+	}
+	return null;
 }
 
 /**
@@ -125,3 +310,77 @@ export const previewParentMessageSchema = z.object({
 
 /** TypeScript parent-frame message. */
 export type PreviewParentMessage = z.infer<typeof previewParentMessageSchema>;
+
+/**
+ * Source location that the Vite plugin of the web template writes into
+ * `data-wandit-src`: `<file>:<line>:<column>`, 1-based, with the file
+ * relative to the app root. Example: `src/routes/index.tsx:42:7`. TanStack
+ * route files hold `$`, `{}`, `()`, `[]`, and `_`. The app code in the preview
+ * can post any string, so the format is checked.
+ */
+export const previewSourceLocationSchema = z
+	.string()
+	.max(512)
+	.regex(/^[\w./@$()[\]{}+~-]+:[1-9]\d{0,5}:[1-9]\d{0,5}$/);
+
+/**
+ * One element that the user picked in the preview (WANDIT-203). The composer
+ * shows it as a chip, the turn request carries it, and the turn task names it
+ * in the prompt of the agent.
+ */
+export const previewTargetSchema = z.object({
+	/** `data-wandit-src` of the element, see `previewSourceLocationSchema`. */
+	src: previewSourceLocationSchema,
+	/** Lower-case tag name of the element, for example `button`. */
+	tag: z
+		.string()
+		.min(1)
+		.max(32)
+		.regex(/^[a-z][a-z0-9-]*$/),
+	/** Visible text or accessible name, with the whitespace collapsed. "" when the element has none. */
+	label: z
+		.string()
+		.max(80)
+		// Half of a UTF-16 pair makes Postgres refuse the jsonb of the turn.
+		// Each unit is a non-surrogate or a full pair; no ES2024 API, so every consumer can parse it.
+		.regex(/^(?:[^\uD800-\uDFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF])*$/),
+});
+
+/** One picked element: one composer chip and one line in the prompt of the agent. */
+export type PreviewTarget = z.infer<typeof previewTargetSchema>;
+
+/** Most targets one turn carries. The same limit as V1 `selectedTargets`. */
+export const PREVIEW_TARGETS_MAX = 10 as const;
+
+/**
+ * Messages that the dev bridge of the web template
+ * (`templates/web-app/src/wandit/preview-bridge.ts`) posts to the builder:
+ * - `wandit:bridge-ready`: the bridge started. It posts this after each page load of the app.
+ * - `wandit:runtime-error`: an uncaught error, a rejected promise, or a `console.error` call.
+ * - `wandit:select-source`: the user clicked an element in select mode.
+ * - `wandit:deselect`: the user pressed Escape in select mode.
+ * - `wandit:route`: the app shows another page. `path` is the pathname plus the query.
+ * The mobile template bridge (`templates/mobile-app/src/shared/lib/preview-bridge.ts`)
+ * posts only the first two.
+ * The app code in the frame can post the same shapes, so every text is bounded.
+ * The builder copies only the route path onto the preview URL, so the frame origin never changes.
+ */
+export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("wandit:bridge-ready") }),
+	z.object({
+		type: z.literal("wandit:runtime-error"),
+		// The bridge cuts the message to 1000 and the stack to 4000 characters.
+		message: z.string().min(1).max(1000),
+		stack: z.string().max(4000).optional(),
+	}),
+	previewTargetSchema.extend({ type: z.literal("wandit:select-source") }),
+	z.object({ type: z.literal("wandit:deselect") }),
+	z.object({
+		type: z.literal("wandit:route"),
+		// 2048 characters: a longer path is not a page the user navigates to by hand.
+		path: z.string().startsWith("/").max(2048),
+	}),
+]);
+
+/** One message of the template dev bridge, after the schema check of the builder. */
+export type PreviewBridgeMessage = z.infer<typeof previewBridgeMessageSchema>;

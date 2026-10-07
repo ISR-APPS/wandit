@@ -1,13 +1,14 @@
 /**
  * Relays a builder turn's `ui` stream to the browser as SSE.
- * The task writes D20 envelope events on the Trigger stream; this service
- * unwraps them into the plain AI SDK chunks `useChat` +
- * `DefaultChatTransport` parse — one `data:` frame each, `[DONE]` to end.
+ * A Trigger-run turn writes D20 envelope events on the Trigger stream; a
+ * host-run turn (`runner = host`) writes them on a Redis Stream. This
+ * service reads the store the row names, and unwraps the events into the
+ * plain AI SDK chunks `useChat` + `DefaultChatTransport` parse — one
+ * `data:` frame each, `[DONE]` to end.
  * Same socket handling as `chat-stream-relay.service.ts` (hijack,
  * heartbeat every 15 s, `drain` backpressure). The reader replays from
  * the start, so the relay dedupes on the last written event id.
  */
-import { once } from "node:events";
 import type { ServerResponse } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -22,10 +23,14 @@ import { env } from "@wandit/env/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import {
+	HOST_TURN_EVENT_READER,
 	TURN_EVENT_READER,
 	type TurnEventReader,
 } from "../../domain/ports/turn-events";
-import { isTerminalStatus } from "../../domain/turn-queue";
+import {
+	CHAT_ACTIVE_TURN_STATUSES,
+	isTerminalStatus,
+} from "../../domain/turn-queue";
 import {
 	type BuilderTurnRow,
 	BuilderTurnsRepository,
@@ -58,7 +63,7 @@ const UI_MESSAGE_STREAM_HEADERS = {
 	"X-Vercel-AI-UI-Message-Stream": "v1",
 } as const;
 
-// Row-poll cadence while a `waiting` turn still has no run id.
+// Row-poll cadence while the row names no event store yet.
 const WAITING_POLL_MS = 2_000;
 
 /**
@@ -77,6 +82,8 @@ export class TurnStreamRelayService {
 	constructor(
 		@Inject(TURN_EVENT_READER)
 		private readonly turnEvents: TurnEventReader,
+		@Inject(HOST_TURN_EVENT_READER)
+		private readonly hostTurnEvents: TurnEventReader,
 		@Inject(RATE_LIMIT_STORE)
 		private readonly rateLimit: RateLimitStore,
 		@Inject(BuilderTurnsRepository)
@@ -90,7 +97,7 @@ export class TurnStreamRelayService {
 	 * promote the next waiting turn.
 	 */
 	async relay(options: {
-		/** First frame on the create route: the `CreateTurnResponse`. */
+		/** First frame: the `CreateTurnResponse`. The create route and the resume route send it. */
 		first?: CreateTurnResponse;
 		/** Called once with the done payload after the terminal frame. */
 		onDone?: OnTurnDone;
@@ -132,12 +139,19 @@ export class TurnStreamRelayService {
 		raw.flushHeaders?.();
 		await this.writeComment(raw, "connected");
 
-		// A closed browser tab aborts the Trigger stream read.
+		// A closed browser tab or a cut aborts the stream read and frees the
+		// slot. Node destroys `request.raw` once the body is read, so only the
+		// response emits `close` when the browser leaves.
 		const close = () => {
 			closed = true;
 			abort.abort();
 		};
-		request.raw.on("close", close);
+		raw.on("close", close);
+		// Node emits `close` only once. A browser that left before this line
+		// (in the route or in the write above) is already destroyed.
+		if (raw.destroyed) {
+			close();
+		}
 		const heartbeat = setInterval(() => {
 			if (!closed) {
 				void this.writeComment(raw, "heartbeat").catch((error) => {
@@ -153,7 +167,15 @@ export class TurnStreamRelayService {
 		}, HEARTBEAT_INTERVAL_MS);
 
 		const lagMs: number[] = [];
-		let runId = options.triggerRunId;
+		// An event written before this connection opened is a replay. Its age
+		// is not stream lag, so the lag line skips it.
+		const openedAt = Date.now();
+		// The store to read: the Trigger run id, or the turn id of a host-run
+		// turn. Null while the row names neither yet.
+		let source: { reader: TurnEventReader; id: string } | null =
+			options.triggerRunId === null
+				? null
+				: { id: options.triggerRunId, reader: this.turnEvents };
 		let lastSeenId: string | null = null;
 		let done = false;
 		try {
@@ -166,10 +188,14 @@ export class TurnStreamRelayService {
 			}
 
 			while (!closed && !done) {
-				if (runId === null) {
+				if (source === null) {
 					const row = await this.turns.findById(turnId);
-					if (row?.triggerRunId) {
-						runId = row.triggerRunId;
+					// The API moves a queued row back to `trigger` when the host start
+					// fails. `host` is final only after the host claims the row.
+					if (row?.runner === "host" && row.status !== "queued") {
+						source = { id: turnId, reader: this.hostTurnEvents };
+					} else if (row?.triggerRunId) {
+						source = { id: row.triggerRunId, reader: this.turnEvents };
 					} else if (row && isTerminalStatus(row.status)) {
 						// The turn settled before a run ever started (cancel).
 						await this.finishFromRow(raw, row, onDone, turnId);
@@ -178,8 +204,8 @@ export class TurnStreamRelayService {
 						await this.endMissingRow(raw, turnId);
 						done = true;
 					} else {
-						// A `waiting` turn gets its run id when the earlier turn
-						// ends and promotion runs.
+						// A `waiting` turn waits for promotion. A queued host row
+						// waits for the host claim.
 						await delay(WAITING_POLL_MS, undefined, {
 							signal: abort.signal,
 						});
@@ -187,12 +213,12 @@ export class TurnStreamRelayService {
 					continue;
 				}
 
-				const activeRunId = runId;
+				const activeRunId = source.id;
 				// The reader replays from the start on every open; the browser
 				// must not get a chunk twice, so events up to the last written
 				// id are skipped.
 				let skipping = lastSeenId !== null;
-				for await (const event of this.turnEvents.read(
+				for await (const event of source.reader.read(
 					activeRunId,
 					abort.signal,
 				)) {
@@ -206,8 +232,12 @@ export class TurnStreamRelayService {
 						continue;
 					}
 					lastSeenId = event.id;
-					lagMs.push(Math.max(0, Date.now() - event.at));
+					if (event.at >= openedAt) {
+						lagMs.push(Math.max(0, Date.now() - event.at));
+					}
 
+					// After a cut, the browser drops the replay chunks it has by
+					// count, so one event must give the same chunks on each read.
 					if (event.type === "part") {
 						await this.writeChunk(raw, event.data);
 					} else if (event.type === "status") {
@@ -260,7 +290,9 @@ export class TurnStreamRelayService {
 					if (row === null) {
 						await this.endMissingRow(raw, turnId);
 						done = true;
-					} else if (isTerminalStatus(row.status)) {
+					} else if (!CHAT_ACTIVE_TURN_STATUSES.includes(row.status)) {
+						// A paused turn (`waiting_for_*`) streams no more. Its run can
+						// die between the pause write and `done`, so the row ends it.
 						this.logLag(activeRunId, lagMs);
 						await this.finishFromRow(raw, row, onDone, turnId);
 						done = true;
@@ -274,42 +306,19 @@ export class TurnStreamRelayService {
 				}
 			}
 		} catch (error) {
+			// The turn can still run, so the relay writes no error frame and
+			// only closes. The browser then reopens the turn stream, as after a
+			// cut. A turn that ended replays to its `done` on that reopen.
 			if (!closed && !abort.signal.aborted) {
 				this.logger.warn(
 					`Turn stream read failed for turn ${turnId}: ${
 						error instanceof Error ? error.message : String(error)
 					}`,
 				);
-				// The client sees a reason for the close, not a silent hang.
-				const data = {
-					code: "STREAM_READ_FAILED",
-					message: "The turn event stream was interrupted",
-					retryable: true,
-				};
-				try {
-					await this.writeChunk(raw, {
-						data,
-						id: "turn-error",
-						type: "data-turn-error",
-					});
-					await this.writeChunk(raw, {
-						errorText: data.message,
-						type: "error",
-					});
-					await this.writeDone(raw);
-				} catch (writeError) {
-					this.logger.warn(
-						`Error frames for turn ${turnId} could not be written: ${
-							writeError instanceof Error
-								? writeError.message
-								: String(writeError)
-						}`,
-					);
-				}
 			}
 		} finally {
 			clearInterval(heartbeat);
-			request.raw.off("close", close);
+			raw.off("close", close);
 			abort.abort();
 			if (!raw.destroyed) {
 				raw.end();
@@ -437,13 +446,25 @@ export class TurnStreamRelayService {
 			return;
 		}
 
-		await Promise.race([once(raw, "drain"), once(raw, "close")]);
+		// One callback removes all three listeners, so a long replay with
+		// many waits does not collect `close` and `error` listeners.
+		await new Promise<void>((resolve) => {
+			const done = () => {
+				raw.off("drain", done);
+				raw.off("close", done);
+				raw.off("error", done);
+				resolve();
+			};
+			raw.once("drain", done);
+			raw.once("close", done);
+			raw.once("error", done);
+		});
 	}
 
 	/**
 	 * Structured lag line: p50 and max of `Date.now() - event.at` for the
-	 * batch. The D20 trigger says Trigger streams stay until p50 lag tops
-	 * 300 ms — this is the number that decision watches.
+	 * live events of the batch. The D20 trigger says Trigger streams stay
+	 * until p50 lag tops 300 ms — this is the number that decision watches.
 	 */
 	private logLag(triggerRunId: string, lagMs: number[]): void {
 		if (lagMs.length === 0) {

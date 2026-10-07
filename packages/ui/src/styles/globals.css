@@ -17,8 +17,9 @@
 	--foreground: oklch(0.24 0.012 55); /* ink — warm near-black */
 	--card: #fcfbf8; /* cards are flat parchment + linen border */
 	--card-foreground: oklch(0.24 0.012 55);
-	--popover: #fcfbf8;
-	--popover-foreground: oklch(0.24 0.012 55);
+	/* Menus, popovers, selects, the command list, and toasts are a white sheet with navy text, so they lift off the parchment page. */
+	--popover: #ffffff;
+	--popover-foreground: #0b1033;
 	--primary: oklch(0.62 0.16 45); /* ember — the one colored action */
 	--primary-foreground: #fcfbf8;
 	--secondary: #f7f4ed; /* sand */
@@ -61,10 +62,6 @@
 		0.5 0.13 155
 	); /* green text/links on light (mirrors --ember-text) */
 	--void: oklch(0.14 0.01 45); /* generated-page dark screen */
-	/* text-gradient-ember stops — darker on light so large gradient text keeps
-	   >=3:1 contrast on parchment; dark mode restores the bright amber sweep. */
-	--text-ember-from: var(--primary);
-	--text-ember-to: var(--ember-2);
 }
 
 /* Dark layer — reserved for the generated-output world (and legacy toggle).
@@ -114,13 +111,12 @@
 	--success: oklch(0.75 0.14 155);
 	--success-text: oklch(0.75 0.14 155);
 	--void: oklch(0.14 0.01 45);
-	--text-ember-from: var(--ember-1);
-	--text-ember-to: var(--ember-2);
 }
 
-/* One interface family — hierarchy comes from weight (400/500/600), not a
-   second face. Geist Mono is reserved for generated output, money, and
-   uppercase micro-labels.
+/* DM Sans is the body face. The grotesk face (--font-grotesk, in the brand
+   block above) is the display face: dashboard headings, menu and select rows,
+   tooltips, and credit amounts. Geist Mono stays for generated output, code,
+   and file names.
    NOT in the inline block: utilities must emit var(--font-*) so the
    :lang(ar) scope (apps/web/src/index.css) can swap the stacks at runtime —
    inline would bake the Latin stacks into every font-* utility. */
@@ -128,6 +124,31 @@
 	--font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 	--font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 	--font-mono: "Geist Mono", ui-monospace, monospace;
+}
+
+/* Brand palette and display type of the V2 look. The landing page, the
+   dashboard, and the shared menus, popovers, and tooltips use them. The values
+   are fixed: they do not follow the light or dark theme. Each color gives one
+   utility family, for example `bg-ember` or `text-spark`. The web app swaps
+   --font-grotesk for Arabic in apps/web/src/index.css. */
+@theme {
+	/* Ground of the hero and closing panels: the theme ember (--primary). */
+	--color-ember: #d16022;
+	/* Shadow edge and pressed state on the ember ground (--ember-strong). */
+	--color-ember-deep: #a83a00;
+	/* The accent: primary buttons, caret, the wand spark (--ember-1 amber). */
+	--color-spark: #faab3f;
+	/* Bottom edge of an amber keycap button. */
+	--color-spark-deep: #c47a12;
+	/* Text on paper and dark surfaces. A navy, not a neutral black. */
+	--color-night: #0b1033;
+	/* Page ground: the theme parchment (--background in light mode). */
+	--color-paper: #fcfbf8;
+	/* Light text on night panels, and decoration on the ember ground. It is
+	   only 3.2:1 on ember, so small text on ember uses night. */
+	--color-cream: #ffe6cf;
+	--font-grotesk:
+		"Bricolage Grotesque", "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -193,17 +214,137 @@
 	--shadow-panel: -28px 0 60px -30px rgb(0 0 0 / 0.35);
 	--shadow-modal: 0 40px 90px -25px rgb(0 0 0 / 0.5);
 	--shadow-segment: inset 0 0 0 0.5px rgb(0 0 0 / 0.16);
+	/* Menus, popovers, and selects: a 1 px key edge and a soft navy drop under the white sheet. */
+	--shadow-menu:
+		0 1px 0 rgb(11 16 51 / 0.04), 0 20px 44px -18px rgb(11 16 51 / 0.32);
 	/* Named motion (calm chrome; energy stays on the generated thing) */
 	--animate-caret: wd-caret 1s step-end infinite;
 	--animate-shimmer: wd-shimmer 1.6s linear infinite;
 	--animate-spin-slow: wd-spin 3s linear infinite;
 	--animate-bounce-dot: wd-bounce 1.2s ease-in-out infinite;
 	--animate-pulse-soft: wd-pulse 1.6s ease-in-out infinite;
-	--animate-glow-ember: wd-glow 2.4s ease-in-out infinite;
-	--animate-marquee: wd-marquee 72s linear infinite;
 	--animate-drift-slow: wd-drift-a 16s ease-in-out infinite alternate;
 	--animate-drift-slower: wd-drift-b 22s ease-in-out infinite alternate;
+	/* Draws one stroke. The path needs pathLength="1" and stroke-dasharray "1 1". The preview boot screen draws its plan with it.
+	   It fills backwards only: a forwards fill holds the stroke, and then no stroke transition runs after the draw. */
+	--animate-draw: wd-draw 0.7s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+	/* Grows one ring and fades it. The Spark of the preview boot screen plays one when the app opens. The server room uses it for its rings. */
+	--animate-ripple: wd-ripple 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+	/* The server room of the preview boot screen (boot-machines.tsx) also uses draw and ripple, and it uses the rest of this group.
+	   The backwards fills keep each part in its 0 % pose until its delay ends. */
+	/* Clicks one part into place with a small overshoot. */
+	--animate-assemble: wd-assemble 0.5s cubic-bezier(0.34, 1.4, 0.64, 1)
+		backwards;
+	/* Drops one database disk onto the stack with a small bounce. */
+	--animate-drop-in: wd-drop-in 0.45s cubic-bezier(0.3, 1.35, 0.55, 1) backwards;
+	/* Turns the lights on with a short flicker, like a neon tube. */
+	--animate-power-on: wd-power-on 0.9s linear backwards;
+	/* Moves a dash pattern 8 units along its path. With steps(), a dot hops from LED to LED. */
+	--animate-dash-flow: wd-dash-flow 0.6s linear infinite;
+	/* Moves one light pulse along a cable. The cable path needs pathLength="100" and stroke-dasharray "8 120". */
+	--animate-cable-pulse: wd-cable-pulse 3s linear infinite backwards;
+	/* Lights one database ring, holds it, and dims it. Three rings with growing delays fill the disks from the bottom up. */
+	--animate-tank-fill: wd-tank-fill 2.8s ease-in-out infinite backwards;
 
+	/* Draws one stroke in ember, then cools it to its own stroke color: the 100 % step has no stroke, so the class color shows.
+	   The 1 % step hides the round-cap dot that the empty dash paints at the start. */
+	@keyframes wd-draw {
+		0% {
+			stroke-dashoffset: 1;
+			opacity: 0;
+			stroke: var(--ember-1);
+		}
+		1% {
+			opacity: 1;
+		}
+		60% {
+			stroke: var(--ember-1);
+		}
+		100% {
+			stroke-dashoffset: 0;
+			opacity: 1;
+		}
+	}
+	@keyframes wd-ripple {
+		0% {
+			transform: scale(0.15);
+			opacity: 0;
+		}
+		15% {
+			opacity: 0.7;
+		}
+		100% {
+			transform: scale(1);
+			opacity: 0;
+		}
+	}
+	@keyframes wd-assemble {
+		from {
+			transform: translateY(10px) scale(0.92);
+			opacity: 0;
+		}
+	}
+	/* On, off, on, dim, on. */
+	@keyframes wd-power-on {
+		0% {
+			opacity: 0;
+		}
+		18% {
+			opacity: 1;
+		}
+		28% {
+			opacity: 0.15;
+		}
+		42% {
+			opacity: 1;
+		}
+		52% {
+			opacity: 0.45;
+		}
+		64%,
+		100% {
+			opacity: 1;
+		}
+	}
+	@keyframes wd-drop-in {
+		from {
+			transform: translateY(-16px);
+			opacity: 0;
+		}
+	}
+	@keyframes wd-dash-flow {
+		to {
+			stroke-dashoffset: -8;
+		}
+	}
+	/* The pulse starts before the cable start and ends after its end. It fades at both ends, so it never pops. */
+	@keyframes wd-cable-pulse {
+		0% {
+			stroke-dashoffset: 8;
+			opacity: 0;
+		}
+		15%,
+		85% {
+			opacity: 1;
+		}
+		100% {
+			stroke-dashoffset: -100;
+			opacity: 0;
+		}
+	}
+	@keyframes wd-tank-fill {
+		0% {
+			opacity: 0;
+		}
+		18%,
+		58% {
+			opacity: 1;
+		}
+		80%,
+		100% {
+			opacity: 0;
+		}
+	}
 	@keyframes wd-spin {
 		to {
 			transform: rotate(360deg);
@@ -245,30 +386,6 @@
 		}
 		50% {
 			opacity: 0.35;
-		}
-	}
-	/* Breathing ember ring — the composer card while the build is BLOCKED on
-	   an unanswered request tray (swaps in for the resting shadow-composer). */
-	@keyframes wd-glow {
-		0%,
-		100% {
-			box-shadow:
-				0 0 0 3px oklch(0.74 0.16 55 / 0.3),
-				0 12px 32px -8px oklch(0.74 0.16 55 / 0.18);
-		}
-		50% {
-			box-shadow:
-				0 0 0 3px oklch(0.74 0.16 55 / 0.45),
-				0 12px 40px -8px oklch(0.74 0.16 55 / 0.28);
-		}
-	}
-	/* Seamless loop for a duplicated horizontal strip (landing proof marquee) */
-	@keyframes wd-marquee {
-		from {
-			transform: translateX(0);
-		}
-		to {
-			transform: translateX(-50%);
 		}
 	}
 	/* Ambient aurora blobs — landing hero backdrop only */
@@ -322,17 +439,6 @@
 	background-image: linear-gradient(135deg, var(--ember-1), var(--ember-2));
 }
 
-@utility text-gradient-ember {
-	background-image: linear-gradient(
-		135deg,
-		var(--text-ember-from),
-		var(--text-ember-to)
-	);
-	background-clip: text;
-	-webkit-background-clip: text;
-	color: transparent;
-}
-
 /* Deep-ember gradient — version thumbnail tiles */
 @utility bg-gradient-ember-deep {
 	background-image: linear-gradient(
@@ -357,11 +463,6 @@
 	);
 }
 
-/* Press glow — the emphasised Publish button ring */
-@utility glow-ember {
-	box-shadow: 0 0 0 3px oklch(0.62 0.16 45 / 0.22);
-}
-
 /* Thin warm scrollbar for panes (chat thread, preview body) */
 @utility scroll-warm {
 	&::-webkit-scrollbar {
@@ -380,6 +481,17 @@
 	}
 	&::-webkit-scrollbar-track {
 		background: transparent;
+	}
+	/* A dark thumb is invisible on the dark surfaces. */
+	@variant dark {
+		&::-webkit-scrollbar-thumb {
+			background: oklch(1 0 0 / 0.14);
+			background-clip: padding-box;
+		}
+		&::-webkit-scrollbar-thumb:hover {
+			background: oklch(1 0 0 / 0.22);
+			background-clip: padding-box;
+		}
 	}
 }
 

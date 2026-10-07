@@ -2,12 +2,21 @@ import {
 	createExecutionContext,
 	env,
 	fetchMock,
+	runInDurableObject,
 	waitOnExecutionContext,
 } from "cloudflare:test";
 import {
+	framePreviewHostFor,
+	PHONE_LINK_PATH,
 	PREVIEW_COOKIE_NAME,
 	type PreviewTokenClaims,
+	packagerHostFor,
+	parsePreviewHost,
+	phonePreviewHostFor,
+	phonePreviewLinkResponseSchema,
+	previewFrameIdFor,
 	previewHostFor,
+	previewTokenClaimsSchema,
 	signPreviewToken,
 } from "@wandit/contracts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -29,6 +38,8 @@ const SEEN_RUN_ID = "55555555-5555-4555-8555-555555555555";
 // so this test needs a pid with no earlier write.
 const THROTTLE_PROJECT_ID = "77777777-7777-4777-8777-777777777777";
 const THROTTLE_RUN_ID = "88888888-8888-4888-8888-888888888888";
+// A phone id of 21 base32 characters that no test mints.
+const UNKNOWN_PHONE_ID = "aaaaaaaaaaaaaaaaaaaaa";
 
 beforeAll(() => {
 	fetchMock.activate();
@@ -78,6 +89,32 @@ function cookieRequest(
 	});
 }
 
+// Mints a phone link through the Worker route and returns the phone host.
+async function mintPhoneHost(
+	claims: PreviewTokenClaims = makeClaims(),
+): Promise<string> {
+	const token = await signPreviewToken(claims, KEY);
+	const response = await dispatch(
+		new Request(
+			`https://${previewHost(claims.pid, claims.rid)}${PHONE_LINK_PATH}`,
+			{ method: "POST", body: token },
+		),
+	);
+	const link = phonePreviewLinkResponseSchema.parse(await response.json());
+	return link.expoUrl.slice("exps://".length);
+}
+
+// The KV row of a phone host, written by the mint route.
+async function phoneRowOf(phoneHost: string): Promise<PreviewTokenClaims> {
+	const parsed = parsePreviewHost(phoneHost, env.PREVIEW_DOMAIN);
+	if (parsed?.kind !== "phone") {
+		throw new Error(`not a phone host: ${phoneHost}`);
+	}
+	return previewTokenClaimsSchema.parse(
+		await env.PREVIEW_KV.get(`phone:${parsed.phoneId}`, "json"),
+	);
+}
+
 // fetchMock hands request headers to the reply callback as a union.
 function headerOf(
 	headers: Headers | Record<string, string>,
@@ -90,8 +127,10 @@ function headerOf(
 }
 
 function expectSecurityHeaders(response: Response): void {
+	// The literal list of the top-level wrangler.jsonc: it frames the
+	// production and the staging builder (WANDIT-155/160).
 	expect(response.headers.get("content-security-policy")).toBe(
-		`frame-ancestors ${env.FRAME_ANCESTORS}`,
+		"frame-ancestors https://wandit.dev https://preview.wandit.dev http://localhost:*",
 	);
 	expect(response.headers.get("x-robots-tag")).toBe("noindex");
 	expect(response.headers.get("referrer-policy")).toBe(
@@ -102,7 +141,7 @@ function expectSecurityHeaders(response: Response): void {
 }
 
 describe("preview proxy", () => {
-	it("answers a valid ?wt= with a 302 to / and the cookie with its four attributes", async () => {
+	it("answers a valid ?wt= with a 302 to /, expires the unpartitioned cookie, and sets the partitioned one", async () => {
 		const token = await signPreviewToken(makeClaims(), KEY);
 		const host = previewHost(PROJECT_ID, RUN_ID);
 
@@ -112,12 +151,17 @@ describe("preview proxy", () => {
 
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe(`https://${host}/`);
-		const setCookie = response.headers.get("set-cookie") ?? "";
+		const [expiredCookie, setCookie = ""] = response.headers.getSetCookie();
+		// Chrome keeps a pre-CHIPS cookie next to the partitioned one and sends the stale token first.
+		expect(expiredCookie).toBe(
+			`${PREVIEW_COOKIE_NAME}=; Secure; HttpOnly; SameSite=None; Path=/; Max-Age=0`,
+		);
 		expect(setCookie).toContain(`${PREVIEW_COOKIE_NAME}=${token}`);
 		expect(setCookie).toContain("Secure");
 		expect(setCookie).toContain("HttpOnly");
 		expect(setCookie).toContain("SameSite=None");
 		expect(setCookie).toContain("Path=/");
+		expect(setCookie).toContain("Partitioned");
 		expectSecurityHeaders(response);
 	});
 
@@ -244,9 +288,44 @@ describe("preview proxy", () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("bundle");
 		expect(headerOf(seenHeaders, "host")).toBe("x-5173.vercel.run");
+		// Metro builds its URLs from these, so the vendor host stays hidden.
+		expect(headerOf(seenHeaders, "x-forwarded-host")).toBe(host);
+		expect(headerOf(seenHeaders, "x-forwarded-proto")).toBe("https");
 		expect(headerOf(seenHeaders, "cookie")).toBe("theme=dark");
 		expectSecurityHeaders(response);
 		expect(response.headers.get("x-frame-options")).toBeNull();
+	});
+
+	it.each([
+		// A font load of the preview page itself: Expo CLI refused it with a 500.
+		{ name: "same-origin", origin: "self", expected: UPSTREAM },
+		{
+			name: "foreign",
+			origin: "https://evil.example",
+			expected: "https://evil.example",
+		},
+	])("sends a $name Origin upstream as $expected", async ({
+		origin,
+		expected,
+	}) => {
+		const token = await signPreviewToken(makeClaims(), KEY);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/font.ttf" })
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "font";
+			});
+
+		await dispatch(
+			cookieRequest(`https://${host}/font.ttf`, token, {
+				origin: origin === "self" ? `https://${host}` : origin,
+			}),
+		);
+
+		expect(headerOf(seenHeaders, "origin")).toBe(expected);
 	});
 
 	it("forwards a request whose only cookie is the wandit cookie with no Cookie header at all", async () => {
@@ -435,5 +514,478 @@ describe("preview proxy", () => {
 
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe(`https://${host}/foo?x=1`);
+	});
+});
+
+describe("frame host", () => {
+	// The iOS bug: WebKit drops the run host cookie, so the iframe never got the app.
+	it("opens a frame with no cookie: 403 for another user, a 302 that stores the claims, a forward, and an older token never replaces a renewal", async () => {
+		const claims = makeClaims();
+		const token = await signPreviewToken(claims, KEY);
+		const frameId = await previewFrameIdFor(claims, KEY);
+		const host = framePreviewHostFor(PROJECT_ID, frameId, env.PREVIEW_DOMAIN);
+		// Another user of the same run gets another frame host.
+		const otherUserHost = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(makeClaims({ uid: "user-2" }), KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		// The builder renewal: a new token of the same run and user, with a later exp.
+		const renewed = makeClaims({ exp: claims.exp + 60 });
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/app.js" })
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "bundle";
+			});
+
+		const forged = await dispatch(
+			new Request(`https://${otherUserHost}/?wt=${token}`),
+		);
+		const opened = await dispatch(
+			new Request(`https://${host}/notes?wt=${token}&tab=1`),
+		);
+		const forwarded = await dispatch(new Request(`https://${host}/app.js`));
+		const renewal = await dispatch(
+			new Request(
+				`https://${host}/?wt=${await signPreviewToken(renewed, KEY)}`,
+			),
+		);
+		// An old tab sends the first token again after the renewal.
+		await dispatch(new Request(`https://${host}/?wt=${token}`));
+
+		expect(forged.status).toBe(403);
+		expect(opened.status).toBe(302);
+		expect(opened.headers.get("location")).toBe(`https://${host}/notes?tab=1`);
+		expect(opened.headers.get("set-cookie")).toBeNull();
+		expect(forwarded.status).toBe(200);
+		expect(await forwarded.text()).toBe("bundle");
+		expect(headerOf(seenHeaders, "host")).toBe("x-5173.vercel.run");
+		expect(headerOf(seenHeaders, "x-forwarded-host")).toBe(host);
+		expectSecurityHeaders(forwarded);
+		expect(renewal.status).toBe(302);
+		expect(await env.PREVIEW_FRAME.getByName(frameId).claims()).toEqual(
+			renewed,
+		);
+	});
+
+	// The frame host label is the only secret, so these two guards keep a guessed or old host away from the sandbox.
+	it.each([
+		{ name: "no stored claims", hasExpiredClaims: false },
+		{
+			name: "stored claims at their exp, before the alarm deletes them",
+			hasExpiredClaims: true,
+		},
+	])("401s a frame host with $name, and the sandbox gets nothing", async ({
+		hasExpiredClaims,
+	}) => {
+		// A new user gives a new frame id, so no earlier test stored claims for it.
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const frameId = await previewFrameIdFor(claims, KEY);
+		const host = framePreviewHostFor(PROJECT_ID, frameId, env.PREVIEW_DOMAIN);
+		if (hasExpiredClaims) {
+			const frame = env.PREVIEW_FRAME.getByName(frameId);
+			const expired = { ...claims, exp: Math.floor(Date.now() / 1000) };
+			// A direct write sets no alarm, so the claims stay after their exp, like a late alarm.
+			await runInDurableObject(frame, (_instance, state) =>
+				state.storage.put("claims", expired),
+			);
+			// Without this read, a wrong storage key would test the no-claims guard only.
+			expect(await frame.claims()).toEqual(expired);
+		}
+		// A spy on the platform fetch counts the requests to the sandbox; it calls through.
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const response = await dispatch(new Request(`https://${host}/app.js`));
+		const upstreamCalls = fetchSpy.mock.calls.length;
+		fetchSpy.mockRestore();
+
+		expect(response.status).toBe(401);
+		expect(upstreamCalls).toBe(0);
+	});
+
+	// A guessed frame id must not buy a Durable Object call. Before the IP budget, it read the claims and got 401.
+	it("429s a frame request whose client IP spent its budget, before the claims read", async () => {
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const host = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(claims, KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		// Only the budget of this client IP is spent, in the binding sized for a venue NAT.
+		const envOverride: Env = {
+			...env,
+			PREVIEW_FRAME_IP_RATE: {
+				limit: ({ key }) => Promise.resolve({ success: key !== "203.0.113.7" }),
+			},
+		};
+
+		const response = await dispatch(
+			new Request(`https://${host}/app.js`, {
+				headers: { "cf-connecting-ip": "203.0.113.7" },
+			}),
+			envOverride,
+		);
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("60");
+	});
+
+	// A popup or a copied link of the app put the bearer host in an address bar, and the tab showed the app.
+	it("403s a top-level tab on a frame host with live claims, and the sandbox gets nothing", async () => {
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const host = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(claims, KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		const token = await signPreviewToken(claims, KEY);
+		const opened = await dispatch(
+			new Request(`https://${host}/?wt=${token}`, {
+				headers: { "sec-fetch-dest": "iframe" },
+			}),
+		);
+		// A spy on the platform fetch counts the requests to the sandbox; it calls through.
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const response = await dispatch(
+			new Request(`https://${host}/terms`, {
+				headers: { "sec-fetch-dest": "document" },
+			}),
+		);
+		const upstreamCalls = fetchSpy.mock.calls.length;
+		fetchSpy.mockRestore();
+
+		expect(opened.status).toBe(302);
+		expect(response.status).toBe(403);
+		expect(upstreamCalls).toBe(0);
+	});
+});
+
+describe("phone link", () => {
+	it("mints a phone link: 200 with the exps URL, CORS, and a 60-minute KV row with a new jti", async () => {
+		const claims = makeClaims({ expoUsername: "zack" });
+		const token = await signPreviewToken(claims, KEY);
+		const before = Math.floor(Date.now() / 1000);
+
+		const response = await dispatch(
+			new Request(
+				`https://${previewHost(PROJECT_ID, RUN_ID)}${PHONE_LINK_PATH}`,
+				{ method: "POST", body: token },
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("access-control-allow-origin")).toBe("*");
+		const link = phonePreviewLinkResponseSchema.parse(await response.json());
+		const phoneHost = link.expoUrl.slice("exps://".length);
+		expect(parsePreviewHost(phoneHost, env.PREVIEW_DOMAIN)).toMatchObject({
+			kind: "phone",
+			projectId: PROJECT_ID,
+		});
+		const row = await phoneRowOf(phoneHost);
+		expect(row.exp).toBeGreaterThanOrEqual(before + 3600);
+		expect(Date.parse(link.expiresAt)).toBe(row.exp * 1000);
+		expect(row.jti).not.toBe(claims.jti);
+		expect(row).toMatchObject({
+			pid: PROJECT_ID,
+			rid: RUN_ID,
+			up: UPSTREAM,
+			expoUsername: "zack",
+		});
+	});
+
+	it("401s a mint with a bad signature and 403s a mint for another project, both readable by any origin", async () => {
+		const badToken = await signPreviewToken(makeClaims(), "wrong-key");
+		const otherToken = await signPreviewToken(
+			makeClaims({ pid: OTHER_PROJECT_ID }),
+			KEY,
+		);
+		const url = `https://${previewHost(PROJECT_ID, RUN_ID)}${PHONE_LINK_PATH}`;
+
+		const bad = await dispatch(
+			new Request(url, { method: "POST", body: badToken }),
+		);
+		const other = await dispatch(
+			new Request(url, { method: "POST", body: otherToken }),
+		);
+
+		expect(bad.status).toBe(401);
+		expect(bad.headers.get("access-control-allow-origin")).toBe("*");
+		expect(other.status).toBe(403);
+	});
+
+	it("401s a phone host with no KV row as plain text, and the sandbox gets nothing", async () => {
+		const host = phonePreviewHostFor(
+			PROJECT_ID,
+			UNKNOWN_PHONE_ID,
+			env.PREVIEW_DOMAIN,
+		);
+
+		const response = await dispatch(
+			new Request(`https://${host}/`, {
+				headers: { "expo-platform": "ios" },
+			}),
+		);
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get("content-type")).toContain("text/plain");
+	});
+
+	it("401s a phone host whose row expired before KV deleted it", async () => {
+		const phoneHost = await mintPhoneHost();
+		const row = await phoneRowOf(phoneHost);
+		const parsed = parsePreviewHost(phoneHost, env.PREVIEW_DOMAIN);
+		if (parsed?.kind !== "phone") {
+			throw new Error("mint gave no phone host");
+		}
+		await env.PREVIEW_KV.put(
+			`phone:${parsed.phoneId}`,
+			JSON.stringify({ ...row, exp: Math.floor(Date.now() / 1000) - 1 }),
+		);
+
+		const response = await dispatch(new Request(`https://${phoneHost}/`));
+
+		expect(response.status).toBe(401);
+	});
+
+	it("403s a phone id under the host of another project", async () => {
+		const phoneHost = await mintPhoneHost();
+		const parsed = parsePreviewHost(phoneHost, env.PREVIEW_DOMAIN);
+		if (parsed?.kind !== "phone") {
+			throw new Error("mint gave no phone host");
+		}
+		const swapped = phonePreviewHostFor(
+			OTHER_PROJECT_ID,
+			parsed.phoneId,
+			env.PREVIEW_DOMAIN,
+		);
+
+		const response = await dispatch(new Request(`https://${swapped}/`));
+
+		expect(response.status).toBe(403);
+	});
+
+	it("answers 429 with Retry-After: 60 when the budget is spent, on the mint route and on a phone host", async () => {
+		const phoneHost = await mintPhoneHost();
+		const token = await signPreviewToken(makeClaims(), KEY);
+		// A binding that always refuses stands in for a spent budget.
+		const envOverride: Env = {
+			...env,
+			PREVIEW_RATE: { limit: () => Promise.resolve({ success: false }) },
+		};
+
+		const mint = await dispatch(
+			new Request(
+				`https://${previewHost(PROJECT_ID, RUN_ID)}${PHONE_LINK_PATH}`,
+				{ method: "POST", body: token },
+			),
+			envOverride,
+		);
+		const phone = await dispatch(
+			new Request(`https://${phoneHost}/`),
+			envOverride,
+		);
+
+		expect(mint.status).toBe(429);
+		expect(mint.headers.get("retry-after")).toBe("60");
+		expect(mint.headers.get("access-control-allow-origin")).toBe("*");
+		expect(phone.status).toBe(429);
+		expect(phone.headers.get("retry-after")).toBe("60");
+	});
+
+	it("passes a JSON answer on a path that is not a manifest path unchanged", async () => {
+		const phoneHost = await mintPhoneHost(makeClaims({ expoUsername: "zack" }));
+		const packagerHost = packagerHostFor(PROJECT_ID, env.PREVIEW_DOMAIN);
+		const symbolicated = JSON.stringify({ stack: [{ file: packagerHost }] });
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/symbolicate", method: "POST" })
+			.reply(200, symbolicated, {
+				headers: { "content-type": "application/json" },
+			});
+
+		const response = await dispatch(
+			new Request(`https://${phoneHost}/symbolicate`, {
+				method: "POST",
+				body: "{}",
+			}),
+		);
+
+		expect(await response.text()).toBe(symbolicated);
+	});
+
+	it("404s the fixed Metro host: it lives in manifests only", async () => {
+		const response = await dispatch(
+			new Request(
+				`https://${packagerHostFor(PROJECT_ID, env.PREVIEW_DOMAIN)}/`,
+			),
+		);
+
+		expect(response.status).toBe(404);
+	});
+
+	it("forwards a bundle request with no cookie and no redirect, with the phone host as x-forwarded-host", async () => {
+		const phoneHost = await mintPhoneHost();
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({
+				path: "/node_modules/expo-router/entry.bundle",
+				query: { platform: "ios", dev: "true" },
+			})
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "bundle";
+			});
+
+		const response = await dispatch(
+			new Request(
+				`https://${phoneHost}/node_modules/expo-router/entry.bundle?platform=ios&dev=true`,
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("bundle");
+		expect(headerOf(seenHeaders, "x-forwarded-host")).toBe(phoneHost);
+		expect(headerOf(seenHeaders, "cookie")).toBeNull();
+	});
+
+	it("writes the phone host and the username into an application/expo+json manifest", async () => {
+		const phoneHost = await mintPhoneHost(makeClaims({ expoUsername: "zack" }));
+		const packagerHost = packagerHostFor(PROJECT_ID, env.PREVIEW_DOMAIN);
+		const manifest = {
+			launchAsset: { url: `https://${packagerHost}/index.bundle?platform=ios` },
+			extra: {
+				expoClient: { hostUri: packagerHost, name: "app" },
+				expoGo: { debuggerHost: packagerHost, mainModuleName: "index" },
+				scopeKey: "@anonymous/app",
+			},
+		};
+		let seenPlatform: string | null = null;
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/" })
+			.reply(
+				200,
+				(opts) => {
+					seenPlatform = headerOf(opts.headers, "expo-platform");
+					return JSON.stringify(manifest);
+				},
+				{ headers: { "content-type": "application/expo+json" } },
+			);
+
+		const response = await dispatch(
+			new Request(`https://${phoneHost}/`, {
+				headers: {
+					"expo-platform": "ios",
+					accept: "application/expo+json,application/json",
+				},
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(seenPlatform).toBe("ios");
+		const body = await response.text();
+		expect(body).not.toContain(`"${packagerHost}`);
+		expect(body).not.toContain(`//${packagerHost}`);
+		expect(JSON.parse(body)).toEqual({
+			launchAsset: { url: `https://${phoneHost}/index.bundle?platform=ios` },
+			extra: {
+				expoClient: { hostUri: phoneHost, name: "app" },
+				expoGo: {
+					debuggerHost: phoneHost,
+					mainModuleName: "index",
+					username: "zack",
+				},
+				scopeKey: "@anonymous/app",
+			},
+		});
+	});
+
+	it("rewrites only the manifest part of a multipart/mixed manifest", async () => {
+		const phoneHost = await mintPhoneHost(makeClaims({ expoUsername: "zack" }));
+		const packagerHost = packagerHostFor(PROJECT_ID, env.PREVIEW_DOMAIN);
+		const boundary = "----formdata-abc123";
+		const manifestJson = JSON.stringify({
+			launchAsset: { url: `https://${packagerHost}/index.bundle` },
+			extra: { expoGo: { debuggerHost: packagerHost } },
+		});
+		const multipart = `--${boundary}\r\nContent-Disposition: form-data; name="manifest"; filename="manifest"\r\nContent-Type: application/json\r\n\r\n${manifestJson}\r\n--${boundary}--\r\n\r\n`;
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/" })
+			.reply(200, multipart, {
+				headers: {
+					"content-type": `multipart/mixed; boundary=${boundary}`,
+				},
+			});
+
+		const response = await dispatch(
+			new Request(`https://${phoneHost}/`, {
+				headers: { "expo-platform": "android", accept: "multipart/mixed" },
+			}),
+		);
+
+		const body = await response.text();
+		// The part framing stays byte for byte; only the JSON between changes.
+		const head = `--${boundary}\r\nContent-Disposition: form-data; name="manifest"; filename="manifest"\r\nContent-Type: application/json\r\n\r\n`;
+		const tail = `\r\n--${boundary}--\r\n\r\n`;
+		expect(body.startsWith(head)).toBe(true);
+		expect(body.endsWith(tail)).toBe(true);
+		expect(JSON.parse(body.slice(head.length, -tail.length))).toEqual({
+			launchAsset: { url: `https://${phoneHost}/index.bundle` },
+			extra: { expoGo: { debuggerHost: phoneHost, username: "zack" } },
+		});
+	});
+
+	it("leaves the manifest username out when the user typed none", async () => {
+		const phoneHost = await mintPhoneHost();
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/" })
+			.reply(200, JSON.stringify({ extra: { expoGo: {} } }), {
+				headers: { "content-type": "application/json" },
+			});
+
+		const response = await dispatch(
+			new Request(`https://${phoneHost}/`, {
+				headers: { "expo-platform": "android" },
+			}),
+		);
+
+		expect(JSON.parse(await response.text())).toEqual({
+			extra: { expoGo: {} },
+		});
+	});
+
+	it("passes a Metro /hot WebSocket upgrade on a phone host", async () => {
+		const phoneHost = await mintPhoneHost();
+		// Same network stub as the run-host WebSocket test: fetchMock hands
+		// every Upgrade request to the real fetch.
+		const realFetch = globalThis.fetch;
+		const pair = new WebSocketPair();
+		pair[1].accept();
+		let upstreamUrl: string | null = null;
+		globalThis.fetch = (input, init) => {
+			upstreamUrl = new Request(input, init).url;
+			return Promise.resolve(
+				new Response(null, { status: 101, webSocket: pair[0] }),
+			);
+		};
+		try {
+			const response = await dispatch(
+				new Request(`https://${phoneHost}/hot`, {
+					headers: { upgrade: "websocket" },
+				}),
+			);
+
+			expect(response.status).toBe(101);
+			expect(upstreamUrl).toBe(`${UPSTREAM}/hot`);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
 	});
 });

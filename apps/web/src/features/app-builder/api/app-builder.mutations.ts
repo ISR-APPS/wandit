@@ -1,74 +1,79 @@
 /**
- * Mutations of the app builder. Each one calls a service and writes the
- * result into the query cache, so the panel that reads the query updates at
- * once. Called by the Settings panel, the Sign-in panel, the Payments
- * panel, and the versions popover.
+ * Mutations of the app builder. Most call a service and write the result
+ * into the query cache, so the panel that reads the query updates at once.
+ * Called by the dashboard create flow, the Settings panel, the versions
+ * popover, the Expo Go popover, and the asleep note of the preview.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type {
+	CreateAppProjectRequest,
+	UpdateProjectCostCapsRequest,
+} from "@wandit/contracts";
 import { toast } from "sonner";
 
+import { projectKeys } from "@/features/projects";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
-	type AppProjectPatch,
+	createAppProject,
+	getPhonePreviewLink,
 	restoreVersion,
-	setCollaboratorRole,
-	setPaymentsMode,
-	setSignInMethod,
-	updateAppProject,
+	updateCostCaps,
+	wakeSandbox,
 } from "./app-builder.services";
-import type { CollaboratorRole, SignInMethodId } from "./dto";
 
-/** Name, description, or kind. The project menu list refreshes too, so its badge stays right. */
-export function useUpdateAppProject(projectId: string) {
+/**
+ * Creates a V2 app project from the dashboard prompt. The V1 project grid
+ * lists V2 projects too, so its list query refreshes and the new card shows.
+ */
+export function useCreateAppProject() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationKey: [...appBuilderKeys.project(projectId), "update"],
-		mutationFn: (patch: AppProjectPatch) => updateAppProject(projectId, patch),
-		onSuccess: (project) => {
-			queryClient.setQueryData(appBuilderKeys.project(projectId), project);
-			void queryClient.invalidateQueries({
-				queryKey: appBuilderKeys.projects(),
-			});
+		mutationFn: (body: CreateAppProjectRequest) => createAppProject(body),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
 		},
 	});
 }
 
-/** Turns one sign-in method on or off. Writes the returned summary into the sign-in query. */
-export function useSetSignInMethod(projectId: string) {
-	const queryClient = useQueryClient();
+/**
+ * Mints a phone link for Expo Go. No cache write: each popover open mints a
+ * new link, and the popover reads the answer from the mutation.
+ */
+export function useMintPhonePreviewLink(projectId: string) {
 	return useMutation({
-		mutationKey: [...appBuilderKeys.signIn(projectId), "set"],
-		mutationFn: (input: { methodId: SignInMethodId; enabled: boolean }) =>
-			setSignInMethod(projectId, input),
-		onSuccess: (summary) => {
-			queryClient.setQueryData(appBuilderKeys.signIn(projectId), summary);
-		},
+		mutationFn: (expoUsername: string) =>
+			getPhonePreviewLink(projectId, expoUsername),
 	});
 }
 
-/** Switches the provider keys between test and live. Writes the returned summary into the payments query. */
-export function useSetPaymentsMode(projectId: string) {
-	const queryClient = useQueryClient();
+/**
+ * Wakes the sleeping sandbox from the asleep note of the preview. No cache
+ * write and no toast: the preview token poll sees the running sandbox, and
+ * the note shows the error under its button.
+ */
+export function useWakeSandbox(projectId: string) {
 	return useMutation({
-		mutationKey: [...appBuilderKeys.payments(projectId), "mode"],
-		mutationFn: (mode: "test" | "live") => setPaymentsMode(projectId, mode),
-		onSuccess: (summary) => {
-			queryClient.setQueryData(appBuilderKeys.payments(projectId), summary);
-		},
+		mutationFn: () => wakeSandbox(projectId),
 	});
 }
 
-/** Changes the role of one collaborator. Writes the returned settings into the settings query. */
-export function useSetCollaboratorRole(projectId: string) {
+/**
+ * Saves both spending limits of a project. Writes the stored caps into the
+ * cost-caps query; a refusal shows the API message as a toast.
+ */
+export function useUpdateCostCaps(projectId: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationKey: [...appBuilderKeys.settings(projectId), "role"],
-		mutationFn: (input: { collaboratorId: string; role: CollaboratorRole }) =>
-			setCollaboratorRole(projectId, input),
-		onSuccess: (settings) => {
-			queryClient.setQueryData(appBuilderKeys.settings(projectId), settings);
+		mutationKey: [...appBuilderKeys.costCaps(projectId), "update"],
+		mutationFn: (body: UpdateProjectCostCapsRequest) =>
+			updateCostCaps(projectId, body),
+		onSuccess: (caps) => {
+			queryClient.setQueryData(appBuilderKeys.costCaps(projectId), caps);
+		},
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
 		},
 	});
 }
@@ -107,6 +112,11 @@ export function useRestoreVersion(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.project(projectId),
+			});
+			// A restore rewrites the worktree, so the Code view tree and the
+			// open file refetch too.
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.code(projectId),
 			});
 			deps.onRestored?.();
 		},

@@ -5,17 +5,15 @@
  * resume state after each turn.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "@wandit/db";
+import type { HarnessResumeEnvelope } from "@wandit/contracts";
+import { eq, stripNulCharacters } from "@wandit/db";
 import { builderSessions } from "@wandit/db/schema/builder-sessions";
 
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
-import type {
-	HarnessKind,
-	HarnessResumeState,
-} from "../../domain/ports/builder-harness";
+import type { HarnessKind } from "../../domain/ports/builder-harness";
 
 /** One `builder_sessions` row. */
 export type BuilderSessionRow = typeof builderSessions.$inferSelect;
@@ -72,16 +70,18 @@ export class BuilderSessionsRepository {
 	}
 
 	/**
-	 * Stores the harness state a finished turn detached. The next turn of the
-	 * chat reads it back through `findByChatId`. Returns the updated row, or
-	 * null when the session row vanished (deleted chat).
+	 * Stores the harness state a finished turn detached, with the turn mode.
+	 * The next turn of the chat reads it back through `findByChatId` and
+	 * `harnessResumeEnvelopeSchema`. Returns the updated row, or null when
+	 * the session row vanished (deleted chat). The pending cards hold agent
+	 * tool input, so the write removes U+0000, which `jsonb` refuses.
 	 */
 	async saveResumeState(
 		chatId: string,
 		input: {
 			model: string | null;
 			providerSessionId: string | null;
-			resumeState: HarnessResumeState;
+			resumeState: HarnessResumeEnvelope;
 		},
 	): Promise<BuilderSessionRow | null> {
 		const [row] = await this.db
@@ -89,7 +89,7 @@ export class BuilderSessionsRepository {
 			.set({
 				model: input.model,
 				providerSessionId: input.providerSessionId,
-				resumeState: input.resumeState,
+				resumeState: stripNulCharacters(input.resumeState),
 			})
 			.where(eq(builderSessions.chatId, chatId))
 			.returning();

@@ -1,3 +1,8 @@
+/**
+ * Reads and changes user accounts for the admin dashboard.
+ * AdminUsersController calls it. It calls AdminRepository, the view-grant
+ * repository, and CreditsService for credit grants.
+ */
 import {
 	BadRequestException,
 	Inject,
@@ -5,6 +10,7 @@ import {
 	Logger,
 	NotFoundException,
 } from "@nestjs/common";
+import type { AuthUser } from "@wandit/auth";
 import {
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
@@ -19,6 +25,7 @@ import {
 	type AdminUserProjectsQuery,
 	type AdminUserProjectsResponse,
 	creditsToCentiCredits,
+	isAdminRole,
 	isStaffRole,
 	normalizeStoredRole,
 } from "@wandit/contracts";
@@ -161,12 +168,24 @@ export class AdminUsersService {
 		});
 	}
 
+	/**
+	 * Adds promo credits to a user's personal wallet.
+	 * `actor` is the signed-in staff account. Its id goes to `meta.grantedBy` for the grant log.
+	 * Throws 400 when a non-admin staff account targets its own account.
+	 */
 	async grantCredits(
-		actingAdminId: string,
+		actor: Pick<AuthUser, "id" | "role">,
 		userId: string,
 		input: AdminGrantCreditsInput,
 	): Promise<AdminUserDetail> {
 		await this.ensureUserExists(userId);
+
+		// Support can grant credits to customers, but not to its own account. Admins are exempt.
+		if (!isAdminRole(actor.role) && actor.id === userId) {
+			throw new BadRequestException(
+				"Support accounts cannot grant credits to their own account",
+			);
+		}
 
 		// The API amount is decimal credits; the ledger takes centi-credits.
 		await this.creditsService.grant(
@@ -177,14 +196,14 @@ export class AdminUsersService {
 				idempotencyKey: `admin-grant:${userId}:${input.requestId}`,
 				meta: {
 					reason: "admin_grant",
-					grantedBy: actingAdminId,
+					grantedBy: actor.id,
 					note: input.reason ?? null,
 				},
 			},
 		);
 
 		this.logger.log(
-			`admin_grant_credits admin=${actingAdminId} target=${userId} amountCredits=${input.amount}`,
+			`admin_grant_credits admin=${actor.id} role=${normalizeStoredRole(actor.role)} target=${userId} amountCredits=${input.amount}`,
 		);
 
 		return this.getUserDetail(userId);

@@ -5,9 +5,11 @@
  */
 import { type Queue, queue } from "@trigger.dev/sdk";
 
-// ESTIMATE 3 from WANDIT-183: every create call shares the Supabase org
-// bucket, so the queue stays narrow.
+// Each run makes 2 org-bucket calls (find and create). The Redis limiter
+// guards the 120 per minute bucket, so 10 runs at once stay under it.
+// A 5 s `wait.for` does not checkpoint, so a run holds its slot for 15 to 42 s.
+// LIMIT: 10 runs at once, about 25 backends per minute. Upgrade: a checkpointing wait.
 export const backendProvisioningQueue: Queue = queue({
-	concurrencyLimit: 3,
+	concurrencyLimit: 10,
 	name: "backend-provisioning",
 });

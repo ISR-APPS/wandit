@@ -2,9 +2,10 @@
 
 One Cloudflare Worker on the `*/*` route of the `wandit.app` zone. It answers
 `{slug}.wandit.app` and customer domains (Cloudflare for SaaS custom
-hostnames), resolves `Host → KV pointer → R2 object`, and streams the
-published HTML. Full design + production checklist:
-`docs/features/edge-serving.md`.
+hostnames) and resolves `Host → KV pointer`. A V1 page pointer streams the
+published HTML from R2. A V2 app pointer (`kind: "app"`) hands the request
+to the app's own Worker in the dispatch namespace (see "V2 apps" below).
+Full design + production checklist: `docs/features/edge-serving.md`.
 
 ## Configs
 
@@ -34,7 +35,13 @@ curl -sI -H "Host: nope.wandit.app"       http://127.0.0.1:8799/   # 404 + no-st
 curl -sI -H "Host: banned.wandit.app"     http://127.0.0.1:8799/   # 403 suspended
 curl -sI -H "Host: customers.wandit.app"  http://127.0.0.1:8799/   # 200 health
 curl -s  -X POST -H "Host: acme.wandit.app" http://127.0.0.1:8799/ # 405
+curl -sI -H "Host: acme-app.wandit.app"   http://127.0.0.1:8799/about # V2 app: 500 until WANDIT-200 adds DISPATCHER
+curl -sI -H "Host: phishing-app.wandit.app" http://127.0.0.1:8799/ # 451 suspended app (abuse_phishing)
+curl -sI -H "Host: unpaid-app.wandit.app" http://127.0.0.1:8799/   # 410 suspended app (billing)
 ```
+
+Miniflare runs no dispatch namespace, so the V2 app host answers the 500
+page locally. The two suspended app hosts answer before any dispatch.
 
 To pull a page published by the local API into the worker's local R2 state,
 download it from real R2 first (the API writes
@@ -67,11 +74,55 @@ Manual steps stay in the Cloudflare dashboard: the route exclusions, the DNS
 records, and the SaaS fallback origin. See `docs/features/edge-serving.md`.
 If a deploy breaks serving, run `wrangler rollback --env production`.
 
+## V2 apps (WANDIT-177)
+
+A V2 app is one Cloudflare Worker per app in a Workers for Platforms
+dispatch namespace (D15). The edge does not read app files. It finds the
+app's Worker and hands the request to it.
+
+- **Pointer:** the same `domain:{host}` KV value, with `kind: "app"`. The
+  fields live in `packages/contracts/src/v2/publish.ts` (`HostPointer`):
+  `projectId`, `kind`, `source`, `slug`, `status`, `reasonCode`, `limits`.
+  The publish task (WANDIT-178) writes `kind` and `limits`; the suspend
+  switch (WANDIT-181) writes `status` and `reasonCode`. A pointer without
+  `kind` takes the V1 path.
+- **Lookup cache:** the Worker keeps a pointer, hit or miss, in isolate
+  memory for 10 s, on top of the 60 s KV edge cache.
+- **Dispatch:** `env.DISPATCHER.get(appWorkerName(projectId), {}, { limits })`,
+  then `userWorker.fetch(request)` with the request as the visitor sent it:
+  method, path, headers, and body. `limits` comes from the pointer, or
+  `DEFAULT_APP_WORKER_LIMITS` when the pointer has none. The app owns its
+  paths, content types, cache headers, CSP, and 404 pages. The edge adds
+  only `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: strict-origin-when-cross-origin` when the app sets none.
+  A 101 WebSocket answer returns untouched.
+- **No edge cache on this path:** a server function answer must never enter
+  `caches.default`. Every method passes; the V1 405 does not apply.
+- **Errors:** a `get` or `fetch` that throws `Worker not found` answers the
+  not-published page (404, `no-store`). Any other dispatch error answers the
+  branded 500 page with a Sentry capture.
+- **Suspended:** `status: "suspended"` answers before any dispatch with
+  `suspendedAppPage(reasonCode)`: 451 for a code that starts with `abuse_`
+  or `legal_`, 410 for every other code or no code. Both are `no-store`. A
+  V1 pointer with `status: "suspended"` still answers 403.
+- **Binding (WANDIT-200):** `DISPATCHER` in `Env` is the dispatch
+  namespace. `wrangler.jsonc` binds it to the namespace `production` at the
+  top level and in env `production`, and to the namespace `staging` in env
+  `staging`. The API writes into the same namespace through
+  `CLOUDFLARE_W4P_NAMESPACE`. A real deploy fails when the namespace does
+  not exist in the account; the pull request dry run does not check it. So
+  create both namespaces before the first deploy with this config (steps in
+  `docs/v2/runbook.md`). `wrangler.dev.jsonc` has no binding: no user
+  Worker runs locally, so `wrangler dev` answers the 500 page for a
+  `kind: "app"` pointer.
+
 ## Invariants
 
 - **Pointer contract:** `projectId` is the ONLY required field of a
   `domain:{host}` KV value. The domains pipeline writes
-  `{projectId, source:"domain"}` — never require more.
+  `{projectId, source:"domain"}` — never require more. The fields are typed
+  in `packages/contracts/src/v2/publish.ts`; the Worker reads them as a
+  type and parses nothing, so zod stays out of the bundle.
 - **Never enable the new Workers Cache (`ctx.cache`)** without the
   `ctx.props` two-entrypoint design: it is host-blind and would serve one
   customer's page on another customer's domain. `caches.default` keys on the

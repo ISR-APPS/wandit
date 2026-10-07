@@ -132,6 +132,26 @@ describe("promptStash", () => {
 		expect(promptStash.consume()).toBeNull();
 	});
 
+	it.each([
+		["mobile", "mobile"],
+		["desktop", undefined],
+		[42, undefined],
+	])("reads a stored target platform %j as %j", (stored, expected) => {
+		window.sessionStorage.setItem(
+			"wandit-prompt-stash",
+			JSON.stringify({
+				version: 3,
+				prompt: "Build me a mobile app for my running club",
+				autostart: true,
+				stashedAt: NOW,
+				targetPlatform: stored,
+			}),
+		);
+
+		expect(promptStash.peek()?.targetPlatform).toBe(expected);
+		expect(promptStash.consume()?.targetPlatform).toBe(expected);
+	});
+
 	it("defaults to prefill-only when no autostart flag is recorded", () => {
 		promptStash.stash("Build a watch shop page");
 

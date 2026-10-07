@@ -70,13 +70,17 @@ export class TurnPromoter {
 		}
 
 		try {
-			const { runId } = await this.starter.start({
+			const handle = await this.starter.start({
 				actorUserId: waiting.userId,
+				apiCreateMs: null,
 				organizationId: waiting.organizationId,
 				projectId,
 				turnId: waiting.id,
 			});
-			await this.turns.setTriggerRunId(waiting.id, runId);
+			// A host-run turn has no run id; the row's `runner` names its owner.
+			if (handle.runner === "trigger") {
+				await this.turns.setTriggerRunId(waiting.id, handle.runId);
+			}
 			return waiting;
 		} catch (error) {
 			this.logger.warn(

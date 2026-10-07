@@ -4,7 +4,9 @@
  * the country code of the create request (WANDIT-175).
  * `SUPABASE_PLATFORM_REGION` overrides the result.
  */
-import type { BackendRegion } from "./ports/backend-provider";
+
+/** EU regions the residency decision allows (D8: Paris, Frankfurt). */
+export type BackendRegion = "eu-west-3" | "eu-central-1";
 
 // D8 names Paris and Frankfurt; WANDIT-183 assigns central and northern
 // Europe to Frankfurt. Every other code goes to Paris.

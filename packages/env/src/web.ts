@@ -1,3 +1,8 @@
+/**
+ * Build-time env of the web app. Vite inlines each VITE_* value into the bundle.
+ * Six files in apps/web import `env`, for example main.tsx and server-url.ts.
+ * Zod validates the values through @t3-oss/env-core.
+ */
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
@@ -25,6 +30,8 @@ export const env = createEnv({
 		// PostHog product analytics. Unset = analytics disabled (local dev).
 		VITE_POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
+		// Staging sets https://preview.wandit.dev/lumen. apps/web/vercel.json proxies
+		// that path to PostHog, because ad blockers block the PostHog hosts.
 		VITE_POSTHOG_HOST: z.url().optional(),
 		// Cloudflare Turnstile site key. Unset = no captcha widget; must match
 		// the server's TURNSTILE_SECRET_KEY pair when email auth is live.
@@ -35,7 +42,10 @@ export const env = createEnv({
 		VITE_CHATWOOT_BASE_URL: z.url().optional(),
 		VITE_CHATWOOT_WEBSITE_TOKEN: z.string().min(1).optional(),
 	},
-	runtimeEnv: (import.meta as any).env,
+	// SAFETY: Vite sets import.meta.env in the web build. This package has no Vite types.
+	runtimeEnv: (
+		import.meta as ImportMeta & { env: Record<string, string | undefined> }
+	).env,
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 	emptyStringAsUndefined: true,
 });

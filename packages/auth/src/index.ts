@@ -1,10 +1,19 @@
+/**
+ * Builds the Better Auth instances: createAuth for the web and native apps, createAdminAuth for the admin app.
+ * The server AuthModule calls createAuth with its delivery and signup hooks.
+ * Both instances write users, sessions, and accounts to Postgres through the Drizzle adapter.
+ */
 import { expo } from "@better-auth/expo";
 import { isStaffRole } from "@wandit/contracts";
 import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
-import { corsWebOrigins, expoDevOrigins } from "@wandit/env/cors-origins";
+import {
+	corsWebOrigins,
+	expoDevOrigins,
+	isLocalhostUrl,
+} from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import {
 	type BetterAuthRateLimitStorage,
@@ -29,6 +38,7 @@ import {
 	organization,
 } from "better-auth/plugins";
 import { adminAccessControl, adminRoles } from "./admin-permissions";
+import { isDevPasswordLoginEnabled } from "./dev-password-login";
 import { canonicalizeEmail } from "./email-canonical";
 import { emailMagicLinkUrl } from "./email-magic-link-url";
 import {
@@ -79,6 +89,16 @@ const EMAIL_OTP_DISABLED_PATHS = [
 	"/email-otp/change-email",
 	"/email-otp/check-verification-otp",
 ];
+
+// Better Auth allows 3 requests per 10 s per IP on every `/sign-in/*` path.
+// An event room shares one NAT IP, so Google sign-in gets 100 per 10 s.
+// This route returns the Google redirect URL, or checks an ID token that Google signed.
+// Only Google issues a valid token, so a higher cap does not help a password guess.
+// `/sign-in/email` keeps the default rule.
+// A key is the path without the `/api/auth` base path. Better Auth matches it exactly.
+const AUTH_RATE_LIMIT_CUSTOM_RULES = {
+	"/sign-in/social": { window: 10, max: 100 },
+};
 
 // Surfaced by the OAuth callback as `?error=...` — keep the string stable.
 export const ADMIN_ACCESS_REQUIRED_ERROR_CODE = "ADMIN_ACCESS_REQUIRED";
@@ -230,6 +250,7 @@ function createBaseAuthOptions() {
 		// The database store survives restarts and is shared by every API
 		// process. Enablement keeps Better Auth's default (production only).
 		rateLimit: {
+			customRules: AUTH_RATE_LIMIT_CUSTOM_RULES,
 			storage: "database" as const,
 		},
 	};
@@ -402,7 +423,15 @@ function createGoogleProviderOptions(): GoogleOptions {
 	};
 }
 
+/**
+ * Builds the Better Auth instance for the web and native apps. On a local
+ * development API it also accepts the DEV_USER password, from localhost only.
+ */
 export function createAuth(options: CreateAuthOptions = {}) {
+	const isDevPasswordLogin = isDevPasswordLoginEnabled({
+		authUrl: env.BETTER_AUTH_URL,
+		nodeEnv: env.NODE_ENV,
+	});
 	const emailAuthDisabledError = () =>
 		APIError.from("FORBIDDEN", {
 			code: EMAIL_AUTH_DISABLED_ERROR_CODE,
@@ -429,7 +458,9 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		basePath: "/api/auth",
 		...(options.secondaryStorage
 			? {
+					// This object replaces the base `rateLimit`, so it repeats the custom rules.
 					rateLimit: {
+						customRules: AUTH_RATE_LIMIT_CUSTOM_RULES,
 						customStorage: createRateLimitStorage(options.secondaryStorage),
 						storage: "secondary-storage" as const,
 					},
@@ -484,8 +515,13 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		socialProviders: {
 			google: createGoogleProviderOptions(),
 		},
+		// Local development only: browser agents cannot pass Google sign-in.
+		// Sign-up stays off, so the seeded DEV_USER is the only password account.
+		...(isDevPasswordLogin
+			? { emailAndPassword: { disableSignUp: true, enabled: true } }
+			: {}),
 		hooks: {
-			// The before hook has two jobs that MUST run in the hook pipeline (hook
+			// The before hook has four jobs that MUST run in the hook pipeline (hook
 			// errors always propagate to the client; the email-otp plugin
 			// backgrounds its send callback, so in-callback errors would be
 			// swallowed into a fake `success: true`):
@@ -497,9 +533,25 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			//    disposable blocklist, per-email/per-IP caps. A vetoed request
 			//    never reaches the plugin, so no verification row is created
 			//    and the client gets the real error code.
-			// 3. Pin the expo authorization proxy target (first branch below).
+			// 3. Pin the expo authorization proxy target (second branch below).
+			// 4. Refuse the dev password from a host that is not localhost
+			//    (first branch below).
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
+				// 4. The DEV_USER password is public, and a local API can sit behind
+				//    a public tunnel (docs/v2/security.md). The request host comes
+				//    from the Host header, and a tunnel sends its public host.
+				if (
+					isDevPasswordLogin &&
+					path === "/sign-in/email" &&
+					ctx.request &&
+					!isLocalhostUrl(ctx.request.url)
+				) {
+					throw APIError.from("FORBIDDEN", {
+						code: "DEV_PASSWORD_LOGIN_LOCALHOST_ONLY",
+						message: "Dev password sign-in works only on localhost.",
+					});
+				}
 				// 3. Pin the expo authorization proxy to the Google URL this API
 				//    issues (see expo-authorization-proxy.ts): no open redirect, no
 				//    state-cookie fixation. Runs before the plugin's own handler.

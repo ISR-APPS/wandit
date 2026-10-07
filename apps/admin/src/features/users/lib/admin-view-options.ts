@@ -1,6 +1,12 @@
+/**
+ * Labels and defaults for the support "Admin views" checklist.
+ * The role and admin-views dialogs call these helpers.
+ * The view keys come from the contract; defaults come from @wandit/auth.
+ */
 import { defaultSupportViews } from "@wandit/auth/admin-permissions";
 import type { AdminUserRole, AdminView } from "@wandit/contracts";
 
+/** The label and the hint for each view in the support checklist. The keys are AdminView values, in contract order. */
 export const ADMIN_VIEW_LABELS = {
 	overview: {
 		label: "Overview",
@@ -17,6 +23,10 @@ export const ADMIN_VIEW_LABELS = {
 	billing: {
 		label: "Offline billing",
 		description: "Cash & transfer requests",
+	},
+	credits: {
+		label: "Credits",
+		description: "Grant credits and see the grant log",
 	},
 	publications: {
 		label: "Publications",

@@ -2,12 +2,20 @@
  * `GitStore` on code.storage (D21): one repository per project, named
  * `wandit/<projectId>`. All credentials are ES256 JWTs minted locally with
  * the org's private key — no platform-wide token ever leaves this class.
- * Called by `commitTurn`, the restorer, and the project-create flow.
+ * Called by `commitTurn`, the restorer, and the project-create flow. The
+ * `mobile-build` task gets a "read" credential here to fetch one commit.
  */
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
-import type { GitStore } from "../../domain/ports/git-store";
+import type {
+	GitCredentialAccess,
+	GitStore,
+} from "../../domain/ports/git-store";
 import { requireV2Env, V2_ENV, type V2EnvSource } from "../env/v2-env";
-import { type CodeStorageScope, mintCodeStorageJwt } from "./code-storage-jwt";
+import {
+	type CodeStorageRefRule,
+	type CodeStorageScope,
+	mintCodeStorageJwt,
+} from "./code-storage-jwt";
 import { CODE_STORAGE_GIT_USERNAME } from "./git-remote-url";
 
 /** Repository name for one project on code.storage. */
@@ -52,6 +60,20 @@ const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 // A `Retry-After` value above this bound is clamped so one 429 cannot stall
 // a turn for minutes.
 const RETRY_AFTER_CAP_MS = 60_000;
+// Security (WANDIT-282): a stolen push token cannot force-push `main`, push
+// another branch, or push a tag. The first matching rule wins. A live probe
+// on 2026-10-04 showed that code.storage enforces the claim on git push:
+// each of these three pushes got "denied by policy".
+// LIMIT: "no-force-push" allows a delete and a new create of `main`. The
+// probe deleted `main` with this claim and then pushed an unrelated root
+// commit as the new `main`. The REST API refuses a delete of the default
+// branch (409). The old commits stayed readable by sha. Upgrade: the
+// sandbox pushes to a per-turn branch, and the server fast-forwards `main`
+// with a JWT that never enters the sandbox.
+const PUSH_MAIN_REFS: CodeStorageRefRule[] = [
+	["refs/heads/main", ["no-force-push"]],
+	["*", ["no-push"]],
+];
 
 /** `GitStore` over the code.storage REST API. */
 @Injectable()
@@ -93,9 +115,15 @@ export class CodeStorageGitStore implements GitStore {
 		return { remoteUrl: this.remoteUrl(projectId) };
 	}
 
+	/**
+	 * Mints a git JWT without an API call. "read" access carries only
+	 * `git:read`, so the token cannot push. "push-main" adds `git:write` and
+	 * the `refs` claim `PUSH_MAIN_REFS`. Its LIMIT says what the claim allows.
+	 */
 	async issueCredential(
 		projectId: string,
 		ttlSeconds: number,
+		access: GitCredentialAccess,
 	): Promise<{
 		username: string;
 		password: string;
@@ -103,13 +131,17 @@ export class CodeStorageGitStore implements GitStore {
 		remoteUrl: string;
 	}> {
 		const now = new Date();
-		// Git needs both scopes: `git:read` for fetch/clone, `git:write` for
-		// push. One scope never includes the other.
-		const password = await this.mint(["git:read", "git:write"], {
-			repoName: codeStorageRepoName(projectId),
-			ttlSeconds,
-			now,
-		});
+		// A push needs both scopes: `git:read` for fetch/clone, `git:write`
+		// for push. One scope never includes the other.
+		const password = await this.mint(
+			access === "read" ? ["git:read"] : ["git:read", "git:write"],
+			{
+				repoName: codeStorageRepoName(projectId),
+				ttlSeconds,
+				now,
+				refs: access === "read" ? undefined : PUSH_MAIN_REFS,
+			},
+		);
 		return {
 			username: CODE_STORAGE_GIT_USERNAME,
 			password,
@@ -139,7 +171,12 @@ export class CodeStorageGitStore implements GitStore {
 	/** `iss`/`sub` fixed claims plus the org's signing key from env. */
 	private async mint(
 		scopes: CodeStorageScope[],
-		token: { repoName: string; ttlSeconds: number; now?: Date },
+		token: {
+			repoName: string;
+			ttlSeconds: number;
+			now?: Date;
+			refs?: CodeStorageRefRule[];
+		},
 	): Promise<string> {
 		const org = requireV2Env("CODE_STORAGE_ORG", this.v2Env);
 		const privateKeyPem = requireV2Env("CODE_STORAGE_PRIVATE_KEY", this.v2Env);
@@ -148,6 +185,7 @@ export class CodeStorageGitStore implements GitStore {
 			privateKeyPem,
 			repoName: token.repoName,
 			scopes,
+			refs: token.refs,
 			ttlSeconds: token.ttlSeconds,
 			now: token.now,
 		});

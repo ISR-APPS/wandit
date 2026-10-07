@@ -1,5 +1,12 @@
+import type { BillingPlanId } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import type {
+	SubscriptionRow,
+	SubscriptionsRepository,
+} from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { BACKEND_DEFAULTS } from "../../domain/backend-lifecycle";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import type { ProvisionBackendTaskStarter } from "../../domain/ports/provision-backend-task-starter";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type {
@@ -33,14 +40,66 @@ function backendRow(overrides: Partial<AppBackendRow> = {}): AppBackendRow {
 	};
 }
 
+const NOW = new Date("2026-09-25T00:00:00.000Z");
+
+// Copy of the fixture in `resolve-billing-plan.spec.ts`: a spec must not
+// import from another spec file.
+function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
+	return {
+		cancelAtPeriodEnd: false,
+		createdAt: NOW,
+		currentPeriodEnd: NOW,
+		currentPeriodStart: NOW,
+		id: "sub_1",
+		interval: "month",
+		organizationId: null,
+		pendingAppliedBy: null,
+		pendingInterval: null,
+		pendingPlan: null,
+		pendingTierCredits: null,
+		plan,
+		priceLookupKey: "pro_250_month",
+		provider: "stripe",
+		providerSubscriptionId: "sub_stripe_1",
+		status: "active",
+		tierCredits: 250,
+		updatedAt: NOW,
+		userId: "user-1",
+	};
+}
+
 function setup(envOverrides: Partial<V2EnvSource> = {}) {
+	// The payer's owned backends the locked write counts; a spec sets it.
+	const owned = { count: 0 };
+	// The stored row. The locked write reads and writes it one call at a
+	// time, like the per-payer lock of the repository.
+	const store: { row: AppBackendRow | null } = { row: null };
 	const backends = {
 		findByProjectId: vi.fn<AppBackendsRepository["findByProjectId"]>(
-			async () => null,
+			async () => store.row,
 		),
-		insertCreating: vi.fn<AppBackendsRepository["insertCreating"]>(
-			async (input) => backendRow({ ...input }),
-		),
+		// Like the repository: a row that is not `error` answers `exists`;
+		// else the plan rule runs on the count, then the insert or the retry.
+		writeCreatingWithinLimit: vi.fn<
+			AppBackendsRepository["writeCreatingWithinLimit"]
+		>(async (input, _owner, check) => {
+			const existing = store.row;
+			if (existing !== null && existing.status !== "error") {
+				return { kind: "exists", row: existing };
+			}
+			const entitlement = check(owned.count);
+			if (!entitlement.allowed) {
+				return { kind: "refused", refusal: entitlement };
+			}
+			const row = backendRow({
+				...existing,
+				...input,
+				failureCode: null,
+				status: "creating",
+			});
+			store.row = row;
+			return { kind: existing === null ? "inserted" : "retried", row };
+		}),
 		markError: vi.fn<AppBackendsRepository["markError"]>(async () => undefined),
 		setTriggerRunId: vi.fn<AppBackendsRepository["setTriggerRunId"]>(
 			async () => undefined,
@@ -58,47 +117,120 @@ function setup(envOverrides: Partial<V2EnvSource> = {}) {
 		...envOverrides,
 	};
 
-	const service = new BackendsService(backends, starter, v2Env);
+	// Default: a Pro payer, so the first backend passes the D3 entitlement.
+	const subscriptions = {
+		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
+			async () => subscriptionRow("pro"),
+		),
+	};
 
-	return { backends, service, starter };
+	const service = new BackendsService(backends, starter, v2Env, subscriptions);
+
+	return { backends, owned, service, starter, store, subscriptions };
 }
 
 describe("BackendsService.provisionBackend", () => {
-	it("answers null and writes nothing when the platform token is unset", async () => {
-		const { backends, service, starter } = setup({
-			SUPABASE_PLATFORM_TOKEN: undefined,
-		});
+	it.each([
+		{ unset: "SUPABASE_PLATFORM_TOKEN" },
+		{ unset: "SUPABASE_PLATFORM_ORG_ID" },
+	] as const)("answers null and writes nothing when $unset is unset", async ({
+		unset,
+	}) => {
+		const { backends, service, starter } = setup({ [unset]: undefined });
 
 		const row = await service.provisionBackend("project-1", INPUT);
 
 		expect(row).toBeNull();
 		expect(backends.findByProjectId).not.toHaveBeenCalled();
-		expect(backends.insertCreating).not.toHaveBeenCalled();
-		expect(starter.start).not.toHaveBeenCalled();
-	});
-
-	it("answers null when the platform org id is unset", async () => {
-		const { backends, service, starter } = setup({
-			SUPABASE_PLATFORM_ORG_ID: undefined,
-		});
-
-		const row = await service.provisionBackend("project-1", INPUT);
-
-		expect(row).toBeNull();
-		expect(backends.insertCreating).not.toHaveBeenCalled();
+		expect(backends.writeCreatingWithinLimit).not.toHaveBeenCalled();
 		expect(starter.start).not.toHaveBeenCalled();
 	});
 
 	it("answers the existing row and starts nothing on a second call", async () => {
-		const { backends, service, starter } = setup();
+		const { backends, service, starter, store } = setup();
 		const existing = backendRow({ status: "active" });
-		backends.findByProjectId.mockResolvedValue(existing);
+		store.row = existing;
 
 		const row = await service.provisionBackend("project-1", INPUT);
 
 		expect(row).toBe(existing);
-		expect(backends.insertCreating).not.toHaveBeenCalled();
+		expect(backends.writeCreatingWithinLimit).not.toHaveBeenCalled();
 		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	it("moves an error row to creating once and starts one run with the new key", async () => {
+		const { service, starter, store } = setup();
+		store.row = backendRow({
+			failureCode: "backend_provision_timeout",
+			ref: "abcdefghijklmnopqrst",
+			status: "error",
+		});
+
+		const row = await service.provisionBackend("project-1", INPUT);
+
+		expect(row).toMatchObject({
+			failureCode: null,
+			ref: "abcdefghijklmnopqrst",
+			status: "creating",
+		});
+		expect(row?.requestKey).not.toBe("request-1");
+		expect(starter.start).toHaveBeenCalledTimes(1);
+		expect(starter.start).toHaveBeenCalledWith({
+			projectId: "project-1",
+			requestKey: row?.requestKey,
+		});
+	});
+
+	it("provisions when the owner is under the plan limit", async () => {
+		const { backends, service, starter } = setup();
+
+		await service.provisionBackend("project-1", INPUT);
+
+		expect(backends.writeCreatingWithinLimit).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: "project-1" }),
+			{ type: "user", userId: "user-1" },
+			expect.any(Function),
+		);
+		expect(starter.start).toHaveBeenCalledTimes(1);
+	});
+
+	it("refuses at the plan limit with BACKEND_LIMIT_REACHED and starts nothing", async () => {
+		const { owned, service, starter } = setup();
+		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
+		owned.count = limit;
+
+		const failure = await service
+			.provisionBackend("project-1", INPUT)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BackendLimitReachedError);
+		// SAFETY: toBeInstanceOf above proves the type.
+		const refusal = failure as BackendLimitReachedError;
+		expect(refusal.getStatus()).toBe(403);
+		expect(refusal.getResponse()).toEqual({
+			code: "BACKEND_LIMIT_REACHED",
+			details: { limit, plan: "pro" },
+			message: `Backend limit reached: the pro plan allows ${limit}`,
+		});
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	it("counts and reads the plan of the org for an org project", async () => {
+		const { backends, service, subscriptions } = setup();
+
+		await service.provisionBackend("project-1", {
+			...INPUT,
+			organizationId: "org-1",
+		});
+
+		expect(backends.writeCreatingWithinLimit.mock.calls[0]?.[1]).toEqual({
+			organizationId: "org-1",
+			type: "org",
+		});
+		expect(subscriptions.findActiveByOwner).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			type: "org",
+		});
 	});
 
 	it("inserts eu-central-1 for a German user and starts the task", async () => {
@@ -106,9 +238,9 @@ describe("BackendsService.provisionBackend", () => {
 
 		const row = await service.provisionBackend("project-1", INPUT);
 
-		const inserted = backends.insertCreating.mock.calls[0]?.[0];
+		const inserted = backends.writeCreatingWithinLimit.mock.calls[0]?.[0];
 		if (!inserted) {
-			throw new Error("insertCreating was not called");
+			throw new Error("writeCreatingWithinLimit was not called");
 		}
 		expect(inserted).toMatchObject({
 			organizationId: null,
@@ -132,9 +264,9 @@ describe("BackendsService.provisionBackend", () => {
 
 		await service.provisionBackend("project-1", INPUT);
 
-		expect(backends.insertCreating).toHaveBeenCalledWith(
-			expect.objectContaining({ region: "eu-west-1" }),
-		);
+		expect(backends.writeCreatingWithinLimit.mock.calls[0]?.[0]).toMatchObject({
+			region: "eu-west-1",
+		});
 	});
 
 	it("inserts the picked region when the override is invalid", async () => {
@@ -144,18 +276,18 @@ describe("BackendsService.provisionBackend", () => {
 
 		await service.provisionBackend("project-1", INPUT);
 
-		expect(backends.insertCreating).toHaveBeenCalledWith(
-			expect.objectContaining({ region: "eu-central-1" }),
-		);
+		expect(backends.writeCreatingWithinLimit.mock.calls[0]?.[0]).toMatchObject({
+			region: "eu-central-1",
+		});
 	});
 
-	it("answers the re-read row and starts nothing when a concurrent create won", async () => {
+	it("answers the winner's row and starts nothing when a concurrent create won", async () => {
 		const { backends, service, starter } = setup();
 		const winner = backendRow({ requestKey: "other-key" });
-		backends.findByProjectId
-			.mockResolvedValueOnce(null)
-			.mockResolvedValueOnce(winner);
-		backends.insertCreating.mockResolvedValue(null);
+		backends.writeCreatingWithinLimit.mockResolvedValue({
+			kind: "exists",
+			row: winner,
+		});
 
 		const row = await service.provisionBackend("project-1", INPUT);
 
@@ -164,10 +296,11 @@ describe("BackendsService.provisionBackend", () => {
 		expect(backends.setTriggerRunId).not.toHaveBeenCalled();
 	});
 
-	it("throws and starts nothing when the insert and the re-read answer no row", async () => {
+	it("throws and starts nothing when the insert throws", async () => {
 		const { backends, service, starter } = setup();
-		backends.insertCreating.mockResolvedValue(null);
-		backends.findByProjectId.mockResolvedValue(null);
+		backends.writeCreatingWithinLimit.mockRejectedValue(
+			new Error("app_backends insert returned no row for project project-1"),
+		);
 
 		await expect(service.provisionBackend("project-1", INPUT)).rejects.toThrow(
 			"app_backends insert returned no row for project project-1",
@@ -189,7 +322,9 @@ describe("BackendsService.provisionBackend", () => {
 		const row = await service.provisionBackend("project-1", INPUT);
 
 		expect(row).toBe(failed);
-		expect(backends.markError).toHaveBeenCalledWith("project-1", {
+		const requestKey =
+			backends.writeCreatingWithinLimit.mock.calls[0]?.[0].requestKey;
+		expect(backends.markError).toHaveBeenCalledWith("project-1", requestKey, {
 			error: "trigger down",
 			failureCode: "backend_provision_start_failed",
 			failureKind: "internal",
@@ -200,5 +335,16 @@ describe("BackendsService.provisionBackend", () => {
 			sentryEventId: null,
 		});
 		expect(backends.setTriggerRunId).not.toHaveBeenCalled();
+	});
+
+	it("keeps the queued backend creating when the run id write fails", async () => {
+		const { backends, service } = setup();
+		backends.setTriggerRunId.mockRejectedValue(new Error("pool timeout"));
+
+		const row = await service.provisionBackend("project-1", INPUT);
+
+		// Trigger accepted the run, so an error row would make that run skip.
+		expect(backends.markError).not.toHaveBeenCalled();
+		expect(row).toMatchObject({ status: "creating" });
 	});
 });

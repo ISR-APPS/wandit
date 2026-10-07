@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * Select of the web app, on top of the Radix primitive.
+ * The open list copies the dropdown menu: a white sheet and grotesk rows with
+ * an ember check. The trigger keeps the look of a form input.
+ */
+
 import { cn } from "@wandit/ui/lib/utils";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
@@ -61,7 +67,7 @@ function SelectContent({
 			<SelectPrimitive.Content
 				data-slot="select-content"
 				className={cn(
-					"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in",
+					"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-[20px] border border-popover-foreground/[0.08] bg-popover text-popover-foreground shadow-menu data-[state=closed]:animate-out data-[state=open]:animate-in",
 					position === "popper" &&
 						"data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
 					className,
@@ -73,9 +79,9 @@ function SelectContent({
 				<SelectScrollUpButton />
 				<SelectPrimitive.Viewport
 					className={cn(
-						"p-1",
+						"p-1.5",
 						position === "popper" &&
-							"h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1",
+							"h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1.5",
 					)}
 				>
 					{children}
@@ -93,7 +99,10 @@ function SelectLabel({
 	return (
 		<SelectPrimitive.Label
 			data-slot="select-label"
-			className={cn("px-2 py-1.5 text-muted-foreground text-xs", className)}
+			className={cn(
+				"px-2.5 pt-2 pb-1 font-grotesk font-semibold text-popover-foreground/60 text-xs",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -108,17 +117,17 @@ function SelectItem({
 		<SelectPrimitive.Item
 			data-slot="select-item"
 			className={cn(
-				"relative flex w-full cursor-default select-none items-center gap-2 rounded-sm py-1.5 ps-2 pe-8 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+				"relative flex w-full cursor-default select-none items-center gap-2.5 rounded-[14px] py-2 ps-2.5 pe-9 font-grotesk font-medium text-sm outline-hidden transition-colors focus:bg-popover-foreground/[0.05] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-popover-foreground/45 focus:[&_svg:not([class*='text-'])]:text-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
 				className,
 			)}
 			{...props}
 		>
 			<span
 				data-slot="select-item-indicator"
-				className="absolute end-2 flex size-3.5 items-center justify-center"
+				className="absolute end-3 flex size-4 items-center justify-center"
 			>
 				<SelectPrimitive.ItemIndicator>
-					<CheckIcon className="size-4" />
+					<CheckIcon className="size-4 text-primary" />
 				</SelectPrimitive.ItemIndicator>
 			</span>
 			<SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
@@ -133,7 +142,10 @@ function SelectSeparator({
 	return (
 		<SelectPrimitive.Separator
 			data-slot="select-separator"
-			className={cn("pointer-events-none -mx-1 my-1 h-px bg-border", className)}
+			className={cn(
+				"pointer-events-none -mx-1.5 my-1.5 h-px bg-popover-foreground/[0.07]",
+				className,
+			)}
 			{...props}
 		/>
 	);

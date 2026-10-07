@@ -1,6 +1,10 @@
-/* Design tokens for the generated site. Tailwind v4 theme.
-   Every component reads these semantic names, never raw colors.
-   The design-world skill recolors this file; the names stay stable.
+/* Design tokens for the generated app. Tailwind v4 theme.
+   Every component reads these semantic names, never raw colors. The names stay stable.
+   Part 1, the palette (:root, .dark, the @theme fonts, html:lang(ar)):
+   a design-world skill or an app-dashboard style replaces it.
+   Part 2, the derived tokens: keep it. The sidebar, chart, status, radius,
+   and density names come from it. Its "Style knobs" block gives the defaults of the
+   21 knobs that the UI kit reads. An app-dashboard style sets all of them in its own :root block.
    Font pairing "clash-satoshi": Clash Display + Satoshi (Fontshare),
    Arabic twins Changa + Tajawal (Google Fonts), loaded in __root.tsx. */
 @import "tailwindcss";
@@ -47,7 +51,8 @@
 	--accent: oklch(0.28 0.012 55);
 	--accent-foreground: oklch(0.95 0.006 80);
 	--destructive: oklch(0.7 0.19 25);
-	--destructive-foreground: oklch(0.985 0.002 90);
+	/* Dark text: white on this light red is under 4.5:1. */
+	--destructive-foreground: oklch(0.19 0.02 24);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 14%);
 	--ring: oklch(0.74 0.16 55);
@@ -64,6 +69,120 @@
 html:lang(ar) {
 	--font-sans: "Tajawal", ui-sans-serif, system-ui, sans-serif;
 	--font-display: "Changa", "Tajawal", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Derived tokens: keep this part when you replace the palette. */
+
+/* Zero specificity: a palette that names one of these tokens wins.
+   A var() resolves where it is declared, so a .dark subtree computes the values again. */
+:where(:root, .dark) {
+	--sidebar: color-mix(in oklch, var(--background) 96%, var(--foreground));
+	--sidebar-foreground: var(--foreground);
+	--sidebar-primary: var(--primary);
+	--sidebar-primary-foreground: var(--primary-foreground);
+	--sidebar-accent: var(--accent);
+	--sidebar-accent-foreground: var(--accent-foreground);
+	--sidebar-border: var(--border);
+	--sidebar-ring: var(--ring);
+	/* A ramp of the primary hue. On the default palette each step is at least 3:1
+	   on --card, in light and in dark. */
+	--chart-1: var(--primary);
+	--chart-2: color-mix(in oklch, var(--primary) 45%, var(--foreground));
+	--chart-3: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 50%, var(--foreground)) 60%,
+		var(--background)
+	);
+	--chart-4: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 50%, var(--foreground)) 75%,
+		var(--background)
+	);
+	--chart-5: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 60%, var(--foreground)) 95%,
+		var(--background)
+	);
+}
+
+/* Status colors for badges and deltas. On the default palette each one is at least
+   4.5:1 on --card, in light and in dark. */
+:where(:root) {
+	--success: oklch(0.48 0.12 150);
+	--warning: oklch(0.5 0.115 58);
+	--info: oklch(0.49 0.13 250);
+}
+
+:where(.dark) {
+	color-scheme: dark;
+	--success: oklch(0.76 0.14 152);
+	--warning: oklch(0.82 0.14 75);
+	--info: oklch(0.74 0.12 245);
+}
+
+/* Style knobs. The UI kit reads them. An app-dashboard style sets all 21 in its own :root block.
+   Zero specificity, so the style block wins. These defaults give the plain kit look. */
+:where(:root) {
+	/* Card, and the shadow-surface and rounded-surface utilities.
+	   1.333 and this shadow are the rounded-xl and shadow-sm steps: the Card look without a style.
+	   To remove the shadow, set 0 0 #0000, not none: none breaks the shadow list. */
+	--surface-border-width: 1px;
+	--surface-shadow:
+		0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+	--surface-radius: calc(var(--radius) * 1.333);
+	/* PageHeader h1. 400 is the weight that the h1 inherits from body. A case is a text-transform value. */
+	--heading-weight: 400;
+	--heading-tracking: -0.025em;
+	--heading-case: none;
+	/* CardTitle. -0.02rem is the html tracking (-0.02em at the root size) that a title inherits. */
+	--title-weight: 600;
+	--title-tracking: -0.02rem;
+	--title-case: none;
+	/* The label-text utility. TableHead, SidebarGroupLabel, and the KPI labels
+	   that the kpi form files write with label-text use it. */
+	--label-weight: 500;
+	--label-tracking: -0.02rem;
+	--label-case: none;
+	/* The font-numeric utility: KPI values and other large figures. */
+	--numeral-font: var(--font-display);
+	/* Lucide icons that keep the default width, in SVG units. An icon is 24 units wide. */
+	--icon-stroke: 2;
+	/* Inside ChartContainer: line and area curves in px, the Area fill, and a grid stroke-dasharray ("3 3").
+	   0.6 is the recharts Area default. A gradient fill multiplies with it. */
+	--chart-stroke: 2;
+	--chart-fill-opacity: 0.6;
+	--chart-grid-dash: none;
+	/* Background of the even TableRow and of the TableHeader. */
+	--table-stripe: transparent;
+	--table-head-bg: transparent;
+	/* Active SidebarMenuButton: its background, and the width of a bar on its start side. */
+	--nav-active-bg: var(--sidebar-accent);
+	--nav-indicator-width: 0px;
+}
+
+/* Arabic: letter-spacing breaks the connected script.
+   Caps change only the Latin words of an Arabic heading, title, or label, so the case resets to none.
+   Specificity 0,1,1 wins over the :root block of a style. */
+html:lang(ar) {
+	--heading-tracking: 0;
+	--title-tracking: 0;
+	--label-tracking: 0;
+	--heading-case: none;
+	--title-case: none;
+	--label-case: none;
+}
+
+/* The app shell puts the attribute on the content area, so the sidebar keeps its size. */
+[data-density="compact"] {
+	--spacing: 0.225rem;
+	--text-sm: 0.8125rem;
+	--text-sm--line-height: 1.25rem;
+}
+
+[data-density="comfortable"] {
+	--spacing: 0.275rem;
+	--text-sm: 0.9375rem;
+	--text-sm--line-height: 1.5rem;
 }
 
 @theme inline {
@@ -86,11 +205,42 @@ html:lang(ar) {
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
-	--radius-sm: calc(var(--radius) - 4px);
-	--radius-md: calc(var(--radius) - 2px);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-info: var(--info);
+	/* Multiplicative steps: a --radius of 0 gives square corners everywhere. */
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
-	--radius-2xl: calc(var(--radius) + 8px);
+	--radius-xl: calc(var(--radius) * 1.333);
+	--radius-2xl: calc(var(--radius) * 1.667);
+	/* Buttons and badges. Without a theme value they stay pills. */
+	--radius-control: var(--control-radius, 9999px);
+	/* Style knobs as utilities for the panels and figures that a page writes. */
+	--shadow-surface: var(--surface-shadow);
+	--radius-surface: var(--surface-radius);
+	--font-numeric: var(--numeral-font);
+}
+
+/* Small labels. Tailwind puts a multi-property utility first,
+   so a font-semibold or an uppercase class on the same element wins. */
+@utility label-text {
+	font-weight: var(--label-weight);
+	text-transform: var(--label-case);
+	letter-spacing: var(--label-tracking);
 }
 
 @layer base {
@@ -114,5 +264,9 @@ html:lang(ar) {
 	:lang(ar) {
 		/* Negative Latin tracking mangles connected Arabic script. */
 		letter-spacing: 0;
+	}
+	/* Only the lucide default (2) follows the knob, so a strokeWidth prop on one icon still wins. */
+	.lucide[stroke-width="2"] {
+		stroke-width: var(--icon-stroke);
 	}
 }

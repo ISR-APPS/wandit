@@ -1,9 +1,9 @@
-// Assets tab: every media file the AI generated for this project — standalone
-// image generations, image animations, and the images/videos produced inside
-// page builds — in one downloadable grid, newest first. Data comes from the
-// project-assets endpoint; a tile click opens a lightbox with the full media.
-// The grid/tile/lightbox pieces are shared with the dashboard Assets page
-// (asset-tiles.tsx).
+/**
+ * V1 project Assets tab. workspace-page.tsx renders it. It shows every AI-generated image and video
+ * of this project in one grid, newest first. The media come from image generations, animations, and page builds.
+ * It calls the project assets query. A tile click opens a lightbox with the full media.
+ * The grid, tile, skeleton, filter chip, and lightbox come from asset-tiles.tsx.
+ */
 
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -13,7 +13,6 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@wandit/ui/components/empty";
-import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Images, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -26,6 +25,7 @@ import {
 	AssetLightbox,
 	AssetsError,
 	AssetTile,
+	AssetTileSkeleton,
 	FilterChip,
 	TileGrid,
 } from "./asset-tiles";
@@ -98,7 +98,7 @@ export function AssetsTab() {
 					{assetsQuery.isPending ? (
 						<TileGrid>
 							{SKELETON_KEYS.map((key) => (
-								<Skeleton key={key} className="aspect-square rounded-xl" />
+								<AssetTileSkeleton key={key} />
 							))}
 						</TileGrid>
 					) : assetsQuery.isError ? (

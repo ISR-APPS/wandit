@@ -1,4 +1,16 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+/**
+ * Reads and changes team organizations for the admin dashboard.
+ * AdminOrganizationsController calls it. It calls AdminOrganizationsRepository
+ * and CreditsService for credit grants to the org pool.
+ */
+import {
+	BadRequestException,
+	Inject,
+	Injectable,
+	Logger,
+	NotFoundException,
+} from "@nestjs/common";
+import type { AuthUser } from "@wandit/auth";
 import {
 	type AdminGrantCreditsInput,
 	type AdminListOrganizationsQuery,
@@ -7,6 +19,8 @@ import {
 	type AdminSetMemberRoleInput,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
+	isAdminRole,
+	normalizeStoredRole,
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -117,12 +131,27 @@ export class AdminOrganizationsService {
 		};
 	}
 
+	/**
+	 * Adds promo credits to an organization's shared pool.
+	 * `actor` is the signed-in staff account. Its id goes to `meta.grantedBy` for the grant log.
+	 * Throws 400 when a non-admin staff account is a member of the organization.
+	 */
 	async grantCredits(
-		actingAdminId: string,
+		actor: Pick<AuthUser, "id" | "role">,
 		organizationId: string,
 		input: AdminGrantCreditsInput,
 	): Promise<AdminOrganizationDetail> {
 		await this.ensureOrganizationExists(organizationId);
+
+		// Support cannot grant credits to a pool that it spends from. Admins are exempt.
+		if (
+			!isAdminRole(actor.role) &&
+			(await this.repository.findMember(organizationId, actor.id)) !== null
+		) {
+			throw new BadRequestException(
+				"Support accounts cannot grant credits to an organization they belong to",
+			);
+		}
 
 		// "org:" namespaces the key away from personal grants — Better Auth user
 		// ids never contain a colon prefix, so the two families cannot collide.
@@ -135,14 +164,14 @@ export class AdminOrganizationsService {
 				idempotencyKey: `admin-grant:org:${organizationId}:${input.requestId}`,
 				meta: {
 					reason: "admin_grant",
-					grantedBy: actingAdminId,
+					grantedBy: actor.id,
 					note: input.reason ?? null,
 				},
 			},
 		);
 
 		this.logger.log(
-			`admin_grant_org_credits admin=${actingAdminId} org=${organizationId} amountCredits=${input.amount}`,
+			`admin_grant_org_credits admin=${actor.id} role=${normalizeStoredRole(actor.role)} org=${organizationId} amountCredits=${input.amount}`,
 		);
 
 		return this.getOrganizationDetail(organizationId);

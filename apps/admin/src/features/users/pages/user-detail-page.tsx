@@ -1,3 +1,7 @@
+/**
+ * The user detail page and the dialogs for its staff actions.
+ * The route /users/$userId renders it. It reads useUserQuery and gates each dialog by permission.
+ */
 import { Link } from "@tanstack/react-router";
 import { isStaffRole } from "@wandit/contracts";
 import { AlertCircleIcon, ArrowLeftIcon, UserRoundXIcon } from "lucide-react";
@@ -12,7 +16,10 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import { useAdminPermission } from "@/features/auth/lib/permissions";
+import {
+	canGrantCreditsToTarget,
+	useAdminPermission,
+} from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
 import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import { useUserQuery } from "@/features/users/api/users.queries";
@@ -44,7 +51,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
 	const userQuery = useUserQuery(userId);
 	const { data: session } = useSession();
-	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const hasGrantPermission = useAdminPermission({ credits: ["grant"] });
 	const canSetRole = useAdminPermission({ users: ["set-role"] });
 	const canBan = useAdminPermission({ users: ["ban"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
@@ -109,6 +116,9 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 
 	const user = userQuery.data;
 	const canManageAccess = session?.user.id !== user.id;
+	const canGrantCredits =
+		hasGrantPermission &&
+		canGrantCreditsToTarget(session?.user.role, !canManageAccess);
 	const canToggleBanned =
 		canManageAccess && canBan && (user.banned || !isStaffRole(user.role));
 
@@ -117,6 +127,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			<UserDetailHeader
 				user={user}
 				canManageAccess={canManageAccess}
+				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setOpenDialog("credits")}
 				onGrantOffline={() => setOpenDialog("offline-subscription")}
 				onChangeRole={() => setOpenDialog("role")}

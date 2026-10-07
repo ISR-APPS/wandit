@@ -1,0 +1,226 @@
+/**
+ * The details panel of one assistant reply: every step of the turn (thought
+ * rows without their text, step rows with their images, the notes of the
+ * agent) and then the changed files. pages/app-builder-page.tsx renders it
+ * over the main card on desktop and in a sheet on a phone. Also exports the
+ * work summary label and the changed files list that chat-message.tsx uses.
+ */
+
+import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
+import { XIcon } from "@phosphor-icons/react/X";
+import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
+import { useEffect, useRef } from "react";
+import { Streamdown } from "streamdown";
+
+import { useTranslation } from "@/lib/i18n";
+import type { BuilderDataParts, BuilderMessage } from "../../api/dto";
+import { isActivityPart, workedDurationOf } from "../../lib/turn-parts";
+import { useAutoScroll } from "../../lib/use-auto-scroll";
+import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
+import { StepRow } from "./step-row";
+import { ThoughtRow } from "./thought-row";
+
+/** Props of the details panel, as pages/app-builder-page.tsx passes them. */
+export type ActivityPanelProps = {
+	/** The assistant reply whose steps show. */
+	message: BuilderMessage;
+	/** True while this reply streams. The list then follows new rows, and the header dot pulses. */
+	isLive: boolean;
+	/** Closes the panel. The close button and the Escape key call it. */
+	onClose: () => void;
+	/** Opens the Secrets panel from a step row of a missing secret. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
+	className?: string;
+};
+
+/** The steps of one reply, its work summary, and its changed files. Escape closes it. */
+export function ActivityPanel({
+	message,
+	isLive,
+	onClose,
+	onOpenSecrets,
+	className,
+}: ActivityPanelProps) {
+	const { t } = useTranslation();
+	const listRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const summary = summaryOf(message);
+
+	useAutoScroll(listRef, contentRef, isLive);
+
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			// A Radix layer that closes on Escape calls preventDefault. Only a free Escape closes the panel.
+			if (event.key === "Escape" && !event.defaultPrevented) onClose();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [onClose]);
+
+	return (
+		<div className={cn("flex min-h-0 flex-col", className)}>
+			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
+				<span className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
+					{t("appBuilder.chat.details")}
+				</span>
+				{summary !== null ? (
+					<span className="min-w-0 truncate font-grotesk text-[13px] text-night/50 dark:text-foreground/50">
+						· <WorkSummaryLabel summary={summary} />
+					</span>
+				) : null}
+				{isLive ? (
+					// Decorative only: the status line in the chat carries role="status".
+					<span
+						aria-hidden
+						className="size-1.5 shrink-0 animate-pulse-soft rounded-full bg-ember motion-reduce:animate-none dark:bg-spark"
+					/>
+				) : null}
+				<IconAction label={t("appBuilder.chat.activity.close")}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onClick={onClose}
+						className={cn("ms-auto", TOOLBAR_ICON_BUTTON_CLASS)}
+					>
+						<XIcon weight="bold" aria-hidden />
+					</Button>
+				</IconAction>
+			</div>
+			<div
+				ref={listRef}
+				// A wheel at the end of the steps does not scroll the document behind the panel.
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4"
+			>
+				<div ref={contentRef} className="flex flex-col">
+					{message.parts.filter(isActivityPart).map((part, index) => {
+						// Activity parts carry no stable id. They only append, so the index is stable.
+						const key = `${message.id}-${index}`;
+						if (part.type === "data-thought") {
+							// Raw thinking never shows in production, so the row gets no text and no chevron.
+							return (
+								<ThoughtRow
+									key={key}
+									text=""
+									seconds={part.data.seconds}
+									isStreaming={part.data.isStreaming}
+								/>
+							);
+						}
+						if (part.type === "data-step") {
+							return (
+								<StepRow
+									key={key}
+									{...part.data}
+									onOpenSecrets={onOpenSecrets}
+								/>
+							);
+						}
+						// The third activity kind: a note the agent wrote between its steps.
+						return (
+							<Streamdown
+								key={key}
+								dir="auto"
+								// Streamdown wraps each block in a `display: contents` div, so a flex gap spaces the paragraphs.
+								className="flex flex-col gap-2 break-words py-1 font-sans text-[13px] text-night/60 leading-relaxed dark:text-foreground/60"
+							>
+								{part.data.text}
+							</Streamdown>
+						);
+					})}
+					{summary !== null && summary.files.length > 0 ? (
+						<section>
+							<h3 className="mt-4 mb-1 font-grotesk font-medium text-[12px] text-night/50 dark:text-foreground/50">
+								{t("appBuilder.chat.summary.changedFiles")}
+							</h3>
+							<ChangedFiles files={summary.files} />
+						</section>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** The `data-summary` payload of a reply, or null when the reply has none (an old row, a failed or a stopped turn). */
+export function summaryOf(
+	message: BuilderMessage,
+): BuilderDataParts["summary"] | null {
+	return (
+		message.parts.find((part) => part.type === "data-summary")?.data ?? null
+	);
+}
+
+/**
+ * The work summary text, for example "Worked for 2 min · 3 files changed".
+ * The chat line, the panel header, and the developer view show it. Null
+ * `summary` gives the "See what Wandit did" fallback.
+ */
+export function WorkSummaryLabel({
+	summary,
+}: {
+	/** Work time and changed files of the turn, from `summaryOf`. */
+	summary: BuilderDataParts["summary"] | null;
+}) {
+	const { t } = useTranslation();
+	if (summary === null) return t("appBuilder.chat.summary.fallback");
+	const duration = workedDurationOf(summary.workedSeconds);
+	const worked =
+		duration.unit === "seconds"
+			? t("appBuilder.chat.summary.workedSeconds", { count: duration.count })
+			: t("appBuilder.chat.summary.workedMinutes", { count: duration.count });
+	if (summary.files.length === 0) return worked;
+	return `${worked} · ${t("appBuilder.chat.summary.files", { count: summary.files.length })}`;
+}
+
+/**
+ * One row per changed file: the file name, its folder, and the added and
+ * removed line counts from git numstat. A git rename path (`old => new`)
+ * shows whole, because a split at the last slash cuts it in a wrong place.
+ */
+export function ChangedFiles({
+	files,
+}: {
+	/** Changed files of the turn commit, from the `data-summary` part. */
+	files: BuilderDataParts["summary"]["files"];
+}) {
+	return (
+		<ul className="flex flex-col">
+			{files.map((file) => {
+				const slashIndex = file.path.includes(" => ")
+					? -1
+					: file.path.lastIndexOf("/");
+				const name = file.path.slice(slashIndex + 1);
+				const folder = slashIndex === -1 ? "" : file.path.slice(0, slashIndex);
+				return (
+					<li
+						key={file.path}
+						className="flex min-h-7 min-w-0 items-center gap-2 py-0.5 font-grotesk text-[13px] text-night/70 dark:text-foreground/70"
+					>
+						<FileCodeIcon
+							weight="duotone"
+							className="size-4 shrink-0 text-night/45 dark:text-foreground/45"
+							aria-hidden
+						/>
+						<span
+							dir="ltr"
+							className="flex min-w-0 items-baseline gap-1.5 font-mono text-[12px]"
+						>
+							<span className="max-w-full shrink-0 truncate">{name}</span>
+							<span className="min-w-0 truncate text-night/45 dark:text-foreground/45">
+								{folder}
+							</span>
+						</span>
+						<span
+							dir="ltr"
+							className="ms-auto shrink-0 font-mono text-[12px] tabular-nums"
+						>
+							<span className="text-success-text">+{file.insertions}</span>{" "}
+							<span className="text-destructive">−{file.deletions}</span>
+						</span>
+					</li>
+				);
+			})}
+		</ul>
+	);
+}

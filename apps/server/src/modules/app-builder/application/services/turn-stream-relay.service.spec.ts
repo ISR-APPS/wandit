@@ -56,22 +56,22 @@ function fakeReply(options: { stallFirstWrite?: boolean } = {}) {
 }
 
 function fakeRequest(userId = "user-1") {
-	const raw = new EventEmitter();
-	// SAFETY: the relay reads `headers`, `raw`, and `user` only.
+	// SAFETY: the relay reads `headers` and `user` only.
 	return {
 		headers: {},
-		raw,
 		user: { id: userId },
 	} as unknown as FastifyRequest & { user?: { id: string } };
 }
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
-	// SAFETY: the relay reads only `id`, `status`, `outputCommitSha`, and
-	// `triggerRunId` off the row; the other columns are never touched.
+	// SAFETY: the relay reads only `id`, `status`, `outputCommitSha`,
+	// `runner`, and `triggerRunId` off the row; the other columns are never
+	// touched.
 	return {
 		id: "turn-1",
 		outputCommitSha: null,
 		projectId: "project-1",
+		runner: "trigger",
 		status: "queued",
 		triggerRunId: "run-1",
 		...overrides,
@@ -117,6 +117,7 @@ function parsedFrames(chunks: string[]): BrowserFrame[] {
 function setup(
 	reader?: TurnEventReader,
 	turns?: Pick<BuilderTurnsRepository, "findById">,
+	hostReader?: TurnEventReader,
 ) {
 	const rateLimit: RateLimitStore = {
 		hit: vi.fn(async () => ({ count: 1, ttlMs: 60_000 })),
@@ -124,6 +125,7 @@ function setup(
 	};
 	const relay = new TurnStreamRelayService(
 		reader ?? new FakeTurnEventStream(),
+		hostReader ?? new FakeTurnEventStream(),
 		rateLimit,
 		// A read that ends quietly on a `succeeded` row ends the stream;
 		// the tests that care about the row pass their own fake.
@@ -347,7 +349,23 @@ describe("TurnStreamRelayService.relay", () => {
 		expect(frames[frames.length - 1]).toBe("[DONE]");
 	});
 
-	it("writes `data-turn-done` from the row when the read ends on a terminal turn", async () => {
+	// Row 2 fails when the relay reopens the read of a paused turn forever.
+	// In that row, the run stops after the pause write and before its `done`.
+	it.each([
+		{
+			case: "a terminal turn",
+			done: { outputCommitSha: "sha-9", status: "succeeded" },
+			row: turnRow({ outputCommitSha: "sha-9", status: "succeeded" }),
+		},
+		{
+			case: "a paused turn whose done event is lost",
+			done: { status: "waiting_for_approval" },
+			row: turnRow({ status: "waiting_for_approval" }),
+		},
+	])("writes `data-turn-done` from the row when the read ends on $case", async ({
+		done,
+		row,
+	}) => {
 		const reader: TurnEventReader = {
 			read: () =>
 				(async function* () {
@@ -357,9 +375,7 @@ describe("TurnStreamRelayService.relay", () => {
 					});
 				})(),
 		};
-		const turns = fakeTurns(() =>
-			turnRow({ outputCommitSha: "sha-9", status: "succeeded" }),
-		);
+		const turns = fakeTurns(() => row);
 		const { relay } = setup(reader, turns);
 		const { chunks, reply } = fakeReply();
 		const onDone = vi.fn();
@@ -378,17 +394,10 @@ describe("TurnStreamRelayService.relay", () => {
 				id: "turn-status",
 				type: "data-turn-status",
 			},
-			{
-				data: { outputCommitSha: "sha-9", status: "succeeded" },
-				id: "turn-done",
-				type: "data-turn-done",
-			},
+			{ data: done, id: "turn-done", type: "data-turn-done" },
 			"[DONE]",
 		]);
-		expect(onDone).toHaveBeenCalledWith({
-			outputCommitSha: "sha-9",
-			status: "succeeded",
-		});
+		expect(onDone).toHaveBeenCalledWith(done);
 	});
 
 	it("ends with error frames and [DONE] when the row vanishes after a quiet read", async () => {
@@ -436,7 +445,57 @@ describe("TurnStreamRelayService.relay", () => {
 		expect(turns.findById).toHaveBeenCalledTimes(1);
 	});
 
-	it("polls the row for a run id when `triggerRunId` is null, then streams", async () => {
+	it("reads a host-run turn from the host store by its turn id", async () => {
+		const triggerStream = new FakeTurnEventStream();
+		const hostStream = new FakeTurnEventStream();
+		await hostStream.write("turn-1", {
+			data: { delta: "hi", id: "t1", type: "text-delta" },
+			type: "part",
+		});
+		await hostStream.write("turn-1", {
+			data: { status: "succeeded" },
+			type: "done",
+		});
+		const turns = fakeTurns(() =>
+			turnRow({ runner: "host", status: "running", triggerRunId: null }),
+		);
+		const { relay } = setup(triggerStream, turns, hostStream);
+		const { chunks, reply } = fakeReply();
+
+		await relay.relay({
+			reply,
+			request: fakeRequest(),
+			triggerRunId: null,
+			turnId: "turn-1",
+		});
+
+		const frames = parsedFrames(chunks);
+		expect(frames).toContainEqual({
+			delta: "hi",
+			id: "t1",
+			type: "text-delta",
+		});
+		expect(frames[frames.length - 1]).toBe("[DONE]");
+	});
+
+	// Row 2 fails when the relay reads the empty host stream. A failed host
+	// start moves the queued row back to Trigger after that poll.
+	it.each([
+		{
+			case: "a waiting row gets its run",
+			firstRow: turnRow({ status: "waiting", triggerRunId: null }),
+		},
+		{
+			case: "a host start fails over to Trigger",
+			firstRow: turnRow({
+				runner: "host",
+				status: "queued",
+				triggerRunId: null,
+			}),
+		},
+	])("polls the row for a run id when $case, then streams", async ({
+		firstRow,
+	}) => {
 		vi.useFakeTimers();
 		try {
 			const stream = new FakeTurnEventStream();
@@ -444,11 +503,8 @@ describe("TurnStreamRelayService.relay", () => {
 				data: { status: "succeeded" },
 				type: "done",
 			});
-			// The row parks `waiting` with no run, then promotion lands one.
-			let row: BuilderTurnRow | null = turnRow({
-				status: "waiting",
-				triggerRunId: null,
-			});
+			// The row has no run yet. Then the row gets a Trigger run.
+			let row: BuilderTurnRow | null = firstRow;
 			const turns = fakeTurns(() => row);
 			const { relay } = setup(stream, turns);
 			const { chunks, reply } = fakeReply();
@@ -459,7 +515,7 @@ describe("TurnStreamRelayService.relay", () => {
 				triggerRunId: null,
 				turnId: "turn-1",
 			});
-			// Let the first poll see the parked row and enter the wait.
+			// Let the first poll see the first row and enter the wait.
 			await vi.advanceTimersByTimeAsync(0);
 			row = turnRow({ status: "queued", triggerRunId: "run-7" });
 			await vi.advanceTimersByTimeAsync(2_000);
@@ -498,7 +554,7 @@ describe("TurnStreamRelayService.relay", () => {
 		expect(rateLimit.release).not.toHaveBeenCalled();
 	});
 
-	it("ends with error frames and [DONE] when the reader fails", async () => {
+	it("closes with no frame when the read fails, so the browser reopens", async () => {
 		const failingReader: TurnEventReader = {
 			read: () => ({
 				[Symbol.asyncIterator]() {
@@ -518,26 +574,12 @@ describe("TurnStreamRelayService.relay", () => {
 			turnId: "turn-9",
 		});
 
-		expect(parsedFrames(chunks)).toEqual([
-			{
-				data: {
-					code: "STREAM_READ_FAILED",
-					message: "The turn event stream was interrupted",
-					retryable: true,
-				},
-				id: "turn-error",
-				type: "data-turn-error",
-			},
-			{
-				errorText: "The turn event stream was interrupted",
-				type: "error",
-			},
-			"[DONE]",
-		]);
+		// The turn can still run: an `error` chunk would end the chat.
+		expect(parsedFrames(chunks)).toEqual([]);
 		expect(raw.end).toHaveBeenCalled();
 	});
 
-	it("waits for drain when a write reports backpressure", async () => {
+	it("waits for drain when a write reports backpressure, and keeps no wait listener", async () => {
 		const stream = new FakeTurnEventStream();
 		await stream.write("run-1", {
 			data: { phase: "running" },
@@ -560,6 +602,9 @@ describe("TurnStreamRelayService.relay", () => {
 		// The stalled write resolved on drain and the stream still finished.
 		expect(chunks.join("")).toContain("data: [DONE]");
 		expect(raw.end).toHaveBeenCalled();
+		// Each wait removes its listeners, so a long replay does not collect them.
+		expect(raw.listenerCount("close")).toBe(0);
+		expect(raw.listenerCount("error")).toBe(0);
 	});
 
 	it("writes a heartbeat comment every 15 s while the stream is open", async () => {
@@ -590,22 +635,39 @@ describe("TurnStreamRelayService.relay", () => {
 		}
 	});
 
-	it("stops reading when the browser disconnects", async () => {
+	// In row 2, the browser leaves before the relay adds its `close` listener.
+	// Row 2 fails when the relay then reads until the turn ends.
+	it.each([
+		{
+			case: "during the read",
+			// Next tick, so the relay is inside `read` already. Node emits
+			// `close` on the response: the request is gone after its body.
+			leave: (raw: ServerResponse) => {
+				setImmediate(() => raw.emit("close"));
+			},
+		},
+		{
+			case: "before the relay starts",
+			// Node emitted `close` during the awaits of the route already.
+			leave: (raw: ServerResponse) => {
+				raw.destroyed = true;
+			},
+		},
+	])("stops reading and frees the slot when the browser disconnects $case", async ({
+		leave,
+	}) => {
 		const stream = new FakeTurnEventStream();
-		const { relay } = setup(stream);
+		const { rateLimit, relay } = setup(stream);
 		const { raw, reply } = fakeReply();
-		const request = fakeRequest();
 
-		const done = relay.relay({
+		leave(raw);
+		await relay.relay({
 			reply,
-			request,
+			request: fakeRequest(),
 			triggerRunId: "run-1",
 			turnId: "turn-1",
 		});
-		// Emit close on the next tick so the relay is inside `read` already.
-		setImmediate(() => request.raw.emit("close"));
 
-		await done;
-		expect(raw.end).toHaveBeenCalled();
+		expect(rateLimit.release).toHaveBeenCalled();
 	});
 });

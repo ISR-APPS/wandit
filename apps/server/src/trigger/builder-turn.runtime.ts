@@ -1,35 +1,62 @@
 /**
  * `runBuilderTurn`: the `builder-turn` task body (WANDIT-166).
  * `builder-turn.task.ts` calls it with real dependencies; the spec
- * drives it with fakes. One run: claim → fence → sandbox → harness →
- * stream → commit → settle → promote.
+ * drives it with fakes. One run: claim → fence → backend wake → sandbox →
+ * harness → stream → commit → settle → promote.
  */
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
+	AskUserHostToolOutput,
 	BillingPlanId,
+	BuilderTurnMode,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	HarnessResumeEnvelope,
+	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
+	TurnDoneData,
+	TurnErrorData,
+	TurnPlanData,
 	TurnQuestionData,
 	TurnStreamPhase,
+	TurnSummaryData,
+	TurnThoughtData,
 } from "@wandit/contracts";
 import {
 	builderTurnSpecSchema,
+	DAILY_CAP_TURN_ERROR_CODE,
 	harnessResumeEnvelopeSchema,
-	supabaseProjectUrl,
 } from "@wandit/contracts";
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import { Sentry } from "@wandit/observability/node";
+import {
+	APICallError,
+	readUIMessageStream,
+	type UIMessage,
+	type UIMessageChunk,
+} from "ai";
+import {
+	mobileWorldCards,
+	worldCardOf,
+	worldOrder,
+} from "../modules/ai-chat/agent/worlds";
 import {
 	captureAiError,
 	classifyAiError,
 	renderAiErrorSentence,
 } from "../modules/ai-errors/domain";
+import { BUILDER_MAX_IMAGES_PER_TURN } from "../modules/app-builder/application/host-tools/generate-image.host-tool";
+import type { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { appRecipeInstruction } from "../modules/app-builder/domain/app-recipe";
+import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
+import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
 import type {
 	BuilderHarness,
 	HarnessQuestionResult,
@@ -51,6 +78,14 @@ import type {
 } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
 import {
+	askUserOutputOf,
+	builtinQuestionResultOf,
+	fallbackPromptOf,
+	modeSwitchPromptOf,
+	switchesMode,
+	uploadCopyPath,
+} from "../modules/app-builder/domain/question-answers";
+import {
 	DEFAULT_PER_TURN_CAP_CREDITS,
 	monthStartUtc,
 } from "../modules/app-builder/domain/turn-caps";
@@ -63,10 +98,18 @@ import type {
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
-import type { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppBackendRow,
+	AppBackendsRepository,
+} from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppCommitsRepository,
+	LatestAppCommit,
+} from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
+	BuilderTurnRunner,
 	BuilderTurnsRepository,
 } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import type {
@@ -78,8 +121,19 @@ import type { SandboxSessionsRepository } from "../modules/app-builder/infrastru
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
-import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import { isValidNetworkHost } from "../modules/app-builder/infrastructure/sandbox/network-policy";
+import {
+	activeBackendEnvOf,
+	buildSandboxEnv,
+	syncBackendEnvFile,
+} from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import {
+	profileForFramework,
+	TEMPLATE_PROFILES,
+} from "../modules/app-builder/infrastructure/sandbox/template-profiles";
+import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
+import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
@@ -97,14 +151,59 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The dev server command and port of the app template (D15).
-const DEV_COMMAND = "pnpm run dev";
-const DEV_PORT = 5173;
+// The platform sentence of a mobile app. The template CLAUDE.md holds
+// the rules and the module allow-list. The mobile-design skill holds the
+// screen rules; the design-worlds-mobile skill holds the looks.
+const MOBILE_APP_INSTRUCTION =
+	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
+// 100 ms between two in-flight reads while the settle waits for the
+// proxy rows of the run.
+const PROXY_ROWS_POLL_MS = 100;
+// 15 s: the proxy writes its row right after the reply ends. A longer wait
+// means a lost finish mark (an API crash); the settle then uses the rows
+// that exist.
+const PROXY_ROWS_WAIT_MS = 15_000;
+// The recap of a lost session holds the last 10 chat messages, each cut to
+// 1,500 chars: enough for the thread, small next to the 49k-token prompt.
+const RECAP_MESSAGES = 10;
+const RECAP_MESSAGE_MAX_CHARS = 1_500;
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
+// 1,000 chars: enough for the status and the provider message. The row stays small.
+const HARNESS_CAUSE_MAX_CHARS = 1_000;
+/**
+ * Matches harness error texts that repeat on each resume of the same
+ * Claude Code conversation. Causes: a lost transcript, a safety refusal,
+ * or a denied fallback model.
+ * The texts come from code.claude.com/docs/en/errors and the Claude Code CLI.
+ * A safety flag moves the session to a fallback model. The proxy can refuse
+ * that model with the 403 text of `llm-proxy.service.ts`.
+ */
+const SESSION_BOUND_FAILURE_PATTERN =
+	/No conversation found with session ID|Failed to resume session|Start a new session|safeguards flagged this (?:message|session)|This plan may not call that model/u;
+// 15 MB, the image upload limit. A bigger answer file is a video or an
+// audio file, and a copy in public/ grows every commit of the app repo.
+const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
+// 5 s between two status reads of a waking backend, like the provision poll.
+const BACKEND_WAKE_POLL_MS = 5_000;
+// LIMIT: the wake waits at most 180 s, then the turn runs without the
+// database. Upgrade: hold the turn until the backend answers.
+// The restore call and the last status read can each add about 60 s:
+// the interactive client makes two tries of 30 s.
+const BACKEND_WAKE_TIMEOUT_MS = 180_000;
+
+/**
+ * The design world sentence of one mobile project. The order is fixed per
+ * project, so the warm session key stays the same across its turns. A project
+ * from an older template has no design-worlds-mobile skill and skips it.
+ */
+function mobileWorldsInstruction(projectId: string): string {
+	return `The design world order of this project is: ${worldOrder(projectId, mobileWorldCards).join(", ")}. On the first build, ask for the design world with the app language, as the design-worlds-mobile skill says; without that skill, ignore it.`;
+}
 
 /** Why the turn stopped on its own. */
 type AbortCode =
+	| "daily_cap"
 	| "disabled"
 	| "hold_lost"
 	| "lock_lost"
@@ -113,11 +212,16 @@ type AbortCode =
 	| "stale"
 	| "stalled";
 
-/** Terminal row status each stop code lands on; the other codes fail. */
+/**
+ * Terminal row status each stop code lands on; the other codes fail. The
+ * daily cap has no status of its own, so no migration is needed: its
+ * failure code names it (see `stopFailureCodeOf`).
+ */
 const STOP_STATUS: Record<
-	"disabled" | "no_credits" | "project_cap",
+	"daily_cap" | "disabled" | "no_credits" | "project_cap",
 	BuilderTurnStatus
 > = {
+	daily_cap: "stopped_project_cap",
 	disabled: "stopped_disabled",
 	no_credits: "stopped_no_credits",
 	project_cap: "stopped_project_cap",
@@ -125,6 +229,7 @@ const STOP_STATUS: Record<
 
 /** The `Turn stopped: <reason>` text of each stop code. */
 const STOP_REASON: Record<keyof typeof STOP_STATUS, string> = {
+	daily_cap: "daily AI limit reached, it resets at 00:00 UTC",
 	disabled: "V2 builder disabled",
 	no_credits: "no credits left",
 	project_cap: "project credit cap reached",
@@ -132,9 +237,20 @@ const STOP_REASON: Record<keyof typeof STOP_STATUS, string> = {
 
 /** `code` when it is a stop code, else null. */
 const stopCodeOf = (code: AbortCode | null): keyof typeof STOP_STATUS | null =>
-	code === "disabled" || code === "no_credits" || code === "project_cap"
+	code === "daily_cap" ||
+	code === "disabled" ||
+	code === "no_credits" ||
+	code === "project_cap"
 		? code
 		: null;
+
+/**
+ * The failure code a stop writes to the row and to the `error` event: the
+ * terminal status. The daily cap shares its status with the project cap,
+ * so it writes its own code; the web reads it to hide Retry.
+ */
+const stopFailureCodeOf = (code: keyof typeof STOP_STATUS): string =>
+	code === "daily_cap" ? DAILY_CAP_TURN_ERROR_CODE : STOP_STATUS[code];
 
 /**
  * The error a pre-start stop throws. The stream loop cannot carry it (the
@@ -148,7 +264,48 @@ const stoppedTurnError = (code: keyof typeof STOP_STATUS) =>
 /** The narrow log the runtime writes to; the task passes `logger`. */
 export type BuilderTurnLogger = Pick<Console, "error" | "info" | "warn">;
 
-/** Parsed task payload plus the Trigger.dev run id. */
+/**
+ * Fields of the `builder-turn.timing` log line: one per run that passes
+ * the claim and the chat check, failures included. Every duration is in
+ * ms from the worker clock; null means the step did not run. WANDIT-253
+ * reads ten warm turns from it.
+ */
+export type BuilderTurnTiming = {
+	turnId: string;
+	runId: string;
+	/** Row create → run start. Long for a `waiting` turn the promoter requeued. */
+	queueMs: number;
+	/** Run start → sandbox call: the row reads, the money checks, the token mint, and a backend wake. */
+	prestartMs: number | null;
+	/** `sandboxes.getOrCreate` plus the activity stamp. */
+	sandboxMs: number | null;
+	/** `woke` when the sandbox booted or resumed, `warm` when it already ran. */
+	sandbox: "woke" | "warm" | null;
+	hostToolsMs: number | null;
+	/** The session resume or create, the fresh-session fallback included. */
+	sessionMs: number | null;
+	/** `resumed` when the stored session came back, `created` for a fresh one. */
+	session: "resumed" | "created" | null;
+	/** Stream start → first harness part. */
+	firstPartMs: number | null;
+	/** Run start → the first `text-delta` part: the first word the user can read. */
+	firstTextMs: number | null;
+	/** HTTP request start → row insert in the API; null for a promoted turn. */
+	apiCreateMs: number | null;
+	/** Run start → the first proxy request leaves the sandbox, from the rows. */
+	firstModelCallMs: number | null;
+	streamMs: number | null;
+	/** Stream end → commit done: the pause check, the commit. The summary part follows. */
+	commitMs: number | null;
+	/** Commit done → cleanup done: message row, usage, CAS, settle, done event. */
+	settleMs: number | null;
+	/** Run start → this line. */
+	totalMs: number;
+	/** The process that ran the turn: a Trigger.dev run or the harness host. */
+	path: BuilderTurnRunner;
+};
+
+/** Parsed task payload plus the run id of the path that runs the turn. */
 export type BuilderTurnInput = {
 	turnId: string;
 	projectId: string;
@@ -157,8 +314,15 @@ export type BuilderTurnInput = {
 	/** Org workspace of the project, or null for a personal project. */
 	organizationId: string | null;
 	actorIsLimitExempt?: boolean;
-	/** `ctx.run.id`; binds the row claim and the proxy token claims. */
+	/**
+	 * `ctx.run.id` on Trigger.dev, `hostRunIdOf(turnId)` on the host. It
+	 * binds the proxy token claims, and on Trigger also the row claim.
+	 */
 	runId: string;
+	/** The path that runs the turn; the row claim checks the row names it. */
+	runner: BuilderTurnRunner;
+	/** ms from the HTTP request start to the row insert; null when promoted. */
+	apiCreateMs: number | null;
 };
 
 /** Every dependency of `runBuilderTurn`, one field each for spec fakes. */
@@ -167,6 +331,7 @@ export type BuilderTurnDeps = {
 	turns: Pick<
 		BuilderTurnsRepository,
 		| "claimRunning"
+		| "claimRunningOnHost"
 		| "complete"
 		| "currentTurnNumber"
 		| "fail"
@@ -177,16 +342,45 @@ export type BuilderTurnDeps = {
 	>;
 	project: Pick<TurnProjectRepository, "findForTurn">;
 	caps: Pick<ProjectCostCapsRepository, "findByProjectId">;
-	/** The `app_backends` row; its URL and anon key enter the sandbox env when `active`. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
-	sessions: Pick<BuilderSessionsRepository, "findByChatId" | "saveResumeState">;
+	/**
+	 * The `app_backends` row: its URL and anon key enter the sandbox `.env`
+	 * when `active`. The wake moves a paused row back; the turn end stamps
+	 * activity.
+	 */
+	backends: Pick<
+		AppBackendsRepository,
+		| "findByProjectId"
+		| "markRestoreFailed"
+		| "markRestored"
+		| "markRestoring"
+		| "touchActive"
+	>;
+	/**
+	 * The interactive Management API client the task also gives the backend
+	 * tools. The wake calls restore and reads the status. Null without
+	 * `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`.
+	 */
+	backendClient: Pick<
+		SupabaseManagementClient,
+		"getProject" | "restoreProject"
+	> | null;
+	sessions: Pick<
+		BuilderSessionsRepository,
+		"clearResumeState" | "findByChatId" | "saveResumeState"
+	>;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
 	harness: BuilderHarness;
 	writer: TurnEventWriter;
 	lock: TurnLock;
-	/** Redis run-spend counter and token revocation; the pulse tick reads it. */
-	counters: Pick<LlmSpendCounterStore, "readRunSpend" | "revokeRun">;
+	/**
+	 * Redis run-spend counter, token revocation, the in-flight count of proxy
+	 * requests, and the chat binding; the pulse tick and the settle read it.
+	 */
+	counters: Pick<
+		LlmSpendCounterStore,
+		"bindChat" | "readInFlight" | "readRunSpend" | "revokeRun" | "unbindChat"
+	>;
 	metering: Pick<
 		MeteringService,
 		| "acquireExecutionLease"
@@ -197,8 +391,15 @@ export type BuilderTurnDeps = {
 		| "refund"
 		| "settle"
 	>;
-	/** `llm_proxy_requests` sums: the turn's real spend and token counts. */
-	proxyRows: Pick<LlmProxyRequestsRepository, "sumByTurn">;
+	/**
+	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
+	 * token counts; the first request time only feeds the timing line; a
+	 * `run_cap` or `daily_cap` refusal makes the turn end on that cap.
+	 */
+	proxyRows: Pick<
+		LlmProxyRequestsRepository,
+		"capRejectionReason" | "firstRequestStartedAtMs" | "sumByTurn"
+	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
 	mintToken: (claims: LlmProxyTokenClaimsInput) => string;
@@ -217,24 +418,39 @@ export type BuilderTurnDeps = {
 	readV2Enabled: () => Promise<boolean>;
 	/** `GENERATION_BILLING_MODE === "off"`: no checkpoint, no settle, one `billing.off` log. */
 	billingDisabled: boolean;
-	/** `commitTurn` itself, so the spec asserts its input. */
+	/**
+	 * `commitTurnUnlessClean`, so the spec asserts its input. Null means the
+	 * turn changed no file and no commit was made.
+	 */
 	commit: (
 		sandbox: SandboxHandle,
 		deps: CommitTurnDeps,
 		input: CommitTurnInput,
-	) => Promise<CommitTurnResult>;
+	) => Promise<CommitTurnResult | null>;
 	/** `gitStore`, `appCommits`, `putPatch` the task builds once. */
 	commitDeps: CommitTurnDeps;
-	/** `ChatsRepository.insertTurnAssistantMessage` bound to the repo. */
+	/**
+	 * The bytes of one Wandit upload URL, or null when the URL names no
+	 * upload object. The task binds `publicAssetKeyFromUrl` + `getObjectBytes`.
+	 */
+	readUpload: (url: string) => Promise<Uint8Array | null>;
+	/** `ChatsRepository.listRecentTexts` bound to the repo: newest first. */
+	recentMessages: (chatId: string, limit: number) => Promise<ChatMessageText[]>;
+	/**
+	 * `ChatsRepository.insertTurnAssistantMessage` bound to the repo. The
+	 * metadata is null on a failed or canceled turn: it has no receipt.
+	 */
 	insertAssistantMessage: (input: {
 		chatId: string;
 		id: string;
-		metadata: TurnAssistantMessageMetadata;
+		metadata: TurnAssistantMessageMetadata | null;
 		parts: UIMessage["parts"];
 		turnId: string;
 	}) => Promise<void>;
 	/** `TurnPromoter.promoteNext` bound to the task's promoter. */
 	promoteNext: (projectId: string, endedTurnId: string) => Promise<void>;
+	/** Writes the `turn.end` audit row; a failed write only logs. The task binds `AuditEventsService`. */
+	audit: Pick<AuditEventsService, "record">;
 	/** `<API origin>/api/v2/llm`; becomes `ANTHROPIC_BASE_URL` in the VM. */
 	proxyBaseUrl: string;
 	/** Micros per whole credit (32,000 = $0.032) from `AI_USD_PER_CREDIT`. */
@@ -245,6 +461,8 @@ export type BuilderTurnDeps = {
 	now: () => number;
 	/** Log sink; the task passes the Trigger `logger`. */
 	logger: BuilderTurnLogger;
+	/** The newest `app_commits` row of the project, for the restore note. */
+	versions: Pick<AppCommitsRepository, "findLatest">;
 };
 
 /**
@@ -272,6 +490,7 @@ export async function runBuilderTurn(
 	input: BuilderTurnInput,
 	signal: AbortSignal,
 ): Promise<void> {
+	const runStartedAt = deps.now();
 	const logger = deps.logger;
 	const { projectId, runId, turnId } = input;
 	// The hold's lease column is a uuid; the Trigger run id (`run_…`) is not
@@ -286,8 +505,12 @@ export async function runBuilderTurn(
 		organizationId: input.organizationId,
 	};
 
-	// Another run holds the turn, or the row left `queued` already.
-	const claimed = await deps.turns.claimRunning(turnId, runId);
+	// Another run holds the turn, the row left `queued` already, or the API
+	// gave the row to the other path.
+	const claimed =
+		input.runner === "host"
+			? await deps.turns.claimRunningOnHost(turnId)
+			: await deps.turns.claimRunning(turnId, runId);
 	if (!claimed) {
 		logger.info(`Builder turn ${turnId} not claimed by run ${runId}`);
 		return;
@@ -420,9 +643,25 @@ export async function runBuilderTurn(
 		}
 	};
 
+	/**
+	 * Writes a `turn.end` audit row. Each caller calls it right after a CAS
+	 * that it wins, so a later throw cannot skip it. A lost CAS writes no
+	 * row. A paused turn that fails later gets a second row.
+	 */
+	const recordTurnEnd = (status: BuilderTurnStatus) =>
+		deps.audit.record({
+			action: "turn.end",
+			actorUserId: input.actorUserId,
+			metadata: { status },
+			organizationId: input.organizationId,
+			projectId,
+			targetId: turnId,
+			targetType: "builder_turn",
+		});
+
 	if (chatId === null) {
 		// `chat_id` survives a deleted chat; an orphaned turn cannot run.
-		await deps.turns.fail(turnId, {
+		const failed = await deps.turns.fail(turnId, {
 			error: "The turn has no chat",
 			failureCode: "chat_missing",
 			failureKind: null,
@@ -432,6 +671,9 @@ export async function runBuilderTurn(
 			failureSource: null,
 			sentryEventId: null,
 		});
+		if (failed) {
+			await recordTurnEnd("failed");
+		}
 		// The API reserved the hold at create; nothing ran, so it goes back.
 		await cleanupStep(() => refundHold("builder_turn_failed"));
 		// The API relay needs a terminal event, or the browser waits forever.
@@ -494,6 +736,12 @@ export async function runBuilderTurn(
 	signal.addEventListener("abort", onTaskAbort, { once: true });
 
 	let sandbox: SandboxHandle | null = null;
+	/**
+	 * True while the egress policy lacks the Supabase host and this turn can
+	 * add it. The keep-alive tick adds the host and clears it; a resumed
+	 * session also clears it.
+	 */
+	let backendHostMissing = false;
 	let session: HarnessSession | null = null;
 	/** Set by `suspendTurn` after a paused stream; the failure path saves it. */
 	let suspendState: HarnessResumeState | null = null;
@@ -511,6 +759,11 @@ export async function runBuilderTurn(
 	};
 	/** The model the turn runs on: the row's pick or the env default. */
 	let resolvedModel: string | null = deps.model;
+	/**
+	 * `spec.mode`, set right after the spec parse. The failure-path save reads
+	 * it; a session exists only after the parse.
+	 */
+	let turnMode: BuilderTurnMode = "build";
 	/** The `builder-turn:<turnId>` hold id; loaded once before the session. */
 	let holdId: string | null = null;
 	/** Checkpoints landed on the hold; the next debit is `checkpointCount + 1`. */
@@ -525,6 +778,28 @@ export async function runBuilderTurn(
 	let monthlySpendAtStart = 0;
 	/** Set when `billing.off` was logged; keeps it to once per turn. */
 	let billingOffLogged = false;
+	/** `deps.now()` stamps of the run steps for the timing line; absent until the step ran. */
+	const stamps: Partial<
+		Record<
+			| "sandboxStart"
+			| "sandboxEnd"
+			| "hostToolsEnd"
+			| "sessionEnd"
+			| "streamStart"
+			| "firstPart"
+			| "firstText"
+			| "streamEnd"
+			| "commitEnd"
+			| "settleEnd",
+			number
+		>
+	> = {};
+	/** Set by the sandbox `onWake` callback: the sandbox really booted. */
+	let sandboxWoke = false;
+	/** Set by `onCreated`: a new sandbox, so no stored transcript exists. */
+	let sandboxCreated = false;
+	/** How the harness session started; null until it did. */
+	let sessionStart: BuilderTurnTiming["session"] = null;
 
 	/** Best-effort resume save for the failure paths: the suspend state, else a detach. */
 	const detachSession = async () => {
@@ -538,16 +813,53 @@ export async function runBuilderTurn(
 			await deps.sessions.saveResumeState(chatId, {
 				model: resolvedModel,
 				providerSessionId: session.sessionId,
-				resumeState,
+				resumeState: { ...resumeState, mode: turnMode },
 			});
 		} catch (error) {
 			logger.warn(`Detach failed for turn ${turnId}: ${messageOf(error)}`);
 		}
 	};
 
+	/** Waits until no proxy request of the run is in flight, at most PROXY_ROWS_WAIT_MS. */
+	const waitForInFlightRows = async () => {
+		const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
+		while ((await deps.counters.readInFlight(runId)) > 0) {
+			if (deps.now() >= deadline) {
+				logger.warn("builder-turn.proxy-rows-wait-timeout", {
+					runId,
+					turnId,
+				});
+				return;
+			}
+			await delay(PROXY_ROWS_POLL_MS);
+		}
+	};
+
+	/**
+	 * Waits until every proxy request of the run has its usage row. The
+	 * proxy writes the row after the reply ends, so a turn with no commit
+	 * could settle on a partial sum and refund work that ran. The revoke
+	 * first stops new requests. A Redis failure only logs: the turn is done.
+	 */
+	const waitForProxyRows = async () => {
+		try {
+			await deps.counters.unbindChat(chatId, turnId);
+			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
+			await waitForInFlightRows();
+		} catch (error) {
+			logger.warn("builder-turn.proxy-rows-wait-failed", {
+				message: messageOf(error),
+				turnId,
+			});
+		}
+	};
+
 	/** The cleanup tail every terminal path shares. */
 	const finishTurn = async () => {
-		// The run token must die with the turn.
+		// The run token and the chat binding must die with the turn.
+		await cleanupStep(async () => {
+			await deps.counters.unbindChat(chatId, turnId);
+		});
 		await cleanupStep(async () => {
 			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
 		});
@@ -560,6 +872,57 @@ export async function runBuilderTurn(
 		await cleanupStep(async () => {
 			await deps.sandboxSessions.touchActivity(projectId);
 		});
+		// A turn is backend use, a failed turn too: the pause sweep reads the
+		// stamp. The stamp is a hint, so a failure only logs.
+		try {
+			await deps.backends.touchActive(projectId);
+		} catch (error) {
+			logger.warn("backend.touch-failed", {
+				message: messageOf(error),
+				projectId,
+			});
+		}
+	};
+
+	// The stream read end; `readUIMessageStream` rebuilds the assistant
+	// parts from the harness chunks the loop feeds it.
+	const chunkStream = new TransformStream<UIMessageChunk, UIMessageChunk>();
+	const chunkWriter = chunkStream.writable.getWriter();
+	let chunkStreamClosed = false;
+	const assistantMessage: Promise<UIMessage | null> = (async () => {
+		try {
+			let last: UIMessage | null = null;
+			for await (const message of readUIMessageStream<UIMessage>({
+				stream: chunkStream.readable,
+			})) {
+				last = message;
+			}
+			return last;
+		} catch {
+			// A dead stream still ends the turn; the row gets empty parts.
+			return null;
+		}
+	})();
+
+	/**
+	 * Ends the chunk stream and answers the reply parts the harness sent so
+	 * far. The settle, failure, and cancel paths read the stored reply here.
+	 * The flag is set before the close, so a second caller never closes twice.
+	 */
+	const replyPartsSoFar = async (): Promise<UIMessage["parts"]> => {
+		if (!chunkStreamClosed) {
+			chunkStreamClosed = true;
+			try {
+				await chunkWriter.close();
+			} catch (error) {
+				// A bad chunk (for example an unknown id) errors the stream. The
+				// reader still holds the parts it built before that chunk.
+				logger.warn(
+					`Chunk stream close failed for turn ${turnId}: ${messageOf(error)}`,
+				);
+			}
+		}
+		return (await assistantMessage)?.parts ?? [];
 	};
 
 	// Memoized so the aborted-catch and the task onCancel share it.
@@ -587,18 +950,53 @@ export async function runBuilderTurn(
 				}
 			}
 			await detachSession();
-			await deps.writer.write(turnId, {
-				data: { status: "canceled" },
-				type: "done",
-			});
+			const done: TurnDoneData = { status: "canceled" };
 			const moved = await deps.turns.transition(
 				turnId,
 				["cancelling", "running"],
 				"canceled",
 			);
+			// The reply and `done` follow the final row. An API cancel can win
+			// the CAS: the row is then `canceled` too. A Stop late in the settle
+			// tail can lose to `complete`: the settle stores its own reply.
+			let isCanceled = moved;
 			if (!moved) {
 				logger.warn(`Cancel write lost for turn ${turnId}: row moved on`);
-			} else {
+				try {
+					isCanceled =
+						(await deps.turns.findById(turnId))?.status === "canceled";
+				} catch (error) {
+					// With no `done` event, the relay ends the stream from the row.
+					logger.warn(
+						`Row read failed for turn ${turnId}: ${messageOf(error)}`,
+					);
+				}
+			}
+			if (isCanceled) {
+				// The stored reply keeps the partial work and the Stopped line
+				// after a reload.
+				// LIMIT: when the API cancel promotes a waiting turn before this
+				// insert, the fence drops it, and a reload shows no Stopped line.
+				// Upgrade: insert with the cancel time, outside the fence.
+				await cleanupStep(async () => {
+					const parts = await replyPartsSoFar();
+					await fenced(() =>
+						deps.insertAssistantMessage({
+							chatId,
+							id: assistantMessageId,
+							metadata: null,
+							parts: [
+								...parts,
+								{ data: done, id: "turn-done", type: "data-turn-done" },
+							],
+							turnId,
+						}),
+					);
+				});
+				await deps.writer.write(turnId, { data: done, type: "done" });
+			}
+			if (moved) {
+				await recordTurnEnd("canceled");
 				// The CAS winner refunds. The API cancel (turns.service.ts) refunds
 				// only when its own `cancelling -> canceled` CAS wins.
 				await cleanupStep(() => refundHold("builder_turn_canceled"));
@@ -618,14 +1016,24 @@ export async function runBuilderTurn(
 			type: "status",
 		});
 
-	/** One terminal failure: row, error+done events, refund or settle, cleanup. */
+	/**
+	 * One terminal failure: row, the wip commit of a stop, the stored reply,
+	 * error+done events, refund or settle, cleanup.
+	 */
 	const failTurn = async (
 		error: unknown,
 		failureCode: string | null,
 	): Promise<void> => {
 		const stopCode = stopCodeOf(abortCode);
+		// A stop comes from a product rule (a cap, no credits, the off switch).
+		// Its error can carry the 402 of our own proxy, so it must not classify
+		// as a provider failure. The stop code on the row names the cause.
+		const classified =
+			stopCode === null
+				? error
+				: new Error(`Turn stopped: ${STOP_REASON[stopCode]}`);
 		const normalized =
-			classifyAiError(error, {
+			classifyAiError(classified, {
 				abortSignal: signal,
 				model: resolvedModel ?? undefined,
 				route: "none",
@@ -647,16 +1055,20 @@ export async function runBuilderTurn(
 			stack: error instanceof Error ? error.stack : undefined,
 			turnId,
 		});
-		normalized.sentryEventId = captureAiError(error, normalized, {
-			chatId,
-			harness: deps.harness.kind,
-			projectId,
-			route: "none",
-			sandboxId: sandbox?.providerSandboxId,
-			surface: "chat",
-			turnId,
-			userId: input.actorUserId,
-		});
+		// A stop is an expected end, so it opens no Sentry issue.
+		normalized.sentryEventId =
+			stopCode === null
+				? captureAiError(error, normalized, {
+						chatId,
+						harness: deps.harness.kind,
+						projectId,
+						route: "none",
+						sandboxId: sandbox?.providerSandboxId,
+						surface: "chat",
+						turnId,
+						userId: input.actorUserId,
+					})
+				: null;
 		// The page path writes the same columns via
 		// `pageFailurePersistenceValues`. Its key type is page-specific, so
 		// the mapping stays inline here.
@@ -665,10 +1077,20 @@ export async function runBuilderTurn(
 				stopCode === null
 					? renderAiErrorSentence(normalized)
 					: `Turn stopped: ${STOP_REASON[stopCode]}`,
-			failureCode: stopCode === null ? failureCode : STOP_STATUS[stopCode],
+			failureCode:
+				stopCode === null ? failureCode : stopFailureCodeOf(stopCode),
 			failureKind: normalized.kind,
 			failureProvider: normalized.provider,
-			failureProviderMessage: normalized.providerMessage,
+			// The Claude Code text names the real cause (529, 402, lost socket).
+			// No API sends this column to a user, so the raw text can stay here.
+			// The column is Postgres text and refuses U+0000, so the code removes it.
+			failureProviderMessage:
+				normalized.providerMessage ??
+				(failureCode === "harness_error"
+					? messageOf(error)
+							.replaceAll("\u0000", "")
+							.slice(0, HARNESS_CAUSE_MAX_CHARS)
+					: null),
 			failureRequestId: normalized.requestId,
 			failureSource: normalized.source,
 			sentryEventId: normalized.sentryEventId,
@@ -690,51 +1112,108 @@ export async function runBuilderTurn(
 						terminalStatus,
 						{ completedAt: new Date(), ...failure },
 					);
-		if (!failed) {
-			// A false CAS means the row went terminal under us (a cancel won).
+		// The payload of the last `done` event; null writes no `done`.
+		let done: TurnDoneData | null = { status: terminalStatus ?? "failed" };
+		if (failed) {
+			await recordTurnEnd(terminalStatus ?? "failed");
+		} else {
+			// A false CAS means another path ended the row first: a cancel, or
+			// `complete` before a throw in the settle tail. The stream then ends
+			// with the real status, like the relay `finishFromRow`, and no error.
 			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
+			try {
+				const row = await deps.turns.findById(turnId);
+				done =
+					row === null
+						? null
+						: {
+								status: row.status,
+								...(row.outputCommitSha
+									? { outputCommitSha: row.outputCommitSha }
+									: {}),
+							};
+			} catch (readError) {
+				// With no `done` event, the relay reads the row itself after 60 s
+				// of silence and ends the stream from it.
+				done = null;
+				logger.warn(
+					`Row read failed for turn ${turnId}: ${messageOf(readError)}`,
+				);
+			}
 		}
-		await deps.writer.write(turnId, {
-			data: {
-				code:
-					stopCode === null
-						? (failureCode ?? normalized.kind)
-						: STOP_STATUS[stopCode],
-				message: failure.error,
-				retryable: stopCode === null ? normalized.retryable : false,
-			},
-			type: "error",
+		// D3: a stopped turn keeps its file work. The commit lands before the
+		// `done` event: the web refetches the project at the stream end and
+		// must see the change (`hasCodeChanges`).
+		if (stopCode !== null && sandbox !== null) {
+			try {
+				await deps.commit(sandbox, deps.commitDeps, {
+					chatId,
+					messageId: assistantMessageId,
+					organizationId: input.organizationId,
+					projectId,
+					source: "wip",
+					summary: "Stopped",
+					turnId,
+					userId: input.actorUserId,
+				});
+			} catch (commitError) {
+				logger.warn(
+					`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
+				);
+			}
+		}
+		const errorData: TurnErrorData = {
+			code:
+				stopCode === null
+					? (failureCode ?? normalized.kind)
+					: stopFailureCodeOf(stopCode),
+			message: failure.error,
+			retryable: stopCode === null ? normalized.retryable : false,
+		};
+		// The stored reply ends with the same part as the stream, so a reload
+		// shows the error card and Retry. It lands before the events: a reload
+		// right after `done` must find it.
+		await cleanupStep(async () => {
+			const parts = await replyPartsSoFar();
+			const endParts: UIMessage["parts"] = failed
+				? [{ data: errorData, id: "turn-error", type: "data-turn-error" }]
+				: done === null
+					? []
+					: [{ data: done, id: "turn-done", type: "data-turn-done" }];
+			await fenced(() =>
+				deps.insertAssistantMessage({
+					chatId,
+					id: assistantMessageId,
+					metadata: null,
+					parts: [...parts, ...endParts],
+					turnId,
+				}),
+			);
 		});
-		await deps.writer.write(turnId, {
-			data: { status: terminalStatus ?? "failed" },
-			type: "done",
-		});
+		if (failed) {
+			await deps.writer.write(turnId, { data: errorData, type: "error" });
+		}
+		if (done !== null) {
+			await deps.writer.write(turnId, { data: done, type: "done" });
+		}
 		if (stopCode === null) {
 			await cleanupStep(() => refundHold("builder_turn_failed"));
 			await detachSession();
-		} else {
-			// D3: a stopped turn keeps its file work and settles the real
-			// spend; the hold is not refunded.
-			if (sandbox !== null) {
-				try {
-					await deps.commit(sandbox, deps.commitDeps, {
-						chatId,
-						messageId: assistantMessageId,
-						organizationId: input.organizationId,
-						projectId,
-						source: "wip",
-						summary: "Stopped",
-						turnId,
-						userId: input.actorUserId,
-					});
-				} catch (commitError) {
-					logger.warn(
-						`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
-					);
-				}
+			// Each resume of this conversation fails the same way, so the next turn
+			// starts a new Claude Code session. It gets no chat recap, because a
+			// recap can carry the flagged words again. The next turn finds no stored
+			// state, so createSession drops the kept session and kills the old bridge.
+			if (SESSION_BOUND_FAILURE_PATTERN.test(messageOf(error))) {
+				await cleanupStep(async () => {
+					await deps.sessions.clearResumeState(chatId);
+				});
 			}
+		} else {
+			// D3: a stopped turn settles the real spend; the hold is not
+			// refunded. The wip commit ran above, before the `done` event.
 			await detachSession();
 			await cleanupStep(async () => {
+				await waitForProxyRows();
 				const rows = await deps.proxyRows.sumByTurn(turnId);
 				// A stop code lands only after the `model === null` check, so
 				// `resolvedModel` is set; `recordUsage` still writes when it is not.
@@ -753,6 +1232,37 @@ export async function runBuilderTurn(
 			});
 		}
 		await finishTurn();
+	};
+
+	/**
+	 * Stops the turn on the cap when the LLM proxy refused one of its
+	 * requests with 402 V2_RUN_CAP_REACHED or V2_DAILY_CAP_REACHED. The
+	 * harness can end on that refusal before the next pulse tick; the turn
+	 * then settles its spend instead of `succeeded`, or `failed` with a full
+	 * refund. A turn whose last request only crossed the cap had no refusal
+	 * and keeps its status.
+	 */
+	const stopIfRefusedForCap = async (): Promise<void> => {
+		if (abortCode !== null) {
+			return;
+		}
+		try {
+			// A refused request stays in flight until the proxy wrote its row.
+			await waitForInFlightRows();
+			const capReason = await deps.proxyRows.capRejectionReason(turnId);
+			if (capReason === "run_cap") {
+				abortTurn("project_cap");
+			} else if (capReason === "daily_cap") {
+				abortTurn("daily_cap");
+			}
+		} catch (error) {
+			// A failed read must not block the end of the turn. The turn keeps
+			// the end status that the stream gave.
+			logger.warn("builder-turn.cap-refusal-check-failed", {
+				message: messageOf(error),
+				turnId,
+			});
+		}
 	};
 
 	/** Timer bodies must never reject unhandled; a stale write ends the turn. */
@@ -784,6 +1294,39 @@ export async function runBuilderTurn(
 				await sandbox?.keepAlive();
 				// The idle sweep must not stop a live turn.
 				await deps.sandboxSessions.touchActivity(projectId);
+				// WANDIT-283: a backend that goes active during the turn gets its
+				// host here. It runs after the activity stamp, so a failure skips no stamp.
+				// The turn adds it, not provision-backend: a vendor push from that
+				// process deletes the run token transformation of this session.
+				// LIMIT: the host arrives up to 60 s after the row goes active.
+				// Upgrade: provision-backend sends a Redis notice to the turn.
+				if (backendHostMissing && sandbox !== null) {
+					const backendEnv = activeBackendEnvOf(
+						await deps.backends.findByProjectId(projectId),
+					);
+					if (backendEnv === null) {
+						return;
+					}
+					const host = new URL(backendEnv.url).hostname;
+					// Security: like `buildNetworkPolicy`, one exact host. A wildcard
+					// opens every Supabase project, also a project of an attacker.
+					if (!isValidNetworkHost(host) || host.startsWith("*.")) {
+						backendHostMissing = false;
+						logger.warn("builder-turn.backend-host-invalid", {
+							host,
+							projectId,
+							turnId,
+						});
+						return;
+					}
+					await sandbox.allowHost(host);
+					backendHostMissing = false;
+					logger.info("builder-turn.backend-host-allowed", {
+						host,
+						projectId,
+						turnId,
+					});
+				}
 			});
 		}, TURN_KEEPALIVE_MS);
 		pulseTimer = setInterval(() => {
@@ -915,28 +1458,9 @@ export async function runBuilderTurn(
 		}, STREAM_HEARTBEAT_MS);
 	};
 
-	// The stream read end; `readUIMessageStream` rebuilds the assistant
-	// parts from the harness chunks the loop feeds it.
-	const chunkStream = new TransformStream<UIMessageChunk, UIMessageChunk>();
-	const chunkWriter = chunkStream.writable.getWriter();
-	let chunkStreamClosed = false;
-	const assistantMessage: Promise<UIMessage | null> = (async () => {
-		try {
-			let last: UIMessage | null = null;
-			for await (const message of readUIMessageStream<UIMessage>({
-				stream: chunkStream.readable,
-			})) {
-				last = message;
-			}
-			return last;
-		} catch {
-			// A dead stream still ends the turn; the row gets empty parts.
-			return null;
-		}
-	})();
-
 	try {
 		const spec = builderTurnSpecSchema.parse(turn.spec);
+		turnMode = spec.mode;
 
 		const project = await deps.project.findForTurn(projectId);
 		if (project === null) {
@@ -954,6 +1478,9 @@ export async function runBuilderTurn(
 				code: "project_template_missing",
 			});
 		}
+		// The dev command and port come from the template. An unknown
+		// framework throws here, before any sandbox work.
+		const templateProfile = profileForFramework(project.framework);
 		const model = turn.model ?? deps.model;
 		if (model === null) {
 			// Checked before the sandbox starts: no model, no spend. When
@@ -976,50 +1503,100 @@ export async function runBuilderTurn(
 				`Stored resume state for chat ${chatId} failed the schema; starting cold`,
 			);
 		}
-		const resumeState: HarnessResumeState | null =
+		const resumeState: HarnessResumeEnvelope | null =
 			parsedResume?.success === true ? parsedResume.data : null;
+		// A Plan toggle change while cards wait: the paused call cannot
+		// continue in the other mode, so the answers go as a text prompt.
+		const modeSwitch =
+			resumeState !== null && switchesMode(resumeState, spec.mode);
+		// The session row is saved at the end of each agent turn, so its
+		// `updatedAt` tells whether the agent ran after a restore.
+		const restoreNote = restoreNoteOf(
+			await deps.versions.findLatest(projectId),
+			sessionRow?.updatedAt ?? null,
+		);
 
-		// The user's words, or the attachment URLs when the message is empty.
-		const prompt =
+		// The user's words, then the attachment URLs. A message with text keeps
+		// its files too: the agent only sees what the prompt names. Answer
+		// files count as attachments here too.
+		const sentFiles = [
+			...spec.attachments,
+			...spec.answers.flatMap((answer) => answer.files),
+		];
+		const fileLines = sentFiles.map((attachment) => attachment.url).join("\n");
+		const requestText =
 			spec.message.trim().length > 0
-				? spec.message
-				: `See the attached files.\n${spec.attachments
-						.map((attachment) => attachment.url)
-						.join("\n")}`;
+				? sentFiles.length > 0
+					? `${spec.message}\n\nAttached files:\n${fileLines}`
+					: spec.message
+				: sentFiles.length > 0
+					? `See the attached files.\n${fileLines}`
+					: // An approval or answers alone have no text: the cards carry them.
+						"Continue.";
+		// The elements the user picked in the preview name the JSX to change
+		// (WANDIT-203). JSON quotes the label, so its text cannot break the line.
+		const targetLines = spec.targets.map(
+			(target) =>
+				`- ${target.src} (${target.tag} ${JSON.stringify(target.label)})`,
+		);
+		const prompt =
+			targetLines.length > 0
+				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
+				: requestText;
+		// The user's own words: the message, the file URLs, and the picked
+		// preview elements. "Continue." is not one. A mode switch prompt and
+		// the `present_plan` result use them.
+		const userWords =
+			spec.message.trim().length > 0 ||
+			sentFiles.length > 0 ||
+			targetLines.length > 0
+				? prompt
+				: "";
 		// The pending cards of a suspended turn make a `continue` input.
-		// The message text and `spec.approval` carry the answers.
-		let continuation: HarnessTurnInput | null = null;
+		// `spec.answers`, the message text, and `spec.approval` carry the
+		// answers.
+		let continuation: Extract<HarnessTurnInput, { kind: "continue" }> | null =
+			null;
 		// The prompt a fresh session gets when the suspended one cannot
-		// resume: the answer still reaches the agent.
+		// resume: the answers still reach the agent. Set after the answer
+		// files are in the sandbox, so it can name their paths.
 		let continuationFallbackPrompt: string | null = null;
 		if (resumeState !== null && resumeState.pending.length > 0) {
 			const text = prompt.trim();
 			const toolResults: HarnessQuestionResult[] = [];
 			const approvals: { approvalId: string; approved: boolean }[] = [];
 			for (const interaction of resumeState.pending) {
-				if (interaction.kind === "question") {
-					// LIMIT: one answer per turn; a call with several questions
-					// gets the first answered and the rest re-asked by the agent.
-					// Upgrade: one card per question with its own answer.
-					const question = interaction.questions[0];
-					if (question === undefined) {
-						continue;
-					}
-					const option = question.options.find(
-						(candidate) =>
-							candidate.label.trim().toLowerCase() === text.toLowerCase(),
-					);
+				if (
+					interaction.kind === "question" &&
+					interaction.tool === "ask_user"
+				) {
 					toolResults.push({
-						answers: {
-							[question.id]:
-								option === undefined
-									? { freeform: text, optionIds: [] }
-									: { optionIds: [option.id] },
-						},
-						partial: interaction.questions.length > 1,
+						output: askUserOutputOf(interaction, spec.answers, {
+							attachments: spec.attachments,
+							message: spec.message,
+						}),
+						tool: "ask_user",
 						toolCallId: interaction.toolCallId,
 					});
-					continuationFallbackPrompt ??= `Answer to your question "${question.question}": ${text}`;
+				} else if (interaction.kind === "plan") {
+					// A typed message on a plan card asks for changes. "Build this
+					// plan" sends a build turn: the mode switch below handles it.
+					toolResults.push({
+						output: { feedback: userWords },
+						tool: "present_plan",
+						toolCallId: interaction.toolCallId,
+					});
+				} else if (interaction.kind === "question") {
+					// A chat paused on the built-in tool before `ask_user` existed:
+					// the tray answers each card, a plain message the first one.
+					const result = builtinQuestionResultOf(
+						interaction,
+						spec.answers,
+						text,
+					);
+					if (result !== null) {
+						toolResults.push(result);
+					}
 				} else {
 					// An approval the body does not name counts as denied.
 					const approved =
@@ -1030,9 +1607,6 @@ export async function runBuilderTurn(
 						approvalId: interaction.approvalId,
 						approved,
 					});
-					continuationFallbackPrompt ??= `The user ${
-						approved ? "approved" : "denied"
-					} the ${interaction.toolName} call. Continue.`;
 				}
 			}
 			continuation = {
@@ -1116,7 +1690,7 @@ export async function runBuilderTurn(
 			}
 		}
 
-		const proxyToken = deps.mintToken({
+		const billing = {
 			capUsd,
 			plan,
 			projectId,
@@ -1124,58 +1698,168 @@ export async function runBuilderTurn(
 			turnId,
 			userId: input.actorUserId,
 			workspaceId: input.organizationId,
-		});
+		};
+		const proxyToken = deps.mintToken({ ...billing, chatId });
+		// The Vercel egress proxy keeps the token rule of a kept-alive
+		// connection. A paused Claude Code process that this turn continues
+		// still sends the token of the paused turn; the binding bills it here.
+		await deps.counters.bindChat(chatId, billing, LLM_PROXY_TOKEN_TTL_SECONDS);
 
-		const backend = await deps.backends.findByProjectId(projectId);
-		// D18: only an `active` row reaches the VM. A `creating` or `error`
-		// row, or no row, keeps the VITE_* names out of the env.
-		const supabase =
-			backend?.status === "active" &&
+		let backend = await deps.backends.findByProjectId(projectId);
+		// A paused backend wakes before the env is built, so the app has its
+		// database in this turn. A Cloud tab restore leaves `restoring`; the
+		// wake waits for that one too.
+		if (
+			backend !== null &&
 			backend.ref !== null &&
-			backend.anonKey !== null
-				? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
-				: null;
-		// LIMIT: a sandbox that already runs keeps its env until its next
-		// resume. Upgrade: write the sandbox `.env` and restart the dev
-		// server (issue step 8).
+			(backend.status === "paused" || backend.status === "restoring")
+		) {
+			if (deps.backendClient === null) {
+				// Without the platform env no wake can start; the note says so.
+				logger.warn("backend.wake-unconfigured", { projectId });
+			} else {
+				await writeStatus("sandbox_waking", "Waking up the database");
+				backend = await wakeBackend(
+					{ ...deps, client: deps.backendClient },
+					backend,
+					backend.ref,
+					ownAbort.signal,
+				);
+			}
+			// A cancel during the wake must not boot a sandbox: the catch
+			// sees the aborted task signal and runs `finalizeCanceled`.
+			if (signal.aborted) {
+				throw new Error("Turn canceled during the backend wake");
+			}
+		}
+		const supabase = activeBackendEnvOf(backend);
+		// Without an active row here, getOrCreate builds the policy with no
+		// backend host. The `.env` re-read after it writes only the file, so it
+		// keeps this flag.
+		backendHostMissing = supabase === null;
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
 			proxyToken,
 			runId,
-			supabaseAnonKey: supabase?.anonKey ?? null,
-			supabaseUrl: supabase?.url ?? null,
 		});
 
-		await writeStatus("sandbox_waking");
+		stamps.sandboxStart = deps.now();
 		sandbox = await deps.sandboxes.getOrCreate(projectId, {
-			devCommand: DEV_COMMAND,
-			devPort: DEV_PORT,
+			backendUrl: supabase?.url,
+			devCommand: templateProfile.devCommand,
+			devPort: templateProfile.devPort,
 			env: sandboxEnv,
 			framework: project.framework,
 			// Layer 3 egress hosts the `request_network_host` tool approved.
 			networkAllowedHosts: project.networkAllowedHosts,
+			// The card says "Waking the sandbox" only when the sandbox really
+			// boots; a running sandbox answers with no status.
+			onWake: async () => {
+				sandboxWoke = true;
+				await writeStatus("sandbox_waking");
+			},
+			onCreated: () => {
+				sandboxCreated = true;
+			},
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
 			templateVersion: project.templateVersion,
+			// A new sandbox boots from the template snapshot of this harness
+			// install: the template and the harness are already on its disk.
+			harnessKey: await deps.harness.bootstrapKey(),
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
+		// git does not keep `.env`, so a rebuilt sandbox needs the file again.
+		// provision-backend can mark the row active during getOrCreate. Then
+		// the sandbox row is not `running` yet, so its own write skips this
+		// sandbox. So the turn reads the row again here.
+		try {
+			const envBackend = activeBackendEnvOf(
+				await deps.backends.findByProjectId(projectId),
+			);
+			if (envBackend !== null) {
+				await syncBackendEnvFile(sandbox, envBackend);
+			}
+		} catch (error) {
+			// The agent works without the file. A missing file gets its write at
+			// the next turn.
+			logger.warn("builder-turn.env-file-failed", {
+				message: messageOf(error),
+				projectId,
+				turnId,
+			});
+		}
+		stamps.sandboxEnd = deps.now();
+		// The answer files enter the sandbox before the agent reads the
+		// answers, so the tool result and the fallback text name their paths.
+		if (continuation !== null && resumeState !== null) {
+			const toolResults: HarnessQuestionResult[] = [];
+			for (const result of continuation.toolResults) {
+				toolResults.push(
+					result.tool === "ask_user"
+						? {
+								...result,
+								output: await copyAnswerFiles(
+									{ logger, readUpload: deps.readUpload, sandbox, turnId },
+									result.output,
+								),
+							}
+						: result,
+				);
+			}
+			continuation = { ...continuation, toolResults };
+			const answerLines = fallbackPromptOf({
+				approvals: continuation.approvals,
+				messageText: prompt.trim(),
+				pending: resumeState.pending,
+				results: toolResults,
+			});
+			const fallback = modeSwitch
+				? modeSwitchPromptOf({
+						answerLines,
+						message: userWords,
+						mode: spec.mode,
+						pending: resumeState.pending,
+					})
+				: answerLines;
+			// No answer line: a fresh session gets the plain prompt instead.
+			continuationFallbackPrompt = fallback === "" ? null : fallback;
+		}
+		// After a sandbox stop, the rerun bridge matches a host-tool result
+		// only by the old call id, so an ask_user or present_plan answer goes
+		// as text on the same thread. An approval keeps the continue path: a
+		// text would make the agent call the tool again and ask for a new
+		// approval. A mode switch never continues the paused call.
+		const answersAsText =
+			modeSwitch ||
+			(sandboxWoke &&
+				continuationFallbackPrompt !== null &&
+				continuation?.toolResults.some(
+					(result) =>
+						result.tool === "ask_user" || result.tool === "present_plan",
+				) === true);
 
 		// The note applies only when no active backend row exists.
-		await writeStatus(
-			"session_starting",
-			supabase === null ? "Backend not ready yet" : undefined,
-		);
+		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
+		// The card says "Starting the session" only for a cold session. A
+		// stored session resumes with no status; `startSession` writes one
+		// when the resume fails and a fresh session starts instead.
+		if (resumeState === null) {
+			await writeStatus("session_starting", backendNote);
+		}
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
 			holdEventId: holdId,
+			mode: spec.mode,
 			organizationId: input.organizationId,
 			projectId,
 			sandbox,
 			subject,
 			turnId,
 		});
+		stamps.hostToolsEnd = deps.now();
 		// A stored session can be dead: the sandbox was rebuilt, or the proxy
 		// host changed and the SDK rejects the old egress rules. A fresh
 		// session loses the agent memory but keeps the project alive.
@@ -1187,6 +1871,13 @@ export async function runBuilderTurn(
 					const resumed = await deps.harness.resumeSession(
 						sessionInput,
 						stored,
+						{
+							// Only a sandbox wake loses the bridge. A mode switch keeps
+							// it: the new start replaces the paused call in the same
+							// bridge, so no kill and no second bridge on the port.
+							bridgeDead: sandboxWoke,
+							dropPausedTurn: answersAsText,
+						},
 					);
 					// A resumed session can hold an unfinished turn with no card to
 					// answer. Causes: a detach mid-generation, or a row from before
@@ -1215,27 +1906,83 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Two sentences; the template knows every other rule.
+			// The product rules for every project, plus the platform sentences:
+			// the Expo rule and the design world order for a mobile app, the app
+			// design recipe for a web app. A project keeps the CLAUDE.md of its
+			// template version, so a rule that must reach old projects goes here.
+			// The template CLAUDE.md in the workspace root holds every other rule.
+			// projects.languages holds the wandit UI locale at creation, not a
+			// choice of the user, so the agent gets it as a hint only.
 			instructions:
-				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
-				"Ask the user with the AskUserQuestion tool: one question per call, at most 4 options, only when you cannot decide yourself.",
+				`The language of the user's wandit interface is ${project.languages.join(", ")}: a hint for the app language, not a decision. ` +
+				"Before the first build of a new app, you must know its users, their main tasks, and its features. " +
+				"When the request does not give them, ask these scope questions with the ask_user tool before you plan. Choose the questions yourself. Do not ask when the user says not to ask. " +
+				"After the first build, ask only when you cannot decide yourself. Ask the app language on the first build (CLAUDE.md), unless the user says not to ask. Put every question of one step in ONE call. " +
+				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
+				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
+				"End with a short answer in plain words: at most 100 words, plus the test account. " +
+				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
+				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
+				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +
+				// Old projects keep a CLAUDE.md line that forbids an image of "a product that the user did not give".
+				"For the user's real product, place, or people, ask for the user's photos first, and offer generated images as the other choice. " +
+				"When the user picks generated images or asks for placeholders, make them, and say in one line that real photos can replace them later. An older rule against invented product images does not stop them. " +
+				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine." +
+				(templateProfile === TEMPLATE_PROFILES.mobile
+					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
+					: ` ${appRecipeInstruction(projectId)}`),
+			mode: spec.mode,
 			model,
 			sandbox,
 		};
-		const started = await startSession(resumeState);
+		// A created sandbox has no transcript on its disk: the stored session
+		// cannot resume, so the turn starts fresh and skips the resume try.
+		if (sandboxCreated && resumeState !== null) {
+			logger.warn("builder-turn.session-lost", {
+				reason: "sandbox_created",
+				turnId,
+			});
+			await writeStatus("session_starting", "Starting a fresh session");
+		}
+		const started = await startSession(sandboxCreated ? null : resumeState);
 		session = started.session;
+		sessionStart = started.resumed ? "resumed" : "created";
+		// Only a fresh session keeps the flag. A resumed session can be a kept
+		// one, which never called `harnessSession()` on this handle. Then
+		// `allowHost` pushes a raw vendor policy. That push deletes the
+		// transformation that carries the proxy run token.
+		// LIMIT: a resumed turn gets the backend host only at the next turn
+		// start. Upgrade: a kept session attaches its sandbox session to the
+		// new handle.
+		if (started.resumed) {
+			backendHostMissing = false;
+		}
+		stamps.sessionEnd = deps.now();
 		const providerSessionId = session.sessionId;
 
-		await writeStatus("running");
+		// A warm turn wrote no session status, so its first status carries
+		// the backend note instead.
+		await writeStatus(
+			"running",
+			resumeState === null ? undefined : backendNote,
+		);
 		startTimers(model);
+		stamps.streamStart = deps.now();
 		// A continued suspended turn gets the user's answers as tool
-		// results; a lost session still hears them as plain text.
+		// results; a lost session, a lost bridge, or a mode switch still
+		// hears them as text.
 		let turnInput: HarnessTurnInput;
-		if (continuation !== null && started.resumed) {
+		if (continuation !== null && started.resumed && !answersAsText) {
 			turnInput = continuation;
 		} else if (continuation !== null && continuationFallbackPrompt !== null) {
 			logger.warn(
-				`builder-turn.continuation-fallback turnId=${turnId}: suspended session lost`,
+				`builder-turn.continuation-fallback turnId=${turnId}: ${
+					!started.resumed
+						? "suspended session lost"
+						: modeSwitch
+							? "mode switch"
+							: "bridge lost in a sandbox stop"
+				}`,
 			);
 			turnInput = {
 				kind: "prompt",
@@ -1245,12 +1992,93 @@ export async function runBuilderTurn(
 		} else {
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
 		}
+		// The note goes in front of the user's words. A `continue` input holds
+		// only tool results, but VersionsService refuses a restore under a paused turn.
+		if (restoreNote !== null && turnInput.kind === "prompt") {
+			logger.info("builder-turn.restore-note", { turnId });
+			turnInput = {
+				...turnInput,
+				prompt: `${restoreNote}\n\n${turnInput.prompt}`,
+			};
+		}
+		// A stored session that did not come back lost the agent memory; the
+		// files stay. The recap gives the agent the recent chat back.
+		if (
+			resumeState !== null &&
+			!started.resumed &&
+			turnInput.kind === "prompt"
+		) {
+			turnInput = {
+				...turnInput,
+				prompt: await withChatRecap(
+					{ logger, recentMessages: deps.recentMessages, turnId },
+					{ chatId, currentMessageId: turn.messageId },
+					turnInput.prompt,
+				),
+			};
+		}
+		// The Plan Mode rules go in front of each plan prompt, not in the
+		// instructions: the system prompt of a project never changes. A
+		// `continue` input keeps the rules of the prompt that paused the turn.
+		if (spec.mode === "plan" && turnInput.kind === "prompt") {
+			turnInput = {
+				...turnInput,
+				prompt: `${PLAN_MODE_PROMPT}\n\n${turnInput.prompt}`,
+			};
+		}
 
+		// The cards that a `continue` input answers. A fresh session never
+		// names their ids, so a fallback prompt drops nothing.
+		const answeredCalls =
+			turnInput.kind === "continue" && resumeState !== null
+				? resumeState.pending
+				: [];
+		// reasoning chunk id → the ms clock at its `reasoning-start`.
+		const reasoningStartedAt = new Map<string, number>();
 		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
+				// The SDK sends the answer and the result of an approved call with
+				// the old ids. Only the paused reply holds that tool part, and the
+				// reply reader here and useChat throw on an unknown id. The time
+				// stamp above stays: the tool run counts as activity.
+				if (isAnsweredCallChunk(event.chunk, answeredCalls)) {
+					continue;
+				}
+				stamps.firstPart ??= lastPartAt;
+				if (event.chunk.type === "text-delta") {
+					stamps.firstText ??= lastPartAt;
+				}
 				await chunkWriter.write(event.chunk);
-				await writeEvent({ data: event.chunk, type: "part" });
+				// useChat stops its read at an `error` chunk. The browser must
+				// first get the `data-turn-error` card that `failTurn` writes, so
+				// the raw harness error stays off the stream.
+				if (event.chunk.type !== "error") {
+					await writeEvent({ data: event.chunk, type: "part" });
+				}
+				if (event.chunk.type === "reasoning-start") {
+					reasoningStartedAt.set(event.chunk.id, lastPartAt);
+				}
+				const startedAt =
+					event.chunk.type === "reasoning-end"
+						? reasoningStartedAt.get(event.chunk.id)
+						: undefined;
+				// The UI shows "Thought for Ns" on the block. No chunk carries a
+				// time, so the task stamps the duration as its own part. The
+				// chunk writer keeps it in the stored message too.
+				if (event.chunk.type === "reasoning-end" && startedAt !== undefined) {
+					const thought: UIMessageChunk = {
+						data: {
+							reasoningId: event.chunk.id,
+							// ms → whole seconds; a block under 0.5 s still shows 1 s.
+							seconds: Math.max(1, Math.round((lastPartAt - startedAt) / 1000)),
+						} satisfies TurnThoughtData,
+						id: `thought-${event.chunk.id}`,
+						type: "data-thought",
+					};
+					await chunkWriter.write(thought);
+					await writeEvent({ data: thought, type: "part" });
+				}
 				continue;
 			}
 			if (event.type === "usage") {
@@ -1263,8 +2091,30 @@ export async function runBuilderTurn(
 				continue;
 			}
 			// A harness error chunk ends the turn as failed. `failTurn` writes
-			// the one `error` event from the `code` this error carries.
-			throw Object.assign(new Error(event.message), { code: event.code });
+			// the one `error` event from the `code` this error carries. With a
+			// status, `classifyAiError` picks the kind: 529 capacity, 429 rate
+			// limit, 401/402/403 config, 413 invalid request.
+			const harnessError =
+				event.statusCode === undefined
+					? new Error(event.message)
+					: new APICallError({
+							message: event.message,
+							requestBodyValues: {},
+							statusCode: event.statusCode,
+							// The text names no URL. An empty URL makes the classifier
+							// take the provider from the model id, not the proxy host.
+							url: "",
+						});
+			throw Object.assign(harnessError, { code: event.code });
+		}
+		stamps.streamEnd = deps.now();
+
+		// An abort code that a tick set after the last chunk, or a cap refusal
+		// before the next tick, ends the turn here. `failTurn` settles a stop
+		// code and refunds every other code.
+		await stopIfRefusedForCap();
+		if (abortCode !== null) {
+			throw new Error(`Turn ${turnId} stopped at the stream end: ${abortCode}`);
 		}
 
 		// The harness counts stay informational; money comes from the proxy rows.
@@ -1294,10 +2144,8 @@ export async function runBuilderTurn(
 			},
 		): Promise<void> => {
 			await writeStatus("committing");
-			await chunkWriter.close();
-			chunkStreamClosed = true;
-			const finalMessage = await assistantMessage;
-			const assistantText = (finalMessage?.parts ?? [])
+			const finalParts = await replyPartsSoFar();
+			const assistantText = finalParts
 				.filter(
 					(
 						part,
@@ -1306,10 +2154,13 @@ export async function runBuilderTurn(
 				)
 				.map((part) => part.text)
 				.join("\n");
-			// A text-only turn still gets a commit: the turn number names it.
+			// The summary names the commit when the turn changed files. It goes
+			// into a git argument and `app_commits.message`, and both refuse U+0000.
 			const summary =
-				assistantText.trim().slice(0, SUMMARY_MAX_CHARS) ||
-				`Turn ${turnNumber}`;
+				assistantText
+					.replaceAll("\u0000", "")
+					.trim()
+					.slice(0, SUMMARY_MAX_CHARS) || `Turn ${turnNumber}`;
 
 			let commit: CommitTurnResult | null = null;
 			try {
@@ -1323,22 +2174,36 @@ export async function runBuilderTurn(
 					turnId,
 					userId: input.actorUserId,
 				});
+				if (commit === null) {
+					logger.info("builder-turn.commit-skipped", { turnId });
+				}
 			} catch (error) {
 				// A failed commit must not lose the turn's text and usage.
 				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
+				// The turn still succeeds, but its version is missing from the
+				// history. Sentry makes that loss visible (WANDIT-171).
+				Sentry.captureException(error, { tags: { projectId, turnId } });
 			}
+			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
 
-			// The files event is a stream-only part; the message row keeps the
-			// harness chunks only.
-			await writeEvent({
+			// The chat summary line reads this part: "Worked for 1 min · 6 files
+			// changed". The stored message keeps it too, so a reload shows it.
+			const summaryPart: UIMessage["parts"][number] = {
 				data: {
-					data: { files: commit?.numstat ?? [] },
-					id: `files-${turnId}`,
-					type: "data-builder-files",
-				},
-				type: "part",
-			});
+					files: commit?.numstat ?? [],
+					// After a reload, the Plan toggle starts from the last turn's mode.
+					mode: spec.mode,
+					// ms → whole seconds; a turn under 0.5 s still shows 1 s.
+					workedSeconds: Math.max(
+						1,
+						Math.round((stamps.commitEnd - runStartedAt) / 1000),
+					),
+				} satisfies TurnSummaryData,
+				id: `summary-${turnId}`,
+				type: "data-turn-summary",
+			};
+			await writeEvent({ data: summaryPart, type: "part" });
 
 			// One stream part and one message part per card the user must
 			// answer; the cards are what the next turn answers.
@@ -1349,10 +2214,34 @@ export async function runBuilderTurn(
 						const part: UIMessage["parts"][number] = {
 							data: {
 								answer: null,
-								options: question.options.map((option) => option.label),
+								kind: question.kind,
+								options: question.options.map((option) => {
+									// A design world option shows the world's preview card.
+									const card =
+										option.worldId === undefined
+											? undefined
+											: worldCardOf(option.worldId);
+									return {
+										id: option.id,
+										label: option.label,
+										...(option.description === undefined
+											? {}
+											: { description: option.description }),
+										...(card === undefined ? {} : { card }),
+										...(option.recommended === true
+											? { recommended: true }
+											: {}),
+									};
+								}),
 								question: question.question,
 								questionId: question.id,
 								toolCallId: interaction.toolCallId,
+								...(question.helper === undefined
+									? {}
+									: { helper: question.helper }),
+								...(question.maxFiles === undefined
+									? {}
+									: { maxFiles: question.maxFiles }),
 							} satisfies TurnQuestionData,
 							id: `${interaction.toolCallId}:${question.id}`,
 							type: "data-question",
@@ -1360,6 +2249,19 @@ export async function runBuilderTurn(
 						await writeEvent({ data: part, type: "part" });
 						cardParts.push(part);
 					}
+				} else if (interaction.kind === "plan") {
+					// The plan card waits like a question card: a typed message
+					// asks for changes, "Build this plan" sends a build turn.
+					const part: UIMessage["parts"][number] = {
+						data: {
+							...interaction.plan,
+							toolCallId: interaction.toolCallId,
+						} satisfies TurnPlanData,
+						id: `plan-${interaction.toolCallId}`,
+						type: "data-plan",
+					};
+					await writeEvent({ data: part, type: "part" });
+					cardParts.push(part);
 				} else {
 					const part: UIMessage["parts"][number] = {
 						data: {
@@ -1379,6 +2281,7 @@ export async function runBuilderTurn(
 
 			// The proxy rows are the spend truth; the message metadata and
 			// `recordUsage` read them before the CAS and the settle.
+			await waitForProxyRows();
 			const rows = await deps.proxyRows.sumByTurn(turnId);
 			const rowCredits = creditsFromRows(rows);
 
@@ -1398,7 +2301,7 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...(finalMessage?.parts ?? []), ...cardParts],
+					parts: [...finalParts, summaryPart, ...cardParts],
 					turnId,
 				}),
 			);
@@ -1426,6 +2329,10 @@ export async function runBuilderTurn(
 			if (!completed) {
 				logger.warn(`Complete write lost for turn ${turnId}: row moved on`);
 			} else {
+				// A paused turn ends its run here too, so this `turn.end` audit row
+				// holds the `waiting_for_*` status. The answer turn later moves
+				// this turn to `succeeded` and writes no `turn.end` for it.
+				await recordTurnEnd(outcome.status);
 				await settleHoldFromRows(model, rows);
 
 				// A suspended session is already parked; a live one detaches.
@@ -1437,7 +2344,8 @@ export async function runBuilderTurn(
 					deps.sessions.saveResumeState(chatId, {
 						model,
 						providerSessionId,
-						resumeState: resumeOut,
+						// The next turn compares the mode to detect a Plan toggle change.
+						resumeState: { ...resumeOut, mode: spec.mode },
 					}),
 				);
 				const balanceCredits = await deps.readBalance(subject);
@@ -1459,6 +2367,7 @@ export async function runBuilderTurn(
 				});
 			}
 			await finishTurn();
+			stamps.settleEnd = deps.now();
 		};
 
 		await settleTurn(
@@ -1481,6 +2390,11 @@ export async function runBuilderTurn(
 		if (signal.aborted) {
 			await finalizeCanceled();
 		} else {
+			// A harness error after the proxy cap refusal is a cap stop. A
+			// stale turn never stops on the cap: a newer turn owns the sandbox.
+			if (!(error instanceof StaleTurnError)) {
+				await stopIfRefusedForCap();
+			}
 			const code =
 				abortCode ??
 				(typeof error === "object" &&
@@ -1508,8 +2422,8 @@ export async function runBuilderTurn(
 				);
 			}
 		}
-		// A failed turn leaves the chunk stream open; close it so the
-		// reader promise ends with the run.
+		// A failure path that threw before its reply store leaves the chunk
+		// stream open; close it so the reader promise ends with the run.
 		if (!chunkStreamClosed) {
 			try {
 				await chunkWriter.close();
@@ -1519,10 +2433,325 @@ export async function runBuilderTurn(
 				);
 			}
 		}
+		// One timing line per run, failures included (WANDIT-253). It runs
+		// before the finalizer is removed, so the pool is still open.
+		let firstModelCallMs: number | null = null;
+		try {
+			const firstRequestAtMs =
+				await deps.proxyRows.firstRequestStartedAtMs(turnId);
+			// LIMIT: the row time is the database clock, the run start the
+			// worker clock; the difference carries their skew. Upgrade: let
+			// `claimRunning` write `started_at` with the database `now()` and
+			// diff the two columns in SQL.
+			firstModelCallMs =
+				firstRequestAtMs === null ? null : firstRequestAtMs - runStartedAt;
+		} catch (error) {
+			logger.warn(
+				`First proxy request lookup failed for turn ${turnId}: ${messageOf(error)}`,
+			);
+		}
+		const timing: BuilderTurnTiming = {
+			apiCreateMs: input.apiCreateMs,
+			commitMs: msBetween(stamps.streamEnd, stamps.commitEnd),
+			firstModelCallMs,
+			firstPartMs: msBetween(stamps.streamStart, stamps.firstPart),
+			firstTextMs: msBetween(runStartedAt, stamps.firstText),
+			path: input.runner,
+			hostToolsMs: msBetween(stamps.sandboxEnd, stamps.hostToolsEnd),
+			prestartMs: msBetween(runStartedAt, stamps.sandboxStart),
+			queueMs: runStartedAt - turn.createdAt.getTime(),
+			runId,
+			sandbox:
+				stamps.sandboxEnd === undefined ? null : sandboxWoke ? "woke" : "warm",
+			sandboxMs: msBetween(stamps.sandboxStart, stamps.sandboxEnd),
+			session: sessionStart,
+			sessionMs: msBetween(stamps.hostToolsEnd, stamps.sessionEnd),
+			settleMs: msBetween(stamps.commitEnd, stamps.settleEnd),
+			streamMs: msBetween(stamps.streamStart, stamps.streamEnd),
+			totalMs: deps.now() - runStartedAt,
+			turnId,
+		};
+		logger.info("builder-turn.timing", timing);
 		// Remove BEFORE the task ends its pool: a late onCancel must not
 		// write against a closed database.
 		builderTurnCancelFinalizers.delete(runId);
 	}
+}
+
+/** What the answer file copy needs from the run. */
+type AnswerCopyContext = {
+	logger: BuilderTurnLogger;
+	readUpload: BuilderTurnDeps["readUpload"];
+	/** The live project sandbox; the copy goes under its `workspaceDir`. */
+	sandbox: SandboxHandle;
+	turnId: string;
+};
+
+/**
+ * Copies the answer files of one `ask_user` result into the sandbox, one
+ * by one, and sets each `path`. A file that cannot be read, is too big, or
+ * fails the write keeps `path: null`; the agent still gets its URL.
+ */
+async function copyAnswerFiles(
+	context: AnswerCopyContext,
+	output: AskUserHostToolOutput,
+): Promise<AskUserHostToolOutput> {
+	const answers: AskUserHostToolOutput["answers"] = [];
+	for (const answer of output.answers) {
+		const files: AskUserHostToolOutput["answers"][number]["files"] = [];
+		for (const file of answer.files) {
+			files.push({ ...file, path: await copyAnswerFile(context, file.url) });
+		}
+		answers.push({ ...answer, files });
+	}
+	return { answers };
+}
+
+/** One answer file into `public/uploads/`; the project-relative path, or null. */
+async function copyAnswerFile(
+	context: AnswerCopyContext,
+	url: string,
+): Promise<string | null> {
+	const { logger, turnId } = context;
+	const path = uploadCopyPath(url);
+	if (path === null) {
+		logger.warn("builder-turn.answer-file-skipped", {
+			reason: "not an upload url",
+			turnId,
+			url,
+		});
+		return null;
+	}
+	try {
+		const bytes = await context.readUpload(url);
+		if (bytes === null || bytes.byteLength > ANSWER_FILE_MAX_BYTES) {
+			logger.warn("builder-turn.answer-file-skipped", {
+				reason: bytes === null ? "no upload object" : "file too big",
+				turnId,
+				url,
+			});
+			return null;
+		}
+		await context.sandbox.writeFiles([
+			{
+				content: bytes,
+				path: posix.join(context.sandbox.workspaceDir, path),
+			},
+		]);
+		return path;
+	} catch (error) {
+		// The answer still reaches the agent with the URL; only the copy fails.
+		logger.warn("builder-turn.answer-file-copy-failed", {
+			message: messageOf(error),
+			turnId,
+			url,
+		});
+		return null;
+	}
+}
+
+/**
+ * Wakes a `paused` or `restoring` backend: the restore call for a paused
+ * row, then one status read every 5 s until `ACTIVE_HEALTHY`. Answers the
+ * row read after the wake, or the row as it was on a timeout, a cancel, or
+ * a failure. It never throws: a slow database must not fail the turn.
+ */
+async function wakeBackend(
+	deps: Pick<BuilderTurnDeps, "backends" | "logger" | "now"> & {
+		/** `deps.backendClient`, checked not null by the caller. */
+		client: NonNullable<BuilderTurnDeps["backendClient"]>;
+	},
+	row: AppBackendRow,
+	/** The ref of `row`; the caller checked that it is not null. */
+	ref: string,
+	signal: AbortSignal,
+): Promise<AppBackendRow> {
+	// The scope of each Management API call, and the fields of each log line.
+	const backendRef = { projectId: row.projectId, ref };
+	const client = deps.client;
+	const startedAt = deps.now();
+	try {
+		if (row.status === "paused") {
+			try {
+				await client.restoreProject(backendRef);
+			} catch (error) {
+				// Supabase can apply a restore and still fail the answer; the next
+				// restore then fails too. A project that comes up needs only the wait.
+				const { status } = await client.getProject(backendRef);
+				if (!isProjectComingUp(status)) {
+					throw error;
+				}
+			}
+			// False means a Cloud tab restore moved the row first; the poll
+			// below waits for that restore instead.
+			await deps.backends.markRestoring(row.projectId);
+		}
+		// The loop also ends on `ACTIVE_HEALTHY` or a failed restore.
+		while (
+			!signal.aborted &&
+			deps.now() - startedAt < BACKEND_WAKE_TIMEOUT_MS
+		) {
+			let status: SupabaseProjectStatus | null = null;
+			try {
+				status = (await client.getProject(backendRef)).status;
+			} catch (error) {
+				// One failed read (a 429, a timeout) does not end the wake.
+				deps.logger.warn("backend.wake-poll-failed", {
+					...backendRef,
+					message: messageOf(error),
+				});
+			}
+			if (status === "ACTIVE_HEALTHY") {
+				await deps.backends.markRestored(row.projectId);
+				deps.logger.info("backend.wake-done", {
+					...backendRef,
+					elapsedMs: deps.now() - startedAt,
+				});
+				// A re-read: the row can have moved on, for example to `deleting`.
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			if (status === "RESTORE_FAILED" || status === "REMOVED") {
+				// Supabase does not bring this project back by itself; `error`
+				// ends the `restoring` state that nothing else would end.
+				await deps.backends.markRestoreFailed(row.projectId, status);
+				deps.logger.warn("backend.wake-failed", { ...backendRef, status });
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			// A cancel ends the sleep at once, so the turn stops without a wait.
+			await new Promise<void>((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", done);
+					resolve();
+				};
+				const timer = setTimeout(done, BACKEND_WAKE_POLL_MS);
+				signal.addEventListener("abort", done, { once: true });
+			});
+		}
+		if (signal.aborted) {
+			deps.logger.info("backend.wake-canceled", backendRef);
+			return row;
+		}
+		deps.logger.warn("backend.wake-timeout", {
+			...backendRef,
+			elapsedMs: deps.now() - startedAt,
+		});
+	} catch (error) {
+		deps.logger.warn("backend.wake-failed", {
+			...backendRef,
+			message: messageOf(error),
+		});
+	}
+	return row;
+}
+
+/**
+ * The note for the agent when the newest version is a restore that the
+ * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
+ * the chat's session row, or null when the chat has none.
+ */
+export function restoreNoteOf(
+	latest: LatestAppCommit | null,
+	sessionSavedAt: Date | null,
+): string | null {
+	if (latest?.source !== "restore") {
+		return null;
+	}
+	// A restore holds the turn lock, so it never overlaps a turn. A session
+	// saved after the restore commit already ran on the restored code.
+	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
+		return null;
+	}
+	// The version the user picked, not the new commit that copies it forward.
+	const version = latest.restoredFromSha ?? latest.sha;
+	return `The user restored the code to version ${version.slice(0, 7)} before this message. Read the files again before you edit.`;
+}
+
+/** What the recap of a lost session needs from the run. */
+type RecapContext = {
+	logger: BuilderTurnLogger;
+	recentMessages: BuilderTurnDeps["recentMessages"];
+	turnId: string;
+};
+
+/**
+ * `prompt` with the last chat messages in front, for a fresh session that
+ * replaced a stored one. The current user message is left out: the prompt
+ * already carries it. A failed read keeps the plain prompt: the recap
+ * only helps, and the turn must still run.
+ */
+async function withChatRecap(
+	context: RecapContext,
+	chat: {
+		chatId: string;
+		/** `messages.id` of this turn's own user message; null on an old row. */
+		currentMessageId: string | null;
+	},
+	prompt: string,
+): Promise<string> {
+	let recent: ChatMessageText[];
+	try {
+		// One more row than the recap holds: the newest row is this turn's own message.
+		recent = await context.recentMessages(chat.chatId, RECAP_MESSAGES + 1);
+	} catch (error) {
+		context.logger.warn("builder-turn.recap-failed", {
+			message: messageOf(error),
+			turnId: context.turnId,
+		});
+		return prompt;
+	}
+	const lines = recent
+		.filter(
+			(message) =>
+				message.id !== chat.currentMessageId &&
+				message.role !== "system" &&
+				message.text.trim() !== "",
+		)
+		.slice(0, RECAP_MESSAGES)
+		.reverse()
+		.map(
+			(message) =>
+				`${message.role === "user" ? "User" : "You"}: ${message.text.trim().slice(0, RECAP_MESSAGE_MAX_CHARS)}`,
+		);
+	if (lines.length === 0) {
+		return prompt;
+	}
+	return [
+		"Your memory of this chat was lost: the sandbox was rebuilt, or the session could not resume. The project files are intact.",
+		"These are the last messages of the chat, oldest first:",
+		lines.join("\n\n"),
+		"The new message of the user:",
+		prompt,
+	].join("\n\n");
+}
+
+/**
+ * True when a harness chunk names a card of the paused turn: the approval
+ * answer of an approval card, or any chunk with the tool call id of a card.
+ * The stream loop drops these chunks from the continued reply.
+ */
+function isAnsweredCallChunk(
+	chunk: UIMessageChunk,
+	answeredCalls: readonly HarnessPendingInteraction[],
+): boolean {
+	if (chunk.type === "tool-approval-response") {
+		return answeredCalls.some(
+			(call) =>
+				call.kind === "approval" && call.approvalId === chunk.approvalId,
+		);
+	}
+	return (
+		"toolCallId" in chunk &&
+		answeredCalls.some((call) => call.toolCallId === chunk.toolCallId)
+	);
+}
+
+/** `to - from` in ms, or null while either stamp is missing. */
+function msBetween(
+	from: number | undefined,
+	to: number | undefined,
+): number | null {
+	return from === undefined || to === undefined ? null : to - from;
 }
 
 function messageOf(error: unknown): string {

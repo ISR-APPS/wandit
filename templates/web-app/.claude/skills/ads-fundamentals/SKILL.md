@@ -5,6 +5,8 @@ description: "Unit economics vocabulary, campaign / ad set / ad structure, CBO v
 
 # Fundamentals
 
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
+
 # ADS SKILL — FUNDAMENTALS
 
 Use for paid media on Meta or TikTok: reading an account, structuring campaigns, judging budgets, scaling, or deciding to touch nothing.
@@ -14,7 +16,7 @@ Not in this skill (open the sibling skill instead): creative analysis (ads-creat
 ## 1. UNIT ECONOMICS — ONE LINE EACH
 
 CPM: cost per 1,000 impressions. CPC: cost per click = CPM / CTR. CTR: clicks / impressions — always say which: link CTR (outbound) or CTR all. CPA: cost per result; on a Wandit page the result is a Lead. ROAS: platform-attributed revenue / spend. MER: total revenue / total ad spend, all platforms. AOV: average order value. LTV: lifetime revenue per customer. CAC: cost per new customer. Contribution margin per order: price minus product, shipping, payment and return cost — never gross margin. Break-even ROAS: 1 / contribution margin rate; below it you lose money whatever the platform shows. Cost per result vs profitable cost per result: the platform reports the first; know the second.
-HARD RULE: in COD the real unit is a DELIVERED order, never a lead. A Lead CPA means nothing until confirmation and delivery rates turn it into cost per delivered order (formula, market rates: ads-cod-maghreb); apply the rates from read_lead_performance to the platform CPA, then judge.
+HARD RULE: in COD the real unit is a DELIVERED order, never a lead. A Lead CPA means nothing until confirmation and delivery rates turn it into cost per delivered order (formula, market rates: ads-cod-maghreb); apply the rates from a run_sql query on the app's leads table to the platform CPA, then judge.
 HARD RULE: ad budgets and ad costs are USD — say USD every time. Page prices stay DZD.
 
 ## 2. ACCOUNT HIERARCHY
@@ -56,8 +58,8 @@ Auction mechanics: Meta ranks by total value = bid x estimated action rate + ad 
 
 Needed: browser pixel (Meta Pixel / TikTok Pixel) plus server stream (Conversions API / Events API); standard events — custom events feed the algorithm worse; dedup browser and server copies by event_id plus event name; Event Match Quality and Aggregated Event Measurement (verified domain, Lead ranked) decide how much signal the platform can use (detail: ads-measurement).
 Wandit reality: the published page fires one bare Lead per accepted lead (no value, no currency, no eventID) — optimize on Lead, expect no value optimization, promise no dedup. On TikTok, Lead is not a standard event name (the form event is SubmitForm): confirm in TikTok Events Manager that the event arrives and is selectable as the optimization event before launching a conversion campaign.
-Instant forms (Meta lead ads, TikTok instant pages) trade quality for volume: cheaper, more leads, lower intent, no Wandit page, no Leads-tab attribution; suggest them only to a merchant who accepts more confirmation calls per delivered order. Merchant truth is read_lead_performance: counts and rates by source (facebook / tiktok / direct, from UTMs), by campaign (utm_campaign), by status (to_confirm -> confirmed -> shipped -> delivered | returned | cancelled).
-HARD RULE: ads pointing to a Wandit page carry UTM tags (utm_source=facebook|tiktok, utm_medium=paid, utm_campaign=name); without them the Leads tab cannot attribute and this skill is blind.
+Instant forms (Meta lead ads, TikTok instant pages) trade quality for volume: cheaper, more leads, lower intent, no Wandit page, no leads-table attribution; suggest them only to a merchant who accepts more confirmation calls per delivered order. Merchant truth is a run_sql query on the app's leads table: counts and rates by source (facebook / tiktok / direct, from UTMs), by campaign (utm_campaign), by status (to_confirm -> confirmed -> shipped -> delivered | returned | cancelled).
+HARD RULE: ads pointing to a Wandit page carry UTM tags (utm_source=facebook|tiktok, utm_medium=paid, utm_campaign=name); without them the app's leads table cannot attribute and this skill is blind.
 
 ## 7. SCALING
 
@@ -83,7 +85,7 @@ Do NOT kill on one bad day, a weekend dip, or a 15% CPA move — usually noise (
 ## 10. BREAKDOWNS — READ WITHOUT OVER-SEGMENTING
 
 Age and gender: read, never act on reflex; the most common trap is excluding a segment on a handful of conversions. Exclude an age range only when it has spent several times target CPA at materially worse cost AND the product logically does not fit; never a cell with few impressions, nor one broad delivery already under-serves.
-Placements: Meta Reels, Feed, Stories, Audience Network; TikTok in-feed, Search, Pangle (third-party app network, with a block list). Advantage+ Placements / TikTok automatic placement usually win on blended cost; exclude a placement only when significant spend shows near-zero results or a lead-quality problem — Audience Network and Pangle are the first suspects (rule of thumb), proven with read_lead_performance outcomes, never assumed.
+Placements: Meta Reels, Feed, Stories, Audience Network; TikTok in-feed, Search, Pangle (third-party app network, with a block list). Advantage+ Placements / TikTok automatic placement usually win on blended cost; exclude a placement only when significant spend shows near-zero results or a lead-quality problem — Audience Network and Pangle are the first suspects (rule of thumb), proven with outcomes in the app's leads table, never assumed.
 Device, OS, connection: read for the page (Android-heavy, slow connections need a light page), not for targeting.
 Geography: national by default in Algeria; regional when the merchant ships to some wilayas only. Exclude non-deliverable zones at ad-set level, aligned with the wilaya list the page accepts — an unserved wilaya is a guaranteed cancellation.
 Time-to-conversion: click-to-lead is minutes; lead-to-delivered is days — judge delivered economics after the delivery window closes.

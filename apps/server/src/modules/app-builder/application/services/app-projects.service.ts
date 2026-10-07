@@ -1,26 +1,29 @@
 /**
  * Orchestration behind the V2 app-project routes: create, get, and the
  * project cost caps. Called by `app-projects.controller.ts` and
- * `cost-caps.controller.ts`. Create order: platform and attachment
- * checks, the settled-balance gate, one transaction (project, chat,
- * first message, builder session), the backend provision handoff, then
- * the first builder turn — which adopts the already-written message
- * row — the title job, and the `v2_project_created` event.
+ * `cost-caps.controller.ts`. Create order: 1. the template version of the
+ * platform. 2. the attachment check. 3. the settled-balance gate. 4. one
+ * transaction (project, chat, first message, builder session). 5. the
+ * backend provision handoff. 6. the first builder turn, which adopts the
+ * message row; when it fails, one stored error reply. 7. the title job and
+ * `v2_project_created`.
  */
 import { randomUUID } from "node:crypto";
 import {
-	BadRequestException,
+	HttpException,
 	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
 } from "@nestjs/common";
-import type {
-	AppProject,
-	CreateAppProjectRequest,
-	CreateAppProjectResponse,
-	ProjectCostCaps,
-	UpdateProjectCostCapsRequest,
+import {
+	type AppProject,
+	type CreateAppProjectRequest,
+	type CreateAppProjectResponse,
+	type ProjectCostCaps,
+	type TurnErrorData,
+	turnErrorDataSchema,
+	type UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
@@ -28,6 +31,7 @@ import { AnalyticsService } from "../../../../infrastructure/analytics/analytics
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { subjectPayer } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import {
 	assertWanditHostedAttachments,
 	deriveProjectName,
@@ -38,10 +42,13 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
+import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { BackendsService } from "./backends.service";
 import {
@@ -72,7 +79,10 @@ export class AppProjectsService {
 		@Inject(CreditsService)
 		private readonly credits: Pick<CreditsService, "getSettledBalance">,
 		@Inject(TemplateVersionService)
-		private readonly templateVersion: Pick<TemplateVersionService, "current">,
+		private readonly templateVersion: Pick<
+			TemplateVersionService,
+			"versionFor"
+		>,
 		@Inject(AnalyticsService)
 		private readonly analytics: Pick<AnalyticsService, "capture">,
 		@Inject(V2_ENV)
@@ -84,6 +94,13 @@ export class AppProjectsService {
 		>,
 		@Inject(BackendsService)
 		private readonly backends: Pick<BackendsService, "provisionBackend">,
+		@Inject(AppCommitsRepository)
+		private readonly appCommits: Pick<
+			AppCommitsRepository,
+			"countVersions" | "hasFileChanges"
+		>,
+		@Inject(ChatsRepository)
+		private readonly chats: Pick<ChatsRepository, "insertUiMessagesIfAbsent">,
 	) {}
 
 	/**
@@ -95,14 +112,12 @@ export class AppProjectsService {
 		body: CreateAppProjectRequest,
 		request: { countryCode: string | null },
 	): Promise<CreateAppProjectResponse> {
-		// WANDIT-192 adds mobile; until then the contract accepts "mobile"
-		// but the create path refuses it.
-		if (body.targetPlatform !== "web") {
-			throw new BadRequestException({
-				code: "V2_TARGET_PLATFORM_UNSUPPORTED",
-				message: "Mobile apps are not available yet",
-			});
-		}
+		// First, before any row: a server without the mobile template answers
+		// 503 MOBILE_TEMPLATE_UNAVAILABLE for a mobile create.
+		const templateVersion = this.templateVersion.versionFor(
+			body.targetPlatform,
+		);
+		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
 
@@ -123,16 +138,15 @@ export class AppProjectsService {
 		const chatId = randomUUID();
 		const messageId = randomUUID();
 		const derivedName = deriveProjectName(body.prompt);
-		const templateVersion = this.templateVersion.current;
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 
 		await this.projects.createWithChatAndFirstMessage({
 			app: {
-				framework: "web-app",
+				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,
 				model: this.v2Env.V2_DEFAULT_MODEL ?? null,
-				targetPlatform: "web",
+				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},
 			attachments: body.attachments,
@@ -145,9 +159,10 @@ export class AppProjectsService {
 			scope,
 		});
 
-		// D18: every V2 project gets one backend at creation. A failure here
-		// must not lose the project — the `app_backends` row stays `error` or
-		// absent and the first turn still runs.
+		// D18 and D3: a V2 project gets one backend at creation when the
+		// payer's plan has a free slot. A failure here must not lose the
+		// project — the `app_backends` row stays `error` or absent and the
+		// first turn still runs.
 		try {
 			await this.backends.provisionBackend(projectId, {
 				countryCode: request.countryCode,
@@ -155,9 +170,13 @@ export class AppProjectsService {
 				userId: scope.userId,
 			});
 		} catch (error) {
-			this.logger.error(
-				`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
-			);
+			// A plan without a free backend slot is a product rule, not a
+			// failure: `BackendsService` already logged it.
+			if (!(error instanceof BackendLimitReachedError)) {
+				this.logger.error(
+					`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+				);
+			}
 		}
 
 		// WANDIT-166 builder-turn task creates the sandbox on the first turn;
@@ -172,18 +191,21 @@ export class AppProjectsService {
 					chatId,
 					composer: body.composer,
 					message: body.prompt,
+					mode: body.mode,
 				},
 				{ existingMessageId: messageId },
 			);
 			turnId = turn.turnId;
 		} catch (error) {
-			// A failed first turn must not lose the project; the web app retries
-			// the message through POST .../turns.
+			// A failed first turn must not lose the project. The stored error
+			// reply gives the chat its error card and Retry, which sends the
+			// prompt again through POST .../turns.
 			this.logger.error(
 				`First builder turn failed for project ${projectId}: ${
 					error instanceof Error ? error.message : String(error)
 				}`,
 			);
+			await this.storeFirstTurnError(chatId, projectId, error);
 		}
 
 		// Best-effort rename like V1 create: never throws, never delays the
@@ -203,11 +225,13 @@ export class AppProjectsService {
 
 		this.analytics.capture(scope.userId, "v2_project_created", {
 			countryCode: request.countryCode,
-			framework: "web-app",
+			framework: templateProfile.framework,
 			languages: body.languages,
+			// The Plan toggle of the first prompt; absent means a build.
+			mode: body.mode ?? "build",
 			organizationId: scope.kind === "org" ? scope.organizationId : null,
 			projectId,
-			targetPlatform: "web",
+			targetPlatform: body.targetPlatform,
 			templateVersion,
 			turnStarted: turnId !== null,
 		});
@@ -215,14 +239,67 @@ export class AppProjectsService {
 		return { chatId, projectId, turnId };
 	}
 
-	/** `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing. */
+	/**
+	 * Stores one assistant message with a single `data-turn-error` part after
+	 * the chat's first message. A failed write only logs: the create still
+	 * answers 201.
+	 */
+	private async storeFirstTurnError(
+		chatId: string,
+		projectId: string,
+		error: unknown,
+	): Promise<void> {
+		// Our HTTP errors carry a code and a user sentence, for example 429
+		// TOO_MANY_ACTIVE_TURNS. Any other error text can be internal, so it
+		// stays in the log.
+		const known =
+			error instanceof HttpException
+				? turnErrorDataSchema
+						.pick({ code: true, message: true })
+						.safeParse(error.getResponse())
+				: null;
+		const data: TurnErrorData = {
+			code: known?.success ? known.data.code : "create_failed",
+			message: known?.success
+				? known.data.message
+				: "The build did not start. Send your message again.",
+			retryable: true,
+		};
+		try {
+			await this.chats.insertUiMessagesIfAbsent(
+				chatId,
+				[
+					{
+						id: randomUUID(),
+						parts: [{ data, id: "turn-error", type: "data-turn-error" }],
+						role: "assistant",
+					},
+				],
+				null,
+			);
+		} catch (insertError) {
+			this.logger.error(
+				`First turn error reply failed for project ${projectId}: ${getErrorMessage(insertError)}`,
+			);
+		}
+	}
+
+	/**
+	 * `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing.
+	 * `hasCodeChanges` and the version counts read the commits only after
+	 * the scope check.
+	 */
 	async get(scope: ProjectScope, projectId: string): Promise<AppProject> {
 		const row = await this.projects.findByIdForScope(scope, projectId);
 		if (row?.engine !== "v2_app") {
 			throw new NotFoundException();
 		}
 
-		return mapAppProjectRow(row);
+		const [hasCodeChanges, versions] = await Promise.all([
+			this.appCommits.hasFileChanges(projectId),
+			this.appCommits.countVersions(projectId),
+		]);
+		return mapAppProjectRow(row, hasCodeChanges, versions);
 	}
 
 	/**

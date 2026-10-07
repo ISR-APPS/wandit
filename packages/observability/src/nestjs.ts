@@ -1,3 +1,8 @@
+/**
+ * Sentry setup of the two `apps/server` processes: the NestJS API and the
+ * harness host. `apps/server/src/instrument.ts` calls `initNestSentry` as a
+ * `node --import` preload. It calls `@sentry/nestjs` and the shared helpers.
+ */
 import * as Sentry from "@sentry/nestjs";
 
 import { normalizeSentryRelease } from "./internal/release";
@@ -17,14 +22,24 @@ import {
  */
 export * as Sentry from "@sentry/nestjs";
 
+/**
+ * The shared options plus the `runtime` tag. `instrument.ts` picks the tag
+ * from the entry file.
+ */
 export interface InitNestSentryOptions extends WanditSentryOptions {
-	runtime: "server";
+	/**
+	 * The `runtime` tag of every event: "harness-host" for the host process, else "server".
+	 * "harness-host" also samples 0 traces.
+	 */
+	runtime: "server" | "harness-host";
 }
 
 /**
- * Initialize Sentry for the NestJS API. Must run before `@nestjs/core` or
- * Fastify are imported (see apps/server/src/instrument.ts) so OpenTelemetry
- * can patch http/fastify/db modules. No-op when no DSN is configured.
+ * Initialize Sentry for the NestJS API or the harness host. Both use the
+ * `server@<sha>` release, because one build makes both. Must run before
+ * `@nestjs/core` or Fastify are imported (see apps/server/src/instrument.ts)
+ * so OpenTelemetry can patch http/fastify/db modules. No-op when no DSN is
+ * configured.
  */
 export function initNestSentry(options: InitNestSentryOptions): void {
 	if (!isEnabled(options)) {
@@ -45,7 +60,13 @@ export function initNestSentry(options: InitNestSentryOptions): void {
 			// puts prompts into spans — flip to false if that becomes sensitive.
 			Sentry.vercelAIIntegration({ recordInputs: true, recordOutputs: true }),
 		],
-		tracesSampler: dropHealthchecks(options.tracesSampleRate ?? 0.2),
+		// Host turns continue the sampled browser trace and send too many spans.
+		// `dropHealthchecks` keeps a sampled parent, so a rate of 0 does not stop them.
+		// Errors and logs do not use the sampler.
+		tracesSampler:
+			options.runtime === "harness-host"
+				? () => 0
+				: dropHealthchecks(options.tracesSampleRate ?? 0.2),
 		beforeSend: scrubEvent,
 		initialScope: { tags: { runtime: options.runtime } },
 	});

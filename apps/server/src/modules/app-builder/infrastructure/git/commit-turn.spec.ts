@@ -14,6 +14,7 @@ import {
 	type CommitTurnInput,
 	type CommitTurnStore,
 	commitTurn,
+	commitTurnUnlessClean,
 	versionNumstatKey,
 	versionPatchKey,
 } from "./commit-turn";
@@ -23,6 +24,10 @@ const PARENT = "b".repeat(40);
 const STORED_HEAD = "d".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
+// WANDIT-282: every git call through `mustRunGit` and the push turn off
+// hooks, credential helpers, and fsmonitor. Literal, so a weaker list fails.
+const SAFE =
+	"git -c core.hooksPath=/dev/null -c credential.helper= -c core.fsmonitor=false";
 
 const INPUT: CommitTurnInput = {
 	projectId: "p-1",
@@ -42,7 +47,7 @@ type CommittedRow = Parameters<CommitTurnStore["insert"]>[0];
 function fixture(options?: {
 	/** CAS answers in call order; later calls answer `true` when it runs out. */
 	upsertResults?: boolean[];
-	/** `app_branches.headSha` a failed CAS then reads; null means no row. */
+	/** `app_branches.headSha` that the pre-push check and a failed CAS read; null means no row. */
 	storedHead?: string | null;
 }) {
 	const provider = new FakeSandboxProvider();
@@ -182,9 +187,66 @@ function storedPatch(
 	throw new Error(`no stored patch bytes for ${key}`);
 }
 
+describe("commitTurnUnlessClean", () => {
+	it("skips the commit when the tree is clean and HEAD is the stored head", async () => {
+		const { deps, inserted, provider } = fixture({ storedHead: SHA });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", { ...OK, stdout: `HEAD=${SHA}\n` });
+
+		const result = await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(result).toBeNull();
+		// One status command, no git commit, no push, no row.
+		expect(execLog(provider)).toHaveLength(1);
+		expect(inserted).toHaveLength(0);
+	});
+
+	it("commits when the turn left a changed file", async () => {
+		const { deps, inserted, provider } = fixture();
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", {
+			...OK,
+			stdout: ` M src/routes/index.tsx\nHEAD=${PARENT}\n`,
+		});
+		scriptCommit(provider);
+
+		const result = await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(result?.sha).toBe(SHA);
+		expect(inserted).toHaveLength(1);
+	});
+
+	it("commits a clean tree whose HEAD the stored head does not name yet", async () => {
+		// A clean tree with an unpushed HEAD: the history still needs the push.
+		const { deps, inserted, provider } = fixture({ storedHead: PARENT });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", { ...OK, stdout: `HEAD=${STORED_HEAD}\n` });
+		scriptCommit(provider);
+
+		await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(inserted).toHaveLength(1);
+	});
+
+	it("commits when the status command fails", async () => {
+		const { deps, inserted, provider } = fixture({ storedHead: SHA });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", {
+			exitCode: 128,
+			stderr: "fatal: not a git repository",
+			stdout: "",
+		});
+		scriptCommit(provider);
+
+		await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(inserted).toHaveLength(1);
+	});
+});
+
 describe("commitTurn", () => {
 	it("runs the git commands in order and writes row, patches, and head", async () => {
-		const { appCommits, deps, headWrites, inserted, provider, puts } =
+		const { appCommits, deps, gitStore, headWrites, inserted, provider, puts } =
 			fixture();
 		scriptCommit(provider);
 		const sandbox = await fixtureSandbox(provider);
@@ -192,20 +254,27 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		const execs = execLog(provider);
-		expect(execs[0]).toBe("git add -A");
+		expect(execs[0]).toBe(`${SAFE} add -A`);
 		expect(execs[1]).toBe("git log -1 --format=%B");
 		// The fake joins command and args with a space; a real exec passes
-		// the message as one argv entry.
+		// the message as one argv entry. Hooks stay off on the commit.
 		expect(execs[2]).toBe(
-			"git -c user.name=wandit -c user.email=builder@wandit.dev commit --allow-empty -m Add the hero section -m Wandit-Message: msg-1 -m Wandit-Chat: chat-1",
+			`${SAFE} -c user.name=wandit -c user.email=builder@wandit.dev commit --no-verify --allow-empty -m Add the hero section -m Wandit-Message: msg-1 -m Wandit-Chat: chat-1`,
 		);
-		expect(execs[3]).toBe("git tag -f msg/msg-1");
-		expect(execs[4]).toBe("git rev-parse HEAD");
+		expect(execs[3]).toBe(`${SAFE} tag -f msg/msg-1`);
+		expect(execs[4]).toBe(`${SAFE} rev-parse HEAD`);
 		expect(execs[5]).toBe("git rev-parse HEAD~1");
-		expect(execs[6]).toBe("git show --numstat --format= HEAD");
-		expect(execs[7]).toBe("git show --format= HEAD");
+		expect(execs[6]).toBe(`${SAFE} show --numstat --format= HEAD`);
+		expect(execs[7]).toBe(`${SAFE} show --format= HEAD`);
+		// The push carries the JWT: no hook or credential helper may run.
 		expect(execs[8]).toBe(
-			`git push https://t:${JWT}@org.code.storage/wandit/p-1.git HEAD:main`,
+			`${SAFE} push --no-verify https://t:${JWT}@org.code.storage/wandit/p-1.git HEAD:main`,
+		);
+		// The push uses the "push-main" token, the one with the refs claim.
+		expect(gitStore.issueCredential).toHaveBeenCalledWith(
+			"p-1",
+			expect.any(Number),
+			"push-main",
 		);
 
 		expect(result.sha).toBe(SHA);
@@ -254,8 +323,8 @@ describe("commitTurn", () => {
 
 		const execs = execLog(provider);
 		// `git commit` is skipped; `tag -f` still re-points the tag.
-		expect(execs.filter((line) => line.includes("git -c"))).toHaveLength(0);
-		expect(execs[2]).toBe("git tag -f msg/msg-1");
+		expect(execs.filter((line) => line.includes(" commit "))).toHaveLength(0);
+		expect(execs[2]).toBe(`${SAFE} tag -f msg/msg-1`);
 	});
 
 	it("records a null parent on the root commit", async () => {
@@ -281,6 +350,8 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		expect(gitStore.ensureRepository).toHaveBeenCalledOnce();
+		// The ensure retries can outlast the push TTL: the retry mints a new JWT.
+		expect(gitStore.issueCredential).toHaveBeenCalledTimes(2);
 		expect(result.sha).toBe(SHA);
 	});
 
@@ -390,10 +461,10 @@ describe("commitTurn", () => {
 		);
 	});
 
-	it("first agent turn after the template init creates the main row", async () => {
+	it("first agent turn creates the repository before its one push, then the main row", async () => {
 		// The template init commits outside `commitTurn`, so the parent sha
 		// is set and no `main` row exists yet.
-		const { appCommits, deps, headWrites, provider } = fixture({
+		const { appCommits, deps, gitStore, headWrites, provider } = fixture({
 			storedHead: null,
 		});
 		scriptCommit(provider);
@@ -402,6 +473,9 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		expect(result.sha).toBe(SHA);
+		// The push retry stays free for a transient error.
+		expect(gitStore.ensureRepository).toHaveBeenCalledOnce();
+		expect(gitStore.issueCredential).toHaveBeenCalledOnce();
 		expect(headWrites).toEqual([
 			{
 				expectedHeadSha: PARENT,
@@ -410,8 +484,8 @@ describe("commitTurn", () => {
 				userId: "user-1",
 			},
 		]);
-		// The CAS created the row; no recovery read runs.
-		expect(appCommits.findBranch).not.toHaveBeenCalled();
+		// The CAS created the row; only the read before the push runs, no recovery read.
+		expect(appCommits.findBranch).toHaveBeenCalledOnce();
 	});
 
 	it("throws VersionConflictError when the head CAS loses and no head is stored", async () => {
@@ -442,7 +516,7 @@ describe("commitTurn", () => {
 		});
 
 		const commitLine = execLog(provider).find((line) =>
-			line.includes("git -c user.name=wandit"),
+			line.includes(" commit "),
 		);
 		expect(commitLine).toContain("Wandit-Message: restore-9");
 		expect(commitLine).toContain(`Wandit-Restore-From: ${PARENT}`);

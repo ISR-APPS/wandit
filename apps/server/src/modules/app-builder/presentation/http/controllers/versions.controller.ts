@@ -12,6 +12,7 @@ import {
 	Param,
 	Post,
 	Query,
+	Req,
 	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
@@ -26,7 +27,9 @@ import {
 	uuidSchema,
 	type VersionDiffResponse,
 } from "@wandit/contracts";
+import type { FastifyRequest } from "fastify";
 
+import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
@@ -90,12 +93,14 @@ export class VersionsController {
 		body: RestoreVersionBody,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: FastifyRequest,
 	): Promise<RestoreVersionResponse> {
 		return this.versionsService.restore(
 			projectScopeFrom(workspace, user.id),
 			projectId,
 			sha,
 			body,
+			readClientIp(request),
 		);
 	}
 }

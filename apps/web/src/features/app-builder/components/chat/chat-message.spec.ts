@@ -17,9 +17,19 @@ import type { BuilderMessage } from "../../api/dto";
 import { ChatMessageView } from "./chat-message";
 
 // The page mounts one TooltipProvider; the message actions need it too.
-function renderMessage(message: BuilderMessage) {
-	const onPreviewVersion = vi.fn();
-	const onSendText = vi.fn();
+function renderMessage(
+	message: BuilderMessage,
+	{
+		trayQuestionKey = null,
+		isDeveloperView = false,
+		onRetry,
+	}: {
+		trayQuestionKey?: string | null;
+		isDeveloperView?: boolean;
+		onRetry?: () => void;
+	} = {},
+) {
+	const onOpenActivity = vi.fn();
 	const onDecideApproval = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -31,26 +41,54 @@ function renderMessage(message: BuilderMessage) {
 			null,
 			createElement(ChatMessageView, {
 				message,
-				onPreviewVersion,
-				onSendText,
+				isDeveloperView,
+				onOpenActivity,
 				onDecideApproval,
+				onBuildPlan: null,
+				trayQuestionKey,
+				onRetry,
 			}),
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
-	return { onPreviewVersion, onSendText, onDecideApproval };
+	return { onOpenActivity, onDecideApproval };
 }
 
-const CHANGE_MESSAGE: BuilderMessage = {
+/** A finished reply: a thought, a step, a note, the summary, and the final answer. */
+const FINISHED_MESSAGE: BuilderMessage = {
 	id: "a3",
 	role: "assistant",
 	parts: [
-		{ type: "text", text: "Done." },
 		{
-			type: "data-change",
-			id: "c3",
-			data: { title: "Added sign-in and payments", versionNumber: 3 },
+			type: "data-thought",
+			data: { text: "Plan the page.", seconds: 4, isStreaming: false },
 		},
+		{
+			type: "data-step",
+			data: {
+				kind: "edit",
+				state: "done",
+				target: "styles.css",
+				description: null,
+				detail: [],
+				area: "styles",
+				imageUrl: null,
+			},
+		},
+		{ type: "data-note", data: { text: "Now the texts." } },
+		{
+			type: "data-summary",
+			id: "summary-t3",
+			data: {
+				workedSeconds: 95,
+				mode: "build",
+				files: [
+					{ path: "src/styles/global.css", insertions: 12, deletions: 3 },
+					{ path: "src/routes/index.tsx", insertions: 4, deletions: 1 },
+				],
+			},
+		},
+		{ type: "text", text: "Done." },
 	],
 };
 
@@ -65,123 +103,164 @@ function hasToastAfter(skip: number, title: string): boolean {
 afterEach(cleanup);
 
 describe("ChatMessageView", () => {
-	it("renders a user message as a bubble with its text", () => {
-		renderMessage({
-			id: "u1",
-			role: "user",
-			parts: [{ type: "text", text: "Build a membership app" }],
-		});
-		expect(screen.getByText("Build a membership app").className).toContain(
-			"bg-bubble",
+	it("renders every part inline in the developer view, with the thinking text and the changed files", () => {
+		renderMessage(
+			{
+				...FINISHED_MESSAGE,
+				parts: [
+					...FINISHED_MESSAGE.parts.filter((part) => part.type !== "text"),
+					{
+						type: "data-question",
+						id: "q1",
+						data: {
+							toolCallId: "call-1",
+							questionId: "question-0",
+							question: "Who scans?",
+							kind: "single-choice",
+							helper: null,
+							maxFiles: null,
+							options: [{ id: "desk", label: "Desk" }],
+							isOpen: false,
+							isAnswered: true,
+						},
+					},
+				],
+			},
+			{ isDeveloperView: true },
+		);
+		expect(screen.getByText("Wandit")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Thought for 4s" }));
+		expect(screen.getByText("Plan the page.")).toBeTruthy();
+		expect(screen.getByText("Edited")).toBeTruthy();
+		expect(screen.getByText("styles.css")).toBeTruthy();
+		expect(screen.getByText("Now the texts.")).toBeTruthy();
+		expect(screen.getByText("Worked for 2 min · 2 files changed")).toBeTruthy();
+		expect(screen.getByText("index.tsx")).toBeTruthy();
+		expect(screen.getByText("src/routes")).toBeTruthy();
+		expect(screen.getByText("Who scans?")).toBeTruthy();
+		expect(screen.getByText("Answered")).toBeTruthy();
+		// No final text, so no Copy action; the summary is plain text, not a button.
+		expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+		expect(screen.queryByRole("button", { name: /Worked for/ })).toBeNull();
+	});
+
+	it("shows the summary line and the final text, but no step and no note, in the production view", () => {
+		const { onOpenActivity } = renderMessage(FINISHED_MESSAGE);
+		expect(screen.getByText("Done.")).toBeTruthy();
+		expect(screen.queryByText("Edited")).toBeNull();
+		expect(screen.queryByText("styles.css")).toBeNull();
+		expect(screen.queryByText(/Thought/)).toBeNull();
+		expect(screen.queryByText("Now the texts.")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Worked for 2 min · 2 files changed",
+			}),
+		);
+		expect(onOpenActivity).toHaveBeenCalledWith("a3");
+	});
+
+	it("groups the thought and step rows that follow each other in one block", () => {
+		renderMessage(
+			{
+				id: "a2",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-thought",
+						data: { text: "", seconds: 2, isStreaming: false },
+					},
+					{
+						type: "data-step",
+						data: {
+							kind: "run",
+							state: "done",
+							target: null,
+							description: "Check the app",
+							detail: [],
+							area: null,
+							imageUrl: null,
+						},
+					},
+					{ type: "text", text: "Done." },
+				],
+			},
+			{ isDeveloperView: true },
+		);
+		// The thought row is a Collapsible root; the step row is a plain row div.
+		const thoughtRow = screen
+			.getByText("Thought for 2s")
+			.closest("[data-slot='collapsible']");
+		const stepRow = screen.getByText("Check the app").parentElement;
+		expect(thoughtRow?.parentElement).toBe(stepRow?.parentElement);
+		// The text after the rows keeps the message gap: it is outside the feed block.
+		expect(thoughtRow?.parentElement?.contains(screen.getByText("Done."))).toBe(
+			false,
 		);
 	});
 
-	it("renders the byline, the trace, the tools, the question, the suggestion, and the diff", () => {
-		renderMessage({
-			id: "a1",
+	it("points an open question at the tray only while the tray shows it", () => {
+		const message: BuilderMessage = {
+			id: "a3",
 			role: "assistant",
 			parts: [
-				{
-					type: "data-trace",
-					id: "t1",
-					data: {
-						seconds: 4,
-						steps: [{ label: "Read the brief", detail: "2 files" }],
-					},
-				},
-				{
-					type: "data-tools",
-					id: "k1",
-					data: {
-						calls: [
-							{ kind: "run", label: "Run migration", target: "pnpm db:push" },
-						],
-						files: [{ path: "src/db.ts", added: 3, removed: 1 }],
-					},
-				},
 				{
 					type: "data-question",
-					id: "q1",
-					data: { question: "Who scans?", options: ["Desk"], answer: "Desk" },
-				},
-				{
-					type: "data-suggestion",
-					id: "g1",
+					id: "call-1:question-0",
 					data: {
-						title: "Add a reminder?",
-						body: "Send a push.",
-						confidence: "high",
+						toolCallId: "call-1",
+						questionId: "question-0",
+						question: "Which style?",
+						kind: "single-choice",
+						helper: null,
+						maxFiles: null,
+						options: [{ id: "warm", label: "Warm" }],
+						isOpen: true,
+						isAnswered: false,
 					},
 				},
-				{
-					type: "data-diff",
-					id: "d1",
-					data: { path: "app/pass.tsx", lines: [{ kind: "add", text: "x" }] },
-				},
 			],
-		});
-		expect(screen.getByText("Wandit")).toBeTruthy();
-		expect(screen.getByText("Thought for 4s")).toBeTruthy();
-		expect(screen.getByText("1 tool call")).toBeTruthy();
-		expect(screen.getByText("Who scans?")).toBeTruthy();
-		expect(screen.getByText("Add a reminder?")).toBeTruthy();
-		expect(screen.getByText("app/pass.tsx")).toBeTruthy();
+		};
+		renderMessage(message, { trayQuestionKey: "call-1:question-0" });
+		expect(screen.getByText("Answer below")).toBeTruthy();
+		expect(screen.queryByText("Answered")).toBeNull();
+		cleanup();
+		// After the skip X the tray hides, so no chip points at it.
+		renderMessage(message);
+		expect(screen.getByText("Which style?")).toBeTruthy();
+		expect(screen.queryByText("Answer below")).toBeNull();
+		expect(screen.queryByText("Answered")).toBeNull();
 	});
 
-	it("sends an accepted suggestion body as text", () => {
-		const { onSendText } = renderMessage({
-			id: "a2",
+	it("names a question the harness could not read", () => {
+		renderMessage({
+			id: "a4",
 			role: "assistant",
 			parts: [
 				{
-					type: "data-suggestion",
-					id: "g2",
+					type: "data-question",
+					id: "call-1:question-0",
 					data: {
-						title: "Add a reminder?",
-						body: "Send a push.",
-						confidence: "low",
+						toolCallId: "call-1",
+						questionId: "question-0",
+						question: "",
+						kind: "free-text",
+						helper: null,
+						maxFiles: null,
+						options: [],
+						isOpen: false,
+						isAnswered: true,
 					},
 				},
 			],
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-		expect(onSendText).toHaveBeenCalledWith("Send a push.");
-	});
-
-	it("sends a follow-up prompt on click and hides the list without prompts", () => {
-		const { onSendText } = renderMessage({
-			id: "a5",
-			role: "assistant",
-			metadata: { followUps: ["Add a classes schedule"] },
-			parts: [{ type: "text", text: "Done." }],
-		});
-		expect(screen.getByText("Follow-ups")).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Add a classes schedule" }),
-		);
-		expect(onSendText).toHaveBeenCalledWith("Add a classes schedule");
-		cleanup();
-		renderMessage({
-			id: "a6",
-			role: "assistant",
-			parts: [{ type: "text", text: "Done." }],
-		});
-		expect(screen.queryByText("Follow-ups")).toBeNull();
-	});
-
-	it("renders a change card and previews its version", () => {
-		const { onPreviewVersion } = renderMessage(CHANGE_MESSAGE);
-		expect(screen.getByText("Added sign-in and payments")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-		expect(onPreviewVersion).toHaveBeenCalledWith(3);
-		expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+		expect(screen.getByText("Wandit needs your answer")).toBeTruthy();
 	});
 
 	it("logs a clipboard failure and shows no copied toast", async () => {
 		// jsdom has no navigator.clipboard, so the copy throws inside the try.
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const seenToasts = toast.getHistory().length;
-		renderMessage(CHANGE_MESSAGE);
+		renderMessage(FINISHED_MESSAGE);
 		fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 		await waitFor(() => expect(errorSpy).toHaveBeenCalledOnce());
 		expect(hasToastAfter(seenToasts, "Copied")).toBe(false);
@@ -195,59 +274,42 @@ describe("ChatMessageView", () => {
 			configurable: true,
 		});
 		const seenToasts = toast.getHistory().length;
-		renderMessage(CHANGE_MESSAGE);
+		renderMessage(FINISHED_MESSAGE);
 		fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 		await waitFor(() => expect(hasToastAfter(seenToasts, "Copied")).toBe(true));
 		expect(writeText).toHaveBeenCalledWith("Done.");
 		Reflect.deleteProperty(navigator, "clipboard");
 	});
 
-	it("sends an approval decision through onDecideApproval", () => {
-		const { onDecideApproval } = renderMessage({
-			id: "a7",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-approval",
-					id: "ap-1",
-					data: {
-						approvalId: "ap-1",
-						toolName: "Bash",
-						input: '{"command":"pnpm db:push"}',
-						decision: null,
-						isOpen: true,
+	it("renders the turn error as an alert with a Retry button", () => {
+		const onRetry = vi.fn();
+		renderMessage(
+			{
+				id: "a8",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-error",
+						id: "e1",
+						data: {
+							code: "SANDBOX_LOST",
+							message: "The sandbox stopped.",
+							retryable: true,
+						},
 					},
-				},
-			],
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-		expect(onDecideApproval).toHaveBeenCalledWith("ap-1", true);
-	});
-
-	it("renders the turn error as an alert with the retry line", () => {
-		renderMessage({
-			id: "a8",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-error",
-					id: "e1",
-					data: {
-						code: "SANDBOX_LOST",
-						message: "The sandbox stopped.",
-						retryable: true,
-					},
-				},
-			],
-		});
+				],
+			},
+			{ onRetry },
+		);
 		const alert = screen.getByRole("alert");
 		expect(alert.textContent).toContain(
 			"The turn stopped: The sandbox stopped.",
 		);
-		expect(alert.textContent).toContain("You can send the message again.");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledOnce();
 	});
 
-	it("renders the receipt line with credits, tokens, and the model label", () => {
+	it("renders the receipt line with credits, tokens, the cache, and the model label", () => {
 		renderMessage({
 			id: "a9",
 			role: "assistant",
@@ -260,32 +322,16 @@ describe("ChatMessageView", () => {
 						modelId: "anthropic/claude-sonnet-5",
 						inputTokens: 1000,
 						outputTokens: 500,
+						cacheReadTokens: 3000,
+						cacheWriteTokens: 200,
 					},
 				},
 			],
 		});
 		expect(
-			screen.getByText("2 credits · 1,500 tokens · Claude Sonnet 5"),
+			screen.getByText(
+				"2 credits · 1,500 tokens · cache: 3,000 read, 200 written · Claude Sonnet 5",
+			),
 		).toBeTruthy();
-	});
-
-	it("renders a progress card and no action row without a change", () => {
-		renderMessage({
-			id: "a4",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-progress",
-					id: "p4",
-					data: {
-						title: "Building QR pass",
-						percent: 64,
-						steps: [{ id: "s1", label: "Pass screen", state: "done" }],
-					},
-				},
-			],
-		});
-		expect(screen.getByText("Building QR pass")).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
 	});
 });

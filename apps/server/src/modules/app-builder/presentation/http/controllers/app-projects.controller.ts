@@ -1,8 +1,9 @@
 /**
  * HTTP routes for V2 app projects: create and get.
- * `V2BuilderEnabledGuard` gates the whole controller. Platform, attachment,
- * credits, and engine checks live in `AppProjectsService`; this file parses
- * and delegates.
+ * `V2BuilderEnabledGuard` gates the whole controller, and
+ * `RedisRateLimitGuard` reads the `@RateLimit` on create. Platform,
+ * attachment, credits, and engine checks live in `AppProjectsService`; this
+ * file parses and delegates.
  */
 import {
 	Body,
@@ -34,10 +35,26 @@ import {
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { AppProjectsService } from "../../../application/services/app-projects.service";
+import {
+	RateLimit,
+	RedisRateLimitGuard,
+} from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
+// Creates per user per day (WANDIT-181). Each create can provision a
+// backend and starts a first turn, so the cap stops a script that farms them.
+// Staging allows 50, so Zack can rehearse the event demo on his own account.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const PROJECT_CREATE_LIMIT = 50;
+// Creates per client IP per day. The cap stops one person who uses many
+// accounts. An event room shares one NAT IP, so staging sizes it for the room.
+// LIMIT: one NAT IP fits about 100 people with 5 creates each. Upgrade: skip the IP cap for known event IPs.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const PROJECT_CREATE_IP_LIMIT = 500;
+const PROJECT_CREATE_WINDOW_MS = 24 * 60 * 60_000;
+
 @Controller("v2/projects")
-@UseGuards(V2BuilderEnabledGuard)
+@UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 export class AppProjectsController {
 	constructor(
 		// The Pick type, not the class: a spec passes the fake without a cast.
@@ -45,8 +62,13 @@ export class AppProjectsController {
 		private readonly appProjects: Pick<AppProjectsService, "create" | "get">,
 	) {}
 
-	// WANDIT-181 adds a per-user create rate limit here.
 	@RequireWorkspacePermission("project", "create")
+	@RateLimit({
+		ipLimit: PROJECT_CREATE_IP_LIMIT,
+		key: "project-create",
+		limit: PROJECT_CREATE_LIMIT,
+		windowMs: PROJECT_CREATE_WINDOW_MS,
+	})
 	@Post()
 	create(
 		@Body(new ZodValidationPipe(createAppProjectRequestSchema))

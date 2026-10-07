@@ -135,7 +135,9 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // Mirrors ai_usage_operation in packages/db/src/schema/credits.ts.
 // `agent_session` is one V2 builder turn billed from the LLM proxy rows;
 // `sandbox` records sandbox minutes at a zero rate (not billed before
-// WANDIT-196).
+// WANDIT-196); `mobile_build` is one EAS build of a V2 mobile app;
+// `mobile_preview` records Appetize device minutes at zero credits inside
+// the plan allowance (WANDIT-196).
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -147,6 +149,8 @@ export const creditActivityOperations = [
 	"transcription",
 	"agent_session",
 	"sandbox",
+	"mobile_build",
+	"mobile_preview",
 	"topup_adjust",
 ] as const;
 

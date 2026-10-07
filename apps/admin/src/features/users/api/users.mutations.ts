@@ -1,4 +1,11 @@
+/**
+ * TanStack Query mutations for staff actions on a user account.
+ * The users table, the user detail page, and their dialogs call them.
+ * Each success writes the new detail into the cache and refreshes the lists.
+ */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { creditGrantKeys } from "@/features/credit-grants";
 
 import type {
 	ChangeUserRoleInput,
@@ -15,12 +22,16 @@ import {
 	setUserBanned,
 } from "./users.services";
 
+/** Grants promo credits to a user. A success also refreshes the credit grant log. */
 export function useGrantCreditsMutation() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
 		mutationFn: (input: GrantUserCreditsInput) => grantUserCredits(input),
-		onSuccess: (user) => syncUserQueries(queryClient, user),
+		onSuccess: (user) => {
+			syncUserQueries(queryClient, user);
+			void queryClient.invalidateQueries({ queryKey: creditGrantKeys.all });
+		},
 	});
 }
 

@@ -2,7 +2,9 @@
  * Writes and reads `llm_proxy_requests` rows for the V2 LLM proxy.
  * `LlmProxyService` calls `insert` once per request.
  * The builder-turn runtime and the reconcile sweep call `sumByTurn` to
- * settle a turn's spend. `sumUsdMicrosByRun` has no production caller yet.
+ * settle a turn's spend; the runtime's timing line calls
+ * `firstRequestStartedAtMs`, and its end calls `capRejectionReason`.
+ * `sumUsdMicrosByRun` has no production caller yet.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "@wandit/db";
@@ -84,6 +86,51 @@ export class LlmProxyRequestsRepository {
 		const row = result.rows[0];
 		// bigint comes back as a string under node-postgres.
 		return Number(row?.usd_micros ?? 0);
+	}
+
+	/**
+	 * When the turn's first proxy request left the sandbox, as epoch ms:
+	 * the earliest `createdAt` minus its `latencyMs`, over every status.
+	 * Null when the turn has no row. Only the `builder-turn.timing` log
+	 * line reads it; money never does.
+	 */
+	async firstRequestStartedAtMs(turnId: string): Promise<number | null> {
+		const result = await this.db.execute<{
+			started_at_ms: number | string | null;
+		}>(sql`
+			select (extract(epoch from min(
+				${llmProxyRequests.createdAt}
+				- coalesce(${llmProxyRequests.latencyMs}, 0) * interval '1 millisecond'
+			)) * 1000)::bigint as started_at_ms
+			from ${llmProxyRequests}
+			where ${llmProxyRequests.turnId} = ${turnId}
+		`);
+		const value = result.rows[0]?.started_at_ms ?? null;
+		// bigint comes back as a string under node-postgres.
+		return value === null ? null : Number(value);
+	}
+
+	/**
+	 * The cap of the first spend-cap refusal of the turn: `run_cap` (402
+	 * V2_RUN_CAP_REACHED) or `daily_cap` (402 V2_DAILY_CAP_REACHED). Null
+	 * when the proxy refused no request of the turn on a cap. The runtime
+	 * reads it at the stream end to stop the turn on that cap.
+	 */
+	async capRejectionReason(
+		turnId: string,
+	): Promise<"run_cap" | "daily_cap" | null> {
+		const result = await this.db.execute<{ reason: string | null }>(sql`
+			select ${llmProxyRequests.reason} as reason
+			from ${llmProxyRequests}
+			where
+				${llmProxyRequests.turnId} = ${turnId}
+				and ${llmProxyRequests.status} = 'cap_rejected'
+				and ${llmProxyRequests.reason} in ('run_cap', 'daily_cap')
+			order by ${llmProxyRequests.createdAt}
+			limit 1
+		`);
+		const reason = result.rows[0]?.reason;
+		return reason === "run_cap" || reason === "daily_cap" ? reason : null;
 	}
 
 	/**

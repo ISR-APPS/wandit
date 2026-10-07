@@ -41,6 +41,7 @@ import {
 import {
 	LLM_PROXY_DAILY_USER_CAP_USD,
 	LLM_RUN_RATE_LIMIT_PER_MINUTE,
+	type LlmRequestAdmission,
 	type LlmSpendCounterStore,
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
@@ -148,10 +149,53 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 1b. A revoked run: the turn ended, so the token is dead even though
+		// 1b. One Redis round trip reads the revoke flag, the rate window, and
+		// both spend counters. It also marks the request in flight until its
+		// row is written: the turn settle waits for that (Phase 1, report
+		// 6.3), or a turn without a commit could settle before its last row.
+		const admission = await this.counters.admitRequest(
+			{
+				chatId: claims.chatId ?? null,
+				runId: claims.runId,
+				userId: claims.userId,
+			},
+			utcDayKey(),
+		);
+		// A bound chat bills the request to the turn that runs now: a continued
+		// Claude Code process keeps the token of an older turn of the chat.
+		const billedClaims: LlmProxyTokenClaims =
+			admission.binding === null
+				? claims
+				: { ...admission.binding, chatId: claims.chatId, exp: claims.exp };
+		try {
+			await this.checkAndForward(
+				input,
+				reply,
+				billedClaims,
+				admission,
+				startedAt,
+			);
+		} finally {
+			await this.finishInFlight(billedClaims);
+		}
+	}
+
+	/**
+	 * Steps 1c to 6 of `proxyAnthropic`: the revoke flag, the model
+	 * allow-list, the rate limit, both spend caps, then the upstream call.
+	 * Every path that writes a row writes it before it returns.
+	 */
+	private async checkAndForward(
+		input: LlmProxyInboundRequest,
+		reply: LlmProxyReply,
+		claims: LlmProxyTokenClaims,
+		admission: LlmRequestAdmission,
+		startedAt: number,
+	): Promise<void> {
+		// 1c. A revoked run: the turn ended, so the token is dead even though
 		// it has not expired. Same rule as a bad token — the claims of a
 		// dead run are not trusted, so no row is written.
-		if (await this.counters.isRunRevoked(claims.runId)) {
+		if (admission.revoked) {
 			this.logger.warn("llm-proxy.revoked-run", {
 				runId: claims.runId,
 				turnId: claims.turnId,
@@ -184,9 +228,9 @@ export class LlmProxyService {
 		}
 		const modelId = requestedModel ?? defaultModel;
 
-		// 3. Per-run request rate limit, a fixed one-minute window.
-		const hits = await this.counters.hitRunRateLimit(claims.runId);
-		if (hits > LLM_RUN_RATE_LIMIT_PER_MINUTE) {
+		// 3. Per-run request rate limit, a fixed one-minute window. The
+		// admission counted this request, a denied one included.
+		if (admission.rateHits > LLM_RUN_RATE_LIMIT_PER_MINUTE) {
 			await this.reject(reply, claims, input, startedAt, {
 				status: 429,
 				code: "V2_RATE_LIMITED",
@@ -198,11 +242,15 @@ export class LlmProxyService {
 			return;
 		}
 
+		// GENERATION_BILLING_MODE=off is the local test mode. It skips both
+		// spend caps, so a long build runs to its end. The env schema refuses
+		// `off` when NODE_ENV=production.
+		const spendCapsOff = this.env.GENERATION_BILLING_MODE === "off";
+
 		// 4. Per-run spend cap from the token claims.
 		// UNIT: claims carry USD; counters carry micros.
 		const capMicros = Math.round(claims.capUsd * 1_000_000);
-		const runSpend = await this.counters.readRunSpend(claims.runId);
-		if (runSpend >= capMicros) {
+		if (!spendCapsOff && admission.runSpendMicros >= capMicros) {
 			await this.reject(reply, claims, input, startedAt, {
 				status: 402,
 				code: "V2_RUN_CAP_REACHED",
@@ -215,9 +263,10 @@ export class LlmProxyService {
 		}
 
 		// 5. Per-user daily spend cap.
-		const dayKey = utcDayKey();
-		const daySpend = await this.counters.readUserSpend(claims.userId, dayKey);
-		if (daySpend >= LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000) {
+		if (
+			!spendCapsOff &&
+			admission.userSpendMicros >= LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000
+		) {
 			await this.reject(reply, claims, input, startedAt, {
 				status: 402,
 				code: "V2_DAILY_CAP_REACHED",
@@ -255,6 +304,21 @@ export class LlmProxyService {
 			bodyJson,
 			startedAt,
 		);
+	}
+
+	/**
+	 * Ends the in-flight mark of an admitted request. A Redis failure only
+	 * logs: the mark expires on its TTL and the settle wait is bounded.
+	 */
+	private async finishInFlight(claims: LlmProxyTokenClaims): Promise<void> {
+		try {
+			await this.counters.finishRequest(claims.runId);
+		} catch (error) {
+			this.logger.error(
+				`In-flight finish failed for run ${claims.runId}`,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
 	}
 
 	private verifyBearer(authorization: string | undefined): LlmProxyTokenClaims {
@@ -387,6 +451,12 @@ export class LlmProxyService {
 			reply.writeHead(upstreamResponse.status, responseHeaders);
 			await reply.write(body);
 			reply.end();
+			// A log search by status finds an empty gateway balance (402) or a
+			// rate or spend limit (429). 300 chars of the body name the cause.
+			this.logger.error(
+				`Upstream answered ${upstreamResponse.status} for run ${claims.runId}`,
+				body.toString("utf8").slice(0, 300),
+			);
 			if (upstreamResponse.status >= 500) {
 				// A 5xx here is the provider's problem, not the client's.
 				Sentry.captureMessage("LLM upstream answered 5xx", {
@@ -399,17 +469,22 @@ export class LlmProxyService {
 				});
 			} else if (
 				upstreamResponse.status === 401 ||
+				upstreamResponse.status === 402 ||
 				upstreamResponse.status === 403
 			) {
-				// The provider rejected the key; an operator must rotate it.
-				Sentry.captureMessage("LLM upstream rejected the provider key", {
-					level: "error",
-					tags: {
-						feature: "llm-proxy",
-						runId: claims.runId,
-						upstreamStatus: String(upstreamResponse.status),
+				// The provider rejected the key, or the account has no funds.
+				// An operator must act. A 429 stays out: Claude Code retries it.
+				Sentry.captureMessage(
+					"LLM upstream refused the account (key or funds)",
+					{
+						level: "error",
+						tags: {
+							feature: "llm-proxy",
+							runId: claims.runId,
+							upstreamStatus: String(upstreamResponse.status),
+						},
 					},
-				});
+				);
 			}
 			await this.finish(input, claims, upstream, modelId, {
 				status: "upstream_error",
@@ -812,9 +887,12 @@ function utcDayKey(): string {
 
 // Response headers the client gets back. Hop-by-hop headers would corrupt
 // the proxied response: content-length no longer matches a re-sent body.
+// Node fetch decodes a gzip or br body but keeps content-encoding. The
+// client would then decode the plain bytes again and fail.
 function passthroughHeaders(headers: Headers): Record<string, string> {
 	const blocked = new Set([
 		"connection",
+		"content-encoding",
 		"content-length",
 		"keep-alive",
 		"transfer-encoding",

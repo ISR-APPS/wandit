@@ -57,7 +57,6 @@ type AdminPermissionRequest = {
 | --- | --- | :---: | :---: |
 | `overview` | `read` | Yes | Yes |
 | `users` | `read` | Yes | Yes |
-| `users` | `grant-credits` | Yes | No |
 | `users` | `ban` | Yes | Yes |
 | `users` | `set-role` | Yes | No |
 | `organizations` | `read` | Yes | Yes |
@@ -65,6 +64,8 @@ type AdminPermissionRequest = {
 | `billing` | `read` | Yes | Yes |
 | `billing` | `update-request` | Yes | Yes |
 | `billing` | `manage` | Yes | No |
+| `credits` | `read` | Yes | No |
+| `credits` | `grant` | Yes | No |
 | `publications` | `read` | Yes | Yes |
 | `feedback` | `read` | Yes | Yes |
 | `feedback` | `manage` | Yes | Yes |
@@ -83,6 +84,9 @@ type AdminPermissionRequest = {
 | `settings` | `read` | Yes | No |
 | `settings` | `manage` | Yes | No |
 
+The `credits` resource controls manual credit grants. It is not a default support view. When an
+admin grants it to a support account, support receives `read` and `grant`. See §10.
+
 The `conversations` resource controls access to customer transcripts. It is not a default support
 view. If an admin grants it to a support account, support receives `read` but never `read-raw`, so
 full tool data remains restricted to admins.
@@ -94,7 +98,7 @@ request.
 ## 4. Per-user view grants
 
 `admin_view_grants` stores one optional row per user. Its primary key is `user_id`; `views` is a
-JSONB array of the 13 contract view keys; `updated_by_user_id` records the admin who last changed
+JSONB array of the 14 contract view keys; `updated_by_user_id` records the admin who last changed
 it. Deleting a user cascades to the row, while deleting the updating admin sets the audit pointer
 to null.
 
@@ -111,9 +115,10 @@ const statements = supportStatementsForViews(storedViews ?? defaultSupportViews)
 const allowed = adminAccessControl.newRole(statements).authorize(required).success;
 ```
 
-`supportViewActions` defines the safe action subset for every view. Granting all 13 views still
-does not grant money or privilege mutations such as `users:set-role`, and conversations remains
-read-only. Unknown stored view names are ignored.
+`supportViewActions` defines the safe action subset for every view. Granting all 14 views does not
+grant privilege mutations such as `users:set-role`, and conversations remains read-only. The only
+money action a support account can receive is `credits:grant`, and only from the `credits` view.
+Unknown stored view names are ignored.
 
 Only a full admin can manage these grants. Setting a role to Support may save the checklist in the
 same role-change flow; editing an existing support account loads its stored row (or defaults when
@@ -143,7 +148,7 @@ Admin controllers use two complementary decorators:
 `@AdminOnly()` couples the route to the separate admin-auth surface and installs `AdminGuard`.
 `@AdminPermission(...)` declares the resource and action. It can be a controller default or a
 handler override; for example, the users controller defaults to `users:read`, while grant
-credits, role changes, and ban changes declare their own action.
+credits (`users:read` and `credits:grant`), role changes, and ban changes declare their own action.
 
 `@AdminPermission("any-staff")` means that the route needs the authenticated staff check but no
 resource/action check. It is reserved exclusively for `AdminMeController.permissions`
@@ -239,7 +244,37 @@ is an intentional review diff.
 5. Gate every mutation control with the matching action.
 6. Update the matrix, controller coverage, navigation, and permission tests.
 
-## 10. Key files
+## 10. Credit grants
+
+An admin can let a support account grant credits. The admin ticks the **Credits** view in the
+support account's admin views. That view gives `credits:read` and `credits:grant`.
+
+| Route | Permission |
+| --- | --- |
+| `POST /api/v1/admin/users/:userId/credits` | `users:read` and `credits:grant` |
+| `POST /api/v1/admin/organizations/:organizationId/credits` | `organizations:read` and `credits:grant` |
+| `GET /api/v1/admin/credit-grants` | `credits:read` |
+
+Member role changes on an organization still need `organizations:manage`.
+
+A staff account that is not an admin cannot grant credits to its own account. It also cannot grant
+credits to an organization where it is a member. The API returns 400 before it writes to the
+ledger. Admins can grant to any account.
+
+Every grant writes one `credit_ledger` row with `meta.reason = "admin_grant"`, `meta.grantedBy`
+(the staff user id), and `meta.note` (the text from the grant dialog). The **Credit grants** page
+(`/credit-grants`) reads these rows, newest first. It shows the date, the granter and the
+granter's current role, the recipient user or organization, the amount, and the note. Grants from
+before this page also show, because older grants already have `meta.grantedBy`.
+
+Migration `0079_credit-ledger-admin-grant-idx.sql` adds a partial index for the log query. Apply it
+in each environment:
+
+```sh
+pnpm db:migrate
+```
+
+## 11. Key files
 
 | Area | File |
 | --- | --- |
@@ -255,3 +290,6 @@ is an intentional review diff.
 | SPA permission helpers | `apps/admin/src/features/auth/lib/permissions.ts` |
 | SPA route boundary | `apps/admin/src/features/auth/components/require-admin-permission.tsx` |
 | SPA navigation requirements | `apps/admin/src/lib/navigation.ts` |
+| Credit grant log API | `apps/server/src/modules/admin/presentation/http/controllers/admin-credit-grants.controller.ts` |
+| Credit grant log query | `apps/server/src/modules/admin/infrastructure/persistence/admin-credit-grants.repository.ts` |
+| Credit grant log page | `apps/admin/src/features/credit-grants/pages/credit-grants-page.tsx` |

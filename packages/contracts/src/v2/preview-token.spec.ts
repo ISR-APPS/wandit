@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+	expoUsernameSchema,
 	type PreviewTokenClaims,
+	packagerHostFor,
 	parsePreviewHost,
+	phonePreviewHostFor,
 	previewHostFor,
+	previewTokenQuerySchema,
 } from "./preview";
 import {
 	base64UrlEncode,
+	previewFrameIdFor,
 	signPreviewToken,
 	verifyPreviewToken,
 } from "./preview-token";
@@ -26,10 +31,16 @@ const CLAIMS: PreviewTokenClaims = {
 const TOKEN =
 	"eyJwaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJyaWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ1aWQiOiJ1c2VyLTEiLCJ1cCI6Imh0dHBzOi8veC01MTczLnZlcmNlbC5ydW4iLCJleHAiOjE4MDAwMDAwMDAsImp0aSI6IjAxMjM0NTY3ODlhYmNkZWYifQ.KCsfQH9iVVye07PUxDP88vGNEY_zOsZ8-jJBv3vfnq4";
 
+// Fixed vector of the frame id of CLAIMS. The API and the Worker deploy apart,
+// and both must derive this id, or every builder frame answers 403.
+const FRAME_ID = "6guvo5cifdquf6oxwyhzy";
+
 const DOMAIN = "wanditpreview.app";
 // `22222222-2222-4222-8222-222222222222` without dashes, first 12 chars.
 const RID12 = "222222222222";
 const HOST = `r-${RID12}--p-${CLAIMS.pid}.${DOMAIN}`;
+// 21 lower-case base32 characters, the form the Worker mints.
+const PHONE_ID = "abcdefghijklmnopqrs27";
 
 // Signs any payload string the way signPreviewToken signs claims, so the
 // spec can mint tokens whose payload is not valid claims.
@@ -61,6 +72,12 @@ describe("signPreviewToken", () => {
 	it("produces the fixed token vector", async () => {
 		const token = await signPreviewToken(CLAIMS, KEY);
 		expect(token).toBe(TOKEN);
+	});
+});
+
+describe("previewFrameIdFor", () => {
+	it("produces the fixed frame id vector", async () => {
+		expect(await previewFrameIdFor(CLAIMS, KEY)).toBe(FRAME_ID);
 	});
 });
 
@@ -127,6 +144,7 @@ describe("preview host helpers", () => {
 	it("round trips previewHostFor and parsePreviewHost", () => {
 		expect(previewHostFor(CLAIMS.pid, CLAIMS.rid, DOMAIN)).toBe(HOST);
 		expect(parsePreviewHost(HOST, DOMAIN)).toEqual({
+			kind: "run",
 			projectId: CLAIMS.pid,
 			rid12: RID12,
 		});
@@ -134,6 +152,7 @@ describe("preview host helpers", () => {
 
 	it("parses an upper-case host and lower-cases the parts", () => {
 		expect(parsePreviewHost(HOST.toUpperCase(), DOMAIN)).toEqual({
+			kind: "run",
 			projectId: CLAIMS.pid,
 			rid12: RID12,
 		});
@@ -141,8 +160,20 @@ describe("preview host helpers", () => {
 
 	it("parses a host when the domain argument is upper-case", () => {
 		expect(parsePreviewHost(HOST, DOMAIN.toUpperCase())).toEqual({
+			kind: "run",
 			projectId: CLAIMS.pid,
 			rid12: RID12,
+		});
+	});
+
+	it("round trips phonePreviewHostFor into a phone host of 63 label characters, the DNS limit", () => {
+		const host = phonePreviewHostFor(CLAIMS.pid, PHONE_ID, DOMAIN);
+
+		expect(host.split(".")[0]).toHaveLength(63);
+		expect(parsePreviewHost(host, DOMAIN)).toEqual({
+			kind: "phone",
+			projectId: CLAIMS.pid,
+			phoneId: PHONE_ID,
 		});
 	});
 
@@ -150,7 +181,46 @@ describe("preview host helpers", () => {
 		`r-abc--p-${CLAIMS.pid}.wanditpreview.app`,
 		`r-${RID12}--p-${CLAIMS.pid}.evil.app`,
 		`x-${RID12}--p-${CLAIMS.pid}.wanditpreview.app`,
+		// Base32 has no 0, 1, 8, or 9, and the id has exactly 21 characters.
+		`m-abcdefghijklmnopqrs01--p-${CLAIMS.pid}.wanditpreview.app`,
+		`m-${PHONE_ID}a--p-${CLAIMS.pid}.wanditpreview.app`,
+		// The Metro host sits in manifests only; the Worker serves nothing on it.
+		packagerHostFor(CLAIMS.pid, DOMAIN),
 	])("returns null for the bad host %s", (host) => {
 		expect(parsePreviewHost(host, DOMAIN)).toBeNull();
+	});
+});
+
+describe("previewTokenQuerySchema", () => {
+	it("accepts no query, a phone query, and a phone query with a username", () => {
+		expect(previewTokenQuerySchema.safeParse({}).success).toBe(true);
+		expect(previewTokenQuerySchema.safeParse({ client: "phone" }).success).toBe(
+			true,
+		);
+		expect(
+			previewTokenQuerySchema.safeParse({
+				client: "phone",
+				expoUsername: "zack_dev-1.test",
+			}).success,
+		).toBe(true);
+	});
+
+	it("rejects a username without client=phone and an unknown client", () => {
+		expect(
+			previewTokenQuerySchema.safeParse({ expoUsername: "zack" }).success,
+		).toBe(false);
+		expect(previewTokenQuerySchema.safeParse({ client: "tv" }).success).toBe(
+			false,
+		);
+	});
+
+	it.each([
+		"",
+		"a b",
+		'a"b',
+		"robot (robot)",
+		"x".repeat(65),
+	])("rejects the username %j", (expoUsername) => {
+		expect(expoUsernameSchema.safeParse(expoUsername).success).toBe(false);
 	});
 });

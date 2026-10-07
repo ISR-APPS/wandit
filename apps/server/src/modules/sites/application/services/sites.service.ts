@@ -68,14 +68,12 @@ import {
 	assertNoEditorArtifacts,
 	injectPixels,
 } from "../../domain/pixel-injector";
-import { slugifyProjectName, withRandomSuffix } from "../../domain/slugify";
+import { pickFreeSlug } from "../../domain/slugify";
 import {
 	type DeploymentRow,
 	DeploymentsRepository,
 	type OwnedProjectRow,
 } from "../../infrastructure/persistence/deployments.repository";
-
-const SLUG_SUFFIX_ATTEMPTS = 5;
 
 /**
  * Does this candidate rendition URL point at an object that really exists?
@@ -191,9 +189,11 @@ export class SitesService {
 			projectId,
 		);
 
-		if (!target) {
+		// A V1 rollback can only target a page row; an app row has no version.
+		if (!target || target.versionId === null) {
 			throw new NotFoundException("Deployment not found");
 		}
+		const targetVersionId = target.versionId;
 
 		// Prefer the archived published bytes as input. Fall back to the version's
 		// draft bytes when the archive predates archiving or was cleaned up; the
@@ -204,7 +204,7 @@ export class SitesService {
 
 		if (html === null) {
 			const version = await this.deploymentsRepository.findVersionForProject(
-				target.versionId,
+				targetVersionId,
 				projectId,
 			);
 
@@ -219,7 +219,7 @@ export class SitesService {
 			html,
 			project,
 			requestedSlug: undefined,
-			versionId: target.versionId,
+			versionId: targetVersionId,
 		});
 
 		return {
@@ -500,26 +500,9 @@ export class SitesService {
 			return liveSlug;
 		}
 
-		let candidate = slugifyProjectName(project.name);
-
-		if (isReservedSlug(candidate)) {
-			candidate = withRandomSuffix(candidate);
-		}
-
-		for (let attempt = 0; attempt < SLUG_SUFFIX_ATTEMPTS; attempt += 1) {
-			if (
-				!(await this.deploymentsRepository.isSlugTakenByOther(
-					candidate,
-					project.id,
-				))
-			) {
-				return candidate;
-			}
-
-			candidate = withRandomSuffix(slugifyProjectName(project.name));
-		}
-
-		throw new SlugTakenError(candidate);
+		return pickFreeSlug(project.name, (candidate) =>
+			this.deploymentsRepository.isSlugTakenByOther(candidate, project.id),
+		);
 	}
 
 	private assertSlugUsable(
@@ -667,6 +650,11 @@ function deriveUiState(rows: {
 }
 
 function mapDeployment(row: DeploymentRow): Deployment {
+	// The V1 routes read only `v1_page` projects (`getAccessibleProject`), and
+	// `deployments_kind_source_ck` gives each of their rows a version.
+	if (row.versionId === null) {
+		throw new Error(`Deployment ${row.id} is an app row on a V1 route`);
+	}
 	return {
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,

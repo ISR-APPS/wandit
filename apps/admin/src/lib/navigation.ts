@@ -1,8 +1,14 @@
+/**
+ * Sidebar and command-search entries of the admin app, with the permission each needs.
+ * The dashboard layout and the command menu call the visibility helpers here.
+ * Staff see only the entries that their permission map allows.
+ */
 import type { Icon } from "@phosphor-icons/react";
 import { BuildingsIcon } from "@phosphor-icons/react/Buildings";
 import { ChartLineUpIcon } from "@phosphor-icons/react/ChartLineUp";
 import { ChatCenteredDotsIcon } from "@phosphor-icons/react/ChatCenteredDots";
 import { CoinsIcon } from "@phosphor-icons/react/Coins";
+import { CoinVerticalIcon } from "@phosphor-icons/react/CoinVertical";
 import { CurrencyDollarIcon } from "@phosphor-icons/react/CurrencyDollar";
 import { FunnelIcon } from "@phosphor-icons/react/Funnel";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
@@ -24,11 +30,13 @@ import {
 	permissionMapAllows,
 } from "@/features/auth/lib/permissions";
 
+/** The sidebar paths. Each path needs a route file in src/routes/_dashboard. */
 export type AdminRoutePath =
 	| "/dashboard"
 	| "/users"
 	| "/organizations"
 	| "/offline-billing"
+	| "/credit-grants"
 	| "/publications"
 	| "/feedback"
 	| "/affiliates"
@@ -85,6 +93,13 @@ const operationsNavigation: AdminNavigationItem[] = [
 		to: "/offline-billing",
 		icon: HandCoinsIcon,
 		permission: { billing: ["read"] },
+	},
+	{
+		title: "Credit grants",
+		description: "Who granted credits to whom",
+		to: "/credit-grants",
+		icon: CoinVerticalIcon,
+		permission: { credits: ["read"] },
 	},
 	{
 		title: "Publications",

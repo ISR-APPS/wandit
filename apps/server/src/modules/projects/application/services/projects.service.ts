@@ -403,7 +403,9 @@ export class ProjectsService {
 				);
 			}
 			// LIMIT: a failed task start leaves the sandbox and the repository
-			// alive until someone re-runs the delete. Upgrade: WANDIT-184 sweep.
+			// alive until someone re-runs the delete; the daily backend sweep
+			// (WANDIT-184) catches only the backend. Upgrade: a sweep that
+			// replays the task for soft-deleted v2_app projects.
 		}
 	}
 }

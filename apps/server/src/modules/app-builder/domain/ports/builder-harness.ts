@@ -6,7 +6,12 @@
  * implementation.
  */
 
-import type { HarnessPendingInteraction } from "@wandit/contracts";
+import type {
+	AskUserHostToolOutput,
+	BuilderTurnMode,
+	HarnessPendingInteraction,
+	PresentPlanHostToolOutput,
+} from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 
 import type { HostToolSet } from "./host-tools";
@@ -41,21 +46,40 @@ export type HarnessSessionInput = {
 	instructions?: string;
 	sandbox: SandboxHandle;
 	hostTools: HostToolSet;
+	/**
+	 * `spec.mode` of the turn. `plan` blocks the built-in tools that write,
+	 * run, or start an agent. The harness fixes them when a session starts.
+	 */
+	mode: BuilderTurnMode;
 };
 
 /** A live harness session; the task keeps only the id it must log. */
 export type HarnessSession = { readonly sessionId: string };
 
 /**
- * One answered `askUserQuestions` call. `answers` is keyed by question
- * id; `partial` marks a call with more than one question, where the
- * harness re-asks the unanswered ones.
+ * One answered question call, keyed on the tool that asked. For the
+ * built-in `askUserQuestions`, `answers` is keyed by question id and
+ * `partial` marks a call where the harness re-asks the unanswered
+ * questions. For the `ask_user` host tool, `output` is the tool result.
+ * For `present_plan`, `output` carries the user's change requests.
  */
-export type HarnessQuestionResult = {
-	toolCallId: string;
-	answers: Record<string, { optionIds: string[]; freeform?: string }>;
-	partial: boolean;
-};
+export type HarnessQuestionResult =
+	| {
+			tool: "askUserQuestions";
+			toolCallId: string;
+			answers: Record<string, { optionIds: string[]; freeform?: string }>;
+			partial: boolean;
+	  }
+	| {
+			tool: "ask_user";
+			toolCallId: string;
+			output: AskUserHostToolOutput;
+	  }
+	| {
+			tool: "present_plan";
+			toolCallId: string;
+			output: PresentPlanHostToolOutput;
+	  };
 
 /**
  * One turn inside a session. `prompt` starts a fresh turn from the user
@@ -85,7 +109,17 @@ export type HarnessStreamEvent =
 			cacheReadTokens: number;
 			cacheWriteTokens: number;
 	  }
-	| { type: "error"; code: string; message: string; retryable: boolean };
+	| {
+			type: "error";
+			code: string;
+			message: string;
+			retryable: boolean;
+			/**
+			 * HTTP status of the failed model call, for example 529. The harness
+			 * reads it from its error text. Undefined when the text names no status.
+			 */
+			statusCode?: number;
+	  };
 
 /**
  * One coding-agent harness. `createSession` starts cold; `resumeSession`
@@ -99,6 +133,21 @@ export interface BuilderHarness {
 	resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
+		options: {
+			/**
+			 * True resumes the thread between turns and drops a paused turn; the
+			 * caller then sends the answers as a text prompt. The runtime sets it
+			 * when the sandbox woke from a stop: the bridge and its open tool
+			 * calls are gone. It also sets it when the turn switches mode.
+			 */
+			dropPausedTurn: boolean;
+			/**
+			 * True after a sandbox wake. The bridge is usually gone. The harness
+			 * kills a bridge that still runs, then starts a new one. A mode
+			 * switch keeps the bridge: its new start replaces the paused call.
+			 */
+			bridgeDead: boolean;
+		},
 	): Promise<HarnessSession>;
 	stream(
 		session: HarnessSession,
@@ -116,4 +165,14 @@ export interface BuilderHarness {
 	 * The session handle is unusable after it, same as `detach`.
 	 */
 	suspendTurn(session: HarnessSession): Promise<HarnessResumeState>;
+	/**
+	 * SHA-256 hex of the files and commands the harness installs in a
+	 * sandbox. It changes with the harness version; it keys the template snapshot.
+	 */
+	bootstrapKey(): Promise<string>;
+	/**
+	 * Installs the harness in the sandbox and starts no session. The
+	 * `template-snapshot` task calls it before it takes the snapshot.
+	 */
+	prepareSandbox(sandbox: SandboxHandle): Promise<void>;
 }

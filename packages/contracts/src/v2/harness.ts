@@ -5,9 +5,17 @@
  */
 import { z } from "zod";
 
+import { askUserKindSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
-import { turnApprovalAnswerSchema, turnUsageDataSchema } from "./turns";
+import { presentPlanHostToolInputSchema } from "./host-tools";
+import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
+import {
+	builderTurnModeSchema,
+	turnApprovalAnswerSchema,
+	turnQuestionAnswerSchema,
+	turnUsageDataSchema,
+} from "./turns";
 
 /** The `builder_harness` db enum values, for JSON fields that carry one. */
 export const harnessKindSchema = z.enum(["claude_code", "opencode"]);
@@ -17,21 +25,38 @@ export type HarnessKindContract = z.infer<typeof harnessKindSchema>;
 
 /**
  * One paused harness interaction the user must answer before the turn
- * can continue. `question` mirrors a pending `askUserQuestions` call;
- * `approval` mirrors a pending host-tool approval. `suspendTurn` writes
- * them into the resume envelope so a later turn can answer each by id.
+ * can continue. `question` mirrors a pending `ask_user` call (or a
+ * built-in `askUserQuestions` call); `approval` mirrors a pending
+ * host-tool approval; `plan` mirrors a pending `present_plan` call.
+ * `suspendTurn` writes them into the resume envelope so a later turn can
+ * answer each by id.
  */
 export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("question"),
-		// Harness call id of the pending `askUserQuestions` tool call.
+		// The tool that asked. Envelopes saved before `ask_user` existed have
+		// no value; only the built-in tool asked then.
+		tool: z.enum(["ask_user", "askUserQuestions"]).default("askUserQuestions"),
+		// Harness call id of the pending tool call.
 		toolCallId: z.string().min(1),
 		questions: z.array(
 			z.object({
 				id: z.string().min(1),
 				question: z.string(),
+				// Old envelopes have no kind; their questions were single choices.
+				kind: askUserKindSchema.default("single-choice"),
+				helper: z.string().optional(),
+				maxFiles: z.int().min(1).max(6).optional(),
 				options: z.array(
-					z.object({ id: z.string().min(1), label: z.string() }),
+					z.object({
+						id: z.string().min(1),
+						label: z.string(),
+						description: z.string().optional(),
+						// Design world skill id; the task adds the world card.
+						worldId: z.string().optional(),
+						// True on the option the agent advises.
+						recommended: z.boolean().optional(),
+					}),
 				),
 			}),
 		),
@@ -45,9 +70,16 @@ export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 		// JSON text of the tool call input, as the harness reported it.
 		input: z.string(),
 	}),
+	z.object({
+		kind: z.literal("plan"),
+		// Harness call id of the pending `present_plan` call.
+		toolCallId: z.string().min(1),
+		// The plan, cut to the card limits by the harness adapter.
+		plan: presentPlanHostToolInputSchema,
+	}),
 ]);
 
-/** One paused interaction; the union of the question and approval cards. */
+/** One paused interaction; the union of the question, approval, and plan cards. */
 export type HarnessPendingInteraction = z.infer<
 	typeof harnessPendingInteractionSchema
 >;
@@ -66,6 +98,12 @@ export const harnessResumeEnvelopeSchema = z.object({
 	 * detach writes `[]`; `suspendTurn` fills it from the harness state.
 	 */
 	pending: z.array(harnessPendingInteractionSchema).default([]),
+	/**
+	 * The mode of the turn that wrote the envelope. A paused call continues
+	 * only in the same mode: the harness fixes the tool list per session.
+	 * Envelopes saved before Plan Mode existed came from build turns.
+	 */
+	mode: builderTurnModeSchema.default("build"),
 });
 
 /** The `builder_sessions.resumeState` column after the envelope parse. */
@@ -123,8 +161,16 @@ export const builderTurnSpecSchema = z.object({
 	message: z.string(),
 	attachments: z.array(fileRefSchema),
 	composer: composerMetadataSchema.nullable(),
-	// The answer to a `data-approval` card; `message` answers a question card.
+	// The answer to a `data-approval` card.
 	approval: turnApprovalAnswerSchema.optional(),
+	// The answers to the `data-question` cards. Specs saved before the
+	// answers existed have none; `message` then answers the cards.
+	answers: z.array(turnQuestionAnswerSchema).default([]),
+	// The elements the user picked in the preview. Specs saved before
+	// targets existed have none.
+	targets: z.array(previewTargetSchema).max(PREVIEW_TARGETS_MAX).default([]),
+	// Plan Mode or a build. Specs saved before Plan Mode existed were builds.
+	mode: builderTurnModeSchema.default("build"),
 });
 
 /** Parsed `builder_turns.spec`; `message` may be empty when attachments carry the turn. */

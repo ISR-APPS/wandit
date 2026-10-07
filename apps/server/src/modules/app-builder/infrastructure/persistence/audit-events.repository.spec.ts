@@ -57,4 +57,29 @@ describe("AuditEventsRepository", () => {
 			expect.objectContaining({ metadata: null }),
 		);
 	});
+
+	it("insert writes the client ip when the caller passes one", async () => {
+		const values = vi.fn(async () => undefined);
+		const insert = vi.fn(() => ({ values }));
+		const repository = new AuditEventsRepository(
+			// SAFETY: `Object.create` yields any; the stub exposes only the
+			// insert chain the method uses.
+			Object.assign(Object.create(null), { insert }) as Database,
+		);
+
+		await repository.insert({
+			action: "secret.set",
+			actorUserId: "user-1",
+			ip: "203.0.113.9",
+			metadata: { kind: "user", name: "STRIPE_SECRET_KEY" },
+			organizationId: null,
+			projectId: "project-1",
+			targetId: "row-1",
+			targetType: "project_secret",
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ ip: "203.0.113.9" }),
+		);
+	});
 });

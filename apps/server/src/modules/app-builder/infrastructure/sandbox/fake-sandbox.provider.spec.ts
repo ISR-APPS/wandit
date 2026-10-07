@@ -57,4 +57,30 @@ describe("FakeSandboxProvider", () => {
 
 		expect(result.exitCode).toBe(0);
 	});
+
+	it("findRunning answers the handle of a running sandbox", async () => {
+		const provider = new FakeSandboxProvider();
+		const handle = await provider.getOrCreate("p1", CREATE_OPTIONS);
+
+		expect(await provider.findRunning("p1")).toBe(handle);
+	});
+
+	it("findRunning answers null for a stopped or unknown sandbox and wakes none", async () => {
+		const provider = new FakeSandboxProvider();
+		await provider.getOrCreate("p1", CREATE_OPTIONS);
+		await provider.stop("p1");
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(await provider.findRunning("p2")).toBeNull();
+		expect(provider.createdCount).toBe(1);
+		// The stopped sandbox is still stopped: the next getOrCreate wakes it.
+		let woke = false;
+		await provider.getOrCreate("p1", {
+			...CREATE_OPTIONS,
+			onWake: async () => {
+				woke = true;
+			},
+		});
+		expect(woke).toBe(true);
+	});
 });

@@ -28,10 +28,29 @@ export const llmProxyTokenClaimsSchema = z.object({
 	// Expiry in unix seconds. The API mints exp = now + 65 minutes so a
 	// 60-minute turn never loses its token mid-call.
 	exp: z.int().positive(),
+	// The chat whose agent session sends with this token. The proxy reads the
+	// chat binding for it, so a request on an older connection of the chat is
+	// billed to the turn that runs now. Absent on a token minted before.
+	chatId: uuidSchema.optional(),
 });
 
 /** TypeScript run-token claims type. */
 export type LlmProxyTokenClaims = z.infer<typeof llmProxyTokenClaimsSchema>;
+
+/**
+ * The turn a chat runs now, as the proxy bills it: the claims of that
+ * turn's own token. The builder writes it to Redis at the turn start and
+ * deletes it at the turn end. The Vercel egress proxy keeps the token rule
+ * of a kept-alive connection, so a continued Claude Code process still sends
+ * the token of an older turn of the same chat.
+ */
+export const llmProxyChatBindingSchema = llmProxyTokenClaimsSchema.omit({
+	chatId: true,
+	exp: true,
+});
+
+/** TypeScript chat-binding type; stored as JSON under `llm:chat:<chatId>`. */
+export type LlmProxyChatBinding = z.infer<typeof llmProxyChatBindingSchema>;
 
 /**
  * Anthropic and OpenAI inbound shapes the proxy accepts. `openai` is

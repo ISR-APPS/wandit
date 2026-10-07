@@ -1,8 +1,15 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { designWorlds, formatWorldCandidates, getWorld } from "./index";
+import {
+	designWorlds,
+	formatWorldCandidates,
+	getWorld,
+	mobileWorldCards,
+	worldCardOf,
+	worldOrder,
+} from "./index";
 
 const PREVIEW_KEYS = ["accent", "fontFamily", "ground", "ink", "sampleWord"];
 
@@ -53,7 +60,11 @@ describe("design worlds library", () => {
 		// The cod barrel has had this guard from day one; the top level did
 		// not, which is how matiere.ts shipped unregistered for weeks.
 		const fileIds = [
-			...worldFileIds(new URL(".", import.meta.url), ["index.ts", "types.ts"]),
+			...worldFileIds(new URL(".", import.meta.url), [
+				"index.ts",
+				"mobile-worlds.ts",
+				"types.ts",
+			]),
 			...worldFileIds(new URL("landing/", import.meta.url), ["index.ts"]),
 		].sort();
 		const registeredIds = designWorlds
@@ -68,6 +79,58 @@ describe("design worlds library", () => {
 		if (!first) throw new Error("worlds library is empty");
 		expect(getWorld(` ${first.id.toUpperCase()} `)).toBe(first);
 		expect(getWorld("no-such-world")).toBeUndefined();
+	});
+
+	it("worldCardOf gives the card face of a known world and nothing else", () => {
+		const zellige = getWorld("zellige");
+		if (!zellige?.preview) throw new Error("zellige has no preview");
+		expect(worldCardOf("zellige")).toEqual({
+			id: "zellige",
+			name: zellige.name,
+			preview: zellige.preview,
+			tagline: zellige.tagline,
+		});
+		expect(worldCardOf("no-such-world")).toBeUndefined();
+	});
+
+	it("keeps the mobile cards, the template world files, and the index in step", () => {
+		// The agent reads the world file; the chat draws the card. A card with
+		// no file, or a file with no card, breaks the pick on the first build.
+		const skillUrl = new URL(
+			"../../../../../../../templates/mobile-app/.claude/skills/design-worlds-mobile/",
+			import.meta.url,
+		);
+		const fileIds = readdirSync(new URL("worlds/", skillUrl))
+			.filter((name) => name.endsWith(".md"))
+			.map((name) => name.replace(/\.md$/u, ""))
+			.sort();
+		const cardIds = mobileWorldCards.map((card) => card.id);
+		expect([...cardIds].sort()).toEqual(fileIds);
+		const index = readFileSync(new URL("SKILL.md", skillUrl), "utf8");
+		for (const id of cardIds) {
+			expect(index, `${id} has no row in the index`).toContain(`| ${id} |`);
+			// worldCardOf checks the web worlds first, so a mobile id must not be a web world id.
+			expect(getWorld(id), `${id} is also a web world id`).toBeUndefined();
+			expect(worldCardOf(id)?.id).toBe(id);
+		}
+	});
+
+	it("orders the worlds per project: stable for one project, different between two", () => {
+		// The order is in the turn instructions, so a change between two turns of
+		// one project restarts the warm session; equal orders kill the variety.
+		const first = worldOrder(
+			"643ed1da-988e-4143-8cdd-88a0dac2cf49",
+			mobileWorldCards,
+		);
+		expect(
+			worldOrder("643ed1da-988e-4143-8cdd-88a0dac2cf49", mobileWorldCards),
+		).toEqual(first);
+		expect([...first].sort()).toEqual(
+			mobileWorldCards.map((card) => card.id).sort(),
+		);
+		expect(
+			worldOrder("1f0c4b8e-2d7a-4e55-9a31-6b2e8c9d0f17", mobileWorldCards),
+		).not.toEqual(first);
 	});
 
 	it("does not call the primary hue accent when --accent is a ground token", () => {

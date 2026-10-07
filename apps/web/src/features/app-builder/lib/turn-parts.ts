@@ -1,193 +1,529 @@
 /**
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
- * chat components render (`BuilderMessage`). use-builder-thread.ts feeds
- * the `useChat` messages through `toBuilderMessages`. Pure functions, no
- * React, no copy: the caller passes the labels.
+ * chat components render (`BuilderMessage`). use-builder-thread.ts calls
+ * `toBuilderMessages`, `livePhaseOf`, and `latestTurnModeOf`. chat-pane.tsx calls
+ * `liveStatusOf` for its status line; the chat and the details panel call
+ * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
+ * copy: the components translate each row.
  */
 
-import { type TurnStreamPhase, turnStreamPhases } from "@wandit/contracts";
-import { getToolName, isToolUIPart } from "ai";
+import {
+	applyMigrationToolInputSchema,
+	type BuilderTurnMode,
+	deployFunctionToolInputSchema,
+	generateImageHostToolInputSchema,
+	generateImageHostToolOutputSchema,
+	requestNetworkHostToolInputSchema,
+	runSqlToolInputSchema,
+	setSecretToolInputSchema,
+	setSecretToolOutputSchema,
+	type TurnStreamPhase,
+} from "@wandit/contracts";
+import {
+	type DynamicToolUIPart,
+	getToolName,
+	isToolUIPart,
+	type ToolUIPart,
+} from "ai";
 import { z } from "zod";
 
 import type {
 	BuilderDataParts,
-	BuilderFileChange,
+	BuilderDiffLine,
+	BuilderEditArea,
 	BuilderMessage,
-	BuilderProgressStep,
-	BuilderToolCall,
+	BuilderMessagePart,
+	BuilderStepKind,
+	BuilderStepState,
 	TurnMessage,
 	TurnMessagePart,
 } from "../api/dto";
 
+// Harness tool names by row kind. The 8 common built-ins arrive camelCase,
+// every other Claude Code built-in keeps its PascalCase native name, and a
+// host tool arrives with its bare name. A name that is not here is "other".
+const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
+	["edit", "edit"],
+	["write", "edit"],
+	["NotebookEdit", "edit"],
+	["read", "explore"],
+	["glob", "explore"],
+	["grep", "explore"],
+	["LSP", "explore"],
+	["bash", "run"],
+	["Monitor", "run"],
+	["webSearch", "web"],
+	["WebFetch", "web"],
+	["generate_image", "image"],
+	["apply_migration", "database"],
+	["apply_destructive_migration", "database"],
+	["run_sql_write", "database"],
+	["run_sql", "databaseCheck"],
+	["get_advisors", "databaseCheck"],
+	["deploy_function", "deploy"],
+	["set_secret", "secret"],
+	["request_network_host", "network"],
+	["Skill", "guide"],
+	["Agent", "task"],
+]);
+
+// Tools that get no row. The to-do list, the task list, the tool search, and
+// the plan mode are agent bookkeeping. The questions show in the tray, and
+// the plan of `present_plan` shows as the plan card.
+const HIDDEN_TOOL_NAMES = new Set([
+	"TodoWrite",
+	"TaskCreate",
+	"TaskGet",
+	"TaskUpdate",
+	"TaskList",
+	"TaskStop",
+	"TaskOutput",
+	"ToolSearch",
+	"EnterPlanMode",
+	"ExitPlanMode",
+	"ask_user",
+	"askUserQuestions",
+	"present_plan",
+]);
+
+// Host tools report a failure as a normal output with a status. These
+// statuses mean that the call did not do its job.
+const FAILED_OUTPUT_STATUSES = new Set([
+	"failed",
+	"unavailable",
+	"denied",
+	"missing",
+	"backend_not_ready",
+	"backend_paused",
+	"rate_limited",
+]);
+
+// These statuses mean that the call stopped before it ran.
+const SKIPPED_OUTPUT_STATUSES = new Set(["needs_approval", "skipped"]);
+
 /**
- * Phase and tool labels of the cards, filled by the page from the
- * dictionary so this file holds no user-facing copy.
+ * Most detail lines one row shows behind its chevron; a longer block is cut.
+ * The shell output of a run row is cut by characters instead.
  */
-export type TurnPartLabels = {
-	/** Label of each stream phase, keyed by the contracts phase id. */
-	phases: Record<TurnStreamPhase, string>;
-	/** Label of each tool-row kind: think, read, write, run. */
-	tools: Record<BuilderToolCall["kind"], string>;
-};
+const DETAIL_MAX_LINES = 40;
 
-// The built-in tool names of @ai-sdk/harness, grouped by the row icon they
-// get. The stream types each call `tool-<name>`, so `read` arrives as a
-// `tool-read` part. A name that is not here gets the "think" kind and
-// keeps its raw name as the label.
-const TOOL_KIND_BY_NAME: Record<string, BuilderToolCall["kind"]> = {
-	read: "read",
-	glob: "read",
-	grep: "read",
-	webSearch: "read",
-	edit: "write",
-	write: "write",
-	bash: "run",
-};
+/** 2 KB of shell output, counted in characters. A run row shows the end of the output. */
+const RUN_OUTPUT_MAX_CHARS = 2_048;
 
-// The harness tool the agent calls to ask the user. The API mirrors each
-// call as a `data-question` card (contracts turns.ts), so it gets no row.
-const QUESTION_TOOL_NAME = "askUserQuestions";
+const toolOutputStatusSchema = z.object({ status: z.string() });
 
-/**
- * The row kind of a harness tool name, or undefined when the table does
- * not know it. `Object.hasOwn` keeps inherited keys like "constructor"
- * from passing as known names.
- */
-function toolKindOf(toolName: string): BuilderToolCall["kind"] | undefined {
-	return Object.hasOwn(TOOL_KIND_BY_NAME, toolName)
-		? TOOL_KIND_BY_NAME[toolName]
-		: undefined;
-}
-
-/** Longest text a tool chip shows; longer targets and JSON inputs are cut. */
-const TOOL_TARGET_MAX_CHARS = 80;
-
-// The input fields of the harness tools that name what a call works on, in
-// pick order: file_path (read, write, edit), command (bash), pattern (grep,
-// glob), query (webSearch).
-const toolInputTargetSchema = z.object({
-	file_path: z.string().optional(),
-	command: z.string().optional(),
-	pattern: z.string().optional(),
-	query: z.string().optional(),
+// The output fields of a shell call that a run row reads. The Claude Code
+// result has `stdout` and `stderr`; the bridge fallback has `stdout` only.
+const runToolOutputSchema = z.object({
+	stdout: z.string().optional(),
+	stderr: z.string().optional(),
 });
 
+// The output of a Claude Code Read of an image file. The harness passes the
+// tool result through, so the image arrives as base64 bytes. Only raster
+// types and plain base64 pass: the details panel puts it in an <img> src.
+const readImageOutputSchema = z.object({
+	type: z.literal("image"),
+	file: z.object({
+		base64: z.string().regex(/^[A-Za-z0-9+/]+={0,2}$/),
+		type: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+	}),
+});
+
+// The plain area of an edited file, first match wins. The path can be
+// relative or absolute, so each rule matches a folder name or an end.
+// The page and component folders are the ones of the web and mobile templates.
+// No "messages" folder for the texts: a chat app has a `routes/messages` page.
+const EDIT_AREA_RULES: readonly [RegExp, BuilderEditArea][] = [
+	[/\.(png|jpe?g|gif|webp|avif|svg|ico)$/i, "images"],
+	[/\.(css|scss|sass|less)$/i, "styles"],
+	[/(^|\/)(i18n|locales?|translations)\//i, "texts"],
+	// Edge functions in supabase/functions are server code, not the database.
+	[/(^|\/)supabase\/migrations\/|\.sql$/i, "database"],
+	[
+		/(^|\/)(package\.json|app\.json|eas\.json|tsconfig[^/]*\.json|[^/]+\.config\.[cm]?[jt]s)$/i,
+		"settings",
+	],
+	[/(^|\/)(components|ui)\//i, "components"],
+	[/(^|\/)src\/(routes|app|pages)\//i, "pages"],
+];
+
+// The input fields of the Claude Code built-ins that a row reads. During
+// `input-streaming` the input is partial, so every field is optional.
+const builtinToolInputSchema = z.object({
+	file_path: z.string().optional(),
+	notebook_path: z.string().optional(),
+	filePath: z.string().optional(),
+	old_string: z.string().optional(),
+	new_string: z.string().optional(),
+	content: z.string().optional(),
+	new_source: z.string().optional(),
+	command: z.string().optional(),
+	description: z.string().optional(),
+	pattern: z.string().optional(),
+	path: z.string().optional(),
+	query: z.string().optional(),
+	url: z.string().optional(),
+	prompt: z.string().optional(),
+	skill: z.string().optional(),
+});
+
+type BuiltinToolInput = z.infer<typeof builtinToolInputSchema>;
+
 /**
- * The chip target of one tool call: the first input field that names a
- * file, a command, a pattern, or a query. Without one, the JSON text of
- * the input. Both are cut to TOOL_TARGET_MAX_CHARS.
+ * One tool part of a turn message: a `tool-<name>` part, or a `dynamic-tool`
+ * part for a call whose input failed the tool schema.
  */
-function toolTargetOf(input: unknown): string {
-	const parsed = toolInputTargetSchema.safeParse(input);
-	const named = parsed.success
-		? (parsed.data.file_path ??
-			parsed.data.command ??
-			parsed.data.pattern ??
-			parsed.data.query)
-		: undefined;
-	// JSON.stringify returns undefined for an absent input (streaming state).
-	return (named ?? JSON.stringify(input) ?? "").slice(0, TOOL_TARGET_MAX_CHARS);
+type ToolPart = ToolUIPart | DynamicToolUIPart;
+
+/** The step data of one row, without the parts the component adds. */
+type Step = BuilderDataParts["step"];
+
+/** The last segment of a slash path, for example `styles.css`. */
+function fileNameOf(path: string): string {
+	return path.split("/").at(-1) || path;
+}
+
+/** The plain area of an edited file path; "code" when no rule matches. */
+function editAreaOf(path: string): BuilderEditArea {
+	return EDIT_AREA_RULES.find(([pattern]) => pattern.test(path))?.[1] ?? "code";
 }
 
 /**
- * One tool-chip row per tool part (`tool-<name>` or `dynamic-tool`) and per
- * `reasoning` part, in part order. A reasoning part gets the `think` kind
- * and its first TOOL_TARGET_MAX_CHARS characters as the target.
+ * The image of a step, or null. A read of an image file gives a `data:`
+ * URL. A generated image gives its URL, only on https: the agent output is
+ * not trusted.
  */
-export function toolCallsOf(
-	parts: readonly TurnMessagePart[],
-	labels: TurnPartLabels,
-): BuilderToolCall[] {
-	return parts.flatMap<BuilderToolCall>((part) => {
-		if (part.type === "reasoning") {
-			return [
-				{
-					kind: "think",
-					label: labels.tools.think,
-					target: part.text.slice(0, TOOL_TARGET_MAX_CHARS),
-				},
-			];
-		}
-		if (!isToolUIPart(part)) return [];
-		const toolName = getToolName(part);
-		if (toolName === QUESTION_TOOL_NAME) return [];
-		const kind = toolKindOf(toolName);
-		return [
-			{
-				kind: kind ?? "think",
-				// An unknown tool name is its own label; a known one takes the
-				// dictionary label of its kind.
-				label: kind === undefined ? toolName : labels.tools[kind],
-				target: toolTargetOf(part.input),
-			},
-		];
-	});
-}
-
-/**
- * The files the turn wrote: the unique `file_path` of the `write`-kind
- * calls, in first-seen order. Read and run calls carry no file change.
- */
-export function fileChangesOf(
-	parts: readonly TurnMessagePart[],
-): BuilderFileChange[] {
-	const seen = new Set<string>();
-	const files: BuilderFileChange[] = [];
-	for (const part of parts) {
-		if (!isToolUIPart(part)) continue;
-		if (toolKindOf(getToolName(part)) !== "write") continue;
-		const parsed = toolInputTargetSchema.safeParse(part.input);
-		const path = parsed.success ? parsed.data.file_path : undefined;
-		if (path === undefined || path === "" || seen.has(path)) continue;
-		seen.add(path);
-		// LIMIT: added and removed stay 0; the stream's data-builder-files
-		// part has no contract schema yet. Upgrade: a schema for that part in
-		// contracts, read here.
-		files.push({ path, added: 0, removed: 0 });
+function imageUrlOf(toolName: string, output: unknown): string | null {
+	if (toolName === "read") {
+		const read = readImageOutputSchema.safeParse(output);
+		return read.success
+			? `data:${read.data.file.type};base64,${read.data.file.base64}`
+			: null;
 	}
-	return files;
+	if (toolName === "generate_image") {
+		const generated = generateImageHostToolOutputSchema.safeParse(output);
+		if (!generated.success || generated.data.status !== "generated") {
+			return null;
+		}
+		const { url } = generated.data;
+		return parsedUrlOf(url)?.protocol === "https:" ? url : null;
+	}
+	return null;
+}
+
+/** The host of a URL, or null when the text is not a URL. */
+function hostOf(url: string): string | null {
+	return parsedUrlOf(url)?.host ?? null;
+}
+
+/** The parsed URL, or null when the text is not a URL. Safari 16 has no `URL.canParse`. */
+function parsedUrlOf(url: string): URL | null {
+	try {
+		return new URL(url);
+	} catch (error) {
+		// new URL throws a TypeError for text that is not a URL.
+		if (error instanceof TypeError) return null;
+		throw error;
+	}
+}
+
+/** One line per text line, all in the same tone. */
+function linesOf(
+	text: string,
+	kind: BuilderDiffLine["kind"],
+): BuilderDiffLine[] {
+	return text.split("\n").map((line) => ({ kind, text: line }));
 }
 
 /**
- * The progress card data of one message, or null when it holds no
- * `data-turn-status` part. Phases before the last seen phase are done and
- * the last seen phase is active; a `data-turn-done` part with status
- * `succeeded` marks every step done at 100 percent.
+ * The last RUN_OUTPUT_MAX_CHARS characters of a shell output, with one "…"
+ * line in front when text was cut. No lines for an empty output.
  */
-export function progressOf(
-	parts: readonly TurnMessagePart[],
-	labels: TurnPartLabels,
-): BuilderDataParts["progress"] | null {
-	const lastStatus = parts.findLast(
-		(part): part is Extract<TurnMessagePart, { type: "data-turn-status" }> =>
-			part.type === "data-turn-status",
-	);
-	if (lastStatus === undefined) return null;
-	const lastIndex = turnStreamPhases.indexOf(lastStatus.data.phase);
-	// The done part carries the row status: failed, canceled, or stalled
-	// keeps the last phase active next to the error card.
-	const finished = parts.some(
-		(part) =>
-			part.type === "data-turn-done" && part.data.status === "succeeded",
-	);
-	const steps: BuilderProgressStep[] = turnStreamPhases.map((phase, index) => ({
-		id: phase,
-		label: labels.phases[phase],
-		state:
-			finished || index < lastIndex
-				? "done"
-				: index === lastIndex
-					? "active"
-					: "pending",
-	}));
+function outputTailOf(
+	text: string,
+	kind: BuilderDiffLine["kind"],
+): BuilderDiffLine[] {
+	const trimmed = text.trimEnd();
+	if (trimmed === "") return [];
+	if (trimmed.length <= RUN_OUTPUT_MAX_CHARS) return linesOf(trimmed, kind);
+	return [
+		{ kind: "context", text: "…" },
+		...linesOf(trimmed.slice(-RUN_OUTPUT_MAX_CHARS), kind),
+	];
+}
+
+/** stdout, then stderr, of a parsed shell result; "" when it has neither. */
+function shellTextOf(output: z.infer<typeof runToolOutputSchema>): string {
+	return [output.stdout, output.stderr]
+		.filter((text): text is string => text !== undefined && text !== "")
+		.join("\n");
+}
+
+/**
+ * The end of the shell output of a run row. A failed call carries its
+ * result as JSON text in `errorText`; any other error text shows as it is.
+ */
+function runOutputLinesOf(part: ToolPart): BuilderDiffLine[] {
+	if (part.state === "output-available") {
+		const output = runToolOutputSchema.safeParse(part.output);
+		return output.success
+			? outputTailOf(shellTextOf(output.data), "context")
+			: [];
+	}
+	if (part.state !== "output-error") return [];
+	let text = part.errorText;
+	try {
+		const output = runToolOutputSchema.safeParse(JSON.parse(part.errorText));
+		if (output.success && shellTextOf(output.data) !== "") {
+			text = shellTextOf(output.data);
+		}
+	} catch (error) {
+		// Not JSON: the harness sent a plain sentence, which shows as it is.
+		if (!(error instanceof SyntaxError)) throw error;
+	}
+	return outputTailOf(text, "remove");
+}
+
+/** The first DETAIL_MAX_LINES lines, then one "…" line when lines were cut. */
+function capLines(lines: BuilderDiffLine[]): BuilderDiffLine[] {
+	return lines.length > DETAIL_MAX_LINES
+		? [...lines.slice(0, DETAIL_MAX_LINES), { kind: "context", text: "…" }]
+		: lines;
+}
+
+/**
+ * The state of one tool part, or null when the part gets no row. A call
+ * that waits for an approval hides: the approval card of the message
+ * covers it. A call that never got its output ran when the turn stopped.
+ */
+function stepStateOf(part: ToolPart, isLive: boolean): BuilderStepState | null {
+	switch (part.state) {
+		case "input-streaming":
+		case "input-available":
+			return isLive ? "running" : "skipped";
+		case "approval-requested":
+		case "approval-responded":
+			return null;
+		case "output-denied":
+			return "skipped";
+		case "output-error":
+			return "error";
+		case "output-available": {
+			const output = toolOutputStatusSchema.safeParse(part.output);
+			if (!output.success) return "done";
+			if (FAILED_OUTPUT_STATUSES.has(output.data.status)) return "error";
+			if (SKIPPED_OUTPUT_STATUSES.has(output.data.status)) return "skipped";
+			return "done";
+		}
+	}
+}
+
+/** The target, the description, and the detail lines of one tool call. */
+function stepContentOf(
+	toolName: string,
+	kind: BuilderStepKind,
+	input: BuiltinToolInput,
+	rawInput: unknown,
+): Pick<Step, "target" | "description" | "detail"> {
+	switch (kind) {
+		case "edit": {
+			const path = input.file_path ?? input.notebook_path;
+			const detail =
+				toolName === "edit"
+					? [
+							...linesOf(input.old_string ?? "", "remove"),
+							...linesOf(input.new_string ?? "", "add"),
+						]
+					: linesOf(input.content ?? input.new_source ?? "", "add");
+			return {
+				target: path === undefined ? null : fileNameOf(path),
+				description: null,
+				detail: capLines(detail),
+			};
+		}
+		case "explore": {
+			// A single read names its file. A search names no file: the pattern
+			// goes to the detail lines.
+			const path = input.file_path ?? input.filePath;
+			const searched = [input.pattern, input.path].filter(
+				(value): value is string => value !== undefined,
+			);
+			return {
+				target:
+					toolName === "read" && path !== undefined ? fileNameOf(path) : null,
+				description: null,
+				detail: capLines(
+					linesOf(path ?? searched.join("  "), "context").filter(
+						(line) => line.text !== "",
+					),
+				),
+			};
+		}
+		case "run":
+			return {
+				target: null,
+				description: input.description ?? null,
+				detail: capLines(linesOf(input.command ?? "", "context")),
+			};
+		case "web": {
+			const host = input.url === undefined ? null : hostOf(input.url);
+			return {
+				target: host,
+				description: null,
+				detail: capLines(linesOf(input.url ?? input.query ?? "", "context")),
+			};
+		}
+		case "image": {
+			const parsed = generateImageHostToolInputSchema.safeParse(rawInput);
+			return {
+				target: null,
+				description: null,
+				detail: parsed.success
+					? capLines(linesOf(parsed.data.prompt, "context"))
+					: [],
+			};
+		}
+		case "database":
+		case "databaseCheck": {
+			// The migration tools send `sql`; the SQL tools send `query`.
+			const migration = applyMigrationToolInputSchema.safeParse(rawInput);
+			const query = runSqlToolInputSchema.safeParse(rawInput);
+			const sql = migration.success
+				? migration.data.sql
+				: query.success
+					? query.data.query
+					: "";
+			return {
+				target: null,
+				description: null,
+				detail: capLines(linesOf(sql, "context")),
+			};
+		}
+		case "network": {
+			const parsed = requestNetworkHostToolInputSchema.safeParse(rawInput);
+			return {
+				target: parsed.success ? parsed.data.host : null,
+				description: null,
+				detail: parsed.success
+					? capLines(linesOf(parsed.data.reason, "context"))
+					: [],
+			};
+		}
+		case "guide":
+			return { target: input.skill ?? null, description: null, detail: [] };
+		case "task":
+			return {
+				target: null,
+				description: input.description ?? null,
+				detail: capLines(linesOf(input.prompt ?? "", "context")),
+			};
+		case "deploy": {
+			const parsed = deployFunctionToolInputSchema.safeParse(rawInput);
+			return {
+				target: parsed.success ? parsed.data.slug : null,
+				description: null,
+				detail: [],
+			};
+		}
+		case "secret": {
+			// The input holds the name and the source, never the value.
+			const parsed = setSecretToolInputSchema.safeParse(rawInput);
+			return {
+				target: parsed.success ? parsed.data.name : null,
+				description: null,
+				detail: [],
+			};
+		}
+		case "other":
+			// The raw name stays behind the chevron; the label never shows it.
+			return {
+				target: null,
+				description: null,
+				detail: [{ kind: "context", text: toolName }],
+			};
+	}
+}
+
+/**
+ * The step row of one tool part, or null when the part gets no row: a
+ * hidden tool, or a call that waits for an approval.
+ */
+export function stepOf(part: ToolPart, isLive: boolean): Step | null {
+	const toolName = getToolName(part);
+	if (HIDDEN_TOOL_NAMES.has(toolName)) return null;
+	const state = stepStateOf(part, isLive);
+	if (state === null) return null;
+	const kind = STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other";
+	const parsed = builtinToolInputSchema.safeParse(part.input);
+	const input: BuiltinToolInput = parsed.success ? parsed.data : {};
+	const content = stepContentOf(toolName, kind, input, part.input);
+	// A run row shows the end of the output, also of a failed call. Other
+	// rows show the start of the error text.
+	const resultLines: BuilderDiffLine[] =
+		kind === "run"
+			? runOutputLinesOf(part)
+			: part.state === "output-error"
+				? linesOf(part.errorText, "remove").slice(0, DETAIL_MAX_LINES)
+				: [];
+	const editedPath = input.file_path ?? input.notebook_path;
 	return {
-		title: lastStatus.data.message ?? labels.phases[lastStatus.data.phase],
-		// Last seen phase index over the last possible phase index, in percent.
-		percent: finished
-			? 100
-			: Math.round((lastIndex / (turnStreamPhases.length - 1)) * 100),
-		steps,
+		kind,
+		state,
+		...content,
+		detail: [...content.detail, ...resultLines],
+		area:
+			kind === "edit" && editedPath !== undefined
+				? editAreaOf(editedPath)
+				: null,
+		imageUrl:
+			part.state === "output-available"
+				? imageUrlOf(toolName, part.output)
+				: null,
+		...(kind === "secret" && isSecretMissing(part)
+			? { isSecretMissing: true }
+			: {}),
 	};
+}
+
+/** True when a `set_secret` call answered `missing`: the project has no stored value. */
+function isSecretMissing(part: ToolPart): boolean {
+	if (part.state !== "output-available") return false;
+	const output = setSecretToolOutputSchema.safeParse(part.output);
+	return output.success && output.data.status === "missing";
+}
+
+/**
+ * Merges a read or a search into the explore row before it. The merged row
+ * names no file, keeps the detail lines of both, and runs while one of its
+ * calls runs.
+ */
+function mergeExplore(previous: Step, next: Step): Step {
+	const states = [previous.state, next.state];
+	const state: BuilderStepState = states.includes("running")
+		? "running"
+		: states.includes("error")
+			? "error"
+			: states.every((value) => value === "skipped")
+				? "skipped"
+				: "done";
+	return {
+		...previous,
+		state,
+		target: null,
+		detail: capLines([...previous.detail, ...next.detail]),
+	};
+}
+
+/** The payload of the last `data-turn-error` part of one message, or null. */
+export function errorOf(
+	parts: readonly TurnMessagePart[],
+): BuilderDataParts["error"] | null {
+	const error = parts.findLast(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-error" }> =>
+			part.type === "data-turn-error",
+	);
+	return error?.data ?? null;
 }
 
 /**
@@ -215,18 +551,159 @@ export function receiptOf(
 		modelId: settled?.modelId ?? null,
 		inputTokens: source.inputTokens,
 		outputTokens: source.outputTokens,
+		cacheReadTokens: source.cacheReadTokens,
+		cacheWriteTokens: source.cacheWriteTokens,
 	};
 }
 
-/** The payload of the last `data-turn-error` part of one message, or null. */
-export function errorOf(
-	parts: readonly TurnMessagePart[],
-): BuilderDataParts["error"] | null {
-	const error = parts.findLast(
-		(part): part is Extract<TurnMessagePart, { type: "data-turn-error" }> =>
-			part.type === "data-turn-error",
+/**
+ * The phase of the running turn: the last `data-turn-status` part of the
+ * last message while a turn runs. Before the first status, a created turn
+ * that is not queued reads as `session_starting` ("Getting ready"): a warm
+ * turn sends its first status only after about 5 s. Null when no turn
+ * runs or nothing arrived yet. The pane shows it in its one working row.
+ */
+export function livePhaseOf(
+	messages: readonly TurnMessage[],
+	isRunning: boolean,
+): TurnStreamPhase | null {
+	if (!isRunning) return null;
+	const parts = messages.at(-1)?.parts ?? [];
+	const status = parts.findLast(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-status" }> =>
+			part.type === "data-turn-status",
 	);
-	return error?.data ?? null;
+	if (status !== undefined) return status.data.phase;
+	const created = parts.find(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-created" }> =>
+			part.type === "data-turn-created",
+	);
+	// A queued turn waits behind another turn; "Getting ready" would be wrong.
+	return created !== undefined && created.data.queued !== true
+		? "session_starting"
+		: null;
+}
+
+/**
+ * The mode of the newest turn the thread knows. A live reply tells it in
+ * its `data-turn-created` frame, a stored reply in its `data-turn-summary`
+ * part. A reply with neither (a failed or a stopped stored turn) gives no
+ * answer, so the reply before it decides. `build` when no reply tells.
+ * The Plan toggle and the preview boot screen start from it.
+ */
+export function latestTurnModeOf(
+	messages: readonly TurnMessage[],
+): BuilderTurnMode {
+	for (const message of messages.toReversed()) {
+		if (message.role !== "assistant") continue;
+		for (const part of message.parts) {
+			// A created frame without a mode comes from an API before Plan Mode.
+			if (part.type === "data-turn-created") return part.data.mode ?? "build";
+			// Live parts skip the zod parse, so the schema default is missing.
+			// A summary from a worker before Plan Mode has no mode.
+			if (part.type === "data-turn-summary") return part.data.mode ?? "build";
+		}
+	}
+	return "build";
+}
+
+/** A part of the turn activity: the details panel shows it, the production chat does not. */
+type ActivityPart = Extract<
+	BuilderMessagePart,
+	{ type: "data-thought" | "data-step" | "data-note" }
+>;
+
+/** True for a thought, a step, or a note. The chat and the details panel split the parts with it. */
+export function isActivityPart(part: BuilderMessagePart): part is ActivityPart {
+	return (
+		part.type === "data-thought" ||
+		part.type === "data-step" ||
+		part.type === "data-note"
+	);
+}
+
+/**
+ * What the status line of a running turn says. liveStatusOf makes it;
+ * working-row.tsx translates it.
+ */
+export type LiveStatus =
+	/** No activity yet. `setup`: the first turn creates the sandbox. `wake`: a later turn wakes it. */
+	| { kind: "setup" | "wake" }
+	/** The agent thinks, or a warm turn shows no activity yet. */
+	| { kind: "thinking" }
+	/** The agent writes a note or its answer. */
+	| { kind: "writing" }
+	/** The task saves the work of the turn (the `committing` phase). */
+	| { kind: "saving" }
+	/**
+	 * The latest step. `area` names the part of the app an edit changes.
+	 * The model sentence of a command never shows here: it is often
+	 * technical and in English. The details panel shows it.
+	 */
+	| {
+			kind: "step";
+			stepKind: BuilderStepKind;
+			area: BuilderEditArea | null;
+	  };
+
+/**
+ * The status line of the running turn: the latest activity of the live
+ * reply in plain words. Before the reply has activity, a cold start reads
+ * as a preparation step and a warm turn reads as "Thinking".
+ */
+export function liveStatusOf(
+	/** The reply of the running turn, or null before its first visible part. */
+	liveMessage: BuilderMessage | null,
+	input: {
+		/** Phase of the running turn, from livePhaseOf. */
+		phase: TurnStreamPhase | null;
+		/** True on the first turn of the project, null while the history loads. From useBuilderThread. */
+		isFirstTurn: boolean | null;
+	},
+): LiveStatus {
+	const { phase, isFirstTurn } = input;
+	// The commit runs after the agent stops, so no step or thought is current.
+	if (phase === "committing") return { kind: "saving" };
+	const latest = liveMessage?.parts.filter(isActivityPart).at(-1);
+	if (latest === undefined) {
+		// The first turn creates the sandbox from the template; a later turn only wakes it.
+		if (phase === "sandbox_waking") {
+			return { kind: isFirstTurn === true ? "setup" : "wake" };
+		}
+		// On the first turn, every early phase is part of the sandbox creation.
+		if (
+			isFirstTurn === true &&
+			(phase === null || phase === "session_starting")
+		) {
+			return { kind: "setup" };
+		}
+		return { kind: "thinking" };
+	}
+	switch (latest.type) {
+		case "data-thought":
+			return { kind: "thinking" };
+		case "data-note":
+			return { kind: "writing" };
+		case "data-step":
+			return {
+				kind: "step",
+				stepKind: latest.data.kind,
+				area: latest.data.area,
+			};
+	}
+}
+
+/**
+ * The work time of a turn as the summary line says it: whole seconds under
+ * one minute, else whole minutes rounded to the nearest one.
+ */
+export function workedDurationOf(workedSeconds: number): {
+	unit: "seconds" | "minutes";
+	count: number;
+} {
+	return workedSeconds < 60
+		? { unit: "seconds", count: workedSeconds }
+		: { unit: "minutes", count: Math.round(workedSeconds / 60) };
 }
 
 /** The text parts of a message joined with a blank line, trimmed. */
@@ -238,32 +715,9 @@ function messageTextOf(message: TurnMessage): string {
 }
 
 /**
- * The text of the first user message after `messages[index]` that got an
- * assistant reply and is not empty, or null. The API never writes a
- * `data-question` answer back into the stored part; the next answered user
- * message holds it.
- */
-export function answerFor(
-	messages: readonly TurnMessage[],
-	index: number,
-): string | null {
-	for (let i = index + 1; i < messages.length; i++) {
-		// A send the API rejected keeps its user message but no reply follows
-		// it. Only a message the turn answered counts as an answer.
-		if (messages[i].role !== "user" || messages[i + 1]?.role !== "assistant") {
-			continue;
-		}
-		const text = messageTextOf(messages[i]);
-		if (text.length > 0) return text;
-	}
-	return null;
-}
-
-/**
- * True when an assistant message sits after `messages[index]`. The API
- * refuses every new turn while an approval card waits, so a later reply
- * proves the card got its answer. The answer row itself has no parts, and
- * hydration drops it, so the reply is the only durable proof.
+ * True when an assistant message sits after `messages[index]`. A send the
+ * API rejects keeps its user message but gets no reply, so only a later
+ * reply proves that the card got its answer.
  */
 function hasAssistantMessageAfter(
 	messages: readonly TurnMessage[],
@@ -275,70 +729,108 @@ function hasAssistantMessageAfter(
 }
 
 /**
- * Maps the turn messages to the card messages. A user message keeps its
- * text and file parts and is dropped when it has neither (an approval
- * answer sends an empty message; the approval card shows the decision).
- * An assistant message keeps its text parts first, then gets the
- * synthesized data parts: tools, progress, question cards, approval cards,
- * error, receipt. `data-turn-created`, `step-start`, `source-*`, and every
- * other part type are ignored.
+ * The parts of one assistant message in stream order: text and notes, a
+ * thought row per reasoning block, a step row per visible tool call (a run
+ * of reads and searches merges into one row), the summary, the question,
+ * approval, and plan cards, then the error, the stopped line, and the receipt.
+ * `isLive` is true only for the last message of a running turn.
  */
-export function toBuilderMessages(
+function assistantPartsOf(
 	messages: readonly TurnMessage[],
-	labels: TurnPartLabels,
-): BuilderMessage[] {
-	return messages.flatMap<BuilderMessage>((message, index) => {
-		if (message.role === "user") {
-			const parts = message.parts.filter(
-				(part): part is Extract<TurnMessagePart, { type: "text" | "file" }> =>
-					part.type === "text" || part.type === "file",
-			);
-			// An approval answer sends an empty user message; the approval card
-			// shows the decision, so the empty message drops. A file-only
-			// message is a real turn (an attachment-only send) and stays.
-			if (
-				messageTextOf(message).length === 0 &&
-				!parts.some((part) => part.type === "file")
-			) {
-				return [];
+	index: number,
+	isRunning: boolean,
+): BuilderMessage["parts"] {
+	const message = messages[index];
+	const isLive = isRunning && index === messages.length - 1;
+	const secondsByReasoningId = new Map<string, number>();
+	for (const part of message.parts) {
+		if (part.type === "data-thought") {
+			secondsByReasoningId.set(part.data.reasoningId, part.data.seconds);
+		}
+	}
+	const hasReplyAfter = hasAssistantMessageAfter(messages, index);
+	// Only the text after the last visible step is the final answer. While
+	// the turn runs, a step can still follow any text, so all text is a note.
+	const lastStepIndex = message.parts.findLastIndex(
+		(part) => isToolUIPart(part) && stepOf(part, isLive) !== null,
+	);
+
+	const parts: BuilderMessage["parts"] = [];
+	for (const [partIndex, part] of message.parts.entries()) {
+		if (part.type === "text") {
+			if (!isLive && partIndex > lastStepIndex) {
+				parts.push(part);
+			} else if (part.text.trim() !== "") {
+				parts.push({ type: "data-note", data: { text: part.text } });
 			}
-			return [{ id: message.id, role: "user", parts }];
+			continue;
 		}
-		if (message.role !== "assistant") return [];
-		const parts: BuilderMessage["parts"] = message.parts.filter(
-			(part): part is Extract<TurnMessagePart, { type: "text" }> =>
-				part.type === "text",
-		);
-		const calls = toolCallsOf(message.parts, labels);
-		if (calls.length > 0) {
+		if (part.type === "data-turn-summary") {
+			// A live summary from a worker before Plan Mode has no mode: a build.
 			parts.push({
-				type: "data-tools",
-				id: `${message.id}-tools`,
-				data: { calls, files: fileChangesOf(message.parts) },
+				type: "data-summary",
+				id: part.id,
+				data: { ...part.data, mode: part.data.mode ?? "build" },
 			});
+			continue;
 		}
-		const progress = progressOf(message.parts, labels);
-		if (progress !== null) {
+		if (part.type === "reasoning") {
+			const seconds =
+				part.id === undefined
+					? null
+					: (secondsByReasoningId.get(part.id) ?? null);
+			const isStreaming = isLive && part.state === "streaming";
+			// An old row with an empty block has nothing to show.
+			if (part.text.trim() === "" && seconds === null && !isStreaming) {
+				continue;
+			}
 			parts.push({
-				type: "data-progress",
-				id: `${message.id}-progress`,
-				data: progress,
+				type: "data-thought",
+				data: { text: part.text, seconds, isStreaming },
 			});
+			continue;
 		}
-		for (const part of message.parts) {
-			if (part.type !== "data-question") continue;
+		if (isToolUIPart(part)) {
+			const step = stepOf(part, isLive);
+			if (step === null) continue;
+			const previous = parts.at(-1);
+			// A row holds one image, so a read that shows an image keeps its own row.
+			if (
+				step.kind === "explore" &&
+				step.imageUrl === null &&
+				previous?.type === "data-step" &&
+				previous.data.kind === "explore" &&
+				previous.data.imageUrl === null
+			) {
+				parts[parts.length - 1] = {
+					type: "data-step",
+					data: mergeExplore(previous.data, step),
+				};
+				continue;
+			}
+			parts.push({ type: "data-step", data: step });
+			continue;
+		}
+		if (part.type === "data-question") {
 			parts.push({
 				type: "data-question",
 				id: part.id,
 				data: {
+					toolCallId: part.data.toolCallId,
+					questionId: part.data.questionId,
 					question: part.data.question,
+					kind: part.data.kind,
+					helper: part.data.helper ?? null,
+					maxFiles: part.data.maxFiles ?? null,
 					options: part.data.options,
-					answer: part.data.answer ?? answerFor(messages, index),
+					// A running turn answers it or settles it; the tray waits for the end.
+					isOpen: !isRunning && !hasReplyAfter,
+					isAnswered: hasReplyAfter,
 				},
 			});
+			continue;
 		}
-		for (const part of message.parts) {
-			if (part.type !== "data-approval") continue;
+		if (part.type === "data-approval") {
 			parts.push({
 				type: "data-approval",
 				id: part.id,
@@ -349,30 +841,86 @@ export function toBuilderMessages(
 					decision: part.data.decision,
 					// The card closes only when a later reply exists; a rejected send
 					// leaves no reply, so the user can decide again.
-					isOpen:
-						part.data.decision === null &&
-						!hasAssistantMessageAfter(messages, index),
+					isOpen: part.data.decision === null && !hasReplyAfter,
 				},
 			});
+			continue;
 		}
-		const error = errorOf(message.parts);
-		if (error !== null) {
+		if (part.type === "data-plan") {
 			parts.push({
-				type: "data-error",
-				id: `${message.id}-error`,
-				data: error,
+				type: "data-plan",
+				id: part.id,
+				// Like a question: the card waits for the end of the turn, and a
+				// later reply (the build or the changed plan) closes it.
+				data: { ...part.data, isOpen: !isRunning && !hasReplyAfter },
 			});
 		}
-		const receipt = receiptOf(message.parts);
-		if (receipt !== null) {
-			parts.push({
-				type: "data-receipt",
-				id: `${message.id}-receipt`,
-				data: receipt,
-			});
+	}
+	const error = errorOf(message.parts);
+	if (error !== null) {
+		parts.push({ type: "data-error", id: `${message.id}-error`, data: error });
+	}
+	// The stream sends this status when the turn ends on a cancel. After a
+	// Stop, use-builder-chat.ts adds it from the cancel answer.
+	const done = message.parts.findLast(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-done" }> =>
+			part.type === "data-turn-done",
+	);
+	if (done?.data.status === "canceled") {
+		parts.push({
+			type: "data-stopped",
+			id: `${message.id}-stopped`,
+			data: { status: "canceled" },
+		});
+	}
+	const receipt = receiptOf(message.parts);
+	if (receipt !== null) {
+		parts.push({
+			type: "data-receipt",
+			id: `${message.id}-receipt`,
+			data: receipt,
+		});
+	}
+	return parts;
+}
+
+/**
+ * Maps the turn messages to the card messages. A user message keeps its
+ * text, file, and `data-targets` parts. It drops when it has no text and no
+ * file (an approval answer sends an empty message; the approval card shows
+ * the decision). An
+ * assistant message keeps its parts in stream order (see assistantPartsOf).
+ * `isRunning` is true while a turn streams: only the last message is live.
+ */
+export function toBuilderMessages(
+	messages: readonly TurnMessage[],
+	{ isRunning }: { isRunning: boolean },
+): BuilderMessage[] {
+	return messages.flatMap<BuilderMessage>((message, index) => {
+		if (message.role === "user") {
+			const parts = message.parts.filter(
+				(
+					part,
+				): part is Extract<
+					TurnMessagePart,
+					{ type: "text" | "file" | "data-targets" }
+				> =>
+					part.type === "text" ||
+					part.type === "file" ||
+					part.type === "data-targets",
+			);
+			if (
+				messageTextOf(message).length === 0 &&
+				!parts.some((part) => part.type === "file")
+			) {
+				return [];
+			}
+			return [{ id: message.id, role: "user", parts }];
 		}
-		// A canceled turn leaves a reply that holds only the created frame.
-		// The bubble drops, as the stored history drops such rows.
+		if (message.role !== "assistant") return [];
+		const parts = assistantPartsOf(messages, index, isRunning);
+		// A reply that holds only the created frame drops: a Stop whose
+		// cancel answer did not come. The stored history drops such rows too.
 		if (parts.length === 0) return [];
 		return [{ id: message.id, role: "assistant", parts }];
 	});

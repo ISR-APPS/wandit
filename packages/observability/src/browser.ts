@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/react";
 
 import {
 	isEnabled,
+	redactPreviewSecrets,
 	scrubEvent,
 	type WanditSentryOptions,
 } from "./internal/shared";
@@ -44,8 +45,10 @@ export function getLastCapturedError(): LastCapturedError | null {
 }
 
 // URLs can carry user content (the preview route serializes the full prompt
-// into its query string) — never let a query string reach Sentry.
-const stripQuery = (url: string): string => url.split("?")[0] ?? url;
+// into its query string) — never let a query string reach Sentry. The host
+// of a builder preview frame is a secret too, so its id goes as well.
+const stripQuery = (url: string): string =>
+	redactPreviewSecrets(url.split("?")[0] ?? url);
 
 /**
  * Whether the browser's page translator rewrote the DOM. Chrome stamps
@@ -141,6 +144,11 @@ export function initBrowserSentry(options: InitBrowserSentryOptions): void {
 				}
 				delete data["url.query"];
 				delete data["http.query"];
+				// A resource span of the preview iframe names its secret host here.
+				const address = data["server.address"];
+				if (typeof address === "string") {
+					data["server.address"] = redactPreviewSecrets(address);
+				}
 			}
 			if (typeof span.description === "string") {
 				span.description = stripQuery(span.description);

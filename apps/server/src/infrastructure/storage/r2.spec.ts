@@ -42,6 +42,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 }));
 
 import {
+	contentTypeFor,
 	deleteObjectsByPrefix,
 	downloadObjectToFile,
 	feedbackScreenshotKey,
@@ -61,6 +62,19 @@ import {
 
 beforeEach(() => {
 	s3.send.mockReset().mockResolvedValue({});
+});
+
+describe("contentTypeFor", () => {
+	it("types the files a Vite build emits and falls back to octet-stream", () => {
+		expect(contentTypeFor("/assets/entry.mjs")).toBe(
+			"text/javascript; charset=utf-8",
+		);
+		expect(contentTypeFor("/assets/app.wasm")).toBe("application/wasm");
+		expect(contentTypeFor("/site.webmanifest")).toBe(
+			"application/manifest+json",
+		);
+		expect(contentTypeFor("/data.bin")).toBe("application/octet-stream");
+	});
 });
 
 describe("variantKey", () => {
@@ -267,7 +281,11 @@ describe("deleteObjectsByPrefix", () => {
 		expect(io.remove).not.toHaveBeenCalled();
 	});
 
-	it("names the two v2 prefixes of a project", () => {
-		expect(v2ProjectPrefixes("p1")).toEqual(["git/p1/", "sites/p1/assets/"]);
+	it("names the three v2 prefixes of a project", () => {
+		expect(v2ProjectPrefixes("p1")).toEqual([
+			"git/p1/",
+			"sites/p1/assets/",
+			"published/p1/builds/",
+		]);
 	});
 });

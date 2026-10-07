@@ -1226,5 +1226,246 @@
 		"title": "Projet introuvable",
 		"body": "Il a peut-être été supprimé, ou le lien est incorrect.",
 		"cta": "Retour au tableau de bord"
+	},
+	"cloud": {
+		"panels": {
+			"database": "Base de données",
+			"users": "Utilisateurs",
+			"storage": "Stockage",
+			"secrets": "Secrets",
+			"logs": "Journaux",
+			"functions": "Fonctions",
+			"jobs": "Tâches planifiées"
+		},
+		"loadFailed": "L'état du backend n'a pas pu être chargé.",
+		"retry": "Réessayer",
+		"sectionLoadFailed": "Cette section n'a pas pu être chargée.",
+		"never": "Jamais",
+		"backend": {
+			"none": {
+				"description": "Un backend donne à ton app une base de données, des comptes utilisateurs et un stockage de fichiers. Wandit l'installe et le gère pour toi.",
+				"enable": "Activer le backend",
+				"title": "Ajoute un backend à ton app"
+			},
+			"limit": {
+				"inUse": {
+					"one": "Ton offre {plan} inclut {count} base de données d'app, et elle est utilisée.",
+					"other": "Ton offre {plan} inclut {count} bases de données d'app, et toutes sont utilisées."
+				},
+				"notIncluded": "Ton offre actuelle n'inclut pas de base de données d'app.",
+				"generic": "Ton offre n'a plus de base de données d'app libre.",
+				"seePlans": "Voir les offres"
+			},
+			"waiting": "Installation de ton backend. Cela prend environ 2 minutes.",
+			"restoring": "Réveil de ta base de données.",
+			"paused": {
+				"description": "Le backend se met en veille quand personne n'utilise l'app pendant un moment. Réveille-le pour voir tes données.",
+				"wake": "Réveiller",
+				"title": "Ton backend est en veille"
+			},
+			"deleting": "Le backend de ce projet est en cours de suppression.",
+			"error": {
+				"code": "Code d'erreur : {code}",
+				"reasons": {
+					"startFailed": "L'installation du backend n'a pas démarré.",
+					"unconfigured": "Les backends ne sont pas encore disponibles sur ce serveur.",
+					"provisionFailed": "Le service de base de données n'a pas pu créer le backend.",
+					"timeout": "L'installation du backend a pris trop de temps et s'est arrêtée.",
+					"baseSchemaMissing": "Le backend a démarré, mais ses tables de base sont absentes.",
+					"restoreFailed": "Ta base de données ne s'est pas réveillée.",
+					"unknown": "Une erreur inattendue a arrêté l'installation du backend."
+				},
+				"title": "L'installation du backend s'est arrêtée"
+			},
+			"waitingTitle": "Ton backend démarre",
+			"deletingTitle": "Suppression du backend"
+		},
+		"database": {
+			"sections": {
+				"tables": "Tables",
+				"sql": "Éditeur SQL"
+			},
+			"rowCount": {
+				"one": "{count} ligne",
+				"other": "{count} lignes"
+			},
+			"tables": {
+				"name": "Table",
+				"columns": "Colonnes",
+				"rows": "Lignes",
+				"estimate": "Environ {count}",
+				"empty": "La base de données n'a pas encore de table. Demande à l'agent d'en ajouter une.",
+				"loadFailed": "Les tables n'ont pas pu être chargées.",
+				"back": "Toutes les tables"
+			},
+			"rows": {
+				"page": "Page {page} sur {pageCount}",
+				"previous": "Page précédente",
+				"next": "Page suivante",
+				"empty": "Cette table n'a aucune ligne.",
+				"noColumns": "Cette table n'a aucune colonne.",
+				"missing": "Cette table ou l'une de ses colonnes n'existe plus.",
+				"loadFailed": "Les lignes n'ont pas pu être chargées.",
+				"null": "NULL"
+			},
+			"sql": {
+				"label": "Requête SQL",
+				"placeholder": "select * from orders limit 10;",
+				"run": "Exécuter",
+				"hint": "Écris une instruction SQL et sélectionne Exécuter. Les résultats s'affichent ici.",
+				"noRows": "L'instruction s'est exécutée. Elle n'a renvoyé aucune ligne.",
+				"truncated": "La requête a renvoyé plus de {limit} lignes. Seules les {limit} premières s'affichent.",
+				"confirm": {
+					"title": "Exécuter une requête qui modifie des données ?",
+					"description": "Cette requête peut modifier ou supprimer des données dans la base de ton app. Tu ne peux pas l'annuler.",
+					"cancel": "Annuler",
+					"run": "Exécuter la requête"
+				}
+			}
+		},
+		"users": {
+			"signups": {
+				"title": "Inscriptions des 30 derniers jours",
+				"total": {
+					"one": "{count} inscription",
+					"other": "{count} inscriptions"
+				},
+				"chartLabel": "Graphique en barres des inscriptions par jour sur les 30 derniers jours",
+				"day": "{date} : {count}"
+			},
+			"title": "Utilisateurs",
+			"columns": {
+				"email": "E-mail",
+				"phone": "Téléphone",
+				"provider": "Méthode de connexion",
+				"createdAt": "Inscription",
+				"lastSignInAt": "Dernière connexion"
+			},
+			"count": {
+				"one": "{count} utilisateur",
+				"other": "{count} utilisateurs"
+			},
+			"empty": "Aucun utilisateur ne s'est encore inscrit à ton app."
+		},
+		"storage": {
+			"buckets": {
+				"name": "Bucket",
+				"access": "Accès",
+				"public": "Public",
+				"private": "Privé",
+				"updated": "Mis à jour",
+				"empty": "Ton app n'a pas encore de bucket de stockage. Demande à l'agent d'en ajouter un.",
+				"back": "Tous les buckets"
+			},
+			"objects": {
+				"name": "Nom",
+				"size": "Taille",
+				"updated": "Mis à jour",
+				"download": "Télécharger {name}",
+				"delete": "Supprimer {name}",
+				"empty": "Ce dossier est vide.",
+				"loadMore": "Charger plus",
+				"pathLabel": "Chemin du dossier"
+			},
+			"upload": {
+				"button": "Importer un fichier",
+				"tooLarge": "Le fichier dépasse {limit}. Choisis un fichier plus petit.",
+				"invalidName": "Le stockage accepte seulement les lettres latines (a à z), les chiffres, les espaces et des signes simples comme - _ . ( ) dans un nom de fichier. Renomme le fichier et réessaie.",
+				"failed": "Le fichier n'a pas été importé. Un fichier du même nom existe peut-être déjà dans ce dossier.",
+				"done": "{name} est importé."
+			},
+			"deleteConfirm": {
+				"title": "Supprimer ce fichier ?",
+				"description": "Wandit supprime {name} du stockage de ton app. Tu ne peux pas l'annuler.",
+				"cancel": "Annuler",
+				"confirm": "Supprimer le fichier",
+				"done": "{name} est supprimé."
+			}
+		},
+		"secrets": {
+			"columns": {
+				"name": "Nom",
+				"kind": "Défini par",
+				"updated": "Mis à jour"
+			},
+			"kinds": {
+				"user": "Toi",
+				"system": "Wandit"
+			},
+			"empty": "Ce projet n'a pas encore de secret.",
+			"form": {
+				"title": "Ajouter ou remplacer un secret",
+				"name": "Nom",
+				"value": "Valeur",
+				"save": "Enregistrer le secret",
+				"hint": "Pour remplacer une valeur, utilise le nom d'un secret de la liste.",
+				"nameInvalid": "Utilise A à Z, 0 à 9 et _. Commence par une lettre. Utilise 64 caractères au plus. Les noms qui commencent par SUPABASE_ sont réservés.",
+				"valueInvalid": "Saisis une valeur de 8 Ko au plus.",
+				"saved": "{name} est enregistré."
+			},
+			"delete": {
+				"label": "Supprimer {name}",
+				"title": "Supprimer ce secret ?",
+				"description": "Ton app ne pourra plus utiliser {name}. Tu ne peux pas l'annuler.",
+				"cancel": "Annuler",
+				"confirm": "Supprimer le secret",
+				"done": "{name} est supprimé."
+			}
+		},
+		"logs": {
+			"sources": {
+				"api": "API",
+				"postgres": "Postgres",
+				"functions": "Fonctions"
+			},
+			"levels": {
+				"all": "Tous les niveaux",
+				"info": "Info",
+				"warning": "Avertissement",
+				"error": "Erreur"
+			},
+			"levelLabel": "Niveau de journal",
+			"searchLabel": "Rechercher dans les messages du journal",
+			"search": "Rechercher",
+			"refresh": "Actualiser",
+			"window": "Du {start} au {end}",
+			"previous": "24 heures précédentes",
+			"next": "24 heures suivantes",
+			"empty": "Aucune ligne de journal dans cette période.",
+			"capped": "Seules les {limit} lignes les plus récentes de cette période s'affichent. Utilise la recherche ou le niveau pour voir moins de lignes."
+		},
+		"functions": {
+			"columns": {
+				"name": "Fonction",
+				"status": "Statut",
+				"lastDeployedAt": "Dernier déploiement",
+				"invocations": "Appels sur 24 heures"
+			},
+			"viewLogs": "Voir les journaux",
+			"empty": "Ton app n'a pas encore d'Edge Function. Demande à l'agent d'en ajouter une."
+		},
+		"jobs": {
+			"columns": {
+				"name": "Tâche",
+				"schedule": "Planification",
+				"active": "Active",
+				"lastStatus": "Dernière exécution",
+				"lastRunAt": "Heure de la dernière exécution"
+			},
+			"yes": "Oui",
+			"no": "Non",
+			"unnamed": "Tâche {id}",
+			"notInstalled": "Les tâches planifiées sont désactivées. L'extension pg_cron n'est pas activée dans la base de ton app.",
+			"empty": "Ton app n'a pas encore de tâche planifiée. Demande à l'agent d'en ajouter une."
+		},
+		"descriptions": {
+			"database": "Les tables de ton app. Ouvre une table pour voir ses lignes, ou lance du SQL.",
+			"users": "Les personnes inscrites à ton app, et les inscriptions des 30 derniers jours.",
+			"storage": "Les fichiers que ton app garde, rangés par buckets.",
+			"secrets": "Les secrets sont des valeurs privées que ton app utilise côté serveur, par exemple des clés d'API. Wandit les garde chiffrés et n'affiche plus jamais une valeur.",
+			"logs": "Ce que le backend de ton app a fait, par fenêtre de 24 heures.",
+			"functions": "Le code serveur que ton app appelle. Chaque fonction s'exécute à la demande.",
+			"jobs": "Les tâches qui s'exécutent selon un planning dans la base de données de ton app."
+		}
 	}
 }

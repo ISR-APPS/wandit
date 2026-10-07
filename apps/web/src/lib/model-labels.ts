@@ -1,4 +1,11 @@
+/**
+ * Display names for gateway model ids, and the dev model and reasoning pickers.
+ * The prompt box, the V1 model indicator, and the V2 chat message read it.
+ * The picker choices persist in localStorage.
+ */
 const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
+	"anthropic/claude-opus-5.5": "Claude Opus 5.5",
+	"anthropic/claude-opus-5.5-fast": "Claude Opus 5.5 Fast",
 	"anthropic/claude-sonnet-5": "Claude Sonnet 5",
 	"google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
 	"google/gemini-3.5-flash": "Gemini 3.5 Flash",
@@ -30,10 +37,11 @@ function builderModelOption(
 	return { gatewayModelId, id, label: getModelLabel(gatewayModelId) };
 }
 
+/** "default" sends no builderModel option, so the server uses its own builder model. The dev chip shows "Default". */
 export const DEFAULT_BUILDER_MODEL: BuilderModelOption = {
 	gatewayModelId: "default",
 	id: "default",
-	label: "Builder: default",
+	label: "Default",
 };
 
 export const BUILDER_MODELS: readonly BuilderModelOption[] = [
@@ -106,7 +114,7 @@ export type BuilderReasoningOption = {
 /** "Auto" sends no reasoning parameter — the provider picks its own effort. */
 export const DEFAULT_BUILDER_REASONING: BuilderReasoningOption = {
 	id: "auto",
-	label: "Reasoning: auto",
+	label: "Auto",
 };
 
 // Mirrors the server's BUILDER_REASONING_OPTIONS allow-list.

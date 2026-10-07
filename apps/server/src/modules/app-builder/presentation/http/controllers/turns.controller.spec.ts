@@ -44,18 +44,26 @@ const workspace = { kind: "personal" } as const satisfies Parameters<
 	TurnsController["create"]
 >[3];
 
+// One `x-forwarded-for` hop and no trusted proxy list: `readClientIp`
+// answers the hop.
+const CLIENT_IP = "203.0.113.9";
+
 function fakeSseRequest() {
-	// SAFETY: the controller only forwards request to the relay.
+	// SAFETY: the controller forwards the request to the relay and reads only
+	// its headers and `ip` for the client IP.
 	return {
-		headers: {},
+		headers: { "x-forwarded-for": CLIENT_IP },
+		ip: "10.0.0.2",
 		raw: new EventEmitter(),
 	} as unknown as FastifyRequest;
 }
 
 function fakeReply() {
-	// SAFETY: the controller uses only `code` and `send` on the 204 path.
+	// SAFETY: the controller uses only `code` and `send` on the 204 path,
+	// and `elapsedTime` on the create path.
 	const reply = {
 		code: vi.fn(),
+		elapsedTime: 40,
 		send: vi.fn(async () => reply),
 	};
 	reply.code.mockReturnValue(reply);
@@ -67,6 +75,7 @@ function fakeReply() {
 const turnRow = (overrides: Record<string, null | string> = {}) => ({
 	id: "turn-1",
 	projectId: "project-1",
+	runner: "trigger",
 	triggerRunId: "run-1",
 	...overrides,
 });
@@ -96,6 +105,7 @@ describe("TurnsController", () => {
 			{ kind: "personal", userId: "user_1" },
 			"project-1",
 			body,
+			{ ip: CLIENT_IP, requestStartedAt: expect.any(Number) },
 		);
 		// The create response rides as the first frame; the create guard
 		// took a count slot, so the relay must not release a stream slot.
@@ -141,9 +151,16 @@ describe("TurnsController", () => {
 		);
 	});
 
-	it("answers 204 and frees the slot when the turn has no run yet", async () => {
+	// A waiting Trigger turn has no run id yet, and a host turn never has
+	// one. A 204 would end the browser reconnect of a queued turn.
+	it.each([
+		"trigger",
+		"host",
+	] as const)("relays a %s turn with no run id through the relay poll", async (runner) => {
 		const { controller, relay, turns } = setup();
-		turns.assertStreamAccess.mockResolvedValue(turnRow({ triggerRunId: null }));
+		turns.assertStreamAccess.mockResolvedValue(
+			turnRow({ runner, triggerRunId: null }),
+		);
 		const request = fakeSseRequest();
 		const reply = fakeReply();
 
@@ -156,9 +173,10 @@ describe("TurnsController", () => {
 			reply,
 		);
 
-		expect(relay.relay).not.toHaveBeenCalled();
-		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
-		expect(reply.code).toHaveBeenCalledWith(204);
+		expect(relay.relay).toHaveBeenCalledWith(
+			expect.objectContaining({ triggerRunId: null, turnId: "turn-1" }),
+		);
+		expect(reply.code).not.toHaveBeenCalled();
 	});
 
 	it("answers 204 on the active stream when nothing is running", async () => {
@@ -193,6 +211,35 @@ describe("TurnsController", () => {
 			}),
 		);
 		expect(relay.releaseStreamSlot).not.toHaveBeenCalled();
+	});
+
+	// Without the frame the browser has no turn id after a reload, and Stop
+	// leaves the turn running and spending credits.
+	it("sends the turn-created frame first on the active stream", async () => {
+		const { controller, relay, turns } = setup();
+		turns.findActiveTurn.mockResolvedValue(
+			turnRow({ chatId: "chat-1", status: "running" }),
+		);
+
+		await controller.activeStream(
+			"project-1",
+			user,
+			workspace,
+			fakeSseRequest(),
+			fakeReply(),
+		);
+
+		expect(relay.relay).toHaveBeenCalledWith(
+			expect.objectContaining({
+				first: {
+					chatId: "chat-1",
+					runId: "run-1",
+					status: "running",
+					streamUrl: "/api/v2/projects/project-1/turns/active/stream",
+					turnId: "turn-1",
+				},
+			}),
+		);
 	});
 
 	it("frees the open slot when the stream lookup rejects with a 404", async () => {
@@ -256,7 +303,7 @@ describe("TurnsController", () => {
 		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
 	});
 
-	it("cancel delegates with scope, project, and turn ids", async () => {
+	it("cancel delegates with scope, project and turn ids, and the client IP", async () => {
 		const { controller, turns } = setup();
 		turns.cancel.mockResolvedValue({ status: "canceled", turnId: "turn-1" });
 
@@ -265,25 +312,28 @@ describe("TurnsController", () => {
 			"turn-1",
 			user,
 			workspace,
+			fakeSseRequest(),
 		);
 
 		expect(turns.cancel).toHaveBeenCalledWith(
 			{ kind: "personal", userId: "user_1" },
 			"project-1",
 			"turn-1",
+			CLIENT_IP,
 		);
 		expect(result).toEqual({ status: "canceled", turnId: "turn-1" });
 	});
 });
 
 describe("TurnsController route metadata", () => {
-	it("gates create and cancel on project:update with a count limit", () => {
+	it("gates create and cancel on project:update with a rate limit, and create also per IP", () => {
+		// WANDIT-181: one person with many accounts on one IP still hits a cap.
 		expect(
 			Reflect.getMetadata(RATE_LIMIT_OPTIONS, TurnsController.prototype.create),
-		).toEqual({ key: "turn-create", limit: 30, windowMs: 600_000 });
+		).toMatchObject({ ipLimit: expect.any(Number), key: "turn-create" });
 		expect(
 			Reflect.getMetadata(RATE_LIMIT_OPTIONS, TurnsController.prototype.cancel),
-		).toEqual({ key: "turn-cancel", limit: 30, windowMs: 600_000 });
+		).toMatchObject({ key: "turn-cancel" });
 
 		for (const handler of [
 			TurnsController.prototype.create,
@@ -301,11 +351,9 @@ describe("TurnsController route metadata", () => {
 			TurnsController.prototype.activeStream,
 			TurnsController.prototype.stream,
 		]) {
-			expect(Reflect.getMetadata(RATE_LIMIT_OPTIONS, handler)).toEqual({
+			expect(Reflect.getMetadata(RATE_LIMIT_OPTIONS, handler)).toMatchObject({
 				key: "turn-stream",
-				limit: 5,
 				mode: "open",
-				windowMs: 3_600_000,
 			});
 		}
 	});

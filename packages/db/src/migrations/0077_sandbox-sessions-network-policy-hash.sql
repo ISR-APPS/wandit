@@ -1,0 +1,1 @@
+ALTER TABLE "sandbox_sessions" ADD COLUMN "network_policy_hash" text;

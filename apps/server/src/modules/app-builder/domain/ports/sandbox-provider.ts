@@ -54,10 +54,16 @@ export type SandboxCreateOptions = {
 	/** The fixed dev server port of the template. */
 	devPort: number;
 	/**
-	 * Values for the sandbox process env. Only per-run tokens and public
-	 * keys; never a platform secret.
+	 * Values for the sandbox process env: the per-run proxy values and the
+	 * preview host. Never a platform secret, and never a Supabase value: those
+	 * go to the `.env` file of `syncBackendEnvFile`.
 	 */
 	env: Record<string, string>;
+	/**
+	 * `https://<ref>.supabase.co` of the project's `active` backend. The
+	 * egress policy allows its host. Absent while the backend is not active.
+	 */
+	backendUrl?: string;
 	/**
 	 * `user.id` of the project owner. The provider writes it on the
 	 * `sandbox_sessions` row it creates; it reads no other table.
@@ -76,9 +82,28 @@ export type SandboxCreateOptions = {
 	/**
 	 * Per-project egress hosts from `projects.networkAllowedHosts`, layer 3
 	 * of the allow list. The provider validates each one and drops invalid
-	 * ones. Absent means none; a restore passes none.
+	 * ones. Absent means none.
 	 */
 	networkAllowedHosts?: string[];
+	/**
+	 * Called once, before the slow work, when the sandbox really boots:
+	 * a create, a resume from the snapshot, or a rebuild. Never called on
+	 * a plain reuse of a running sandbox. The builder-turn runtime writes
+	 * the `sandbox_waking` status from it.
+	 */
+	onWake?: () => Promise<void>;
+	/**
+	 * Called when the vendor created a new sandbox: a first boot, or a
+	 * rebuild after the vendor lost the old one. Its disk holds no Claude
+	 * Code transcript, so a stored agent session cannot resume.
+	 */
+	onCreated?: () => void;
+	/**
+	 * Hash of the harness install, from `BuilderHarness.bootstrapKey`. With
+	 * it, a new sandbox boots from the template snapshot of the same key
+	 * when one exists. Absent, it boots from the image; a restore passes none.
+	 */
+	harnessKey?: string;
 };
 
 /** How one `exec` runs inside the sandbox. */
@@ -109,6 +134,18 @@ export interface SandboxHandle {
 	readonly workspaceDir: string;
 	/** The vendor id of the sandbox. Logged with every lifecycle step. */
 	readonly providerSandboxId: string;
+	/**
+	 * True when the `getOrCreate` or `resume` call that gave this handle pushed
+	 * a raw policy to an existing sandbox. That push deletes the proxy run-token
+	 * rule of a harness session that the harness host keeps between turns.
+	 */
+	readonly networkPolicyReplaced: boolean;
+	/**
+	 * Hash of the network policy that this start gave the vendor, or null.
+	 * Another process (a restore, a wake, a publish) can push a new policy
+	 * between two turns. A kept harness session then serves only the same hash.
+	 */
+	readonly networkPolicyHash: string | null;
 	exec(
 		command: string,
 		args: string[],
@@ -147,6 +184,17 @@ export interface SandboxHandle {
 }
 
 /**
+ * The command and file part of a running sandbox. `SandboxProvider.findRunning`
+ * answers it for the Code view routes and for the provision-backend `.env`
+ * write. It cannot change the network policy or the ports. Its calls fail
+ * on a stopped sandbox instead of a wake.
+ */
+export type SandboxReader = Pick<
+	SandboxHandle,
+	"projectId" | "workspaceDir" | "exec" | "readFile" | "writeFiles"
+>;
+
+/**
  * Lifecycle of the per-project sandbox. `getOrCreate` is idempotent:
  * a second call for a live project returns the same handle.
  */
@@ -165,6 +213,19 @@ export interface SandboxProvider {
 		projectId: string,
 		options: SandboxCreateOptions,
 	): Promise<SandboxHandle>;
+	/**
+	 * The project's sandbox when it runs now, else null. It never creates,
+	 * resumes, or boots a sandbox. It never pushes a network policy or a
+	 * process env, and never writes the `sandbox_sessions` row. The Code view
+	 * reads through it, so a read never wakes a stopped sandbox.
+	 */
+	findRunning(projectId: string): Promise<SandboxReader | null>;
+	/**
+	 * Moves the vendor deadline of the project's running sandbox back to a
+	 * full timeout. The preview-token mint calls it, so an open preview keeps
+	 * the sandbox up. It never creates or resumes; a stopped one stays stopped.
+	 */
+	keepAliveIfRunning(projectId: string): Promise<void>;
 	stop(projectId: string): Promise<void>;
 	destroy(projectId: string): Promise<void>;
 	/**

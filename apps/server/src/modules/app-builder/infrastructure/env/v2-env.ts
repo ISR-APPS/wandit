@@ -31,6 +31,11 @@ export type V2EnvSource = Readonly<
 		 * egress policy allows its host so generated apps can load assets.
 		 */
 		R2_PUBLIC_BASE_URL?: string;
+		/**
+		 * Cloudflare account id, not a V2 name: the V1 domain tasks read it
+		 * too. The Workers for Platforms client needs it.
+		 */
+		CLOUDFLARE_ACCOUNT_ID?: string;
 	}
 >;
 

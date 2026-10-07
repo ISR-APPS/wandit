@@ -1,9 +1,10 @@
 /**
- * Redis-backed rate limiting for the V2 turn routes.
- * `turns.controller.ts` marks handlers with `@RateLimit`; the guard reads
- * the metadata, counts in Redis (`INCR` + `PEXPIRE`, fixed window), and
- * throws a 429 with `Retry-After` over the limit. Mode `open` counts
- * concurrent SSE streams instead: the slot frees on `release`.
+ * Redis rate limits for the V2 builder routes that carry `@RateLimit`.
+ * The guard counts hits per user, and per client IP with `ipLimit`, in a
+ * fixed window. Over a limit, it throws a 429 with `Retry-After`. Mode
+ * `open` counts SSE slots instead: a slot frees on `release`, or when its
+ * window ends. A Redis error lets the request through and sends a Sentry
+ * warning.
  */
 import {
 	type CanActivate,
@@ -17,8 +18,11 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { env } from "@wandit/env/server";
+import { getErrorMessage } from "@wandit/observability/error";
+import { Sentry } from "@wandit/observability/nestjs";
 import type { FastifyReply } from "fastify";
 import Redis from "ioredis";
+import { readTrustedClientIp } from "../../../../../infrastructure/http/client-ip";
 import { createRedisConnectionOptions } from "../../../../../infrastructure/redis/redis-connection";
 import type { MaybeAuthenticatedRequest } from "../../../../auth";
 
@@ -31,11 +35,22 @@ export const RATE_LIMIT_OPTIONS = "app-builder.rate-limit";
 export type RateLimitMode = "count" | "open";
 
 export type RateLimitOptions = {
-	/** Bucket name; becomes `builder:rate:{key}:{userId}` in Redis. */
+	/**
+	 * Bucket name. The Redis keys are `builder:rate:{key}:{userId}` and, with
+	 * `ipLimit`, `builder:rate:{key}:ip:{ip}`.
+	 */
 	key: string;
-	/** Maximum hits per window (`count`) or held slots (`open`). */
+	/** Maximum hits per window (`count`) or held slots (`open`) for one user. */
 	limit: number;
-	/** Window length for `count`; slot TTL for `open`. Milliseconds. */
+	/**
+	 * Maximum hits per window from one client IP. Only hits under the user
+	 * cap count. `count` mode only: the relay frees only the user key.
+	 */
+	ipLimit?: number;
+	/**
+	 * Window length in milliseconds. For `open`, also the longest time a slot
+	 * stays taken when no `release` frees it.
+	 */
 	windowMs: number;
 	/** Defaults to `count`. `open` slots free through `store.release`. */
 	mode?: RateLimitMode;
@@ -55,14 +70,10 @@ export type RateLimitHit = {
 
 export interface RateLimitStore {
 	/**
-	 * `INCR` + fixed-window `PEXPIRE`. `slidingTtl` re-arms the expiry on
-	 * every hit — open slots must not expire while a stream holds them.
+	 * `INCR` + fixed-window `PEXPIRE`, for both modes. A hit never extends
+	 * the window, so a slot that no `release` frees still expires.
 	 */
-	hit(
-		key: string,
-		windowMs: number,
-		slidingTtl: boolean,
-	): Promise<RateLimitHit>;
+	hit(key: string, windowMs: number): Promise<RateLimitHit>;
 	/** `DECR` floored at 0; frees one `open` slot. */
 	release(key: string): Promise<void>;
 }
@@ -73,19 +84,23 @@ export const RATE_LIMIT_STORE = Symbol.for("app-builder.rate-limit-store");
 /** `turn-stream` bucket name, shared by the route decorator and the relay. */
 export const TURN_STREAM_BUCKET = "turn-stream";
 
-/** Full Redis key for one user in one bucket. */
-export function rateLimitKey(bucket: string, userId: string): string {
-	return `builder:rate:${bucket}:${userId}`;
+/**
+ * Full Redis key for one subject in one bucket. The subject is a user id,
+ * or `ip:<client ip>` for the IP cap.
+ */
+export function rateLimitKey(bucket: string, subject: string): string {
+	return `builder:rate:${bucket}:${subject}`;
 }
 
 /**
- * Lua: `INCR`, then `PEXPIRE` on the first hit (fixed window) or on every
- * hit when ARGV[2] is `open` (a held slot keeps its lease). Returns
+ * Lua: `INCR`, then `PEXPIRE` only when the count becomes 1 (fixed window).
+ * An `open` hit must not extend the window. A slot that a killed relay did
+ * not release must expire, also while the user reopens. Returns
  * `{count, pttl}` so the guard can size `Retry-After` honestly.
  */
 const RATE_LIMIT_HIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
-if count == 1 or ARGV[2] == "open" then
+if count == 1 then
 	redis.call("PEXPIRE", KEYS[1], ARGV[1])
 end
 return {count, redis.call("PTTL", KEYS[1])}
@@ -104,36 +119,34 @@ end
 return count
 `;
 
-/** Key and script text, exported so the spec pins the exact Lua. */
-export const rateLimitRedis = {
-	hitScript: RATE_LIMIT_HIT_SCRIPT,
-	releaseScript: RATE_LIMIT_RELEASE_SCRIPT,
-} as const;
-
 // Keep API waits predictable by bounding Redis retries.
 const RATE_LIMIT_MAX_RETRIES_PER_REQUEST = 2;
 
+// A hung or unreachable Redis throws after this wait, so the guard fails
+// open fast. Same value as the Better Auth rate-limit store.
+const RATE_LIMIT_COMMAND_TIMEOUT_MS = 500;
+
+/**
+ * The Redis side of `RateLimitStore`. One lazy ioredis connection for each
+ * API process. A command fails after 500 ms.
+ */
 @Injectable()
 export class RedisRateLimitStore implements RateLimitStore, OnModuleDestroy {
 	private readonly redis = new Redis(
 		createRedisConnectionOptions(env.REDIS_URL, {
+			commandTimeout: RATE_LIMIT_COMMAND_TIMEOUT_MS,
 			lazyConnect: true,
 			maxRetriesPerRequest: RATE_LIMIT_MAX_RETRIES_PER_REQUEST,
 		}),
 	);
 
-	async hit(
-		key: string,
-		windowMs: number,
-		slidingTtl: boolean,
-	): Promise<RateLimitHit> {
+	async hit(key: string, windowMs: number): Promise<RateLimitHit> {
 		// SAFETY: the Lua above returns `{INCR result, PTTL result}`.
 		const [count, ttlMs] = (await this.redis.eval(
 			RATE_LIMIT_HIT_SCRIPT,
 			1,
 			key,
 			String(windowMs),
-			slidingTtl ? "open" : "count",
 		)) as [number, number];
 		return { count, ttlMs };
 	}
@@ -172,30 +185,74 @@ export class RedisRateLimitGuard implements CanActivate {
 		const http = context.switchToHttp();
 		const request = http.getRequest<MaybeAuthenticatedRequest>();
 		const response = http.getResponse<FastifyReply>();
+		const isOpenSlot = options.mode === "open";
 		// The global AuthGuard attaches a user first; an anonymous caller
 		// still gets counted under a shared bucket rather than slipping by.
-		const key = rateLimitKey(options.key, request.user?.id ?? "anonymous");
+		const userKey = rateLimitKey(options.key, request.user?.id ?? "anonymous");
 
-		const hit = await this.store.hit(
-			key,
-			options.windowMs,
-			options.mode === "open",
-		);
-		if (hit.count <= options.limit) {
+		// A caller with no trusted IP (no `TRUSTED_PROXY_CIDRS` match) gets no
+		// IP key: a shared proxy address must not become one bucket for all.
+		const clientIp = readTrustedClientIp(request);
+		let deniedHit: RateLimitHit | undefined;
+		try {
+			const userHit = await this.store.hit(userKey, options.windowMs);
+			if (userHit.count > options.limit) {
+				deniedHit = userHit;
+			} else if (
+				options.ipLimit !== undefined &&
+				!isOpenSlot &&
+				clientIp !== null
+			) {
+				// Only requests under the user cap count on the IP key. So the
+				// denied retries of one user do not use the budget of a shared IP.
+				// The IP key only adds a cap and never grants access.
+				const ipHit = await this.store.hit(
+					rateLimitKey(options.key, `ip:${clientIp}`),
+					options.windowMs,
+				);
+				if (ipHit.count > options.ipLimit) {
+					deniedHit = ipHit;
+				}
+			}
+		} catch (error) {
+			// Fail open: a Redis outage must not take the builder down.
+			// LIMIT: an `open` slot that passes here still gets a release when
+			// its stream closes, so the user can hold one extra stream for each
+			// Redis error until the count floors at 0. Upgrade: fail closed for
+			// `open` mode.
+			// LIMIT: one Sentry event per request while Redis is down. Upgrade:
+			// one warning per minute per process.
+			Sentry.captureMessage("Rate limit store failed; request allowed", {
+				extra: { error: getErrorMessage(error) },
+				level: "warning",
+				tags: { bucket: options.key },
+			});
 			return true;
 		}
 
-		if (options.mode === "open") {
-			// The denied request still ran `INCR`; give the slot back so failed
-			// opens cannot pile up against the cap.
-			await this.store.release(key);
+		if (!deniedHit) {
+			return true;
 		}
 
-		const ttlMs = hit.ttlMs > 0 ? hit.ttlMs : options.windowMs;
-		const waitMs =
-			options.mode === "open"
-				? Math.min(ttlMs, OPEN_SLOT_RETRY_AFTER_CAP_MS)
-				: ttlMs;
+		if (isOpenSlot) {
+			// The denied request still ran `INCR`; give the slot back so failed
+			// opens cannot pile up against the cap. A failed release keeps the
+			// 429 and does not become a 500: the slot TTL frees the slot.
+			try {
+				await this.store.release(userKey);
+			} catch (error) {
+				Sentry.captureMessage("Rate limit slot release failed", {
+					extra: { error: getErrorMessage(error) },
+					level: "warning",
+					tags: { bucket: options.key },
+				});
+			}
+		}
+
+		const ttlMs = deniedHit.ttlMs > 0 ? deniedHit.ttlMs : options.windowMs;
+		const waitMs = isOpenSlot
+			? Math.min(ttlMs, OPEN_SLOT_RETRY_AFTER_CAP_MS)
+			: ttlMs;
 		const retryAfterSeconds = Math.max(1, Math.ceil(waitMs / 1000));
 		// Set on the reply before throwing: ApiExceptionFilter sends on the
 		// same object, so the header survives.

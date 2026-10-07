@@ -50,6 +50,39 @@ function aiErrorData(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+describe("ChatsRepository.listRecentTexts", () => {
+	it("reads the newest rows with a limit and only their text parts", async () => {
+		const captured: { orderBy?: unknown; limit?: unknown; fields?: unknown } =
+			{};
+		const limit = vi.fn(async (count: number) => {
+			captured.limit = count;
+			return [];
+		});
+		const orderBy = vi.fn((order: unknown) => {
+			captured.orderBy = order;
+			return { limit };
+		});
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		const select = vi.fn((fields: { text: unknown }) => {
+			captured.fields = fields.text;
+			return { from };
+		});
+		const repository = new ChatsRepository({ select } as unknown as Database);
+
+		await repository.listRecentTexts("chat-1", 11);
+
+		expect(captured.limit).toBe(11);
+		expect(compile(captured.orderBy).sql).toBe('"messages"."seq" desc');
+		// The database joins the text parts; card and tool parts stay out.
+		const { sql } = compile(captured.fields);
+		expect(sql).toContain("string_agg(part->>'text'");
+		expect(sql).toContain("where part->>'type' = 'text'");
+		// A row whose parts are not an array reads as no text, not an error.
+		expect(sql).toContain(`jsonb_typeof("messages"."parts") = 'array'`);
+	});
+});
+
 describe("ChatsRepository failure persistence", () => {
 	it("stores trusted failure columns without putting the Sentry id in parts", async () => {
 		const { onConflictDoNothing, repository, values } = setupWrites();
@@ -320,6 +353,53 @@ describe("ChatsRepository.insertTurnAssistantMessage", () => {
 		expect(onConflictDoNothing).toHaveBeenCalledWith({
 			target: messages.id,
 		});
+	});
+
+	// Postgres jsonb refused the NUL of a `printf 'a\000b'` output, and the turn failed at settle.
+	it("removes NUL from a tool output and keeps the rest of the parts", async () => {
+		const { repository, values } = setupWrites();
+		const toolPart = {
+			input: { command: "printf 'a\\000b'" },
+			output: { stderr: "", stdout: "a\u0000b" },
+			providerExecuted: true,
+			state: "output-available",
+			toolCallId: "call-1",
+			type: "tool-bash",
+		} as const;
+		// The six characters \u0000 as text are valid jsonb, so they stay.
+		const textPart = {
+			state: "done",
+			text: "JSON writes NUL as \\u0000.",
+			type: "text",
+		} as const;
+
+		await repository.insertTurnAssistantMessage({
+			chatId: "chat-1",
+			id: "message-1",
+			metadata: {
+				harness: "claude_code",
+				model: "anthropic/claude-sonnet-5",
+				outputCommitSha: null,
+				usage: {
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					credits: 0,
+					inputTokens: 0,
+					outputTokens: 0,
+				},
+			},
+			parts: [toolPart, textPart],
+			turnId: "turn-1",
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({
+				parts: [
+					{ ...toolPart, output: { stderr: "", stdout: "ab" } },
+					textPart,
+				],
+			}),
+		);
 	});
 });
 

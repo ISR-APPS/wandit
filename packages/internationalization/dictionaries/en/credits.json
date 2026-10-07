@@ -46,6 +46,8 @@
 		"transcription": "Voice transcription",
 		"agent_session": "Builder turn",
 		"sandbox": "Sandbox time",
+		"mobile_build": "App build",
+		"mobile_preview": "Device preview",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {

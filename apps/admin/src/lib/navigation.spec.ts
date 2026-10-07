@@ -26,6 +26,7 @@ describe("admin navigation permissions", () => {
 			"Links",
 			"Academy",
 		]);
+		expect(titles).not.toContain("Credit grants");
 		expect(titles).not.toContain("Affiliates");
 		expect(titles).not.toContain("Costs");
 		expect(titles).not.toContain("Settings");
@@ -45,9 +46,17 @@ describe("admin navigation permissions", () => {
 	it("shows every section to a full admin map", () => {
 		const items = getVisibleAdminNavigation(adminStatement);
 
-		expect(items).toHaveLength(18);
+		expect(items).toHaveLength(19);
 		expect(items.map((item) => item.title)).toContain("AI failures");
 		expect(getVisibleAdminNavigationGroups(adminStatement)).toHaveLength(2);
+	});
+
+	it("shows the credit grant log to support only with the credits view", () => {
+		const titles = getVisibleAdminNavigation(
+			supportStatementsForViews(["users", "credits"]),
+		).map((item) => item.title);
+
+		expect(titles).toEqual(["Users", "Credit grants"]);
 	});
 
 	it("hides navigation whose view is absent from a support map", () => {

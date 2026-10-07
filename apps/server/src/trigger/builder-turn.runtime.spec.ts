@@ -1,22 +1,30 @@
 import type {
+	BuilderTurnMode,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	HarnessResumeEnvelope,
+	LlmProxyChatBinding,
+	SupabaseProjectStatus,
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeBuilderHarness } from "../modules/app-builder/application/harness/fake.harness";
+import {
+	FAKE_HARNESS_BOOTSTRAP_KEY,
+	FakeBuilderHarness,
+} from "../modules/app-builder/application/harness/fake.harness";
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
+import type { AuditRecord } from "../modules/app-builder/application/services/audit-events.service";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
-import type {
-	HarnessResumeState,
-	HarnessStreamEvent,
-} from "../modules/app-builder/domain/ports/builder-harness";
+import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
+import type { HarnessStreamEvent } from "../modules/app-builder/domain/ports/builder-harness";
+import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
 import type {
 	CommitTurnDeps,
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
 import type { AppBackendRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type { LatestAppCommit } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionRow } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -29,9 +37,13 @@ import type { ProjectCostCapsRow } from "../modules/app-builder/infrastructure/p
 import type { TurnProjectRow } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../modules/app-builder/infrastructure/redis/fake-turn-lock";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
-import { FakeSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
 import { FakeTurnEventStream } from "../modules/app-builder/infrastructure/trigger/fake-turn-events";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
+import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
@@ -42,6 +54,8 @@ import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricin
 import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
+	type BuilderTurnTiming,
+	restoreNoteOf,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
 
@@ -64,6 +78,8 @@ const CHAT_ID = "33333333-3333-4333-8333-333333333333";
 const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
+/** `createdAt` of the fake turn row; the timing line measures the queue from it. */
+const TURN_CREATED_AT = new Date("2026-09-17T10:00:00.000Z");
 const PROXY_BASE_URL = "https://api.test/api/v2/llm";
 /** Micros per whole credit; the AI_USD_PER_CREDIT anchor ($0.032). */
 const USD_MICROS_PER_CREDIT = 32_000;
@@ -76,6 +92,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 	questions: [
 		{
 			id: "question-1",
+			kind: "single-choice",
 			options: [
 				{ id: "option-1", label: "Blue" },
 				{ id: "option-2", label: "Green" },
@@ -83,6 +100,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 			question: "Which color?",
 		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
 };
 
@@ -91,9 +109,45 @@ const PENDING_TWO_QUESTIONS: HarnessPendingInteraction = {
 	kind: "question",
 	questions: [
 		...(PENDING_QUESTION.kind === "question" ? PENDING_QUESTION.questions : []),
-		{ id: "question-2", options: [], question: "Which font?" },
+		{
+			id: "question-2",
+			kind: "single-choice",
+			options: [],
+			question: "Which font?",
+		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
+};
+
+/** A Wandit upload URL of the fake user; its key ends in `<uuid>/<name>`. */
+const UPLOAD_URL =
+	"https://assets.test/uploads/user_1/0d1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b/logo.png";
+
+/** A paused `ask_user` call: a design world choice, then a logo upload. */
+const PENDING_ASK_USER: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			helper: "You can change it later.",
+			id: "question-0",
+			kind: "single-choice",
+			options: [
+				{ id: "zellige", label: "Warm and crafted", worldId: "zellige" },
+				{ description: "No world card", id: "plain", label: "Plain" },
+			],
+			question: "Which style?",
+		},
+		{
+			id: "question-1",
+			kind: "attachments",
+			maxFiles: 2,
+			options: [],
+			question: "Your logo?",
+		},
+	],
+	tool: "ask_user",
+	toolCallId: "call-7",
 };
 
 /** The approval card a suspended turn waits on. */
@@ -105,14 +159,31 @@ const PENDING_APPROVAL: HarnessPendingInteraction = {
 	toolName: "generate_image",
 };
 
-/** The session row a paused turn leaves behind for the answer turn. */
+/** The plan card a paused Plan Mode turn waits on. */
+const PENDING_PLAN: HarnessPendingInteraction = {
+	kind: "plan",
+	plan: {
+		assumptions: ["Prices in dirhams"],
+		sections: [{ items: ["The owner", "The sellers"], title: "Who uses it" }],
+		summary: "Tracks the stock of one shop.",
+		title: "Stock tracker",
+	},
+	toolCallId: "call-plan",
+};
+
+/**
+ * The session row a paused turn leaves behind for the answer turn. `mode`
+ * is the mode of the paused turn.
+ */
 function pausedSessionRow(
 	pending: HarnessPendingInteraction[],
+	mode: BuilderTurnMode = "build",
 ): BuilderSessionRow {
 	// SAFETY: the runtime reads only resumeState off the session row.
 	return {
 		resumeState: {
 			harness: "claude_code",
+			mode,
 			payload: "{}",
 			pending,
 		},
@@ -132,6 +203,8 @@ class FakeTurns {
 	waitingForUser: BuilderTurnRow | null = null;
 
 	readonly claimCalls: { runId: string; turnId: string }[] = [];
+	/** Turn ids of the host claims, which bind no run id. */
+	readonly hostClaimCalls: string[] = [];
 	readonly completeCalls: {
 		input: {
 			completedAt: Date;
@@ -155,6 +228,11 @@ class FakeTurns {
 
 	async claimRunning(turnId: string, triggerRunId: string) {
 		this.claimCalls.push({ runId: triggerRunId, turnId });
+		return this.claimResult;
+	}
+
+	async claimRunningOnHost(turnId: string) {
+		this.hostClaimCalls.push(turnId);
 		return this.claimResult;
 	}
 
@@ -210,9 +288,11 @@ class FakeSessions {
 		input: {
 			model: string | null;
 			providerSessionId: string | null;
-			resumeState: HarnessResumeState;
+			resumeState: HarnessResumeEnvelope;
 		};
 	}[] = [];
+	/** Every resume-state write, in call order. The last one decides how the next turn starts. */
+	readonly writes: ("clear" | "save")[] = [];
 
 	async findByChatId(_chatId: string): Promise<BuilderSessionRow | null> {
 		return this.row;
@@ -223,10 +303,16 @@ class FakeSessions {
 		input: {
 			model: string | null;
 			providerSessionId: string | null;
-			resumeState: HarnessResumeState;
+			resumeState: HarnessResumeEnvelope;
 		},
 	) {
 		this.saved.push({ chatId, input });
+		this.writes.push("save");
+		return this.row;
+	}
+
+	async clearResumeState(_chatId: string) {
+		this.writes.push("clear");
 		return this.row;
 	}
 }
@@ -340,12 +426,15 @@ class FakeMetering {
 }
 
 function fakeTurnRow(over: Partial<BuilderTurnRow>): BuilderTurnRow {
-	// SAFETY: the runtime reads only chatId, model, turnNumber, and spec off the row.
+	// SAFETY: the runtime reads only chatId, createdAt, model, turnNumber, and
+	// spec off the row; after a lost fail CAS also status and outputCommitSha.
 	return {
 		chatId: CHAT_ID,
+		createdAt: TURN_CREATED_AT,
 		id: TURN_ID,
 		projectId: PROJECT_ID,
 		spec: { attachments: [], composer: null, message: "Build a form" },
+		status: "running",
 		turnNumber: 1,
 		...over,
 	} as BuilderTurnRow;
@@ -383,6 +472,20 @@ function fakeBackendRow(over?: Partial<AppBackendRow>): AppBackendRow {
 		...over,
 	};
 }
+
+/** The `.env` text the turn wrote into the running fake sandbox, or null. */
+async function envFileOf(
+	world: ReturnType<typeof makeWorld>,
+): Promise<string | null> {
+	const sandbox = await world.sandboxes.findRunning(PROJECT_ID);
+	const bytes = await sandbox?.readFile(`${FAKE_WORKSPACE_DIR}/.env`);
+	return bytes === undefined || bytes === null
+		? null
+		: new TextDecoder().decode(bytes);
+}
+
+const BACKEND_URL_LINE =
+	"VITE_SUPABASE_URL=https://abcdefghijklmnopqrst.supabase.co";
 
 function fakeCapsRow(
 	perTurnCapCredits: number | null,
@@ -477,13 +580,23 @@ function textChunks(text: string): UIMessageChunk[] {
 function makeWorld(over?: {
 	/** The `app_backends` row `findByProjectId` answers; absent or null means no row. */
 	backend?: AppBackendRow | null;
+	/** Null composes no Management API client, like a worker without the platform env. */
+	backendClient?: null;
+	/** Statuses `getProject` answers during a wake, in order; the last one repeats. */
+	wakeStatuses?: SupabaseProjectStatus[];
+	/** True makes `backends.touchActive` throw, like a database outage. */
+	touchActiveFails?: boolean;
 	/** `readBalance` answers, in cc; drained scripts repeat the last. */
 	balances?: number[];
 	billingDisabled?: boolean;
 	caps?: ProjectCostCapsRow | null;
+	/** `firstRequestStartedAtMs` answers, epoch ms; absent means no proxy row. */
+	firstRequestStartedAtMs?: number;
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
+	/** The cap `capRejectionReason` answers: the proxy refused a request on it. Absent means no refusal. */
+	capReason?: "run_cap" | "daily_cap";
 	/** `readRunSpend` answers in USD micros, one per call. */
 	runSpend?: number[];
 	/** `readV2Enabled` answers, one per call. */
@@ -495,23 +608,48 @@ function makeWorld(over?: {
 	const stream = new FakeTurnEventStream();
 	const lock = new FakeTurnLock();
 	const sandboxes = new FakeSandboxProvider();
+	// The `.env` write waits for the dev port first; a fake port answers at once.
+	sandboxes.respondTo("bash", { exitCode: 0, stderr: "", stdout: "" });
 	const harness = new FakeBuilderHarness();
 	const touched: string[] = [];
+	/** Project ids `backends.touchActive` got, in call order. */
+	const backendTouches: string[] = [];
+	/** Management API calls of the wake, by method name, in call order. */
+	const backendCalls: string[] = [];
+	// Mutable like the table: the wake moves it `paused` → `restoring` → `active`.
+	let backendRow = over?.backend ?? null;
+	const wakeStatuses = [...(over?.wakeStatuses ?? ["ACTIVE_HEALTHY"])];
 	const revoked: string[] = [];
+	/** Chat rows `recentMessages` answers, newest first. */
+	const recent: ChatMessageText[] = [];
+	/** In-flight counts `readInFlight` answers in order; empty reads 0. */
+	const inFlight: number[] = [];
+	/** Order of the counter and row-sum calls, for the settle-wait specs. */
+	const callOrder: string[] = [];
+	/** Chat id → the turn the chat binding names now. */
+	const chatBindings = new Map<string, LlmProxyChatBinding>();
 	const minted: LlmProxyTokenClaimsInput[] = [];
 	const commits: CommitTurnInput[] = [];
+	// The stream event types that exist when each commit runs, in commit order.
+	const eventTypesAtCommit: string[][] = [];
 	const inserted: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
+	/** Every audit row the run wrote, in call order. */
+	const audited: AuditRecord[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
+	/** The fields of every `builder-turn.timing` line, in order. */
+	const timings: BuilderTurnTiming[] = [];
 	const nextSpend = scripted(over?.runSpend ?? [0], 0);
 	// 50_000 cc = 500 credits: enough that no default stop rule fires.
 	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
 	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
 	const balanceReads: number[] = [];
 	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
+	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
+	const uploads = new Map<string, Uint8Array>();
 	const proxySum = over?.proxyRows ?? fakeProxySum();
 	metering.monthlySpend = over?.monthlySpend ?? 0;
 
@@ -539,8 +677,56 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		audit: {
+			record: async (event) => {
+				audited.push(event);
+			},
+		},
+		backendClient:
+			over?.backendClient === null
+				? null
+				: {
+						getProject: async () => {
+							backendCalls.push("getProject");
+							const status =
+								wakeStatuses.length > 1
+									? (wakeStatuses.shift() ?? "ACTIVE_HEALTHY")
+									: (wakeStatuses[0] ?? "ACTIVE_HEALTHY");
+							return { dbHost: "db.abcdefghijklmnopqrst.supabase.co", status };
+						},
+						restoreProject: async () => {
+							backendCalls.push("restoreProject");
+						},
+					},
 		backends: {
-			findByProjectId: async () => over?.backend ?? null,
+			findByProjectId: async () => backendRow,
+			markRestoreFailed: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "error" };
+				return true;
+			},
+			markRestored: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "active" };
+				return true;
+			},
+			markRestoring: async () => {
+				if (backendRow?.status !== "paused") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "restoring" };
+				return true;
+			},
+			touchActive: async (projectId) => {
+				if (over?.touchActiveFails) {
+					throw new Error("db down");
+				}
+				backendTouches.push(projectId);
+			},
 		},
 		billingDisabled: over?.billingDisabled ?? false,
 		caps: {
@@ -549,25 +735,50 @@ function makeWorld(over?: {
 		},
 		commit: async (_sandbox, _deps, input) => {
 			commits.push(input);
+			// Every run in this spec streams under TURN_ID.
+			eventTypesAtCommit.push(
+				stream.eventsOf(TURN_ID).map((event) => event.type),
+			);
 			return fakeCommitResult();
 		},
 		commitDeps,
 		counters: {
+			bindChat: async (chatId, binding) => {
+				callOrder.push("bindChat");
+				chatBindings.set(chatId, binding);
+			},
+			unbindChat: async (chatId, turnId) => {
+				callOrder.push("unbindChat");
+				if (chatBindings.get(chatId)?.turnId === turnId) {
+					chatBindings.delete(chatId);
+				}
+			},
+			readInFlight: async () => {
+				callOrder.push("readInFlight");
+				return inFlight.shift() ?? 0;
+			},
 			readRunSpend: async () => nextSpend(),
 			revokeRun: async (runId) => {
+				callOrder.push("revokeRun");
 				revoked.push(runId);
 			},
 		},
 		harness,
 		hostTools: new EmptyHostToolRegistry(),
+		recentMessages: async (_chatId, limit) => recent.slice(0, limit),
 		insertAssistantMessage: async (input) => {
 			inserted.push({ input });
 		},
 		lock,
 		logger: {
 			error: () => {},
-			info: (message) => {
+			// Only the timing line's fields are kept; the other lines carry
+			// other shapes, and the specs read only their messages.
+			info: (message: string, fields?: BuilderTurnTiming) => {
 				infos.push(message);
+				if (message === "builder-turn.timing" && fields !== undefined) {
+					timings.push(fields);
+				}
 			},
 			warn: (message) => {
 				warnings.push(message);
@@ -589,13 +800,20 @@ function makeWorld(over?: {
 		},
 		proxyBaseUrl: PROXY_BASE_URL,
 		proxyRows: {
-			sumByTurn: async () => proxySum,
+			firstRequestStartedAtMs: async () =>
+				over?.firstRequestStartedAtMs ?? null,
+			capRejectionReason: async () => over?.capReason ?? null,
+			sumByTurn: async () => {
+				callOrder.push("sumByTurn");
+				return proxySum;
+			},
 		},
 		readBalance: async () => {
 			const balance = nextBalance();
 			balanceReads.push(balance);
 			return balance;
 		},
+		readUpload: async (url) => uploads.get(url) ?? null,
 		readV2Enabled: async () => nextV2(),
 		resolvePlan: async () => "pro",
 		sandboxSessions: {
@@ -607,13 +825,18 @@ function makeWorld(over?: {
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
+		versions: { findLatest: async () => null },
 		writer: stream,
 	};
 
 	return {
+		audited,
+		backendCalls,
+		backendTouches,
 		balanceReads,
 		commits,
 		deps,
+		eventTypesAtCommit,
 		harness,
 		infos,
 		inserted,
@@ -623,14 +846,31 @@ function makeWorld(over?: {
 		promoted,
 		proxySum,
 		revoked,
+		recent,
+		inFlight,
+		callOrder,
+		chatBindings,
 		sandboxes,
 		sessions,
 		stream,
+		timings,
 		touched,
 		turns,
+		uploads,
 		warnings,
 	};
 }
+
+/** The options a spec passes to warm the fake sandbox before the run. */
+const WARM_SANDBOX_OPTIONS: SandboxCreateOptions = {
+	devCommand: "pnpm run dev",
+	devPort: 5173,
+	env: {},
+	framework: "web-app",
+	organizationId: null,
+	ownerUserId: "user_1",
+	templateVersion: "web-app@1.0.0",
+};
 
 function makeInput(): {
 	controller: AbortController;
@@ -641,9 +881,11 @@ function makeInput(): {
 		controller,
 		input: {
 			actorUserId: "user_1",
+			apiCreateMs: 120,
 			organizationId: null,
 			projectId: PROJECT_ID,
 			runId: RUN_ID,
+			runner: "trigger",
 			turnId: TURN_ID,
 		},
 	};
@@ -692,6 +934,23 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.createCalls).toHaveLength(0);
 		expect(world.turns.failCalls).toHaveLength(0);
 		expect(world.minted).toHaveLength(0);
+	});
+
+	it("claims a host turn with the host claim and logs the host path", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(
+			world.deps,
+			{ ...input, runId: `host-${TURN_ID}`, runner: "host" },
+			controller.signal,
+		);
+
+		expect(world.turns.hostClaimCalls).toEqual([TURN_ID]);
+		expect(world.turns.claimCalls).toHaveLength(0);
+		expect(world.timings[0]?.path).toBe("host");
 	});
 
 	it("rejects the first fenced write when a newer turn number owns the project", async () => {
@@ -833,12 +1092,45 @@ describe("runBuilderTurn", () => {
 		);
 		expect(world.sessions.saved[0]?.input.model).toBe(MODEL);
 
-		expect(world.revoked).toEqual([RUN_ID]);
+		// Revoked before the settle sum, then again in the cleanup tail.
+		expect(world.revoked).toEqual([RUN_ID, RUN_ID]);
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 		expect(world.promoted).toEqual([
 			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
 		]);
 		expect(world.touched.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it.each([
+		{ completeWon: true, settleTailFails: false, written: ["succeeded"] },
+		// A cancel finalized the row first: the cancel path owns the end.
+		{ completeWon: false, settleTailFails: false, written: [] },
+		// The tail throws after the CAS; the fail CAS then loses on the terminal row.
+		{ completeWon: true, settleTailFails: true, written: ["succeeded"] },
+	] as const)("writes turn.end only from the CAS winner (complete won: $completeWon, tail fails: $settleTailFails)", async ({
+		completeWon,
+		settleTailFails,
+		written,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.completeResult = completeWon;
+		if (settleTailFails) {
+			world.metering.settle = async () => {
+				throw new Error("settle failed");
+			};
+			world.turns.failResult = false;
+		}
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// Proof that the failing tail reached the fail path.
+		expect(world.turns.failCalls).toHaveLength(settleTailFails ? 1 : 0);
+		expect(
+			world.audited.map((event) => [event.action, event.metadata]),
+		).toEqual(written.map((status) => ["turn.end", { status }]));
 	});
 
 	it("fails the turn on a harness stream error and refunds the hold", async () => {
@@ -873,7 +1165,9 @@ describe("runBuilderTurn", () => {
 
 	it("writes one error event for a harness error chunk", async () => {
 		const world = makeWorld();
+		// The harness yields the raw error chunk first, then its error event.
 		world.harness.events = [
+			{ chunk: { errorText: "boom", type: "error" }, type: "part" },
 			{
 				code: "harness_error",
 				message: "boom",
@@ -887,6 +1181,12 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const events = world.stream.eventsOf(TURN_ID);
+		// useChat stops its read at an error chunk; the card frame must come first.
+		expect(
+			events.some(
+				(e) => e.type === "part" && JSON.stringify(e.data).includes('"error"'),
+			),
+		).toBe(false);
 		const errors = events.filter((e) => e.type === "error");
 		expect(errors).toHaveLength(1);
 		expect(errors[0]?.type === "error" && errors[0].data.code).toBe(
@@ -901,6 +1201,188 @@ describe("runBuilderTurn", () => {
 		]);
 	});
 
+	it("fails a 529 harness error as capacity and stores its text without U+0000", async () => {
+		const world = makeWorld();
+		const storedText = "API Error: Repeated 529 Overloaded errors.";
+		world.harness.events = [
+			{
+				chunk: { errorText: "An error occurred.", type: "error" },
+				type: "part",
+			},
+			{
+				code: "harness_error",
+				message: `${storedText}\u0000`,
+				retryable: false,
+				statusCode: 529,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const failure = world.turns.failCalls[0]?.failure;
+		expect(failure?.failureKind).toBe("capacity");
+		expect(failure?.failureProviderMessage).toBe(storedText);
+	});
+
+	// Each matching row repeats on each resume of the same conversation.
+	// A kept session then fails every later turn of the chat.
+	it.each<{
+		message: string;
+		statusCode?: number;
+		writes: ("clear" | "save")[];
+	}>([
+		{
+			message: "No conversation found with session ID: 9f1c2d3e",
+			writes: ["save", "clear"],
+		},
+		{
+			message: "Failed to resume session 9f1c2d3e: unreadable transcript entry",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Claude Opus 5 can't help with this. Start a new session to continue.\nLearn more: https://www.anthropic.com/legal/aup",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Opus 4.8's safeguards flagged this message. Send feedback with /feedback.",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Claude Opus 5.5's safeguards flagged this session. Learn more: https://support.claude.com",
+			writes: ["save", "clear"],
+		},
+		{
+			message: "API Error: 403 This plan may not call that model",
+			statusCode: 403,
+			writes: ["save", "clear"],
+		},
+		{
+			message: "API Error: Repeated 529 Overloaded errors.",
+			statusCode: 529,
+			writes: ["save"],
+		},
+	])("clears the stored session only after a session-bound error: $message", async ({
+		message,
+		statusCode,
+		writes,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = [
+			{
+				code: "harness_error",
+				message,
+				retryable: false,
+				statusCode,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls).toHaveLength(1);
+		// The clear comes after the detach save, so the next turn finds no session to resume.
+		expect(world.sessions.writes).toEqual(writes);
+	});
+
+	// In the second row, the reply reader throws on the unknown id. The next
+	// chunk write and the close reject, but the reader keeps the earlier parts.
+	it.each<{ name: string; events: HarnessStreamEvent[] }>([
+		{
+			name: "a harness error chunk",
+			events: [
+				...textChunks("Half of the app").map((chunk) => ({
+					chunk,
+					type: "part" as const,
+				})),
+				{
+					code: "harness_error",
+					message: "boom",
+					retryable: false,
+					type: "error",
+				},
+			],
+		},
+		{
+			name: "a text delta with an unknown id",
+			events: [
+				{ chunk: { id: "t1", type: "text-start" }, type: "part" },
+				{
+					chunk: { delta: "Half of the app", id: "t1", type: "text-delta" },
+					type: "part",
+				},
+				{
+					chunk: { delta: "lost", id: "t9", type: "text-delta" },
+					type: "part",
+				},
+				{ chunk: { id: "t1", type: "text-end" }, type: "part" },
+			],
+		},
+	])("stores the partial reply with the error part before the events after $name", async ({
+		events,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = events;
+		/** The stream event types that exist when each reply insert runs. */
+		const eventTypesAtInsert: string[][] = [];
+		const insert = world.deps.insertAssistantMessage;
+		world.deps.insertAssistantMessage = async (stored) => {
+			eventTypesAtInsert.push(
+				world.stream.eventsOf(TURN_ID).map((event) => event.type),
+			);
+			await insert(stored);
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const error = world.stream
+			.eventsOf(TURN_ID)
+			.find((event) => event.type === "error");
+		expect(error?.type).toBe("error");
+		expect(world.inserted).toHaveLength(1);
+		expect(world.inserted[0]?.input.metadata).toBeNull();
+		// The card after a reload carries the same code, text, and retry flag.
+		expect(world.inserted[0]?.input.parts).toEqual([
+			expect.objectContaining({ text: "Half of the app", type: "text" }),
+			{ data: error?.data, id: "turn-error", type: "data-turn-error" },
+		]);
+		expect(eventTypesAtInsert[0]).not.toContain("error");
+		expect(eventTypesAtInsert[0]).not.toContain("done");
+	});
+
+	it("ends with the row status and no error when the fail CAS loses after complete", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.failResult = false;
+		world.metering.settle = async () => {
+			// `complete` already moved the row; then the settle tail throws.
+			world.turns.row = fakeTurnRow({
+				outputCommitSha: "commit-sha-1",
+				status: "succeeded",
+			});
+			throw new Error("settle failed");
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const events = world.stream.eventsOf(TURN_ID);
+		expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+		expect(
+			events.flatMap((event) => (event.type === "done" ? [event.data] : [])),
+		).toEqual([{ outputCommitSha: "commit-sha-1", status: "succeeded" }]);
+	});
+
 	it("fails with model_missing before the sandbox starts", async () => {
 		const world = makeWorld();
 		world.deps.model = null;
@@ -911,6 +1393,70 @@ describe("runBuilderTurn", () => {
 		expect(world.turns.failCalls[0]?.failure.failureCode).toBe("model_missing");
 		expect(world.sandboxes.createdCount).toBe(0);
 		expect(world.minted).toHaveLength(0);
+	});
+
+	it("fails with project_template_unknown before any sandbox work", async () => {
+		const world = makeWorld({
+			project: { ...fakeProjectRow(), framework: "tanstack-start" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe(
+			"project_template_unknown",
+		);
+		expect(world.sandboxes.createdCount).toBe(0);
+	});
+
+	it("boots a web project on the Vite port and a mobile project on Metro", async () => {
+		const web = makeWorld();
+		web.harness.events = happyEvents();
+		const mobile = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		mobile.harness.events = happyEvents();
+
+		await runBuilderTurn(
+			web.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+		await runBuilderTurn(
+			mobile.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+
+		expect(web.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 5173,
+			framework: "web-app",
+		});
+		expect(mobile.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+	});
+
+	it("passes the harness bootstrap key, so a new sandbox boots from the template snapshot", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+
+		await runBuilderTurn(
+			world.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+
+		expect(world.sandboxes.createOptions[0]?.harnessKey).toBe(
+			FAKE_HARNESS_BOOTSTRAP_KEY,
+		);
 	});
 
 	it("fails with project_not_v2 on a V1 project", async () => {
@@ -976,6 +1522,12 @@ describe("runBuilderTurn", () => {
 		expect(world.sessions.saved).toHaveLength(1);
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
 		expect(done?.type === "done" && done.data.status).toBe("canceled");
+		// The stored reply shows the Stopped line after a reload.
+		expect(
+			world.inserted.map(({ input: stored }) => stored.parts.at(-1)),
+		).toEqual([
+			{ data: { status: "canceled" }, id: "turn-done", type: "data-turn-done" },
+		]);
 		expect(world.turns.transitionCalls).toEqual([
 			{ from: ["cancelling", "running"], to: "canceled", turnId: TURN_ID },
 		]);
@@ -987,6 +1539,33 @@ describe("runBuilderTurn", () => {
 		expect(world.promoted).toEqual([
 			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
 		]);
+	});
+
+	it("stores no Stopped reply when the cancel CAS loses to complete", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld();
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+		// A Stop late in the settle tail: `complete` already wrote the row.
+		world.turns.row = fakeTurnRow({ status: "succeeded" });
+		world.turns.transitionResult = false;
+		controller.abort();
+		release();
+		await run;
+
+		// The settle path owns the reply and the `done` of this turn.
+		expect(world.inserted).toHaveLength(0);
+		expect(
+			world.stream.eventsOf(TURN_ID).filter((event) => event.type === "done"),
+		).toHaveLength(0);
+		expect(world.metering.refundCalls).toHaveLength(0);
 	});
 
 	it("refreshes the lock, keepAlive, and activity every 60 s", async () => {
@@ -1261,6 +1840,9 @@ describe("runBuilderTurn", () => {
 		expect(world.commits).toHaveLength(1);
 		expect(world.commits[0]?.source).toBe("wip");
 		expect(world.commits[0]?.summary).toBe("Stopped");
+		// The commit runs before `error` and `done`, so the web refetch at the stream end sees it.
+		expect(world.eventTypesAtCommit[0]).not.toContain("error");
+		expect(world.eventTypesAtCommit[0]).not.toContain("done");
 		// The real spend settles direct; the hold is not refunded.
 		expect(world.metering.settleCalls).toHaveLength(1);
 		const settle = world.metering.settleCalls[0];
@@ -1363,6 +1945,117 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe(
 			"stopped_project_cap",
 		);
+	});
+
+	// The proxy refuses with 402 V2_RUN_CAP_REACHED or V2_DAILY_CAP_REACHED
+	// at the cap. The harness then ends with an error chunk, or ends clean,
+	// before the 30 s tick. A turn whose last request only crossed the cap
+	// had no refusal. The daily cap writes its own code: the web hides Retry.
+	it.each([
+		{
+			name: "an error chunk after a run cap refusal",
+			events: [
+				{
+					code: "harness_error",
+					message: "API Error: 402 This run reached its spend cap",
+					retryable: false,
+					type: "error" as const,
+				},
+			],
+			capReason: "run_cap" as const,
+			errorCode: "stopped_project_cap",
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end after a run cap refusal",
+			events: [],
+			capReason: "run_cap" as const,
+			errorCode: "stopped_project_cap",
+			status: "stopped_project_cap",
+		},
+		{
+			name: "an error chunk after a daily cap refusal",
+			events: [
+				{
+					code: "harness_error",
+					message: "API Error: 402 Daily LLM spend cap reached",
+					retryable: false,
+					type: "error" as const,
+				},
+			],
+			capReason: "daily_cap" as const,
+			errorCode: "daily_cap",
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end with no refusal",
+			events: [],
+			capReason: undefined,
+			errorCode: null,
+			status: "succeeded",
+		},
+	])("ends $status when the harness ends with $name, before a tick", async ({
+		events,
+		capReason,
+		errorCode,
+		status,
+	}) => {
+		// 1000 cc = 10 credits; the spend of 320_000 micros is at that cap.
+		const world = makeWorld({
+			capReason,
+			caps: fakeCapsRow(1000),
+			runSpend: [320_000],
+		});
+		world.harness.events = events;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(status);
+		const error = world.stream
+			.eventsOf(TURN_ID)
+			.find((event) => event.type === "error");
+		expect(error?.type === "error" ? error.data : null).toEqual(
+			errorCode === null
+				? null
+				: expect.objectContaining({ code: errorCode, retryable: false }),
+		);
+		// Both ends settle the real spend; neither refunds the hold.
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("stores a daily cap stop as a stop of ours, not as a provider 402 and a Sentry issue", async () => {
+		// The harness reads the status 402 from the text of our own proxy refusal.
+		const world = makeWorld({
+			capReason: "daily_cap",
+			caps: fakeCapsRow(1000),
+			runSpend: [320_000],
+		});
+		world.harness.events = [
+			{
+				code: "harness_error",
+				message: "API Error: 402 Daily LLM spend cap reached",
+				retryable: false,
+				statusCode: 402,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const stop = world.turns.transitionCalls.find(
+			(call) => call.to === "stopped_project_cap",
+		);
+		expect(stop?.patch).toMatchObject({
+			failureCode: "daily_cap",
+			failureKind: "internal",
+			sentryEventId: null,
+		});
 	});
 
 	it("stops as stopped_project_cap on a tick when the monthly cap is crossed", async () => {
@@ -1693,12 +2386,196 @@ describe("runBuilderTurn", () => {
 
 		expect(world.harness.resumeCalls).toHaveLength(1);
 		expect(world.harness.createCalls).toHaveLength(0);
-		// The envelope parse fills `pending` with its default.
+		// The envelope parse fills `pending` and `mode` with their defaults.
 		expect(world.harness.resumeCalls[0]?.resumeState).toEqual({
 			harness: "claude_code",
+			mode: "build",
 			payload: "{}",
 			pending: [],
 		});
+	});
+
+	it("writes neither the waking nor the session status on a warm turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The sandbox already runs and the chat has a stored session.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		// The first status is `running`; it carries the backend note the
+		// skipped session status would have carried.
+		expect(statuses).toEqual([
+			{ message: "Backend not ready yet", phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.timings[0]?.sandbox).toBe("warm");
+		expect(world.timings[0]?.session).toBe("resumed");
+		// A warm sandbox keeps its bridge, so the resume may attach to it.
+		expect(world.harness.resumeCalls[0]?.options.bridgeDead).toBe(false);
+	});
+
+	it("writes the waking status when a stopped sandbox resumes", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const phases = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data.phase] : []));
+		expect(phases).toEqual([
+			"sandbox_waking",
+			"session_starting",
+			"running",
+			"committing",
+		]);
+		expect(world.timings[0]?.sandbox).toBe("woke");
+	});
+
+	it("writes only the fresh-session status when a warm resume fails", async () => {
+		const world = makeWorld({ backend: fakeBackendRow() });
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("bridge gone");
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		expect(statuses).toEqual([
+			{ message: "Starting a fresh session", phase: "session_starting" },
+			{ phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.timings[0]?.session).toBe("created");
+	});
+
+	it("logs one timing line with the step durations", async () => {
+		// A frozen clock makes every duration 0 and the offsets exact.
+		vi.useFakeTimers({ now: TURN_CREATED_AT.getTime() + 2_100 });
+		const world = makeWorld({
+			firstRequestStartedAtMs: TURN_CREATED_AT.getTime() + 2_100 + 800,
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toEqual([
+			{
+				apiCreateMs: 120,
+				commitMs: 0,
+				firstModelCallMs: 800,
+				firstPartMs: 0,
+				firstTextMs: 0,
+				hostToolsMs: 0,
+				path: "trigger",
+				prestartMs: 0,
+				queueMs: 2_100,
+				runId: RUN_ID,
+				sandbox: "woke",
+				sandboxMs: 0,
+				session: "created",
+				sessionMs: 0,
+				settleMs: 0,
+				streamMs: 0,
+				totalMs: 0,
+				turnId: TURN_ID,
+			},
+		]);
+	});
+
+	it("logs the timing line with null steps when the turn fails before the sandbox", async () => {
+		const world = makeWorld();
+		world.deps.model = null;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toHaveLength(1);
+		expect(world.timings[0]).toMatchObject({
+			firstModelCallMs: null,
+			firstPartMs: null,
+			firstTextMs: null,
+			sandbox: null,
+			sandboxMs: null,
+			session: null,
+			sessionMs: null,
+			streamMs: null,
+		});
+	});
+
+	it("times the first text part from the run start, after a reasoning part", async () => {
+		vi.useFakeTimers({ now: TURN_CREATED_AT.getTime() });
+		const world = makeWorld();
+		// The reasoning part comes first: it is not a word the user can read.
+		const reasoning: HarnessStreamEvent = {
+			chunk: { id: "r1", type: "reasoning-start" },
+			type: "part",
+		};
+		world.harness.events = [reasoning, ...happyEvents()];
+		// The model thinks 1.5 s before its first word.
+		const scripted = world.harness.stream.bind(world.harness);
+		world.harness.stream = async function* (session, turnInput) {
+			for await (const event of scripted(session, turnInput)) {
+				if (event.type === "part" && event.chunk.type === "text-delta") {
+					vi.advanceTimersByTime(1_500);
+				}
+				yield event;
+			}
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings[0]?.firstPartMs).toBe(0);
+		expect(world.timings[0]?.firstTextMs).toBe(1_500);
+	});
+
+	it("keeps the timing line when the first proxy request lookup fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.deps.proxyRows = {
+			...world.deps.proxyRows,
+			firstRequestStartedAtMs: async () => {
+				throw new Error("proxy rows unavailable");
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The lookup only feeds the log line; the turn still succeeds.
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.warnings).toContain(
+			`First proxy request lookup failed for turn ${TURN_ID}: proxy rows unavailable`,
+		);
+		expect(world.timings[0]?.firstModelCallMs).toBeNull();
 	});
 
 	it("starts a fresh session when the stored one cannot resume", async () => {
@@ -1717,6 +2594,65 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.createCalls).toHaveLength(1);
 		expect(world.turns.failCalls).toHaveLength(0);
 		expect(world.turns.completeCalls).toHaveLength(1);
+	});
+
+	it("starts fresh with a chat recap when the sandbox was created under a stored session", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The vendor lost the sandbox: the new disk has no transcript.
+		world.sandboxes.reportsCreated = true;
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.turns.row = fakeTurnRow({ messageId: "msg-now" });
+		world.recent.push(
+			{ id: "msg-now", role: "user", text: "Build a form" },
+			{ id: "msg-2", role: "assistant", text: "Done: a booking page." },
+			{ id: "msg-1", role: "user", text: "A barber shop app" },
+		);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// No resume try on a disk without the transcript.
+		expect(world.harness.resumeCalls).toHaveLength(0);
+		expect(world.harness.createCalls).toHaveLength(1);
+		const prompt =
+			world.harness.streamCalls[0]?.input.kind === "prompt"
+				? world.harness.streamCalls[0].input.prompt
+				: "";
+		// Oldest first; the turn's own message comes once, at the end.
+		expect(prompt).toContain(
+			"User: A barber shop app\n\nYou: Done: a booking page.",
+		);
+		expect(
+			prompt.endsWith("The new message of the user:\n\nBuild a form"),
+		).toBe(true);
+	});
+
+	it("keeps the plain prompt when the recap read fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("policy conflict");
+		world.deps.recentMessages = async () => {
+			throw new Error("db down");
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "Build a form",
+		});
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
 	});
 
 	it("starts a fresh session when the resumed one holds an unfinished turn and no card to answer", async () => {
@@ -1779,6 +2715,27 @@ describe("runBuilderTurn", () => {
 		expect(claims?.projectId).toBe(PROJECT_ID);
 		expect(claims?.userId).toBe("user_1");
 		expect(claims?.workspaceId).toBeNull();
+		expect(claims?.chatId).toBe(CHAT_ID);
+	});
+
+	it("binds the chat to the turn while it runs and unbinds it at the end", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		let boundDuringStream: LlmProxyChatBinding | undefined;
+		const scripted = world.harness.stream.bind(world.harness);
+		world.harness.stream = async function* (session, turnInput) {
+			boundDuringStream = world.chatBindings.get(CHAT_ID);
+			yield* scripted(session, turnInput);
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// A continued Claude Code process sends an older token of the chat;
+		// the binding bills its requests to this turn and run.
+		expect(boundDuringStream).toMatchObject({ runId: RUN_ID, turnId: TURN_ID });
+		expect(world.chatBindings.has(CHAT_ID)).toBe(false);
 	});
 
 	it("falls back to the default per-turn cap when the project has no caps row", async () => {
@@ -1787,8 +2744,8 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		// 5000 cc = 50 credits × $0.032 = $1.60.
-		expect(world.minted[0]?.capUsd).toBeCloseTo(1.6);
+		// 1,000,000 cc = 10,000 credits × $0.032 = $320.
+		expect(world.minted[0]?.capUsd).toBeCloseTo(320);
 	});
 
 	it("passes the proxy env to the session without a provider key", async () => {
@@ -1802,8 +2759,71 @@ describe("runBuilderTurn", () => {
 		expect(env?.ANTHROPIC_AUTH_TOKEN).toBe("fake-run-token");
 		expect(env?.ANTHROPIC_BASE_URL).toBe(PROXY_BASE_URL);
 		expect(env?.ANTHROPIC_CUSTOM_HEADERS).toContain(RUN_ID);
-		expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-		expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+	});
+
+	it("settles only after every proxy request of the run has its row", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// One request still streams its reply when the harness stream ends.
+		world.inFlight.push(1, 0);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The stream end waits for the count to drop before it reads the cap
+		// refusal row. The unbind and the revoke stop new requests, and the
+		// sum reads the rows after that.
+		expect(world.callOrder.slice(0, 7)).toEqual([
+			"bindChat",
+			"readInFlight",
+			"readInFlight",
+			"unbindChat",
+			"revokeRun",
+			"readInFlight",
+			"sumByTurn",
+		]);
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("logs a skipped commit and still settles the turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.deps.commit = async () => null;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.infos).toContain("builder-turn.commit-skipped");
+		expect(world.turns.completeCalls[0]?.input.outputCommitSha).toBeNull();
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("sends the attachment URLs together with the message text", async () => {
+		const world = makeWorld();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [
+					{
+						filename: "shot.png",
+						mediaType: "image/png",
+						url: "https://files.test/shot.png",
+					},
+				],
+				composer: null,
+				message: "Make it look like this",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt:
+				"Make it look like this\n\nAttached files:\nhttps://files.test/shot.png",
+		});
 	});
 
 	it("pauses on a pending question and waits for the answer turn", async () => {
@@ -1825,7 +2845,7 @@ describe("runBuilderTurn", () => {
 
 		// The card goes out as a stream part and into the assistant message.
 		type CardChunk = {
-			data?: { answer?: string | null; options?: string[] };
+			data?: { answer?: string | null };
 			id?: string;
 			type?: string;
 		};
@@ -1838,7 +2858,11 @@ describe("runBuilderTurn", () => {
 		expect(card).toEqual({
 			data: {
 				answer: null,
-				options: ["Blue", "Green"],
+				kind: "single-choice",
+				options: [
+					{ id: "option-1", label: "Blue" },
+					{ id: "option-2", label: "Green" },
+				],
 				question: "Which color?",
 				questionId: "question-1",
 				toolCallId: "call-1",
@@ -1960,6 +2984,7 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -1997,6 +3022,58 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: true,
+					tool: "askUserQuestions",
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("answers every built-in question from the typed answers of the tray", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_TWO_QUESTIONS]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						// An old card stores plain labels, so the tray sends the label.
+						optionIds: ["Green"],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-1",
+					},
+					{
+						action: "answered",
+						files: [],
+						optionIds: [],
+						questionId: "question-2",
+						text: "Serif",
+						toolCallId: "call-1",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Green\n\nSerif",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: {
+						"question-1": { optionIds: ["option-2"] },
+						"question-2": { freeform: "Serif", optionIds: [] },
+					},
+					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2044,6 +3121,7 @@ describe("runBuilderTurn", () => {
 						"question-1": { freeform: "chartreuse", optionIds: [] },
 					},
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2106,12 +3184,73 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
+		// The new sandbox woke, but an approval keeps the paused turn.
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: true,
+			dropPausedTurn: false,
+		});
 		expect(world.harness.streamCalls[0]?.input).toEqual({
 			approvals: [{ approvalId: "appr-1", approved: true }],
 			kind: "continue",
 			signal: expect.any(AbortSignal),
 			toolResults: [],
 		});
+	});
+
+	// The SDK first answers the paused call with its old ids. Only the paused
+	// reply holds that tool part, so the readers threw "No tool invocation".
+	it.each([
+		true,
+		false,
+	])("ends a continued turn (approved: %s) without the chunks of the paused call", async (approved) => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_approval",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: {
+				approval: { approvalId: "appr-1", approved },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const answered: UIMessageChunk[] = [
+			{ type: "start" },
+			{ approvalId: "appr-1", approved, type: "tool-approval-response" },
+			// A denied host tool gets no output chunk.
+			...(approved
+				? [
+						{
+							output: { rows: 1 },
+							toolCallId: "call-9",
+							type: "tool-output-available" as const,
+						},
+					]
+				: []),
+		];
+		world.harness.events = [
+			...answered.map((chunk) => ({ chunk, type: "part" as const })),
+			...happyEvents(),
+		];
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls).toHaveLength(0);
+		expect(world.turns.completeCalls).toHaveLength(1);
+		const parts = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((event) => (event.type === "part" ? [event.data] : []));
+		expect(parts).toContainEqual({ type: "start" });
+		expect(parts).not.toContainEqual(
+			expect.objectContaining({ approvalId: "appr-1" }),
+		);
+		expect(parts).not.toContainEqual(
+			expect.objectContaining({ toolCallId: "call-9" }),
+		);
 	});
 
 	it("denies an approval the body does not name", async () => {
@@ -2200,8 +3339,513 @@ describe("runBuilderTurn", () => {
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 	});
 
-	describe("sandbox env from app_backends", () => {
-		it("passes the active row's URL and anon key into the sandbox env", async () => {
+	it("writes the ask_user card with its kind, helper, file limit, and world card", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_ASK_USER];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		type CardChunk = {
+			data?: {
+				helper?: string;
+				kind?: string;
+				maxFiles?: number;
+				options?: {
+					card?: { id: string; preview: { fontFamily: string } };
+					description?: string;
+					id: string;
+				}[];
+			};
+			id?: string;
+			type?: string;
+		};
+		// SAFETY: the spec wrote the chunks; the cards are the only data-question parts.
+		const cards = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const style = cards.find((chunk) => chunk.id === "call-7:question-0");
+		const logo = cards.find((chunk) => chunk.id === "call-7:question-1");
+		expect(style?.data?.kind).toBe("single-choice");
+		expect(style?.data?.helper).toBe("You can change it later.");
+		expect(style?.data?.options?.[0]?.card?.id).toBe("zellige");
+		expect(style?.data?.options?.[0]?.card?.preview.fontFamily).toEqual(
+			expect.any(String),
+		);
+		// An option without a worldId keeps its description and gets no card.
+		expect(style?.data?.options?.[1]).toEqual({
+			description: "No world card",
+			id: "plain",
+			label: "Plain",
+		});
+		expect(logo?.data).toMatchObject({ kind: "attachments", maxFiles: 2 });
+		expect(world.inserted[0]?.input.parts).toContainEqual(style);
+	});
+
+	it("continues an ask_user call with the typed answers and copies the file", async () => {
+		const world = makeWorld();
+		// A warm sandbox keeps the bridge, so the answer goes as a tool result.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const logoBytes = new Uint8Array([137, 80, 78, 71]);
+		world.uploads.set(UPLOAD_URL, logoBytes);
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					output: {
+						answers: [
+							{
+								action: "answered",
+								files: [],
+								question: "Which style?",
+								questionId: "question-0",
+								selected: [{ id: "zellige", label: "Warm and crafted" }],
+								text: "",
+							},
+							{
+								action: "answered",
+								files: [
+									{
+										filename: "logo.png",
+										mediaType: "image/png",
+										path: "public/uploads/0d1f2a3b-logo.png",
+										url: UPLOAD_URL,
+									},
+								],
+								question: "Your logo?",
+								questionId: "question-1",
+								selected: [],
+								text: "",
+							},
+						],
+					},
+					tool: "ask_user",
+					toolCallId: "call-7",
+				},
+			],
+		});
+		const sandbox = await world.sandboxes.getOrCreate(
+			PROJECT_ID,
+			WARM_SANDBOX_OPTIONS,
+		);
+		expect(
+			await sandbox.readFile(
+				"/vercel/workspace/public/uploads/0d1f2a3b-logo.png",
+			),
+		).toEqual(logoBytes);
+	});
+
+	it("keeps a null path and warns when an answer file cannot be copied", async () => {
+		const world = makeWorld();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const bigUrl = UPLOAD_URL.replace("logo.png", "big.png");
+		const brokenUrl = UPLOAD_URL.replace("logo.png", "broken.png");
+		const missingUrl = UPLOAD_URL.replace("logo.png", "missing.png");
+		// A name that fails the upload-name pattern never reaches the sandbox.
+		const unsafeUrl = UPLOAD_URL.replace("logo.png", ".env");
+		// One byte over the 15 MB copy limit.
+		world.uploads.set(bigUrl, new Uint8Array(15 * 1024 * 1024 + 1));
+		world.deps.readUpload = async (url) => {
+			if (url === brokenUrl) throw new Error("R2 timeout");
+			return world.uploads.get(url) ?? null;
+		};
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [bigUrl, brokenUrl, missingUrl, unsafeUrl].map((url) => ({
+							mediaType: "image/png",
+							url,
+						})),
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const turnInput = world.harness.streamCalls[0]?.input;
+		const logoAnswer =
+			turnInput?.kind === "continue" &&
+			turnInput.toolResults[0]?.tool === "ask_user"
+				? turnInput.toolResults[0].output.answers[1]
+				: undefined;
+		expect(logoAnswer?.files.map((file) => file.path)).toEqual([
+			null,
+			null,
+			null,
+			null,
+		]);
+		expect(
+			world.warnings.filter(
+				(message) => message === "builder-turn.answer-file-skipped",
+			),
+		).toHaveLength(3);
+		expect(world.warnings).toContain("builder-turn.answer-file-copy-failed");
+	});
+
+	it("tells a lost session every answer of the ask_user call", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Decide for me",
+			},
+		});
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": the user lets you decide.\n' +
+				'Answer to your question "Your logo?": skipped.',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("sends the ask_user answers as text on the same thread after a sandbox stop", async () => {
+		const world = makeWorld();
+		// The idle sweep stopped the sandbox while the turn waited.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		world.uploads.set(UPLOAD_URL, new Uint8Array([137, 80, 78, 71]));
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: true,
+			dropPausedTurn: true,
+		});
+		expect(world.harness.createCalls).toHaveLength(0);
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": Warm and crafted\n' +
+				'Answer to your question "Your logo?": public/uploads/0d1f2a3b-logo.png',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("starts a plan prompt with the Plan Mode rules and pauses on the plan card", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_PLAN];
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "A stock app for my shop",
+				mode: "plan",
+			},
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.createCalls[0]?.mode).toBe("plan");
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: `${PLAN_MODE_PROMPT}\n\nA stock app for my shop`,
+		});
+		// The plan card waits like a question card; no new status exists.
+		expect(world.turns.completeCalls[0]?.input.status).toBe(
+			"waiting_for_answer",
+		);
+		const card = {
+			data: { ...PENDING_PLAN.plan, toolCallId: "call-plan" },
+			id: "plan-call-plan",
+			type: "data-plan",
+		};
+		expect(
+			world.stream.eventsOf(TURN_ID).map((event) => event.data),
+		).toContainEqual(card);
+		expect(world.inserted[0]?.input.parts).toContainEqual(card);
+		// The next turn compares this mode to detect a Plan toggle change.
+		expect(world.sessions.saved[0]?.input.resumeState).toMatchObject({
+			mode: "plan",
+			pending: [PENDING_PLAN],
+		});
+	});
+
+	it("continues a plan card with the typed changes and picked elements as the present_plan result", async () => {
+		const world = makeWorld();
+		// A warm sandbox keeps the bridge, so the changes go as a tool result.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		world.sessions.row = pausedSessionRow([PENDING_PLAN], "plan");
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "Add a page for the suppliers",
+				mode: "plan",
+				targets: [
+					{ label: "Stock", src: "src/app/page.tsx:12:5", tag: "button" },
+				],
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: false,
+			dropPausedTurn: false,
+		});
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					output: {
+						feedback:
+							"Add a page for the suppliers\n\nThe user points at:\n" +
+							'- src/app/page.tsx:12:5 (button "Stock")',
+					},
+					tool: "present_plan",
+					toolCallId: "call-plan",
+				},
+			],
+		});
+	});
+
+	it("builds an approved plan from a text prompt and drops the paused plan call", async () => {
+		const world = makeWorld();
+		// A warm sandbox: a mode switch keeps the bridge and its stored coordinates.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		world.sessions.row = pausedSessionRow([PENDING_PLAN], "plan");
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "Build this plan",
+				mode: "build",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The paused call belongs to the plan session tools; it cannot continue.
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: false,
+			dropPausedTurn: true,
+		});
+		const turnInput = world.harness.streamCalls[0]?.input;
+		if (turnInput?.kind !== "prompt") {
+			throw new Error("expected a prompt input");
+		}
+		expect(turnInput.prompt).toMatch(/^The user approved the plan below\./);
+		expect(turnInput.prompt).toContain(
+			"# Stock tracker\n\nTracks the stock of one shop.\n\n## Who uses it\n- The owner\n- The sellers",
+		);
+		expect(turnInput.prompt).toMatch(/The user's message: Build this plan$/);
+		expect(world.harness.resumeCalls[0]?.input.mode).toBe("build");
+	});
+
+	it("sends Continue. for an answers-only turn with no card left to answer", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-gone",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "Continue.",
+		});
+	});
+
+	it("tells the agent to ask through ask_user and to describe commands in the user's language", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain("ask_user tool");
+		expect(instructions).toContain("Bash and Agent description");
+		// The Expo sentence is for a mobile app only.
+		expect(instructions).not.toContain("Expo");
+		expect(instructions).toContain("app-dashboard");
+	});
+
+	it("adds the Expo sentence to the instructions of a mobile project", async () => {
+		const world = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain("Expo Go");
+		expect(instructions).toContain("ask_user tool");
+		expect(instructions).not.toContain("app-dashboard");
+	});
+
+	it("writes a data-thought part with the duration after each reasoning block", async () => {
+		const world = makeWorld();
+		world.harness.events = [
+			...(
+				[
+					{ id: "r1", type: "reasoning-start" },
+					{ delta: "Plan the page", id: "r1", type: "reasoning-delta" },
+					{ id: "r1", type: "reasoning-end" },
+				] satisfies UIMessageChunk[]
+			).map((chunk) => ({ chunk, type: "part" as const })),
+			...happyEvents(),
+		];
+		// The clock moves 4.2 s while the reasoning block streams.
+		let clock = 1_000_000;
+		world.deps.now = () => clock;
+		const stream = world.stream;
+		world.deps.writer = {
+			write: async (turnId, event) => {
+				await stream.write(turnId, event);
+				if (event.type === "part") {
+					// SAFETY: the runtime writes AI SDK chunks as part data.
+					const chunk = event.data as UIMessageChunk;
+					if (chunk.type === "reasoning-start") clock += 4200;
+				}
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// SAFETY: the runtime writes AI SDK chunks as part data.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as UIMessageChunk[];
+		const endIndex = chunks.findIndex(
+			(chunk) => chunk.type === "reasoning-end",
+		);
+		const thought = {
+			data: { reasoningId: "r1", seconds: 4 },
+			id: "thought-r1",
+			type: "data-thought",
+		};
+		expect(chunks[endIndex + 1]).toEqual(thought);
+		expect(world.inserted[0]?.input.parts).toContainEqual(thought);
+	});
+
+	describe("sandbox .env from app_backends", () => {
+		it("writes the active row's URL and anon key into the sandbox .env, not the process env", async () => {
 			const world = makeWorld({ backend: fakeBackendRow() });
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
@@ -2210,11 +3854,16 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBe(
+			const options = world.sandboxes.createOptions[0];
+			// A process value would win over the `.env` value in Vite and Expo.
+			expect(options?.env.VITE_SUPABASE_URL).toBeUndefined();
+			expect(options?.env.EXPO_PUBLIC_SUPABASE_URL).toBeUndefined();
+			expect(options?.backendUrl).toBe(
 				"https://abcdefghijklmnopqrst.supabase.co",
 			);
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			const envFile = await envFileOf(world);
+			expect(envFile).toContain(BACKEND_URL_LINE);
+			expect(envFile).toContain("EXPO_PUBLIC_SUPABASE_ANON_KEY=anon-key-test");
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -2225,8 +3874,15 @@ describe("runBuilderTurn", () => {
 			).toEqual({ phase: "session_starting" });
 		});
 
-		it("sends no VITE_SUPABASE_* names and keeps the note without a row", async () => {
-			const world = makeWorld();
+		it.each([
+			{ backend: null, label: "no row" },
+			{
+				backend: fakeBackendRow({ anonKey: null, status: "creating" }),
+				label: "a creating row",
+			},
+			{ backend: fakeBackendRow({ status: "error" }), label: "an error row" },
+		])("writes no .env and keeps the note with $label", async ({ backend }) => {
+			const world = makeWorld({ backend });
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 			const { controller, input } = makeInput();
@@ -2234,9 +3890,8 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+			expect(world.sandboxes.createOptions[0]?.backendUrl).toBeUndefined();
+			expect(await envFileOf(world)).toBeNull();
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -2250,9 +3905,9 @@ describe("runBuilderTurn", () => {
 			});
 		});
 
-		it("sends no VITE_SUPABASE_* names and keeps the note on an error row", async () => {
+		it("wakes a paused backend with one restore, then writes its .env", async () => {
 			const world = makeWorld({
-				backend: fakeBackendRow({ status: "error" }),
+				backend: fakeBackendRow({ status: "paused" }),
 			});
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
@@ -2260,10 +3915,51 @@ describe("runBuilderTurn", () => {
 
 			await runBuilderTurn(world.deps, input, controller.signal);
 
-			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+			const statuses = world.stream
+				.eventsOf(TURN_ID)
+				.flatMap((e) => (e.type === "status" ? [e.data] : []));
+			expect(statuses[0]).toEqual({
+				message: "Waking up the database",
+				phase: "sandbox_waking",
+			});
+			expect(statuses).toContainEqual({ phase: "session_starting" });
+		});
+
+		it("waits for a restoring backend without a second restore", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "restoring" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual(["getProject"]);
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+		});
+
+		it("runs the turn with the note when the wake times out", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(185_000);
+			await run;
+
+			// One read every 5 s for 180 s.
+			expect(
+				world.backendCalls.filter((call) => call === "getProject"),
+			).toHaveLength(36);
+			expect(await envFileOf(world)).toBeNull();
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -2275,6 +3971,357 @@ describe("runBuilderTurn", () => {
 				message: "Backend not ready yet",
 				phase: "session_starting",
 			});
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 		});
+
+		it("stops the wake at once and marks the row error when Supabase reports RESTORE_FAILED", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["RESTORE_FAILED"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			// One read only: a failed restore does not wait for the ceiling.
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("error");
+			expect(await envFileOf(world)).toBeNull();
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps polling after one failed status read", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			let reads = 0;
+			world.deps.backendClient = {
+				getProject: async () => {
+					reads += 1;
+					if (reads === 1) {
+						throw new Error("rate limited");
+					}
+					return {
+						dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+						status: "ACTIVE_HEALTHY",
+					};
+				},
+				restoreProject: async () => undefined,
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(6_000);
+			await run;
+
+			expect(reads).toBe(2);
+			expect(world.warnings).toContain("backend.wake-poll-failed");
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+		});
+
+		it("boots no sandbox and cancels the turn on a cancel during the wake", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.waitFor(
+				() => {
+					expect(world.backendCalls).toContain("getProject");
+				},
+				{ interval: 1, timeout: 2000 },
+			);
+			controller.abort();
+			await vi.advanceTimersByTimeAsync(5_000);
+			await run;
+
+			expect(world.sandboxes.createOptions).toEqual([]);
+			expect(world.warnings).not.toContain("backend.wake-timeout");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("canceled");
+		});
+
+		it("waits for a project that comes up when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => ({
+					dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+					status: "ACTIVE_HEALTHY",
+				}),
+				restoreProject: async () => {
+					throw new Error("supabase timeout");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("active");
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+		});
+
+		it("runs the turn with the note when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => {
+					throw new Error("unused");
+				},
+				restoreProject: async () => {
+					throw new Error("supabase down");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(await envFileOf(world)).toBeNull();
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps a paused backend asleep without a Management API client", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				backendClient: null,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+			expect(await envFileOf(world)).toBeNull();
+			// No wake starts, so the card shows no waking line for the database.
+			expect(
+				world.stream
+					.eventsOf(TURN_ID)
+					.some(
+						(e) =>
+							e.type === "status" &&
+							e.data.message === "Waking up the database",
+					),
+			).toBe(false);
+			expect(world.warnings).toContain("backend.wake-unconfigured");
+		});
+
+		it("calls no restore for an active backend", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+		});
+
+		it("writes the .env and still succeeds when no dev port answers", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			// The dev port wait ends after its last try: the dev server is down or slow.
+			world.sandboxes.scriptedExec.set("bash", [
+				{ exitCode: 1, stderr: "", stdout: "" },
+			]);
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+			expect(world.warnings).toContain("builder-turn.env-file-failed");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("writes the .env when the row turns active while the sandbox boots", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ anonKey: null, status: "creating" }),
+			});
+			// provision-backend marks the row active during getOrCreate, while the
+			// sandbox row is not running yet, so its own write skips the sandbox.
+			const reads = [
+				fakeBackendRow({ anonKey: null, status: "creating" }),
+				fakeBackendRow(),
+			];
+			world.deps.backends = {
+				...world.deps.backends,
+				findByProjectId: async () => reads.shift() ?? fakeBackendRow(),
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+		});
+
+		it.each([
+			{
+				allowed: ["abcdefghijklmnopqrst.supabase.co"],
+				label: "a fresh session allows the host once",
+				storedSession: false,
+			},
+			// A kept session would lose the proxy run token on a raw policy push.
+			{
+				allowed: [],
+				label: "a resumed session allows no host",
+				storedSession: true,
+			},
+		])("$label when the backend row turns active mid-turn", async ({
+			allowed,
+			storedSession,
+		}) => {
+			vi.useFakeTimers();
+			const world = makeWorld();
+			// provision-backend moves this row to `active` while the agent works.
+			let backendRow = fakeBackendRow({ anonKey: null, status: "creating" });
+			world.deps.backends = {
+				...world.deps.backends,
+				findByProjectId: async () => backendRow,
+			};
+			if (storedSession) {
+				// SAFETY: the runtime reads only resumeState off the session row.
+				world.sessions.row = {
+					resumeState: { harness: "claude_code", payload: "{}" },
+				} as BuilderSessionRow;
+			}
+			let release: () => void = () => {};
+			world.harness.streamHold = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await waitForStream(world.harness);
+			backendRow = fakeBackendRow();
+			// Two keep-alive ticks: the second one must add no second host.
+			await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+			expect(world.sandboxes.createOptions[0]?.backendUrl).toBeUndefined();
+			expect(world.sandboxes.allowedHosts).toEqual(allowed);
+			release();
+			await run;
+		});
+	});
+
+	describe("backend activity stamp", () => {
+		it("stamps the backend once when the turn succeeds", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("stamps the backend when the turn fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				v2Enabled: [false],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe(
+				"stopped_disabled",
+			);
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("ends the turn normally when the stamp fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				touchActiveFails: true,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.warnings).toContain("backend.touch-failed");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+			expect(world.promoted).toHaveLength(1);
+		});
+	});
+});
+
+describe("restoreNoteOf", () => {
+	// The restore commit f9e8d7c copies the picked version a1b2c3d forward.
+	const restore: LatestAppCommit = {
+		createdAt: new Date("2026-10-04T10:00:00.000Z"),
+		restoredFromSha: "a1b2c3d".padEnd(40, "0"),
+		sha: "f9e8d7c".padEnd(40, "0"),
+		source: "restore",
+	};
+
+	// The agent hears about a restore once: in the first agent turn after it.
+	it.each([
+		[
+			"a restore after the last agent turn gives a note",
+			restore,
+			"2026-10-04T09:00:00.000Z",
+			true,
+		],
+		["a restore and no session row give a note", restore, null, true],
+		[
+			"a restore the last agent turn saw gives no note",
+			restore,
+			"2026-10-04T11:00:00.000Z",
+			false,
+		],
+		[
+			"an agent commit gives no note",
+			{ ...restore, source: "agent" },
+			"2026-10-04T09:00:00.000Z",
+			false,
+		],
+		["no commit gives no note", null, null, false],
+	] satisfies [
+		string,
+		LatestAppCommit | null,
+		string | null,
+		boolean,
+	][])("%s", (_label, latest, sessionSavedAt, hasNote) => {
+		const note = restoreNoteOf(
+			latest,
+			sessionSavedAt === null ? null : new Date(sessionSavedAt),
+		);
+		expect(note === null).toBe(!hasNote);
+		// A note names the picked version a1b2c3d, never the copy-forward commit f9e8d7c.
+		expect(note?.includes("a1b2c3d") ?? false).toBe(hasNote);
+		expect(note?.includes("f9e8d7c") ?? false).toBe(false);
 	});
 });

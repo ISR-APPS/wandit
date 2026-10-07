@@ -71,11 +71,25 @@ export const appCommitSchema = z.object({
 export type AppCommit = z.infer<typeof appCommitSchema>;
 
 /**
- * Query of `GET /api/v2/projects/:id/versions`. `cursor` is the opaque
+ * The `nextCursor` text `<createdAt ISO>_<row uuid>`, parsed into its two
+ * parts. Neither part holds a `_`, so one split finds both. Any other text
+ * fails here, so the route answers 400 before SQL sees it.
+ */
+export const versionCursorSchema = z
+	.string()
+	.transform((cursor) => cursor.split("_"))
+	.pipe(z.tuple([isoDateTimeSchema, uuidSchema]))
+	.transform(([createdAt, id]) => ({ createdAt: new Date(createdAt), id }));
+
+/** A parsed versions cursor: the `createdAt` and the id of the last row of the previous page. */
+export type VersionCursor = z.infer<typeof versionCursorSchema>;
+
+/**
+ * Query of `GET /api/v2/projects/:id/versions`. `cursor` is the
  * `nextCursor` of the previous answer; `limit` caps the page at 50 rows.
  */
 export const listVersionsQuerySchema = z.object({
-	cursor: z.string().trim().min(1).max(1_000).optional(),
+	cursor: versionCursorSchema.optional(),
 	// Query params arrive as strings, so the number needs coercion.
 	limit: z.coerce.number().int().min(1).max(50).default(50),
 });

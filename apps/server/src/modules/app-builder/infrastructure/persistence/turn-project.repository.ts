@@ -1,11 +1,12 @@
 /**
  * Narrow read of the `projects` row the builder-turn task needs.
- * The `builder-turn` runtime calls `findForTurn`; the projects module
- * owns the table, so this read-only view lives here instead of widening
- * `ProjectsRepository` for one task.
+ * The `builder-turn` runtime calls `findForTurn`, and so does
+ * `startSandboxWithoutTurn` (restore, wake, publish) for the same sandbox
+ * inputs. The projects module owns the table, so this read-only view lives
+ * here instead of widening `ProjectsRepository`.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "@wandit/db";
+import { and, eq, isNull } from "@wandit/db";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -21,7 +22,7 @@ export type TurnProjectRow = {
 	framework: string | null;
 	/** Template release tag; null means a broken V2 row. */
 	templateVersion: string | null;
-	/** Output languages the harness instructions enforce. */
+	/** UI locale at project creation. The harness instructions give it as a hint, not a rule. */
 	languages: string[];
 	/** Per-project egress hosts (WANDIT-180); layer 3 of the allow list. */
 	networkAllowedHosts: string[];
@@ -35,7 +36,12 @@ export type TurnProjectRow = {
 export class TurnProjectRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	/** The columns above for one project, or null. */
+	/**
+	 * The columns above for one live project, or null.
+	 * A deleted project answers null. A queued turn then fails as
+	 * `project_missing` before any sandbox work.
+	 * A restore, wake, or publish does not start.
+	 */
 	async findForTurn(projectId: string): Promise<TurnProjectRow | null> {
 		const [row] = await this.db
 			.select({
@@ -48,7 +54,7 @@ export class TurnProjectRepository {
 				userId: projects.userId,
 			})
 			.from(projects)
-			.where(eq(projects.id, projectId))
+			.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
 			.limit(1);
 
 		return row ?? null;

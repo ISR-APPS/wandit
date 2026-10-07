@@ -17,8 +17,10 @@
 // from shared contracts rather than handwritten duplicate types.
 
 // Attachment upload service (V2 spec §11) — shared with the workspace chat's
-// ask_user attachments tray, which loops it once per picked file.
+// ask_user attachments tray, which loops it once per picked file, and with
+// the V2 builder composer, which uses the same limits.
 export {
+	ATTACHMENT_ACCEPT,
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
@@ -47,7 +49,11 @@ export { PromptBox } from "./components/prompt-box";
 export { chatAutostart } from "./lib/chat-autostart";
 // Public name-length cap used by forms that edit project names.
 export { PROJECT_NAME_MAX_LENGTH } from "./lib/constants";
-// Deterministic thumbnail helper for project cards.
+// The 402 check of a create call; the V2 dashboard flow in app-builder shares it.
+export { isInsufficientCreditsApiError } from "./lib/create-precheck";
+// Deterministic gradient for the version thumbnail of the workspace chat card.
 export { thumbGradient } from "./lib/helpers";
 // High-level create-with-prompt hook that handles auth, credits, creation, and navigation.
 export { useCreateProjectWithPrompt } from "./lib/hooks";
+// Microphone recording and transcription of the prompt box; the V2 builder composer shares it.
+export { useVoiceDictation } from "./lib/use-voice-dictation";

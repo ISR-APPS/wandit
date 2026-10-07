@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import type { ExecutionContext } from "@nestjs/common";
 import { HttpException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MaybeAuthenticatedRequest } from "../../../../auth";
@@ -9,8 +11,12 @@ import {
 	RateLimit,
 	type RateLimitStore,
 	RedisRateLimitGuard,
-	rateLimitRedis,
+	RedisRateLimitStore,
 } from "./redis-rate-limit.guard";
+
+// The real-Redis case runs only with V2_REDIS_INTEGRATION_TEST=true and a
+// Redis at REDIS_URL. CI has no Redis, so CI skips it.
+const RUN_REDIS = process.env.V2_REDIS_INTEGRATION_TEST === "true";
 
 class FakeController {
 	@RateLimit({ key: "turn-create", limit: 2, windowMs: 600_000 })
@@ -24,8 +30,28 @@ class FakeController {
 	})
 	stream() {}
 
+	// A 1 s window, so the real-Redis case sees the window end.
+	@RateLimit({
+		key: "turn-stream-it",
+		limit: 1,
+		mode: "open",
+		windowMs: 1_000,
+	})
+	shortStream() {}
+
+	@RateLimit({
+		ipLimit: 30,
+		key: "project-create",
+		limit: 10,
+		windowMs: 86_400_000,
+	})
+	createProject() {}
+
 	plain() {}
 }
+
+const PROJECT_CREATE_USER_KEY = "builder:rate:project-create:user-1";
+const PROJECT_CREATE_IP_KEY = "builder:rate:project-create:ip:203.0.113.9";
 
 function contextFor(
 	handler: (...args: never[]) => unknown,
@@ -43,7 +69,7 @@ function contextFor(
 	} as unknown as ExecutionContext;
 }
 
-function setup(count: number, ttlMs = 100_000) {
+function setup(count: number, ttlMs = 100_000, userId = "user-1") {
 	const store: RateLimitStore = {
 		hit: vi.fn(async () => ({ count, ttlMs })),
 		release: vi.fn(async () => undefined),
@@ -52,10 +78,16 @@ function setup(count: number, ttlMs = 100_000) {
 		header: vi.fn(),
 		// SAFETY: the guard only calls `header` on the reply.
 	} as unknown as FastifyReply;
+	// One proxy hop: the trusted client IP of the request.
+	const headers: FastifyRequest["headers"] = {
+		"x-forwarded-for": "203.0.113.9",
+	};
+	// SAFETY: the guard reads `user.id`, `headers`, and `ip` only.
 	const request = {
-		user: { id: "user-1" },
-		// SAFETY: the guard reads `user.id` only.
-	} as unknown as MaybeAuthenticatedRequest;
+		headers,
+		ip: "10.0.0.2",
+		user: { id: userId },
+	} as MaybeAuthenticatedRequest;
 
 	return {
 		guard: new RedisRateLimitGuard(new Reflector(), store),
@@ -77,7 +109,6 @@ describe("RedisRateLimitGuard", () => {
 		expect(store.hit).toHaveBeenCalledWith(
 			"builder:rate:turn-create:user-1",
 			600_000,
-			false,
 		);
 	});
 
@@ -107,13 +138,62 @@ describe("RedisRateLimitGuard", () => {
 		expect(store.hit).toHaveBeenCalledWith(
 			"builder:rate:turn-stream:user-1",
 			3_600_000,
-			true,
 		);
 		expect(store.release).toHaveBeenCalledWith(
 			"builder:rate:turn-stream:user-1",
 		);
 		// Open slots cap the hint at 60 s so clients retry soon.
 		expect(response.header).toHaveBeenCalledWith("Retry-After", "60");
+	});
+
+	it("lets the request through when the store throws", async () => {
+		const { guard, request, response, store } = setup(1);
+		vi.mocked(store.hit).mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+		await expect(
+			guard.canActivate(
+				contextFor(FakeController.prototype.create, request, response),
+			),
+		).resolves.toBe(true);
+	});
+
+	// Row 1 fails when a denied user still counts on the shared IP key.
+	// Row 2 fails when the 429 sends the wait of the user key.
+	it.each([
+		{
+			case: "the user key is over",
+			countedKeys: [PROJECT_CREATE_USER_KEY],
+			ipHit: { count: 1, ttlMs: 1_800_000 },
+			retryAfter: "500",
+			userHit: { count: 11, ttlMs: 500_000 },
+		},
+		{
+			case: "only the IP key is over",
+			countedKeys: [PROJECT_CREATE_USER_KEY, PROJECT_CREATE_IP_KEY],
+			ipHit: { count: 31, ttlMs: 1_800_000 },
+			retryAfter: "1800",
+			userHit: { count: 1, ttlMs: 2_000_000 },
+		},
+	])("throws 429 with the wait of the denying key when $case", async ({
+		countedKeys,
+		ipHit,
+		retryAfter,
+		userHit,
+	}) => {
+		const { guard, request, response, store } = setup(0);
+		vi.mocked(store.hit).mockImplementation(async (key) =>
+			key === PROJECT_CREATE_IP_KEY ? ipHit : userHit,
+		);
+
+		await expect(
+			guard.canActivate(
+				contextFor(FakeController.prototype.createProject, request, response),
+			),
+		).rejects.toBeInstanceOf(HttpException);
+		expect(vi.mocked(store.hit).mock.calls).toEqual(
+			countedKeys.map((key) => [key, 86_400_000]),
+		);
+		expect(response.header).toHaveBeenCalledWith("Retry-After", retryAfter);
 	});
 
 	it("skips handlers without RateLimit metadata", async () => {
@@ -128,25 +208,29 @@ describe("RedisRateLimitGuard", () => {
 	});
 });
 
-describe("rate-limit Lua scripts", () => {
-	it("hit script bumps the counter and re-arms TTL for open slots", () => {
-		expect(rateLimitRedis.hitScript).toBe(`
-local count = redis.call("INCR", KEYS[1])
-if count == 1 or ARGV[2] == "open" then
-	redis.call("PEXPIRE", KEYS[1], ARGV[1])
-end
-return {count, redis.call("PTTL", KEYS[1])}
-`);
-	});
-
-	it("release script floors the counter at zero", () => {
-		expect(rateLimitRedis.releaseScript).toBe(`
-local count = redis.call("DECR", KEYS[1])
-if count < 0 then
-	redis.call("DEL", KEYS[1])
-	return 0
-end
-return count
-`);
+describe.skipIf(!RUN_REDIS)("RedisRateLimitGuard on a real Redis", () => {
+	// Fails when an open hit resets the slot TTL. Then a slot that a killed
+	// relay did not release blocks every reopen while the user retries.
+	it("frees a leaked open slot when its window ends, while the user retries", async () => {
+		const store = new RedisRateLimitStore();
+		const guard = new RedisRateLimitGuard(new Reflector(), store);
+		// A new user id per run, so an earlier run cannot fill the bucket.
+		const { request, response } = setup(0, 0, `it-${randomUUID()}`);
+		const open = () =>
+			guard.canActivate(
+				contextFor(FakeController.prototype.shortStream, request, response),
+			);
+		try {
+			// The API dies with this stream open, so no release runs.
+			await expect(open()).resolves.toBe(true);
+			await delay(600);
+			// The browser reopens inside the window; the leaked slot fills the cap.
+			await expect(open()).rejects.toBeInstanceOf(HttpException);
+			await delay(600);
+			// 1.2 s after the first open, the 1 s window ended with the leak.
+			await expect(open()).resolves.toBe(true);
+		} finally {
+			await store.onModuleDestroy();
+		}
 	});
 });

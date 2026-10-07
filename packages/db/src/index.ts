@@ -5,9 +5,11 @@
 import { env } from "@wandit/env/server";
 
 // Re-export common Drizzle SQL helpers for repositories.
+// DrizzleQueryError wraps every failed query. The AI error classifier spec builds a real one.
 export {
 	and,
 	asc,
+	DrizzleQueryError,
 	desc,
 	eq,
 	gt,
@@ -23,9 +25,16 @@ export {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-// PgDialect compiles bare SQL in repository specs. getTableConfig reads index
-// metadata in schema specs. Consumers do not depend on drizzle-orm directly.
-export { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+// PgDialect compiles bare SQL in repository specs. QueryBuilder builds a
+// whole select without a database in repository specs. getTableConfig reads
+// index metadata in schema specs. alias joins one table twice in one query.
+// Consumers do not depend on drizzle-orm directly.
+export {
+	alias,
+	getTableConfig,
+	PgDialect,
+	QueryBuilder,
+} from "drizzle-orm/pg-core";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool, type PoolConfig } from "pg";
@@ -56,3 +65,32 @@ export function createDb(options: DbPoolOptions = {}) {
 
 // Convenience singleton for code that does not ask Nest to pass the DB in.
 export const db = createDb();
+
+/** U+0000. Postgres `text` and `jsonb` refuse this character in a string. */
+const NUL = "\u0000";
+
+/**
+ * Copies a JSON value without U+0000 in its strings and keys. All other data stays the same.
+ * Repositories call it before they write agent or tool output: a sandbox command can print NUL.
+ * The copy is what a `jsonb` column stores: a JSON round trip, as in a normal write.
+ */
+export function stripNulCharacters<
+	T extends Record<string, unknown> | readonly unknown[],
+>(value: T): T {
+	// SAFETY: the callers pass plain JSON data. The reviver keeps each key and value type and only removes U+0000.
+	return JSON.parse(JSON.stringify(value), (_key, entry: unknown) => {
+		if (typeof entry === "string") {
+			return entry.replaceAll(NUL, "");
+		}
+		// JSON.parse revives the children first, so only the keys of this object still need the fix.
+		if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+			return Object.fromEntries(
+				Object.entries(entry).map(([key, child]) => [
+					key.replaceAll(NUL, ""),
+					child,
+				]),
+			);
+		}
+		return entry;
+	}) as T;
+}

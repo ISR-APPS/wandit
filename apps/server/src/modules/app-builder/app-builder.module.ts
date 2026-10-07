@@ -1,27 +1,40 @@
 /**
  * The V2 app-builder module (docs/v2).
- * `app.module.ts` imports it only when `V2_BUILDER_ENABLED=true`; nothing
- * in here touches V1 modules. Ports get real providers in the issues that
- * implement them — see README.md.
+ * `app.module.ts` imports it only when `V2_BUILDER_ENABLED=true`. It
+ * imports the V1 sites and domains modules only for the deployment rows and
+ * the KV slug pointer that the publish shares (WANDIT-178). Ports get real
+ * providers in the issues that implement them — see README.md.
  */
 import { Module } from "@nestjs/common";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
 import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
 import { CreditsModule } from "../credits/credits.module";
+import { DomainsModule } from "../domains/domains.module";
 import { GenerationModule } from "../generation/generation.module";
 import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
+import { SitesModule } from "../sites/sites.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
+import { ChatHistoryService } from "./application/services/chat-history.service";
+import { CloudService } from "./application/services/cloud.service";
+import { CodeService } from "./application/services/code.service";
+import { DeviceSessionsService } from "./application/services/device-sessions.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
+import { ProjectSecretsService } from "./application/services/project-secrets.service";
+import { PublishService } from "./application/services/publish.service";
+import { SandboxWakeService } from "./application/services/sandbox-wake.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -30,24 +43,45 @@ import {
 	VersionsService,
 } from "./application/services/versions.service";
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
+import { DEVICE_SESSION_LOCK } from "./domain/ports/device-session-lock";
+import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
 import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
+import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
+import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
-import { TURN_EVENT_READER } from "./domain/ports/turn-events";
+import {
+	HOST_TURN_EVENT_READER,
+	TURN_EVENT_READER,
+} from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
-import { V2_ENV } from "./infrastructure/env/v2-env";
+import {
+	WORKERS_FOR_PLATFORMS_CLIENT,
+	workersForPlatformsClientFromEnv,
+} from "./infrastructure/cloudflare/workers-for-platforms.client";
+import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
+import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
+import { createTurnTaskStarter } from "./infrastructure/host/routing-turn-task-starter";
 import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
+import { AppPublishRepository } from "./infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
+import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
+import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
+import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
+import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
+import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
+import { RedisTurnEventReader } from "./infrastructure/redis/redis-turn-events";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import {
 	ArchiveTemplateInit,
@@ -55,14 +89,33 @@ import {
 	TEMPLATE_INIT,
 } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
+import {
+	SUPABASE_MANAGEMENT_CLIENT,
+	SupabaseManagementClient,
+} from "./infrastructure/supabase/supabase-management.client";
+import {
+	RedisSupabaseRateLimiter,
+	type SupabaseRateLimiter,
+} from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
+import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { ChatHistoryController } from "./presentation/http/controllers/chat-history.controller";
+import { CloudController } from "./presentation/http/controllers/cloud.controller";
+import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
+import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
+import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
+import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
+import { PublishController } from "./presentation/http/controllers/publish.controller";
+import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -73,12 +126,51 @@ import {
 } from "./presentation/http/guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-enabled.guard";
 
+/**
+ * The interactive Management API client of the Cloud routes, composed
+ * like the worker does in `createProvisionBackendRuntime`. Null without
+ * the platform token: `CloudService` then answers 503 `V2_ENV_MISSING`.
+ */
+export function createCloudSupabaseClient(
+	backends: Pick<AppBackendsRepository, "findByProjectId">,
+	rateLimiter: SupabaseRateLimiter,
+	/** The validated `env` in production; specs pass a plain object. */
+	v2Env: V2EnvSource,
+): SupabaseManagementClient | null {
+	const token = v2Env.SUPABASE_PLATFORM_TOKEN;
+	const organizationSlug = v2Env.SUPABASE_PLATFORM_ORG_ID;
+	if (token === undefined || organizationSlug === undefined) {
+		return null;
+	}
+	return new SupabaseManagementClient({
+		fetch: globalThis.fetch,
+		interactive: true,
+		logger: Sentry.logger,
+		organizationSlug,
+		// The ownership check reads the same row the Cloud routes read.
+		ownsRef: async (projectId, ref) =>
+			(await backends.findByProjectId(projectId))?.ref === ref,
+		rateLimiter,
+		sleep: (ms) =>
+			new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
+		token,
+	});
+}
+
 @Module({
 	controllers: [
 		AppProjectsController,
+		ChatHistoryController,
+		CloudController,
+		CodeController,
 		CostCapsController,
+		DeviceSessionsController,
 		LlmProxyController,
+		MobileBuildsController,
 		PreviewTokenController,
+		ProjectSecretsController,
+		PublishController,
+		SandboxController,
 		TurnsController,
 		V2HealthController,
 		VersionsController,
@@ -90,57 +182,124 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 	imports: [
 		CreditsModule,
 		DatabaseModule,
+		// DomainRoutingService: the KV slug pointer of the publish (WANDIT-178).
+		DomainsModule,
 		GenerationModule,
 		MeteringModule,
 		ProjectsModule,
 		SettingsModule,
+		// DeploymentsRepository: the publish shares the V1 promote and unpublish writes.
+		SitesModule,
 	],
 	providers: [
 		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,
+		AppPublishRepository,
 		AuditEventsRepository,
 		BackendsService,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
+		ChatHistoryService,
+		CloudService,
+		CodeService,
+		DeviceSessionsRepository,
+		DeviceSessionsService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
+		MobileBuildsRepository,
+		MobileBuildsService,
+		PreviewProxyClient,
 		PreviewTokenService,
 		ProjectCostCapsRepository,
+		ProjectSecretsRepository,
+		ProjectSecretsService,
+		PublishService,
 		RedisRateLimitGuard,
+		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,
+		SandboxWakeService,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
 		TemplateVersionService,
+		TriggerSyncBackendAuthUrlsTaskStarter,
+		// The sandbox start of a restore and a wake reads the egress hosts here.
+		TurnProjectRepository,
 		TurnsService,
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,
 		VersionsService,
+		// A plain class: the Trigger tasks build the same service by hand.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
+		{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
+		// Null without EXPO_TOKEN or EXPO_ACCOUNT: `MobileBuildsService` then answers 503.
+		{
+			provide: EAS_BUILD_RUNNER,
+			useFactory: easBuildRunnerFromEnv,
+			inject: [V2_ENV],
+		},
 		{ provide: GIT_STORE, useClass: CodeStorageGitStore },
 		// The LLM proxy reads a wider env slice than V2_ENV (provider keys).
 		{ provide: LLM_PROXY_ENV, useValue: env },
 		// The long-timeout undici dispatcher the chat gateway already uses.
 		{ provide: LLM_PROXY_FETCH, useValue: chatGatewayFetch },
 		{
+			provide: MOBILE_BUILD_TASK_STARTER,
+			useClass: TriggerMobileBuildTaskStarter,
+		},
+		{
 			provide: PROVISION_BACKEND_TASK_STARTER,
 			useClass: TriggerProvisionBackendTaskStarter,
+		},
+		{
+			provide: PUBLISH_APP_TASK_STARTER,
+			useClass: TriggerPublishAppTaskStarter,
 		},
 		{ provide: RATE_LIMIT_STORE, useClass: RedisRateLimitStore },
 		// WANDIT-171: the code.storage restorer replaces the logging placeholder.
 		{ provide: REPO_RESTORER, useClass: CodeStorageRepoRestorer },
 		{ provide: SANDBOX_PROVIDER, useClass: VercelSandboxProvider },
 		{
+			provide: SUPABASE_MANAGEMENT_CLIENT,
+			useFactory: createCloudSupabaseClient,
+			inject: [AppBackendsRepository, RedisSupabaseRateLimiter, V2_ENV],
+		},
+		{
 			provide: TEMPLATE_INIT,
 			// The constructor takes a directory path, not an injectable.
 			useFactory: () => new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 		},
 		{ provide: TURN_EVENT_READER, useClass: TriggerTurnEventReader },
+		{ provide: HOST_TURN_EVENT_READER, useClass: RedisTurnEventReader },
 		{ provide: TURN_LOCK, useClass: RedisTurnLock },
-		{ provide: TURN_TASK_STARTER, useClass: TriggerTurnTaskStarter },
+		// The harness host when it is configured and healthy, else the Trigger task.
+		{
+			provide: TURN_TASK_STARTER,
+			useFactory: (turns: BuilderTurnsRepository) =>
+				createTurnTaskStarter(
+					new TriggerTurnTaskStarter(),
+					turns,
+					Sentry.logger,
+				),
+			inject: [BuilderTurnsRepository],
+		},
 		{ provide: V2_ENV, useValue: env },
 		{ provide: VERSION_OBJECTS, useValue: r2VersionObjects },
+		// The W4P client of the API process. Null without the three Cloudflare
+		// env values. `PublishService` deletes the Worker on unpublish with it.
+		{
+			provide: WORKERS_FOR_PLATFORMS_CLIENT,
+			useFactory: (v2Env: V2EnvSource) =>
+				workersForPlatformsClientFromEnv(v2Env, Sentry.logger),
+			inject: [V2_ENV],
+		},
 	],
 	// The generation chat history filter resolves BuilderTurnsRepository
 	// lazily through ModuleRef. WANDIT-166/175 take the store, the restorer,

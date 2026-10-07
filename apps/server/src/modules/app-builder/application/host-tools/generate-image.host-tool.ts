@@ -18,7 +18,6 @@ import { type Tool, tool } from "ai";
 import {
 	EXTENSION_BY_MEDIA_TYPE,
 	generateBuildImage,
-	MAX_IMAGES,
 } from "../../../ai-chat/agent/site-builder/generate-image";
 import { redactProviderText } from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -48,13 +47,19 @@ export type HostToolMetering = Pick<
 	| "usdMicrosPerCredit"
 >;
 
+/**
+ * Hard cap of `generate_image` calls in one builder turn. A full app needs many
+ * images, so the cap is high. It only stops a runaway loop that spends the user's credits.
+ */
+export const BUILDER_MAX_IMAGES_PER_TURN = 30;
+
 /** What the registry hands the image tool factory. */
 export type GenerateImageHostToolDeps = {
 	metering: HostToolMetering;
-	/** `AI_IMAGE_MODEL` as the task reads it at run start; null lets the V1 path read the env. */
-	imageModel: string | null;
-	/** `AI_IMAGE_EDIT_MODEL` as the task reads it at run start; used for calls with `sourceImageUrls`. */
-	imageEditModel: string | null;
+	/** Gateway id for new images, `BUILDER_IMAGE_MODEL` in builder-turn.deps.ts. */
+	imageModel: string;
+	/** Gateway id for calls with `sourceImageUrls`, `BUILDER_IMAGE_EDIT_MODEL` in builder-turn.deps.ts. */
+	imageEditModel: string;
 	/** Spec seam; the default is the real gateway pipeline. */
 	generateImage?: typeof generateBuildImage;
 	logger: Pick<Console, "info" | "warn">;
@@ -73,10 +78,21 @@ export function createGenerateImageTool(
 
 	return tool({
 		description:
-			"Generate ONE image and write it into the project. Never text, " +
-			"logos or watermarks inside an image. `path` is project-relative " +
-			"and must start with public/ or src/assets/. Returns the hosted " +
-			`URL and the final path. Max ${MAX_IMAGES} attempts per turn; on ` +
+			"Generate ONE image and write it into the project. Use it for the " +
+			"images that the design needs. Examples: a hero photo, a section " +
+			"photo, an illustration, sign-in art, onboarding art. For the " +
+			"user's real product, place, or people, ask for the user's photos " +
+			"first and offer generated images as the other choice. When the " +
+			"user picks them or asks for placeholders, make them. To put the " +
+			"user's photo in a new scene, edit it with sourceImageUrls. An " +
+			"image of the user always wins over a " +
+			"generated one. Never text, logos or watermarks inside an image. " +
+			"`path` is project-relative and must start with public/ or " +
+			"src/assets/. A web app: Vite serves public/images/x.png at " +
+			"/images/x.png. A mobile app: write to src/assets/ and load the " +
+			"returned path with require(). Returns the hosted URL and the " +
+			"final path. The extension can change: use the returned path. " +
+			`Max ${BUILDER_MAX_IMAGES_PER_TURN} attempts per turn; on ` +
 			"unavailable/failed, build CSS/SVG art instead.",
 		inputSchema: generateImageHostToolInputSchema,
 		execute: async (
@@ -118,9 +134,9 @@ export function createGenerateImageTool(
 				return finish({ message: "path must name a file", status: "failed" });
 			}
 
-			if (imageSequence >= MAX_IMAGES) {
+			if (imageSequence >= BUILDER_MAX_IMAGES_PER_TURN) {
 				return finish({
-					message: `Image budget exhausted (${MAX_IMAGES} per turn)`,
+					message: `Image budget exhausted (${BUILDER_MAX_IMAGES_PER_TURN} per turn)`,
 					status: "failed",
 				});
 			}
@@ -135,18 +151,17 @@ export function createGenerateImageTool(
 
 			// A call with source photos is billed at the edit model's price.
 			const model =
-				sourceImageUrls !== undefined &&
-				sourceImageUrls.length > 0 &&
-				deps.imageEditModel !== null
+				sourceImageUrls !== undefined && sourceImageUrls.length > 0
 					? deps.imageEditModel
 					: deps.imageModel;
 			const childReservation = await reserveMeasuredChild(deps.metering, {
 				attemptRef: `${context.turnId}:image:${index}`,
-				estimate: model ? { count: 1, kind: "image", modelId: model } : null,
+				estimate: { count: 1, kind: "image", modelId: model },
 				// One key per turn and image index: a task retry replays the same reservation instead of a second hold.
 				idempotencyKey: `builder-turn-image:${context.turnId}:${index}`,
 				model,
 				parentEventId: context.holdEventId,
+				projectId: context.projectId,
 				subject: context.subject,
 			});
 			const childEvent = childReservation.event;
@@ -156,10 +171,8 @@ export function createGenerateImageTool(
 				...(abortSignal ? { abortSignal } : {}),
 				aspect,
 				attemptId: context.turnId,
-				...(deps.imageEditModel !== null
-					? { imageEditModel: deps.imageEditModel }
-					: {}),
-				...(deps.imageModel !== null ? { imageModel: deps.imageModel } : {}),
+				imageEditModel: deps.imageEditModel,
+				imageModel: deps.imageModel,
 				index,
 				metering: {
 					operation: "image",
@@ -262,19 +275,19 @@ async function reserveMeasuredChild(
 	metering: HostToolMetering,
 	input: {
 		attemptRef: string;
-		estimate: MeasuredCostEstimateInput | null;
+		estimate: MeasuredCostEstimateInput;
 		idempotencyKey: string;
-		model: string | null;
+		model: string;
 		parentEventId: string;
+		/** Project of the turn. Every V2 metering event names its project, the image child too. */
+		projectId: string;
 		subject: MeteringSubject;
 	},
 ): Promise<{
 	event: Awaited<ReturnType<HostToolMetering["reserve"]>>;
 	reservation: MeasuredOperationReservation;
 }> {
-	const quote = input.estimate
-		? await metering.estimateMeasuredCost(input.estimate)
-		: null;
+	const quote = await metering.estimateMeasuredCost(input.estimate);
 	const estimatedCostUsdMicros = quote?.costUsdMicros ?? null;
 	const event = await metering.reserve("image", input.subject, {
 		attemptRef: input.attemptRef,
@@ -289,6 +302,7 @@ async function reserveMeasuredChild(
 		measuredTerms: { estimatedUnitUsdMicros: estimatedCostUsdMicros, units: 1 },
 		model: input.model,
 		parentEventId: input.parentEventId,
+		projectId: input.projectId,
 	});
 
 	return {

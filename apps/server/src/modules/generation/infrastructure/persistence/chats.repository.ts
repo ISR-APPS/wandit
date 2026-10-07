@@ -3,8 +3,8 @@
  *
  * Repository means: keep SQL/database details here, not inside services.
  *
- * This file is API-side only. The worker has its own repository for writing the
- * final assistant message.
+ * The API and the V2 `builder-turn` task use it. The V1 worker has its own
+ * repository for writing the final assistant message.
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
@@ -12,10 +12,24 @@ import type {
 	ChatUsageResponse,
 	ComposerMetadata,
 	FileRef,
+	PreviewTarget,
 	TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, eq, isNull, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	isNull,
+	lt,
+	ne,
+	notInArray,
+	or,
+	type SQL,
+	sql,
+	stripNulCharacters,
+} from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
 import type { UIMessage } from "ai";
@@ -39,6 +53,11 @@ export type OwnedChatRow = {
 
 // Type of one row from the messages table.
 export type InsertedMessageRow = typeof messages.$inferSelect;
+
+/** One row of `listRecentTexts`: the message id, its role, and its text parts joined. */
+export type ChatMessageText = Pick<InsertedMessageRow, "id" | "role"> & {
+	text: string;
+};
 
 type UiMessageToInsert = {
 	id: string;
@@ -125,6 +144,25 @@ export class ChatsRepository {
 		return row ?? null;
 	}
 
+	/**
+	 * The last `limit` messages of a chat, newest first, as plain text: the
+	 * text parts joined, nothing else. The builder-turn task reads it for the
+	 * recap of a lost agent session. Assistant rows hold 44–80 KB of parts,
+	 * so the database extracts the text and the row count has a limit (X6).
+	 */
+	listRecentTexts(chatId: string, limit: number): Promise<ChatMessageText[]> {
+		return this.db
+			.select({
+				id: messages.id,
+				role: messages.role,
+				text: sql<string>`coalesce((select string_agg(part->>'text', E'\\n') from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'text'), '')`,
+			})
+			.from(messages)
+			.where(eq(messages.chatId, chatId))
+			.orderBy(desc(messages.seq))
+			.limit(limit);
+	}
+
 	// Return chat messages in insertion order.
 	listMessages(chatId: string): Promise<InsertedMessageRow[]> {
 		return this.db
@@ -132,6 +170,46 @@ export class ChatsRepository {
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
 			.orderBy(asc(messages.seq));
+	}
+
+	/**
+	 * Rows of the V2 history route (WANDIT-204): older than `beforeSeq`,
+	 * newest first, at most `limit + 1`. The extra row tells the caller that
+	 * an older page exists. The `messages_chatId_seq_idx` index serves it.
+	 */
+	listHistoryRows(
+		chatId: string,
+		options: {
+			/** `seq` of the oldest row of the newer page; undefined reads the newest page. */
+			beforeSeq?: number;
+			/** Rows of one page, without the extra row. */
+			limit: number;
+			/** Ids of the `builder_turns` rows whose answer still streams. */
+			hiddenTurnIds: readonly string[];
+		},
+	): Promise<InsertedMessageRow[]> {
+		const predicates: (SQL | undefined)[] = [eq(messages.chatId, chatId)];
+		if (options.beforeSeq !== undefined) {
+			predicates.push(lt(messages.seq, options.beforeSeq));
+		}
+		if (options.hiddenTurnIds.length > 0) {
+			// D20: a turn that is not terminal streams its answer over SSE, so its
+			// stored row stays hidden. The filter runs before the LIMIT, so a page stays full.
+			predicates.push(
+				or(
+					ne(messages.role, "assistant"),
+					isNull(messages.turnId),
+					notInArray(messages.turnId, [...options.hiddenTurnIds]),
+				),
+			);
+		}
+
+		return this.db
+			.select()
+			.from(messages)
+			.where(and(...predicates))
+			.orderBy(desc(messages.seq))
+			.limit(options.limit + 1);
 	}
 
 	async getUsage(chatId: string): Promise<ChatUsageResponse> {
@@ -207,13 +285,17 @@ export class ChatsRepository {
 	/**
 	 * V2 turn user message. Same parts layout as the project-create path —
 	 * file parts BEFORE the text part — plus the `builder_turns` FK so the
-	 * history filter can hide its in-flight assistant answer.
+	 * history filter can hide its in-flight assistant answer. The elements
+	 * picked in the preview go last, as one `data-targets` part, so the
+	 * bubble shows them after a reload.
 	 */
 	async insertTurnUserMessage(input: {
 		attachments?: FileRef[];
 		chatId: string;
 		composer?: ComposerMetadata;
 		id: string;
+		/** Elements picked in the preview, already checked by `createTurnRequestSchema`. */
+		targets?: PreviewTarget[];
 		text: string;
 		turnId: string;
 	}): Promise<InsertedMessageRow> {
@@ -241,6 +323,16 @@ export class ChatsRepository {
 								},
 							]
 						: []),
+					// The `turnTargetsDataPartSchema` shape; the web hydration parses it.
+					...(input.targets !== undefined && input.targets.length > 0
+						? [
+								{
+									data: { targets: input.targets },
+									id: "targets",
+									type: "data-targets",
+								},
+							]
+						: []),
 				],
 				role: "user",
 				turnId: input.turnId,
@@ -253,13 +345,17 @@ export class ChatsRepository {
 	/**
 	 * V2 turn assistant message. Same insert shape as
 	 * `insertUiMessagesIfAbsent` plus `turnId`; the id-conflict drop keeps a
-	 * re-run of the end step from writing a twin row.
+	 * re-run of the end step from writing a twin row. The parts hold tool
+	 * output, so the write removes U+0000, which `jsonb` refuses.
 	 */
 	async insertTurnAssistantMessage(input: {
 		chatId: string;
 		id: string;
-		/** `TurnAssistantMessageMetadata`; the web parses it with the schema. */
-		metadata: TurnAssistantMessageMetadata;
+		/**
+		 * `TurnAssistantMessageMetadata`; the web parses it with the schema.
+		 * Null on a failed or canceled turn: it has no receipt to show.
+		 */
+		metadata: TurnAssistantMessageMetadata | null;
 		parts: UIMessage["parts"];
 		turnId: string;
 	}): Promise<void> {
@@ -270,7 +366,7 @@ export class ChatsRepository {
 				...EMPTY_FAILURE_COLUMNS,
 				id: input.id,
 				metadata: input.metadata,
-				parts: input.parts,
+				parts: stripNulCharacters(input.parts),
 				role: "assistant",
 				turnId: input.turnId,
 			})

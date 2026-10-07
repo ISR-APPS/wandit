@@ -1,8 +1,9 @@
 /**
  * Reserves, checkpoints, settles, reconciles, and refunds AI-usage credit
- * holds on `ai_usage_events`. Called by controllers, the chat and generation
- * services, and the Trigger tasks. Writes rows through `MeteringRepository`
- * and ledger entries through `CreditsService`.
+ * holds on `ai_usage_events`, and records zero-credit usage with a known
+ * provider cost. Called by controllers, the chat and generation services,
+ * and the Trigger tasks. Writes rows through `MeteringRepository` and
+ * ledger entries through `CreditsService`.
  */
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -1346,6 +1347,68 @@ export class MeteringService {
 				{ ...evidence, usageEventId: eventId },
 				transaction,
 			);
+		});
+	}
+
+	/**
+	 * Records usage that costs the customer no credits and has a known
+	 * provider cost: one `reconciled` event plus its evidence row, in one
+	 * transaction. No sweep reads a reconciled row. A repeat with the same
+	 * `idempotencyKey` returns the first event. The device-minutes task
+	 * records the Appetize minutes of one session with it (WANDIT-196).
+	 */
+	async recordFreeUsage(
+		operation: "mobile_preview",
+		subject: MeteringSubject,
+		usage: {
+			/** Unique per usage, for example `mobile-preview:<Appetize session token>`. */
+			idempotencyKey: string;
+			projectId: string | null;
+			/** The caller's own row id, for example `device_sessions.id`. */
+			attemptRef: string;
+			/** The provider receipt. A reconciled event needs its cost, so `chargedUsdMicros` is required. */
+			evidence: ProviderCallEvidenceInput & { chargedUsdMicros: number };
+		},
+	): Promise<AiUsageEvent> {
+		this.assertNonEmpty(usage.idempotencyKey, "free usage idempotency key");
+		assertProviderCallEvidenceInput(usage.evidence);
+		if (usage.evidence.costStatus === "pending") {
+			throw new Error("Free usage needs a known provider cost");
+		}
+		const now = new Date();
+
+		return this.repository.transaction(async (transaction) => {
+			// On a key conflict the insert answers the first event, and the
+			// evidence insert answers the first receipt: a repeat is a no-op.
+			const event = await this.repository.insertEvent(
+				{
+					attemptRef: usage.attemptRef,
+					finalCredits: 0,
+					idempotencyKey: usage.idempotencyKey,
+					operation,
+					organizationId: subject.organizationId ?? null,
+					pricingSnapshot: {
+						operation,
+						rateUsdMicrosPerUnit: usage.evidence.rateUsdMicrosPerUnit ?? null,
+						unitKind: usage.evidence.unitKind,
+						units: usage.evidence.units,
+					},
+					projectId: usage.projectId,
+					provider: usage.evidence.transport,
+					reconciledAt: now,
+					reconciledCostUsdMicros: usage.evidence.chargedUsdMicros,
+					reservedCredits: 0,
+					settledAt: now,
+					status: "reconciled",
+					userId: subject.actorUserId,
+				},
+				transaction,
+			);
+			await this.repository.insertProviderCallEvidence(
+				{ ...usage.evidence, usageEventId: event.id },
+				transaction,
+			);
+			return event;
 		});
 	}
 

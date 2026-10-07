@@ -1,10 +1,11 @@
 /**
  * Port: the host-side tool set the agent may call during a turn.
  * `builder-turn.runtime.ts` calls `build` once per turn after the sandbox
- * exists. `BuilderHostToolRegistry` implements it with `generate_image`;
- * the backend tools land with WANDIT-186. AI SDK `ToolSet` only: vendor
- * packages stay out.
+ * exists. `BuilderHostToolRegistry` implements it with `generate_image`,
+ * `request_network_host`, and the backend tools of WANDIT-186, or with the
+ * Plan Mode tools. AI SDK `ToolSet` only: vendor packages stay out.
  */
+import type { BuilderTurnMode } from "@wandit/contracts";
 import type { ToolApprovalStatus as AiToolApprovalStatus, ToolSet } from "ai";
 
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -37,6 +38,8 @@ export type HostToolContext = {
 	/** Who acted and which pool pays; a paid host tool passes it to `reserve`. */
 	subject: MeteringSubject;
 	sandbox: SandboxHandle;
+	/** `spec.mode` of the turn. `plan` gets only the tools that ask the user. */
+	mode: BuilderTurnMode;
 };
 
 /**
