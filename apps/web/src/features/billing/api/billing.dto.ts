@@ -4,6 +4,7 @@
 export type {
 	BillingCancelRequest,
 	BillingCheckoutResponse,
+	BillingLocalPricingResponse,
 	BillingPlansResponse,
 	BillingPortalResponse,
 	BillingSubscriptionChangeOutcomeResponse,
@@ -23,4 +24,7 @@ export type {
 	ManualSubscriptionRequestStatus,
 	ManualSubscriptionRequestViewResponse,
 	PreviewBillingSubscriptionChangeBody,
+	SlickpayPaymentView,
+	StartSlickpayCheckoutBody,
+	StartSlickpayCheckoutResponse,
 } from "@wandit/contracts";

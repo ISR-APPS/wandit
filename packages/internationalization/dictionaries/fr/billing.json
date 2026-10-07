@@ -64,7 +64,7 @@
 		"nextPage": "Suivant",
 		"pageStatus": "Page {page} sur {totalPages}",
 		"offline": {
-			"badge": "Payé hors ligne",
+			"badge": "Prépayé",
 			"expiresLabel": "Expire le",
 			"requestChange": "Demander un renouvellement ou un changement",
 			"graceTitle": "Paiement hors ligne attendu",
@@ -199,6 +199,21 @@
 		"paymentAttentionBody": "Ouvrez le portail de facturation pour régler le paiement avant de changer de niveau.",
 		"openPortal": "Ouvrir le portail",
 		"close": "Fermer",
+		"slickpay": {
+			"tab": "CIB / Edahabia",
+			"title": "Payer par CIB / Edahabia",
+			"description": "Payez en dinars algériens sur la page sécurisée de SlickPay. Un paiement couvre un mois ou un an. Il ne se renouvelle pas automatiquement.",
+			"formTitle": "Informations de paiement",
+			"formDescription": "SlickPay affiche ces informations sur votre facture.",
+			"renewTitle": "Renouveler votre offre",
+			"renewBody": "Vous payez une période de plus pour votre offre actuelle. La nouvelle période commence à la fin de la période en cours.",
+			"cityLabel": "Ville ou wilaya",
+			"cityPlaceholder": "ex. Alger",
+			"cityError": "Indiquez votre ville ou votre wilaya.",
+			"pay": "Payer {amount} par CIB / Edahabia",
+			"renew": "Renouveler pour {amount}",
+			"redirecting": "Ouverture de SlickPay…"
+		},
 		"offline": {
 			"tabs": {
 				"ariaLabel": "Mode de paiement",

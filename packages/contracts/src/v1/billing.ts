@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { creditBalanceResponseSchema } from "./credits";
+import { dzdPerUsdRateSchema } from "./settings";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 export const CHECKOUT_PURPOSE = {
@@ -534,17 +535,34 @@ export function isManualSubscription(
 	return subscription?.provider === SUBSCRIPTION_PROVIDERS.manual;
 }
 
+/**
+ * Ways to pay for a manual subscription. Equals the pgEnum manual_payment_method in packages/db.
+ * The API records "slickpay" after a SlickPay card payment. An admin can also pick it to resolve a payment by hand.
+ */
 export const manualPaymentMethods = [
 	"cash_on_delivery",
 	"bank_transfer",
 	"ccp",
 	"baridimob",
+	"slickpay",
 	"other",
 ] as const;
 
 export const manualPaymentMethodSchema = z.enum(manualPaymentMethods);
 
 export type ManualPaymentMethod = z.infer<typeof manualPaymentMethodSchema>;
+
+/**
+ * Methods a customer can name as "preferred" on an offline request.
+ * "slickpay" is not in the list: SlickPay has its own checkout, not an offline call.
+ */
+export const preferredPaymentMethodSchema = manualPaymentMethodSchema.exclude([
+	"slickpay",
+]);
+
+export type PreferredPaymentMethod = z.infer<
+	typeof preferredPaymentMethodSchema
+>;
 
 // no_answer: the customer does not answer the call. call_back: the customer asks for another call, or the admin plans one.
 // wrong_number: the phone number does not reach the customer.
@@ -585,9 +603,8 @@ export const manualBillingCountrySchema = z.enum(manualBillingCountries);
 
 export type ManualBillingCountry = z.infer<typeof manualBillingCountrySchema>;
 
-// Loose international phone check: leading + or digit, then digits with the
-// usual separators. The admin calls the number by hand, so this only has to
-// reject garbage, not validate carriers.
+// Loose international phone check: leading + or digit, then digits with the usual separators.
+// The admin calls the number, or SlickPay shows it on the invoice. The check rejects only bad input.
 const phoneSchema = z
 	.string()
 	.trim()
@@ -610,7 +627,7 @@ export const createManualSubscriptionRequestBodySchema = z
 		company: z.string().trim().min(1).max(120).optional(),
 		country: manualBillingCountrySchema,
 		city: z.string().trim().min(1).max(120).optional(),
-		preferredPaymentMethod: manualPaymentMethodSchema.optional(),
+		preferredPaymentMethod: preferredPaymentMethodSchema.optional(),
 		notes: z.string().trim().min(1).max(1000).optional(),
 	})
 	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
@@ -689,6 +706,170 @@ export function addBillingInterval(
 	);
 }
 
+// ---------------------------------------------------------------------------
+// SlickPay: Algerian CIB / Edahabia cards (SATIM) on a SlickPay hosted page.
+//
+// One payment in DZD buys one period of one plan. It never auto-renews.
+// A paid invoice grants or renews a `provider = "manual"` subscription.
+// The manual expiry sweep, the admin Offline billing pages, and the receipts then apply to it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts a USD amount (usually from priceUsdFor) to whole DZD.
+ * dzdPerUsdRate is decimal DZD per 1 USD (270 = 270.00), not the stored centi-DZD value.
+ * The API invoice, the web prices, and the admin receipts all call it, so their amounts agree.
+ */
+export function dzdPriceFor(priceUsd: number, dzdPerUsdRate: number): number {
+	return Math.round(priceUsd * dzdPerUsdRate);
+}
+
+/** Answer of GET billingRoutes.localPricing. It depends on the visitor IP country, so it is never cached. */
+export const billingLocalPricingResponseSchema = z.object({
+	// null outside Algeria, or when the API has no SlickPay key. Then the web shows USD and Stripe.
+	slickpay: z
+		.object({
+			// Decimal DZD per 1 USD (270 = 270.00). Pass it to dzdPriceFor.
+			dzdPerUsdRate: dzdPerUsdRateSchema,
+		})
+		.nullable(),
+});
+
+export type BillingLocalPricingResponse = z.infer<
+	typeof billingLocalPricingResponseSchema
+>;
+
+/** Body of POST billingRoutes.slickpayCheckout. fullName, phone, and city go on the SlickPay invoice. */
+export const startSlickpayCheckoutBodySchema = z
+	.object({
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+		fullName: z.string().trim().min(2).max(120),
+		phone: phoneSchema,
+		// City or wilaya in Algeria.
+		city: z.string().trim().min(1).max(120),
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
+
+export type StartSlickpayCheckoutBody = z.infer<
+	typeof startSlickpayCheckoutBodySchema
+>;
+
+/** Answer of POST billingRoutes.slickpayCheckout. The web sends the buyer to `url`, the SlickPay page. */
+export const startSlickpayCheckoutResponseSchema = z.object({
+	// Id of the row in `slickpay_payments`. The return page confirms it.
+	paymentId: uuidSchema,
+	url: z.url(),
+});
+
+export type StartSlickpayCheckoutResponse = z.infer<
+	typeof startSlickpayCheckoutResponseSchema
+>;
+
+// created: the row exists, the SlickPay invoice does not exist yet.
+// pending: SlickPay created the invoice. The buyer has the payment URL.
+// paid: SlickPay says paid. The subscription is not granted yet.
+// fulfilled: the subscription is granted or renewed. Terminal.
+// failed: the invoice creation failed, so the buyer never got a URL. Terminal.
+// expired: still unpaid 24 h after creation. The sweep skips it. Confirm still asks SlickPay and can move it to paid.
+/** Equals the pgEnum slickpay_payment_status in packages/db. */
+export const slickpayPaymentStatuses = [
+	"created",
+	"pending",
+	"paid",
+	"fulfilled",
+	"failed",
+	"expired",
+] as const;
+
+export const slickpayPaymentStatusSchema = z.enum(slickpayPaymentStatuses);
+
+export type SlickpayPaymentStatus = z.infer<typeof slickpayPaymentStatusSchema>;
+
+/** Answer of POST billingRoutes.slickpayConfirm(id). The return page polls it while the status is created, pending, or paid. */
+export const slickpayPaymentViewSchema = z.object({
+	id: uuidSchema,
+	status: slickpayPaymentStatusSchema,
+	plan: billingPlanIdSchema,
+	// Plain positive int (not creditTierSchema), so a payment on a retired tier still renders.
+	tierCredits: z.int().positive(),
+	interval: billingIntervalSchema,
+	// Whole DZD that SlickPay charges.
+	amountDzd: z.int().positive(),
+	// The granted or renewed subscription. Set when the status is fulfilled.
+	subscriptionId: uuidSchema.nullable(),
+});
+
+export type SlickpayPaymentView = z.infer<typeof slickpayPaymentViewSchema>;
+
+/**
+ * Answer of SlickPay POST merchants/invoices (untrusted input). SlickPay sends { success: 1, message, id: 1, url }.
+ * The id becomes a string, the type of `slickpay_payments.invoice_id`.
+ */
+export const slickpayCreateInvoiceResponseSchema = z.object({
+	success: z.literal([1, true]),
+	id: z
+		.union([z.int().positive(), z.string().min(1)])
+		.transform((id) => String(id)),
+	// SlickPay hosted payment page (SATIM). The web redirects the buyer here, so only https passes.
+	url: z.url({ protocol: /^https$/ }),
+});
+
+export type SlickpayCreateInvoiceResponse = z.infer<
+	typeof slickpayCreateInvoiceResponseSchema
+>;
+
+/**
+ * Answer of SlickPay GET merchants/invoices/{id} (untrusted input). Only the fields the API reads.
+ * success must be 1 or true: a failed answer must never count as "not paid", because that expires the row.
+ */
+export const slickpayInvoiceDetailsResponseSchema = z.object({
+	success: z.literal([1, true]),
+	// SlickPay does not document the type. 1, "1", or true means paid.
+	completed: z
+		.union([z.number(), z.boolean(), z.string().regex(/^\d+$/)])
+		.nullish(),
+	data: z
+		.object({
+			// "paid" or "unpaid" in any letter case.
+			payment_status: z.string().nullish(),
+		})
+		.nullish(),
+});
+
+export type SlickpayInvoiceDetailsResponse = z.infer<
+	typeof slickpayInvoiceDetailsResponseSchema
+>;
+
+/**
+ * Error answer of the SlickPay API (untrusted input), for example a 422 on a bad phone number.
+ * Only `message` goes into slickpay_payments.last_error, never the field values.
+ */
+export const slickpayErrorBodySchema = z.object({
+	message: z.string().max(500),
+});
+
+/**
+ * True when SlickPay reports the invoice as paid. The official SlickPay WordPress plugin uses the same rule.
+ * The API grants a subscription only after this returns true.
+ */
+export function isSlickpayInvoicePaid(
+	details: SlickpayInvoiceDetailsResponse,
+): boolean {
+	if (
+		details.completed === 1 ||
+		details.completed === "1" ||
+		details.completed === true
+	) {
+		return true;
+	}
+	return details.data?.payment_status?.toLowerCase() === "paid";
+}
+
+/** API paths of the billing module. Functions build paths that have an id. */
 export const billingRoutes = {
 	plans: "/api/v1/billing/plans",
 	subscription: "/api/v1/billing/subscription",
@@ -702,5 +883,11 @@ export const billingRoutes = {
 	sync: "/api/v1/billing/sync",
 	manualRequest: "/api/v1/billing/manual-request",
 	manualRequestCancel: "/api/v1/billing/manual-request/cancel",
+	// Public. Tells the web if the visitor sees DZD prices and the SlickPay tab.
+	localPricing: "/api/v1/billing/local-pricing",
+	slickpayCheckout: "/api/v1/billing/slickpay/checkout",
+	// paymentId is the id of the row in `slickpay_payments`.
+	slickpayConfirm: (paymentId: string) =>
+		`/api/v1/billing/slickpay/payments/${paymentId}/confirm`,
 	webhook: "/api/webhooks/stripe",
 } as const;

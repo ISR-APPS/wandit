@@ -41,7 +41,8 @@ stay USD/Stripe), no mobile (native) UI.
 
 - enums `manual_subscription_request_status` (pending | contacted | no_answer | call_back |
   wrong_number | awaiting_payment | approved | rejected | canceled), `manual_payment_method` (cash_on_delivery | bank_transfer | ccp | baridimob |
-  other), `manual_subscription_payment_kind` (initial | renewal).
+  slickpay | other; `slickpay` comes from migration `0085_slickpay-payments`, see `slickpay.md`),
+  `manual_subscription_payment_kind` (initial | renewal).
 - `product_settings.manual_payments_enabled boolean not null default false`.
 - `manual_subscription_requests`: owner = `organization_id ?? user_id` (same owner rule as
   subscriptions); plan / tier_credits (whole credits) / interval; contact fields; status;
@@ -347,8 +348,9 @@ Add every new string under `billing.planPicker.offline.*`, `billing.page.offline
 new error codes in `errors.codes` (`ALREADY_SUBSCRIBED`, `NO_ACTIVE_SUBSCRIPTION`,
 `MANUAL_PAYMENTS_DISABLED`, `MANUAL_REQUEST_PENDING`, `MANUAL_SUBSCRIPTION_UNSUPPORTED`) in
 all three locales (French and Arabic must be real translations; Arabic copy must read well
-RTL). Method labels: Cash on delivery / Bank transfer / CCP / BaridiMob / Other. Country
-labels: Algeria / Tunisia / Morocco / Other.
+RTL). Method labels: Cash on delivery / Bank transfer / CCP / BaridiMob / Other. The customer
+form has no SlickPay label: a customer cannot pick `slickpay` (`preferredPaymentMethodSchema`).
+The admin labels add "SlickPay (CIB/Edahabia)". Country labels: Algeria / Tunisia / Morocco / Other.
 
 ### 4.5 Tests
 

@@ -1,3 +1,8 @@
+/**
+ * Purchase kill-switch view for the upgrade button, the out-of-credits banner, and the credits dialogs.
+ * It reads the public settings and the SlickPay local pricing of the visitor.
+ */
+import { useLocalPricingQuery } from "@/features/billing/api/billing.queries";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 
 /**
@@ -8,12 +13,22 @@ import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries
  */
 export function usePurchasesEnabled(): boolean | undefined {
 	const settingsQuery = usePublicSettingsQuery();
+	const localPricingQuery = useLocalPricingQuery();
 
 	if (!settingsQuery.data) return undefined;
 
-	return (
+	if (
 		settingsQuery.data.paidSubscriptionsEnabled ||
 		settingsQuery.data.manualPaymentsEnabled ||
 		settingsQuery.data.topupsEnabled
-	);
+	) {
+		return true;
+	}
+
+	// SlickPay does not depend on the switches above: it is on when the API has a key and the visitor is in Algeria.
+	if (!localPricingQuery.data) {
+		return localPricingQuery.isError ? false : undefined;
+	}
+
+	return localPricingQuery.data.slickpay !== null;
 }

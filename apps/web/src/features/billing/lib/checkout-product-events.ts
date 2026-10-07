@@ -1,3 +1,7 @@
+/**
+ * Records the "upgrade clicked" product event of each checkout, then continues the checkout.
+ * The plan picker, the SlickPay panel, the offline panel, and the create-team dialog call it.
+ */
 import type { ProductEventSurface } from "@wandit/contracts";
 
 import {
@@ -16,6 +20,15 @@ export async function completeCardCheckoutStart(
 ): Promise<void> {
 	await emit({ method: "card", surface }, "authenticated");
 	navigate(url);
+}
+
+/** Same order as the card flow: the event is sent before the browser leaves for the SlickPay page. */
+export async function completeSlickpayCheckoutStart(
+	url: string,
+	surface: ProductEventSurface,
+): Promise<void> {
+	await emitUpgradeClicked({ method: "slickpay", surface }, "authenticated");
+	window.location.assign(url);
 }
 
 export function recordOfflineCheckoutStart(

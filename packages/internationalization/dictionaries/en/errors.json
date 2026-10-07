@@ -49,6 +49,8 @@
 		"MANUAL_PAYMENTS_DISABLED": "Cash and transfer payments are currently unavailable.",
 		"MANUAL_REQUEST_PENDING": "An offline payment request is already pending.",
 		"MANUAL_SUBSCRIPTION_UNSUPPORTED": "This subscription is managed offline. Contact us to change it.",
+		"SLICKPAY_NOT_CONFIGURED": "Card payment with CIB / Edahabia is not available right now. Choose another payment method.",
+		"SLICKPAY_UNAVAILABLE": "SlickPay did not start your payment. You were not charged. Please try again in a few minutes.",
 		"RATE_LIMITED": "Too many requests. Please wait a moment and try again.",
 		"INTERNAL_ERROR": "The server ran into a problem. Please try again.",
 		"HTTP_400": "The request could not be completed. Check the details and try again.",

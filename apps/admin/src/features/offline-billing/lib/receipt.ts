@@ -1,9 +1,15 @@
-import type {
-	AdminManualPayment,
-	AdminManualSubscriptionDetail,
-	BillingInterval,
-	BillingPlanId,
-	ManualPaymentMethod,
+/**
+ * Builds the French text, numbers, and totals of offline (manual) subscription receipts.
+ * The admin receipt components call these helpers.
+ * Uses the currency helpers and country labels in offline-billing.ts.
+ */
+import {
+	type AdminManualPayment,
+	type AdminManualSubscriptionDetail,
+	type BillingInterval,
+	type BillingPlanId,
+	dzdPriceFor,
+	type ManualPaymentMethod,
 } from "@wandit/contracts";
 
 import { currencyMinorFactor, MANUAL_COUNTRY_LABELS } from "./offline-billing";
@@ -37,6 +43,7 @@ const FRENCH_PAYMENT_METHOD_LABELS: Record<ManualPaymentMethod, string> = {
 	bank_transfer: "Virement bancaire",
 	ccp: "CCP",
 	baridimob: "BaridiMob",
+	slickpay: "SlickPay (CIB/Edahabia)",
 	other: "Autre",
 };
 
@@ -158,13 +165,6 @@ export function formatWholeDzdAmount(amountDzd: number): string {
 	}).format(amountDzd);
 }
 
-export function computeDzdPlanPrice(
-	priceUsd: number,
-	dzdPerUsdRate: number,
-): number {
-	return Math.round(priceUsd * dzdPerUsdRate);
-}
-
 export function getReceiptCustomerName(
 	subscription: ReceiptCustomerDetail,
 ): string {
@@ -175,6 +175,10 @@ export function getReceiptCustomerName(
 	);
 }
 
+/**
+ * Converts a USD payment to whole DZD with the admin rate. Returns null when the rate is missing.
+ * Other currencies pass through.
+ */
 export function convertReceiptPaymentAmount(
 	payment: Pick<AdminManualPayment, "amountMinor" | "currency">,
 	dzdPerUsdRate?: number,
@@ -190,7 +194,7 @@ export function convertReceiptPaymentAmount(
 	}
 
 	const usdMajor = payment.amountMinor / currencyMinorFactor("USD");
-	const amountDzd = computeDzdPlanPrice(usdMajor, dzdPerUsdRate);
+	const amountDzd = dzdPriceFor(usdMajor, dzdPerUsdRate);
 
 	return {
 		amountMinor: amountDzd * currencyMinorFactor("DZD"),

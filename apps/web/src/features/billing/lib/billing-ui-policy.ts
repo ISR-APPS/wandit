@@ -15,7 +15,11 @@ import { tierPriceUsd } from "./plan-pricing";
 
 const MILLISECONDS_PER_DAY = 86_400_000;
 
-export type PlanPickerPaymentMethod = "card" | "offline";
+/** Tabs of the plan picker: Stripe card, SlickPay (CIB / Edahabia), and Cash / transfer. */
+export type PlanPickerPaymentMethod = "card" | "offline" | "slickpay";
+
+/** True for each payment tab that the plan picker can show. */
+export type PlanPickerPaymentMethods = Record<PlanPickerPaymentMethod, boolean>;
 
 /**
  * The cancel dialog shows `priceUsd` and passes the selection to the plan picker.
@@ -147,26 +151,41 @@ export function resolvePlanPickerInterval(
 	return selectedInterval ?? subscriptionInterval ?? "month";
 }
 
+/** Decides which payment tabs the plan picker shows. The SlickPay versus Stripe rule lives only here. */
+export function getPlanPickerPaymentMethods(input: {
+	paidSubscriptionsEnabled: boolean;
+	manualPaymentsEnabled: boolean;
+	/** True when GET local-pricing returns a rate: the visitor is in Algeria and the API has a SlickPay key. */
+	slickpayOffered: boolean;
+	subscription: Pick<Subscription, "provider"> | null | undefined;
+}): PlanPickerPaymentMethods {
+	const manualSubscription = isManualSubscription(input.subscription);
+	// SlickPay cannot change a Stripe subscription (the API answers 409), so a Stripe subscriber keeps the Card tab.
+	const slickpayAvailable =
+		input.slickpayOffered && (!input.subscription || manualSubscription);
+	// Product rule: visitors in Algeria pay with SlickPay, not Stripe.
+	// To show both tabs to them, remove "&& !slickpayAvailable" from this line.
+	const cardAvailable =
+		input.paidSubscriptionsEnabled && !manualSubscription && !slickpayAvailable;
+
+	return {
+		card: cardAvailable,
+		offline: input.manualPaymentsEnabled,
+		slickpay: slickpayAvailable,
+	};
+}
+
+/** Keeps the preferred tab when it is available. Else SlickPay, then Card, then Cash / transfer. */
 export function resolvePlanPickerPaymentMethod(
 	preferred: PlanPickerPaymentMethod | null | undefined,
-	cardAvailable: boolean,
-	offlineAvailable: boolean,
+	available: PlanPickerPaymentMethods,
 ): PlanPickerPaymentMethod | null {
-	if (preferred === "card" && cardAvailable) {
-		return "card";
+	if (preferred && available[preferred]) {
+		return preferred;
 	}
 
-	if (preferred === "offline" && offlineAvailable) {
-		return "offline";
-	}
+	// SlickPay comes first: it is the default tab where it shows.
+	const defaultOrder = ["slickpay", "card", "offline"] as const;
 
-	if (cardAvailable) {
-		return "card";
-	}
-
-	if (offlineAvailable) {
-		return "offline";
-	}
-
-	return null;
+	return defaultOrder.find((method) => available[method]) ?? null;
 }

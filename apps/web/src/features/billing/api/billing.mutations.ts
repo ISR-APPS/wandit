@@ -17,6 +17,7 @@ import type {
 	CreateBillingTopupBody,
 	CreateManualSubscriptionRequestBody,
 	PreviewBillingSubscriptionChangeBody,
+	StartSlickpayCheckoutBody,
 } from "./billing.dto";
 import { billingKeys } from "./billing.queries";
 import {
@@ -29,6 +30,7 @@ import {
 	createManualSubscriptionRequest,
 	previewBillingSubscriptionChange,
 	resumeBillingSubscription,
+	startSlickpayCheckout,
 	syncBillingSubscription,
 } from "./billing.services";
 
@@ -36,6 +38,14 @@ export function useCreateBillingCheckout() {
 	return useMutation({
 		mutationFn: (body: CreateBillingCheckoutBody) =>
 			createBillingCheckout(body),
+	});
+}
+
+/** Creates the SlickPay invoice. The caller records the product event, then opens the returned URL. */
+export function useStartSlickpayCheckout() {
+	return useMutation({
+		mutationFn: (body: StartSlickpayCheckoutBody) =>
+			startSlickpayCheckout(body),
 	});
 }
 

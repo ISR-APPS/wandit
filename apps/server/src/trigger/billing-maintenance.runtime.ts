@@ -1,3 +1,8 @@
+/**
+ * Builds the billing service graphs of the Trigger.dev billing tasks by hand, without Nest.
+ * The refill, reconciliation, manual expiry, SlickPay sweep, affiliate, signup grant, and webhook tasks call it.
+ * Each function takes one task database pool and returns the services that the task calls.
+ */
 import { logger as triggerLogger } from "@trigger.dev/sdk";
 import type { createDb } from "@wandit/db";
 
@@ -15,6 +20,7 @@ import { BillingWebhookRetryService } from "../modules/billing/application/servi
 import { FinancialReconciliationService } from "../modules/billing/application/services/financial-reconciliation.service";
 import { ManualSubscriptionsService } from "../modules/billing/application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
+import { SlickpayPaymentsService } from "../modules/billing/application/services/slickpay-payments.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "../modules/billing/application/services/stripe-webhook-processor.service";
@@ -31,9 +37,11 @@ import { FinancialReconciliationOutboxRepository } from "../modules/billing/infr
 import { ManualSubscriptionPaymentsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-payments.repository";
 import { ManualSubscriptionRequestsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-requests.repository";
 import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
+import { SlickpayPaymentsRepository } from "../modules/billing/infrastructure/persistence/slickpay-payments.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
+import { slickpayClientFromEnv } from "../modules/billing/infrastructure/slickpay/slickpay.client";
 import { StripeProvider } from "../modules/billing/infrastructure/stripe/stripe.provider";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
@@ -117,6 +125,23 @@ export function createManualBillingRuntime(db: TriggerDatabase) {
 			new BillingCheckoutAttemptsRepository(db),
 			new ProductSettingsService(new ProductSettingsRepository(db)),
 			createLifecycleEvents(db),
+		),
+	};
+}
+
+/** The SlickPay sweep graph. A paid SlickPay payment grants or renews through the manual billing service. */
+export function createSlickpayRuntime(db: TriggerDatabase) {
+	const { manualSubscriptions } = createManualBillingRuntime(db);
+
+	return {
+		slickpayPayments: new SlickpayPaymentsService(
+			new SlickpayPaymentsRepository(db),
+			slickpayClientFromEnv(),
+			manualSubscriptions,
+			new ManualSubscriptionPaymentsRepository(db),
+			new SubscriptionsRepository(db),
+			new BillingCheckoutAttemptsRepository(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),
 	};
 }

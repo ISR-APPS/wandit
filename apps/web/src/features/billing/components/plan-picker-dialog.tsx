@@ -1,6 +1,7 @@
 /**
  * Shows scoped subscription plans and previews changes before confirmation.
  * The billing modal supplies selections; billing queries and mutations handle requests.
+ * Payment tabs: Card (Stripe), CIB / Edahabia (SlickPay, visitors in Algeria), and Cash / transfer.
  */
 import type {
 	BillingInterval,
@@ -59,10 +60,12 @@ import {
 import {
 	useBillingPlansQuery,
 	useBillingSubscriptionQuery,
+	useLocalPricingQuery,
 } from "@/features/billing/api/billing.queries";
 import {
 	areTopupsAvailable,
 	getPendingSubscriptionChange,
+	getPlanPickerPaymentMethods,
 	isStarterPlanVisible,
 	type PlanPickerPaymentMethod,
 	resolvePlanPickerInterval,
@@ -100,6 +103,7 @@ import {
 	type ManualPaymentSelection,
 } from "./manual-payment-request-panel";
 import { PlanCard } from "./plan-card";
+import { SlickpayCheckoutPanel } from "./slickpay-checkout-panel";
 
 export type PlanPickerDialogProps = {
 	open: boolean;
@@ -235,6 +239,7 @@ function PlanPickerContent({
 	const plansQuery = useBillingPlansQuery();
 	const subscriptionQuery = useBillingSubscriptionQuery();
 	const settingsQuery = usePublicSettingsQuery();
+	const localPricingQuery = useLocalPricingQuery();
 	const checkout = useCreateBillingCheckout();
 	const topup = useCreateBillingTopupCheckout();
 	const portal = useCreateBillingPortal();
@@ -269,7 +274,8 @@ function PlanPickerContent({
 	if (
 		plansQuery.isPending ||
 		subscriptionQuery.isPending ||
-		settingsQuery.isPending
+		settingsQuery.isPending ||
+		localPricingQuery.isPending
 	) {
 		return (
 			<PlanPickerSkeleton
@@ -313,6 +319,8 @@ function PlanPickerContent({
 	const topupsEnabled = settings?.topupsEnabled ?? false;
 	const organizationsEnabled = settings?.organizationsEnabled ?? false;
 	const manualPaymentsEnabled = settings?.manualPaymentsEnabled ?? false;
+	// Not null only for visitors in Algeria. A failed request falls back to USD and Stripe.
+	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
 
 	const subscription = subscriptionView.subscription;
 	const pendingChange = getPendingSubscriptionChange(subscription);
@@ -323,15 +331,23 @@ function PlanPickerContent({
 		catalog.topupPacks.length,
 	);
 	const manualSubscription = isManualSubscription(subscription);
-	const cardAvailable = paidSubscriptionsEnabled && !manualSubscription;
-	const offlineAvailable = manualPaymentsEnabled;
+	const paymentMethods = getPlanPickerPaymentMethods({
+		manualPaymentsEnabled,
+		paidSubscriptionsEnabled,
+		slickpayOffered: dzdPerUsdRate !== null,
+		subscription,
+	});
+	const {
+		card: cardAvailable,
+		offline: offlineAvailable,
+		slickpay: slickpayAvailable,
+	} = paymentMethods;
 	const paymentMethod = resolvePlanPickerPaymentMethod(
 		selectedPaymentMethod,
-		cardAvailable,
-		offlineAvailable,
+		paymentMethods,
 	);
 
-	if (manualSubscription && !offlineAvailable) {
+	if (manualSubscription && !offlineAvailable && !slickpayAvailable) {
 		return (
 			<PickerNotice
 				tone="neutral"
@@ -349,7 +365,7 @@ function PlanPickerContent({
 		);
 	}
 
-	if (!paidSubscriptionsEnabled && !offlineAvailable) {
+	if (!paidSubscriptionsEnabled && !offlineAvailable && !slickpayAvailable) {
 		return (
 			<PickerNotice
 				tone="neutral"
@@ -704,6 +720,8 @@ function PlanPickerContent({
 							tier={tier}
 							tiers={plan.tiers}
 							basePer100Usd={plan.basePer100Usd}
+							// The Card tab charges USD through Stripe, so its cards never show DZD.
+							dzdPerUsdRate={null}
 							interval={interval}
 							perLabel={interval === "year" ? copy.perYear : copy.perMonth}
 							selectId={`billing-tier-${plan.id}`}
@@ -749,6 +767,8 @@ function PlanPickerContent({
 					tier={businessTier}
 					tiers={businessPlan.tiers}
 					basePer100Usd={businessPlan.basePer100Usd}
+					// The teaser opens create-team. A new team in Algeria pays with SlickPay in DZD.
+					dzdPerUsdRate={dzdPerUsdRate}
 					interval={interval}
 					perLabel={interval === "year" ? copy.perYear : copy.perMonth}
 					selectId="billing-tier-business"
@@ -805,6 +825,7 @@ function PlanPickerContent({
 				lastOfflineSelection?.interval ?? selectedInterval ?? initialInterval
 			}
 			initialPlan={offlinePlanId}
+			dzdPerUsdRate={dzdPerUsdRate}
 			initialTierCredits={
 				lastOfflineSelection?.tierCredits ??
 				(offlinePlanId ? selectedPlanTiers[offlinePlanId] : undefined) ??
@@ -823,7 +844,23 @@ function PlanPickerContent({
 			surface={surface}
 		/>
 	);
-	const showPaymentTabs = cardAvailable && offlineAvailable;
+	// SlickPay sells Pro or Business only. Starter is a card retention offer.
+	const slickpayPlan = scopedPlans.find((plan) => plan.id !== "starter");
+	const slickpayPanel =
+		slickpayPlan && dzdPerUsdRate !== null ? (
+			<SlickpayCheckoutPanel
+				plan={slickpayPlan}
+				subscription={subscription}
+				dzdPerUsdRate={dzdPerUsdRate}
+				defaultFullName={defaultFullName}
+				initialInterval={selectedInterval ?? undefined}
+				initialTierCredits={selectedPlanTiers[slickpayPlan.id]}
+				surface={surface}
+			/>
+		) : null;
+	const showPaymentTabs =
+		[cardAvailable, offlineAvailable, slickpayAvailable].filter(Boolean)
+			.length > 1;
 
 	return (
 		<>
@@ -832,9 +869,11 @@ function PlanPickerContent({
 					<DialogTitle className="font-display tracking-tight">
 						{paymentMethod === "offline"
 							? copy.offline.title
-							: subscription
-								? copy.changeTitle
-								: copy.chooseTitle}
+							: paymentMethod === "slickpay"
+								? copy.slickpay.title
+								: subscription
+									? copy.changeTitle
+									: copy.chooseTitle}
 					</DialogTitle>
 					{subscription ? (
 						<Badge variant="outline">
@@ -859,9 +898,11 @@ function PlanPickerContent({
 				<DialogDescription>
 					{paymentMethod === "offline"
 						? copy.offline.description
-						: subscription
-							? copy.changeDescription
-							: copy.chooseDescription}
+						: paymentMethod === "slickpay"
+							? copy.slickpay.description
+							: subscription
+								? copy.changeDescription
+								: copy.chooseDescription}
 				</DialogDescription>
 			</DialogHeader>
 
@@ -892,29 +933,57 @@ function PlanPickerContent({
 				<Tabs
 					value={paymentMethod}
 					onValueChange={(value) => {
-						if (value === "card" || value === "offline") {
+						if (
+							value === "card" ||
+							value === "offline" ||
+							value === "slickpay"
+						) {
 							setSelectedPaymentMethod(value);
 						}
 					}}
 				>
 					<TabsList className="w-full" aria-label={copy.offline.tabs.ariaLabel}>
-						<TabsTrigger value="card" className="flex-1">
-							<CreditCard aria-hidden />
-							{copy.offline.tabs.card}
-						</TabsTrigger>
-						<TabsTrigger value="offline" className="flex-1">
-							<HandCoins aria-hidden />
-							{copy.offline.tabs.offline}
-						</TabsTrigger>
+						{slickpayAvailable ? (
+							<TabsTrigger value="slickpay" className="flex-1">
+								<CreditCard aria-hidden />
+								{copy.slickpay.tab}
+							</TabsTrigger>
+						) : null}
+						{cardAvailable ? (
+							<TabsTrigger value="card" className="flex-1">
+								<CreditCard aria-hidden />
+								{copy.offline.tabs.card}
+							</TabsTrigger>
+						) : null}
+						{offlineAvailable ? (
+							<TabsTrigger value="offline" className="flex-1">
+								<HandCoins aria-hidden />
+								{copy.offline.tabs.offline}
+							</TabsTrigger>
+						) : null}
 					</TabsList>
-					<TabsContent value="card">{cardPanel}</TabsContent>
-					<TabsContent
-						value="offline"
-						forceMount
-						className="data-[state=inactive]:hidden"
-					>
-						{offlinePanel}
-					</TabsContent>
+					{/* forceMount keeps the typed SlickPay and offline forms when the user switches tabs. */}
+					{slickpayAvailable ? (
+						<TabsContent
+							value="slickpay"
+							forceMount
+							className="data-[state=inactive]:hidden"
+						>
+							{slickpayPanel}
+						</TabsContent>
+					) : null}
+					{cardAvailable ? (
+						<TabsContent value="card">{cardPanel}</TabsContent>
+					) : null}
+					{offlineAvailable ? (
+						<TabsContent
+							value="offline"
+							forceMount
+							className="data-[state=inactive]:hidden"
+						>
+							{offlinePanel}
+						</TabsContent>
+					) : null}
 				</Tabs>
 			) : paymentMethod === "offline" ? (
 				<>
@@ -936,6 +1005,8 @@ function PlanPickerContent({
 					) : null}
 					{errorMessage ? <InlineError message={errorMessage} /> : null}
 				</>
+			) : paymentMethod === "slickpay" ? (
+				slickpayPanel
 			) : (
 				cardPanel
 			)}

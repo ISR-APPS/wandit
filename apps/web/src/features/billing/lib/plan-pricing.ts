@@ -1,9 +1,13 @@
+/**
+ * Price math and price text for the plan cards, the plan picker, and the landing pricing page.
+ * The prices come from the billing catalog in USD. Visitors in Algeria see them in DZD.
+ */
 import type {
 	BillingInterval,
 	BillingTierPrice,
 	Subscription,
 } from "@wandit/contracts";
-import { priceUsdFor } from "@wandit/contracts";
+import { dzdPriceFor, priceUsdFor } from "@wandit/contracts";
 import type { Locale } from "@wandit/internationalization";
 
 // Savings are relative to the selected plan's own base rate. Requiring the
@@ -33,6 +37,34 @@ export function formatUsd(value: number, locale: Locale): string {
 		minimumFractionDigits: fractionDigits,
 		maximumFractionDigits: fractionDigits,
 	}).format(value);
+}
+
+/**
+ * Formats whole dinars, for example "6 750 DZD". The admin receipts use the same format.
+ * DZD amounts are never localized (docs/localization.md), so the format is always fr-FR.
+ */
+export function formatDzd(amountDzd: number): string {
+	return new Intl.NumberFormat("fr-FR", {
+		style: "currency",
+		currency: "DZD",
+		currencyDisplay: "code",
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 0,
+	}).format(amountDzd);
+}
+
+/**
+ * Formats a catalog USD price for the visitor.
+ * dzdPerUsdRate is decimal DZD per 1 USD from GET local-pricing. It is null outside Algeria, so those visitors see USD.
+ */
+export function formatPlanPrice(
+	priceUsd: number,
+	locale: Locale,
+	dzdPerUsdRate: number | null,
+): string {
+	return dzdPerUsdRate === null
+		? formatUsd(priceUsd, locale)
+		: formatDzd(dzdPriceFor(priceUsd, dzdPerUsdRate));
 }
 
 export function isRenewalDowngrade(

@@ -287,13 +287,13 @@ function BillingContent() {
 									}
 								}}
 								onOpenPlanPicker={() => openPlanPicker("billing_page")}
-								onOpenOfflinePlanPicker={() => {
+								onOpenRenewalPlanPicker={() => {
 									const subscription = subscriptionQuery.data.subscription;
 									if (!subscription) return;
 
+									// No payment method: the picker opens CIB / Edahabia when SlickPay is available, else Cash / transfer.
 									openPlanPicker("billing_page", {
 										interval: subscription.interval,
-										paymentMethod: "offline",
 										plan: subscription.plan,
 										tierCredits: subscription.tierCredits,
 									});
@@ -398,7 +398,7 @@ function CardHeading({
 type StatusTone = "success" | "warning" | "danger" | "neutral";
 
 // The same tones as the affiliate status pills. Green: active. Amber: ends soon.
-// Red: not entitled. Neutral: plain facts, for example "Paid offline".
+// Red: not entitled. Neutral: plain facts, for example "Prepaid".
 const TONE_CLASS = {
 	success:
 		"bg-green-500/[0.12] text-green-800 dark:bg-green-400/15 dark:text-green-300",
@@ -514,7 +514,7 @@ function SubscriptionCard({
 	manualPaymentsEnabled,
 	locale,
 	onOpenPlanPicker,
-	onOpenOfflinePlanPicker,
+	onOpenRenewalPlanPicker,
 	onOpenPortal,
 	portalPending,
 	cancelPending,
@@ -529,7 +529,8 @@ function SubscriptionCard({
 	manualPaymentsEnabled: boolean;
 	locale: Locale;
 	onOpenPlanPicker: () => void;
-	onOpenOfflinePlanPicker: () => void;
+	/** Opens the picker on the plan of a manual subscription, to renew or change it. */
+	onOpenRenewalPlanPicker: () => void;
 	onOpenPortal: () => void;
 	portalPending: boolean;
 	cancelPending: boolean;
@@ -635,7 +636,7 @@ function SubscriptionCard({
 								type="button"
 								size="md"
 								className={KEYCAP_ON_CARD_CLASS}
-								onClick={onOpenOfflinePlanPicker}
+								onClick={onOpenRenewalPlanPicker}
 							>
 								<HandCoinsIcon aria-hidden weight="bold" className="size-4" />
 								{copy.page.offline.requestChange}
