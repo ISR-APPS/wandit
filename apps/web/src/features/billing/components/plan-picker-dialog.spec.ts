@@ -30,6 +30,8 @@ const pickerState = vi.hoisted(() => ({
 	plansError: false,
 	settingsDataOnError: false,
 	settingsError: false,
+	// Decimal DZD per 1 USD that GET local-pricing returns. Null outside Algeria.
+	slickpayRate: null as number | null,
 	subscriptionError: false,
 	subscription: null as Subscription | null,
 }));
@@ -122,7 +124,9 @@ const pickerDictionary = vi.hoisted(() => ({
 			loadErrorTitle: "Plans could not load",
 			monthly: "Monthly",
 			offline: {
+				continue: "Continue to details",
 				description: "Choose a plan and payment method",
+				steps: { plan: "Choose your plan" },
 				tabs: {
 					ariaLabel: "Payment method",
 					card: "Card",
@@ -136,6 +140,11 @@ const pickerDictionary = vi.hoisted(() => ({
 			proFeatures: ["Pro feature"],
 			proName: "Pro",
 			proTagline: "For creators",
+			slickpay: {
+				description: "Pay in Algerian dinars",
+				tab: "CIB / Edahabia",
+				title: "Pay with CIB / Edahabia",
+			},
 			starterFeatures: ["Starter feature"],
 			starterName: "Starter",
 			starterTagline: "Start small",
@@ -168,6 +177,15 @@ vi.mock("@/features/billing/api/billing.queries", () => ({
 		isError: pickerState.subscriptionError,
 		isPending: false,
 	}),
+	useLocalPricingQuery: () => ({
+		data: {
+			slickpay:
+				pickerState.slickpayRate === null
+					? null
+					: { dzdPerUsdRate: pickerState.slickpayRate },
+		},
+		isPending: false,
+	}),
 }));
 
 vi.mock("@/features/billing/api/billing.mutations", () => {
@@ -189,6 +207,7 @@ vi.mock("@/features/billing/api/billing.mutations", () => {
 			mutateAsync: pickerMutations.preview,
 		}),
 		useResumeBillingSubscription: mutation,
+		useStartSlickpayCheckout: mutation,
 	};
 });
 
@@ -362,6 +381,7 @@ describe("plan picker query resilience", () => {
 		pickerState.plansError = false;
 		pickerState.settingsDataOnError = false;
 		pickerState.settingsError = false;
+		pickerState.slickpayRate = null;
 		pickerState.subscriptionError = false;
 		pickerState.subscription = null;
 		pickerMutations.preview.mockResolvedValue({
@@ -550,6 +570,19 @@ describe("plan picker query resilience", () => {
 		renderPicker();
 		expect(screen.getByRole("heading", { name: "Starter" })).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
+	});
+
+	it("shows a visitor in Algeria the CIB / Edahabia tab instead of Card", () => {
+		pickerState.manualPaymentsEnabled = true;
+		pickerState.slickpayRate = 270;
+
+		renderPicker();
+
+		expect(
+			screen.getByRole("tab", { name: "CIB / Edahabia", selected: true }),
+		).toBeTruthy();
+		expect(screen.getByRole("tab", { name: "Cash / transfer" })).toBeTruthy();
+		expect(screen.queryByRole("tab", { name: "Card" })).toBeNull();
 	});
 
 	it("still honors a valid paid-subscriptions switch", () => {

@@ -1,3 +1,7 @@
+/**
+ * Nest module of billing: Stripe subscriptions and top-ups, offline (manual) billing, and SlickPay.
+ * AppModule imports it. It registers the billing controllers, services, and repositories.
+ */
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
@@ -12,6 +16,7 @@ import { BillingWebhookRetryService } from "./application/services/billing-webho
 import { ManualSubscriptionRequestsService } from "./application/services/manual-subscription-requests.service";
 import { ManualSubscriptionsService } from "./application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "./application/services/payment-refunds.service";
+import { SlickpayPaymentsService } from "./application/services/slickpay-payments.service";
 import { StripeEventRouter } from "./application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "./application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "./application/services/stripe-webhook-processor.service";
@@ -29,12 +34,18 @@ import { CancellationReasonsRepository } from "./infrastructure/persistence/canc
 import { FinancialReconciliationOutboxRepository } from "./infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { ManualSubscriptionPaymentsRepository } from "./infrastructure/persistence/manual-subscription-payments.repository";
 import { ManualSubscriptionRequestsRepository } from "./infrastructure/persistence/manual-subscription-requests.repository";
+import { SlickpayPaymentsRepository } from "./infrastructure/persistence/slickpay-payments.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
+import {
+	SLICKPAY_CLIENT,
+	slickpayClientFromEnv,
+} from "./infrastructure/slickpay/slickpay.client";
 import { AdminManualBillingController } from "./presentation/http/controllers/admin-manual-billing.controller";
 import { BillingController } from "./presentation/http/controllers/billing.controller";
 import { ManualBillingController } from "./presentation/http/controllers/manual-billing.controller";
+import { SlickpayBillingController } from "./presentation/http/controllers/slickpay-billing.controller";
 import { StripeWebhookController } from "./presentation/http/controllers/stripe-webhook.controller";
 import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write.guard";
 
@@ -43,6 +54,7 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 		AdminManualBillingController,
 		BillingController,
 		ManualBillingController,
+		SlickpayBillingController,
 		StripeWebhookController,
 	],
 	exports: [
@@ -77,6 +89,10 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 		ManualSubscriptionRequestsService,
 		ManualSubscriptionsService,
 		PaymentRefundsService,
+		SlickpayPaymentsRepository,
+		SlickpayPaymentsService,
+		// Null without SLICKPAY_PUBLIC_KEY: SlickpayPaymentsService then hides SlickPay and answers 503.
+		{ provide: SLICKPAY_CLIENT, useFactory: slickpayClientFromEnv },
 		StripeEventRouter,
 		StripeSubscriptionSyncService,
 		StripeWebhookProcessor,

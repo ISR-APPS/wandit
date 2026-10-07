@@ -1,19 +1,24 @@
+/**
+ * Pure helpers for the offline payment request form.
+ * Called by manual-payment-request-panel.tsx. Builds the body that the manual-request mutation sends.
+ */
 import type {
 	BillingInterval,
 	BillingPlanId,
 	CreateManualSubscriptionRequestBody,
 	CreditTier,
 	ManualBillingCountry,
-	ManualPaymentMethod,
+	PreferredPaymentMethod,
 } from "@wandit/contracts";
 
+/** Form state of step 2. assembleManualSubscriptionRequestBody turns an empty optional field into undefined. */
 export type ManualPaymentContactValues = {
 	fullName: string;
 	phone: string;
 	company: string;
 	country: ManualBillingCountry;
 	city: string;
-	preferredPaymentMethod: ManualPaymentMethod | "";
+	preferredPaymentMethod: PreferredPaymentMethod | "";
 	notes: string;
 };
 

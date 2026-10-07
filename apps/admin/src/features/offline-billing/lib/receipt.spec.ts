@@ -1,20 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	computeDzdPlanPrice,
 	convertReceiptPaymentAmount,
 	createReceiptNumber,
 	formatReceiptAmount,
 	formatReceiptDate,
 	formatReceiptDateTime,
-	formatWholeDzdAmount,
-	getFrenchBillingIntervalLabel,
 	getFrenchCountryLabel,
-	getFrenchPaymentKindLabel,
-	getFrenchPaymentMethodLabel,
 	getReceiptCustomerName,
 	groupPaymentTotalsByCurrency,
-	RECEIPT_PLAN_FEATURES,
 } from "./receipt";
 
 function normalizeIntlWhitespace(value: string): string {
@@ -69,14 +63,6 @@ describe("French receipt money formatting", () => {
 			"25,000 TND",
 		);
 	});
-
-	it("converts catalog prices to rounded whole dinars", () => {
-		expect(computeDzdPlanPrice(50, 270)).toBe(13_500);
-		expect(computeDzdPlanPrice(10.01, 270.5)).toBe(2_708);
-		expect(normalizeIntlWhitespace(formatWholeDzdAmount(13_500))).toBe(
-			"13 500 DZD",
-		);
-	});
 });
 
 describe("getReceiptCustomerName", () => {
@@ -91,37 +77,11 @@ describe("getReceiptCustomerName", () => {
 });
 
 describe("French receipt labels", () => {
-	it("labels payment kinds, methods, and billing intervals", () => {
-		expect(getFrenchPaymentKindLabel("initial")).toBe("Paiement initial");
-		expect(getFrenchPaymentKindLabel("renewal")).toBe("Renouvellement");
-		expect(getFrenchPaymentMethodLabel("cash_on_delivery")).toBe(
-			"Paiement à la livraison",
-		);
-		expect(getFrenchPaymentMethodLabel("bank_transfer")).toBe(
-			"Virement bancaire",
-		);
-		expect(getFrenchPaymentMethodLabel("ccp")).toBe("CCP");
-		expect(getFrenchPaymentMethodLabel("baridimob")).toBe("BaridiMob");
-		expect(getFrenchPaymentMethodLabel("other")).toBe("Autre");
-		expect(getFrenchBillingIntervalLabel("month")).toBe("Mensuel");
-		expect(getFrenchBillingIntervalLabel("year")).toBe("Annuel");
-	});
-
 	it("formats known and standard country codes in French", () => {
 		expect(getFrenchCountryLabel("DZ")).toBe("Algérie");
 		expect(getFrenchCountryLabel("ma")).toBe("Maroc");
 		expect(getFrenchCountryLabel("OTHER")).toBe("Autre");
 		expect(getFrenchCountryLabel("FR")).toBe("France");
-	});
-
-	it("keeps the plan feature copy synchronized for every receipt plan", () => {
-		expect(RECEIPT_PLAN_FEATURES.starter).toContain("60 crédits chaque mois");
-		expect(RECEIPT_PLAN_FEATURES.pro).toContain(
-			"De nouveaux crédits chaque mois",
-		);
-		expect(RECEIPT_PLAN_FEATURES.business).toContain(
-			"Tout ce qui est inclus dans Pro",
-		);
 	});
 });
 

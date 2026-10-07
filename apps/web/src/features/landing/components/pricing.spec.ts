@@ -134,6 +134,10 @@ vi.mock("@/features/billing/api/billing.queries", () => ({
 		isError: false,
 		isSuccess: true,
 	}),
+	useLocalPricingQuery: () => ({
+		data: { slickpay: null },
+		isPending: false,
+	}),
 }));
 
 vi.mock("@/features/billing/components/billing-modal-provider", () => ({

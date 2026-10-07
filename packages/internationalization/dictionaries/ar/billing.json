@@ -64,7 +64,7 @@
 		"nextPage": "التالي",
 		"pageStatus": "الصفحة {page} من {totalPages}",
 		"offline": {
-			"badge": "مدفوع خارج المنصة",
+			"badge": "مدفوع مسبقًا",
 			"expiresLabel": "ينتهي في",
 			"requestChange": "طلب التجديد أو التغيير",
 			"graceTitle": "موعد الدفع خارج المنصة",
@@ -199,6 +199,21 @@
 		"paymentAttentionBody": "افتح بوابة الفوترة لمعالجة الدفع قبل تغيير الفئة.",
 		"openPortal": "فتح بوابة الفوترة",
 		"close": "إغلاق",
+		"slickpay": {
+			"tab": "CIB / Edahabia",
+			"title": "الدفع عبر CIB / Edahabia",
+			"description": "ادفع بالدينار الجزائري على صفحة SlickPay الآمنة. يغطي الدفع الواحد شهرًا أو سنة، ولا يتجدد تلقائيًا.",
+			"formTitle": "معلومات الدفع",
+			"formDescription": "يعرض SlickPay هذه المعلومات على فاتورتك.",
+			"renewTitle": "جدّد خطتك",
+			"renewBody": "تدفع مقابل فترة إضافية من خطتك الحالية. تبدأ الفترة الجديدة عند انتهاء الفترة الحالية.",
+			"cityLabel": "المدينة أو الولاية",
+			"cityPlaceholder": "مثال: الجزائر",
+			"cityError": "أدخل مدينتك أو ولايتك.",
+			"pay": "ادفع {amount} عبر CIB / Edahabia",
+			"renew": "جدّد مقابل {amount}",
+			"redirecting": "جارٍ فتح SlickPay…"
+		},
 		"offline": {
 			"tabs": {
 				"ariaLabel": "طريقة الدفع",

@@ -3,6 +3,7 @@
  * §5.6): name → create the organization → switch the app into it → send the
  * OWNER to Business checkout (the workspace header now scopes the checkout to
  * the new org, so the subscription lands on the org, never the person).
+ * Visitors in Algeria go to the plan picker instead, which shows the SlickPay tab.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +27,11 @@ import {
 } from "@wandit/ui/components/select";
 import { useMemo, useState } from "react";
 import { authClient } from "@/features/auth/lib/auth-client";
+import {
+	formatPlanPrice,
+	useBillingModal,
+	useLocalPricingQuery,
+} from "@/features/billing";
 import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
@@ -53,11 +59,15 @@ export function CreateWorkspaceDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const queryClient = useQueryClient();
 	const { switchWorkspace } = useWorkspace();
+	const { openPlanPicker } = useBillingModal();
 	const plansQuery = useBillingPlansQuery();
+	const localPricingQuery = useLocalPricingQuery();
 	const checkout = useCreateBillingCheckout();
+	// Not null only for visitors in Algeria. They see DZD prices.
+	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
 
 	const [name, setName] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -123,6 +133,20 @@ export function CreateWorkspaceDialog({
 				switchWorkspace(created.data.id);
 			}
 
+			// Visitors in Algeria pay in the plan picker (SlickPay tab), not in a direct Stripe checkout.
+			if (dzdPerUsdRate !== null) {
+				// The dialog stays mounted. Clear the org so that the next "Create team" makes a new one.
+				setCreatedOrgId(null);
+				setName("");
+				onOpenChange(false);
+				openPlanPicker("create_workspace", {
+					interval,
+					plan: "business",
+					tierCredits: selectedTier.tierCredits,
+				});
+				return;
+			}
+
 			try {
 				const { url } = await checkout.mutateAsync({
 					plan: "business",
@@ -184,7 +208,13 @@ export function CreateWorkspaceDialog({
 												key={tier.tierCredits}
 												value={String(tier.tierCredits)}
 											>
-												{tier.tierCredits} · ${tier.monthlyUsd}/mo
+												{tier.tierCredits} ·{" "}
+												{formatPlanPrice(
+													tier.monthlyUsd,
+													locale,
+													dzdPerUsdRate,
+												)}{" "}
+												{t("billing.planPicker.perMonth")}
 											</SelectItem>
 										))}
 									</SelectContent>
@@ -220,7 +250,13 @@ export function CreateWorkspaceDialog({
 					) : null}
 					<Button
 						type="button"
-						disabled={!selectedTier || creating || checkout.isPending}
+						disabled={
+							!selectedTier ||
+							creating ||
+							checkout.isPending ||
+							// The answer decides between Stripe and the plan picker, so submit waits for it.
+							localPricingQuery.isPending
+						}
 						onClick={() => void submit()}
 					>
 						{creating || checkout.isPending

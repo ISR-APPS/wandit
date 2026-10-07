@@ -5,6 +5,7 @@ import {
 	areTopupsAvailable,
 	getManualGraceNoticeDates,
 	getPendingSubscriptionChange,
+	getPlanPickerPaymentMethods,
 	getStarterCancelOffer,
 	isStarterPlanVisible,
 	resolvePlanPickerInterval,
@@ -122,27 +123,89 @@ describe("billing UI policy", () => {
 	});
 
 	describe("plan-picker payment method", () => {
-		it("defaults to card when both methods are available", () => {
-			expect(resolvePlanPickerPaymentMethod(null, true, true)).toBe("card");
+		const stripeSubscription = { provider: "stripe" };
+		const manualSubscription = { provider: "manual" };
+
+		it.each([
+			{
+				label: "a visitor outside Algeria pays by card",
+				slickpayOffered: false,
+				subscription: null,
+				expected: { card: true, offline: true, slickpay: false },
+			},
+			{
+				label: "a visitor in Algeria pays with SlickPay, not Stripe",
+				slickpayOffered: true,
+				subscription: null,
+				expected: { card: false, offline: true, slickpay: true },
+			},
+			{
+				label: "a Stripe subscriber in Algeria keeps the card tab",
+				slickpayOffered: true,
+				subscription: stripeSubscription,
+				expected: { card: true, offline: true, slickpay: false },
+			},
+			{
+				label: "a manual subscriber in Algeria renews with SlickPay",
+				slickpayOffered: true,
+				subscription: manualSubscription,
+				expected: { card: false, offline: true, slickpay: true },
+			},
+		])("$label", ({ slickpayOffered, subscription, expected }) => {
+			expect(
+				getPlanPickerPaymentMethods({
+					manualPaymentsEnabled: true,
+					paidSubscriptionsEnabled: true,
+					slickpayOffered,
+					subscription,
+				}),
+			).toEqual(expected);
 		});
 
-		it("honors an available offline selection", () => {
-			expect(resolvePlanPickerPaymentMethod("offline", true, true)).toBe(
-				"offline",
+		it.each([
+			{
+				preferred: null,
+				available: { card: true, offline: true, slickpay: true },
+				expected: "slickpay",
+			},
+			{
+				preferred: null,
+				available: { card: true, offline: true, slickpay: false },
+				expected: "card",
+			},
+			{
+				preferred: "offline",
+				available: { card: true, offline: true, slickpay: true },
+				expected: "offline",
+			},
+			{
+				preferred: "card",
+				available: { card: false, offline: true, slickpay: true },
+				expected: "slickpay",
+			},
+			{
+				preferred: "card",
+				available: { card: false, offline: true, slickpay: false },
+				expected: "offline",
+			},
+			{
+				preferred: "slickpay",
+				available: { card: true, offline: false, slickpay: false },
+				expected: "card",
+			},
+			{
+				preferred: "card",
+				available: { card: false, offline: false, slickpay: false },
+				expected: null,
+			},
+		] as const)("resolves $preferred with $available to $expected", ({
+			preferred,
+			available,
+			expected,
+		}) => {
+			expect(resolvePlanPickerPaymentMethod(preferred, available)).toBe(
+				expected,
 			);
-		});
-
-		it("falls back to the only available method", () => {
-			expect(resolvePlanPickerPaymentMethod("card", false, true)).toBe(
-				"offline",
-			);
-			expect(resolvePlanPickerPaymentMethod("offline", true, false)).toBe(
-				"card",
-			);
-		});
-
-		it("returns null when every payment method is disabled", () => {
-			expect(resolvePlanPickerPaymentMethod("card", false, false)).toBeNull();
 		});
 	});
 });

@@ -3,6 +3,7 @@
 
 import {
 	billingCheckoutResponseSchema,
+	billingLocalPricingResponseSchema,
 	billingPlansResponseSchema,
 	billingPortalResponseSchema,
 	billingRoutes,
@@ -10,12 +11,15 @@ import {
 	billingSubscriptionChangePreviewResponseSchema,
 	billingSubscriptionViewResponseSchema,
 	manualSubscriptionRequestViewResponseSchema,
+	slickpayPaymentViewSchema,
+	startSlickpayCheckoutResponseSchema,
 } from "@wandit/contracts";
 
 import { ApiService } from "@/lib/api-client";
 import type {
 	BillingCancelRequest,
 	BillingCheckoutResponse,
+	BillingLocalPricingResponse,
 	BillingPlansResponse,
 	BillingPortalResponse,
 	BillingSubscriptionChangeOutcomeResponse,
@@ -27,6 +31,9 @@ import type {
 	CreateManualSubscriptionRequestBody,
 	ManualSubscriptionRequestViewResponse,
 	PreviewBillingSubscriptionChangeBody,
+	SlickpayPaymentView,
+	StartSlickpayCheckoutBody,
+	StartSlickpayCheckoutResponse,
 } from "./billing.dto";
 
 export async function getBillingPlans(): Promise<BillingPlansResponse> {
@@ -137,4 +144,34 @@ export async function syncBillingSubscription(): Promise<BillingSubscriptionView
 	const payload = await ApiService.post<unknown>(billingRoutes.sync);
 
 	return billingSubscriptionViewResponseSchema.parse(payload);
+}
+
+/** Public route. The answer depends on the IP country of the visitor, so the API never caches it. */
+export async function getLocalPricing(): Promise<BillingLocalPricingResponse> {
+	const payload = await ApiService.get<unknown>(billingRoutes.localPricing);
+
+	return billingLocalPricingResponseSchema.parse(payload);
+}
+
+/** Creates a SlickPay invoice. Each call is a real invoice, so the API limits the calls per user. */
+export async function startSlickpayCheckout(
+	body: StartSlickpayCheckoutBody,
+): Promise<StartSlickpayCheckoutResponse> {
+	const payload = await ApiService.post<unknown, StartSlickpayCheckoutBody>(
+		billingRoutes.slickpayCheckout,
+		body,
+	);
+
+	return startSlickpayCheckoutResponseSchema.parse(payload);
+}
+
+/** Asks the API to read the invoice state from SlickPay. A repeated call is safe: it only refreshes the row. */
+export async function confirmSlickpayPayment(
+	paymentId: string,
+): Promise<SlickpayPaymentView> {
+	const payload = await ApiService.post<unknown>(
+		billingRoutes.slickpayConfirm(paymentId),
+	);
+
+	return slickpayPaymentViewSchema.parse(payload);
 }
