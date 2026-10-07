@@ -237,6 +237,15 @@ export const env = createEnv({
 		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
 		STRIPE_PORTAL_CONFIGURATION_ID: z.string().startsWith("bpc_").optional(),
 		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+		// SlickPay (Algerian CIB / Edahabia cards) is optional at boot. Without the
+		// key, the API hides SlickPay and the payment sweep does nothing.
+		SLICKPAY_PUBLIC_KEY: z.string().min(1).optional(),
+		// Sandbox is the safe default. sandbox calls devapi.slick-pay.com,
+		// production calls prodapi.slick-pay.com with a production key.
+		SLICKPAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+		// The type of the account that owns the key. It selects merchants/invoices or users/invoices.
+		// The Wandit production key is a merchant key. The shared sandbox test key is a user key.
+		SLICKPAY_ACCOUNT_TYPE: z.enum(["merchant", "user"]).default("merchant"),
 		// Domain/Cloudflare settings are optional for chat-only flows.
 		// Sandbox is the safe default: switching to production requires one
 		// explicit environment change plus production-only credentials.

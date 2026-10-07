@@ -1,6 +1,11 @@
+/**
+ * Text of the pages where a buyer comes back from Stripe or SlickPay, in en, fr, and ar.
+ * The billing success, cancel, and SlickPay return pages read it.
+ */
 import type { Locale } from "@wandit/internationalization";
 
 export type BillingReturnCopy = {
+	backToBilling: string;
 	backToDashboard: string;
 	openProject: string;
 	cancel: {
@@ -41,6 +46,25 @@ export type BillingReturnCopy = {
 		timeoutTitle: string;
 	};
 	retry: string;
+	/** SlickPay return page. One title and body per payment state. */
+	slickpay: {
+		amountLabel: string;
+		checkingBody: string;
+		checkingTitle: string;
+		errorBody: string;
+		errorTitle: string;
+		expiredBody: string;
+		expiredTitle: string;
+		failedBody: string;
+		failedTitle: string;
+		fulfilledBody: string;
+		fulfilledTitle: string;
+		paidBody: string;
+		paidTitle: string;
+		planLabel: string;
+		timeoutBody: string;
+		timeoutTitle: string;
+	};
 	subscription: {
 		creditsLabel: string;
 		fixPaymentLabel: string;
@@ -64,6 +88,7 @@ export type BillingReturnCopy = {
 
 const billingReturnCopy = {
 	en: {
+		backToBilling: "Back to billing",
 		backToDashboard: "Go to dashboard",
 		openProject: "Open project",
 		cancel: {
@@ -116,6 +141,30 @@ const billingReturnCopy = {
 			timeoutTitle: "Status is still pending",
 		},
 		retry: "Try again",
+		slickpay: {
+			amountLabel: "Amount",
+			checkingBody:
+				"We are checking your CIB / Edahabia payment with SlickPay. Keep this page open.",
+			checkingTitle: "Checking your payment",
+			errorBody:
+				"We could not check this payment. If you paid, your plan appears within a few minutes. You do not need to pay again.",
+			errorTitle: "Could not check the payment",
+			expiredBody:
+				"SlickPay did not receive a payment for this invoice. You were not charged. Start a new payment from the billing page.",
+			expiredTitle: "Payment not completed",
+			failedBody:
+				"SlickPay did not start this payment. You were not charged. Try again from the billing page.",
+			failedTitle: "Payment did not start",
+			fulfilledBody:
+				"We received your payment. Your plan and its credits are ready.",
+			fulfilledTitle: "Your plan is active",
+			paidBody: "SlickPay confirmed your payment. We are activating your plan.",
+			paidTitle: "Payment received",
+			planLabel: "Plan",
+			timeoutBody:
+				"We are still confirming your payment. Your plan appears within a few minutes. You do not need to pay again.",
+			timeoutTitle: "Still confirming your payment",
+		},
 		subscription: {
 			creditsLabel: "Current credit balance",
 			fixPaymentLabel: "Fix payment",
@@ -143,6 +192,7 @@ const billingReturnCopy = {
 		},
 	},
 	fr: {
+		backToBilling: "Retour à la facturation",
 		backToDashboard: "Accéder au tableau de bord",
 		openProject: "Ouvrir le projet",
 		cancel: {
@@ -195,6 +245,31 @@ const billingReturnCopy = {
 			timeoutTitle: "État toujours en attente",
 		},
 		retry: "Réessayer",
+		slickpay: {
+			amountLabel: "Montant",
+			checkingBody:
+				"Nous vérifions votre paiement CIB / Edahabia auprès de SlickPay. Gardez cette page ouverte.",
+			checkingTitle: "Vérification du paiement",
+			errorBody:
+				"Impossible de vérifier ce paiement. Si vous avez payé, votre offre apparaît dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+			errorTitle: "Impossible de vérifier le paiement",
+			expiredBody:
+				"SlickPay n’a reçu aucun paiement pour cette facture. Aucun montant n’a été débité. Lancez un nouveau paiement depuis la page de facturation.",
+			expiredTitle: "Paiement non effectué",
+			failedBody:
+				"SlickPay n’a pas pu démarrer ce paiement. Aucun montant n’a été débité. Réessayez depuis la page de facturation.",
+			failedTitle: "Le paiement n’a pas démarré",
+			fulfilledBody:
+				"Nous avons reçu votre paiement. Votre offre et ses crédits sont prêts.",
+			fulfilledTitle: "Votre offre est active",
+			paidBody:
+				"SlickPay a confirmé votre paiement. Nous activons votre offre.",
+			paidTitle: "Paiement reçu",
+			planLabel: "Offre",
+			timeoutBody:
+				"Nous confirmons encore votre paiement. Votre offre apparaît dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+			timeoutTitle: "Confirmation toujours en cours",
+		},
 		subscription: {
 			creditsLabel: "Solde de crédits actuel",
 			fixPaymentLabel: "Corriger le paiement",
@@ -222,6 +297,7 @@ const billingReturnCopy = {
 		},
 	},
 	ar: {
+		backToBilling: "العودة إلى الفوترة",
 		backToDashboard: "الانتقال إلى لوحة التحكم",
 		openProject: "فتح المشروع",
 		cancel: {
@@ -269,6 +345,29 @@ const billingReturnCopy = {
 			timeoutTitle: "الحالة ما زالت قيد الانتظار",
 		},
 		retry: "حاول مرة أخرى",
+		slickpay: {
+			amountLabel: "المبلغ",
+			checkingBody:
+				"نتحقق من دفعك عبر CIB / Edahabia لدى SlickPay. أبقِ هذه الصفحة مفتوحة.",
+			checkingTitle: "جارٍ التحقق من الدفع",
+			errorBody:
+				"تعذر التحقق من هذا الدفع. إذا دفعت، فستظهر خطتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+			errorTitle: "تعذر التحقق من الدفع",
+			expiredBody:
+				"لم يستلم SlickPay أي دفع لهذه الفاتورة، ولم يتم خصم أي مبلغ. ابدأ دفعًا جديدًا من صفحة الفوترة.",
+			expiredTitle: "لم يكتمل الدفع",
+			failedBody:
+				"تعذر على SlickPay بدء هذا الدفع، ولم يتم خصم أي مبلغ. حاول مرة أخرى من صفحة الفوترة.",
+			failedTitle: "لم يبدأ الدفع",
+			fulfilledBody: "استلمنا دفعك. خطتك وأرصدتها جاهزة.",
+			fulfilledTitle: "خطتك مفعّلة",
+			paidBody: "أكد SlickPay دفعك. نقوم الآن بتفعيل خطتك.",
+			paidTitle: "تم استلام الدفع",
+			planLabel: "الخطة",
+			timeoutBody:
+				"ما زلنا نؤكد دفعك. ستظهر خطتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+			timeoutTitle: "ما زلنا نؤكد دفعك",
+		},
 		subscription: {
 			creditsLabel: "رصيد الأرصدة الحالي",
 			fixPaymentLabel: "إصلاح الدفع",

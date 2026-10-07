@@ -49,6 +49,8 @@
 		"MANUAL_PAYMENTS_DISABLED": "Les paiements en espèces ou par virement sont actuellement indisponibles.",
 		"MANUAL_REQUEST_PENDING": "Une demande de paiement hors ligne est déjà en attente.",
 		"MANUAL_SUBSCRIPTION_UNSUPPORTED": "Cet abonnement est géré hors ligne. Contactez-nous pour le modifier.",
+		"SLICKPAY_NOT_CONFIGURED": "Le paiement par carte CIB / Edahabia n’est pas disponible pour le moment. Choisis un autre moyen de paiement.",
+		"SLICKPAY_UNAVAILABLE": "SlickPay n’a pas pu démarrer ton paiement. Aucun montant n’a été débité. Réessaie dans quelques minutes.",
 		"RATE_LIMITED": "Trop de requêtes. Attends un moment puis réessaie.",
 		"INTERNAL_ERROR": "Le serveur a rencontré un souci. Réessaie.",
 		"HTTP_400": "La requête n’a pas pu aboutir. Vérifie les détails puis réessaie.",

@@ -103,12 +103,25 @@ export const manualSubscriptionRequestStatus = pgEnum(
 	],
 );
 
+// The SlickPay checkout (slickpayPayments) records "slickpay". An admin picks it only to resolve a SlickPay payment by hand.
 export const manualPaymentMethod = pgEnum("manual_payment_method", [
 	"cash_on_delivery",
 	"bank_transfer",
 	"ccp",
 	"baridimob",
+	"slickpay",
 	"other",
+]);
+
+// Lifecycle of one row in slickpay_payments. This list equals slickpayPaymentStatuses
+// in packages/contracts, which packages/db cannot import. The meaning of each value is there.
+export const slickpayPaymentStatus = pgEnum("slickpay_payment_status", [
+	"created",
+	"pending",
+	"paid",
+	"fulfilled",
+	"failed",
+	"expired",
 ]);
 
 export const manualSubscriptionPaymentKind = pgEnum(
@@ -831,6 +844,71 @@ export const manualSubscriptionPayments = pgTable(
 		check(
 			"manual_subscription_payments_period_ck",
 			sql`${table.periodEnd} > ${table.periodStart}`,
+		),
+	],
+);
+
+/**
+ * One SlickPay (CIB / Edahabia card) payment. One row buys one period of one plan.
+ * The API inserts it at checkout and grants a provider = "manual" subscription when SlickPay says paid.
+ * The Trigger.dev sweep refreshes the rows that are still open.
+ */
+export const slickpayPayments = pgTable(
+	"slickpay_payments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		// The paying user. For an org payment, this is the acting billing manager.
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		// NULL = personal payment. Set = the payment funds this organization.
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		plan: billingPlan("plan").notNull(),
+		// UNIT: whole display credits (tier identity), same as subscriptions.
+		tierCredits: integer("tier_credits").notNull(),
+		interval: billingInterval("interval").notNull(),
+		// UNIT: whole DZD. The SlickPay invoice charges this exact amount.
+		amountDzd: integer("amount_dzd").notNull(),
+		// UNIT: centi-DZD per 1 USD (27000 = 270.00). Copy of product_settings at checkout.
+		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull(),
+		// SlickPay invoice id. NULL until SlickPay creates the invoice.
+		invoiceId: text("invoice_id"),
+		// SlickPay hosted payment page. NULL until SlickPay creates the invoice.
+		paymentUrl: text("payment_url"),
+		status: slickpayPaymentStatus("status").notNull().default("created"),
+		// The granted or renewed subscription. Set when the status becomes fulfilled.
+		subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+			onDelete: "restrict",
+		}),
+		// Last SlickPay or fulfillment error. An admin reads it to resolve a "paid" row by hand.
+		lastError: text("last_error"),
+		paidAt: timestamp("paid_at", { withTimezone: true }),
+		fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("slickpay_payments_invoiceId_uq").on(table.invoiceId),
+		// The sweep reads the open rows, least recently checked first. Each check writes updated_at.
+		index("slickpay_payments_status_updatedAt_idx").on(
+			table.status,
+			table.updatedAt,
+		),
+		// The checkout counts the recent payments of one user (per-user limit).
+		index("slickpay_payments_userId_createdAt_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+		check(
+			"slickpay_payments_amount_dzd_positive_ck",
+			sql`${table.amountDzd} > 0`,
 		),
 	],
 );

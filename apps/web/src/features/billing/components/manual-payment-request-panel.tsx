@@ -1,3 +1,9 @@
+/**
+ * "Cash / transfer" tab of the plan picker: a two-step form for an offline payment request.
+ * Step 1 picks the plan, tier, and cycle. Step 2 collects the contact details.
+ * Rendered by plan-picker-dialog.tsx. Calls the manual-request queries and mutations in billing/api.
+ * An admin then calls the customer and records the payment in the admin app.
+ */
 import type {
 	BillingInterval,
 	BillingPlanCatalogItem,
@@ -12,8 +18,7 @@ import {
 	isManualSubscription,
 	manualBillingCountries,
 	manualBillingCountrySchema,
-	manualPaymentMethodSchema,
-	manualPaymentMethods,
+	preferredPaymentMethodSchema,
 } from "@wandit/contracts";
 import { formatDate } from "@wandit/internationalization";
 import {
@@ -72,7 +77,10 @@ import {
 	getBillingPlanCopy,
 	getBillingPlanName,
 } from "@/features/billing/lib/plan-copy";
-import { formatUsd, tierPriceUsd } from "@/features/billing/lib/plan-pricing";
+import {
+	formatPlanPrice,
+	tierPriceUsd,
+} from "@/features/billing/lib/plan-pricing";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { PlanCard } from "./plan-card";
@@ -97,6 +105,8 @@ export type ManualPaymentRequestPanelProps = {
 	plans: readonly BillingPlanCatalogItem[];
 	subscription: Subscription | null;
 	defaultFullName: string;
+	/** Decimal DZD per 1 USD from GET local-pricing, or null. Not null shows DZD prices, so no "local price" note. */
+	dzdPerUsdRate: number | null;
 	initialInterval?: BillingInterval;
 	initialPlan?: BillingPlanId;
 	initialTierCredits?: CreditTier;
@@ -109,6 +119,7 @@ export function ManualPaymentRequestPanel({
 	plans,
 	subscription,
 	defaultFullName,
+	dzdPerUsdRate,
 	initialInterval,
 	initialPlan,
 	initialTierCredits,
@@ -445,6 +456,7 @@ export function ManualPaymentRequestPanel({
 						tier={tier}
 						tiers={plan.tiers}
 						basePer100Usd={plan.basePer100Usd}
+						dzdPerUsdRate={dzdPerUsdRate}
 						interval={interval}
 						perLabel={interval === "year" ? copy.perYear : copy.perMonth}
 						selectId="offline-billing-tier"
@@ -462,12 +474,14 @@ export function ManualPaymentRequestPanel({
 						featureColumns={2}
 						highlighted
 						action={
-							<div className="mt-4 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-sm">
-								<PhoneCall className="mt-0.5 size-4 shrink-0" aria-hidden />
-								<p className="text-muted-foreground">
-									{offline.localPriceNote}
-								</p>
-							</div>
+							dzdPerUsdRate === null ? (
+								<div className="mt-4 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-sm">
+									<PhoneCall className="mt-0.5 size-4 shrink-0" aria-hidden />
+									<p className="text-muted-foreground">
+										{offline.localPriceNote}
+									</p>
+								</div>
+							) : null
 						}
 					/>
 				</>
@@ -486,12 +500,18 @@ export function ManualPaymentRequestPanel({
 							<p className="mt-0.5 text-muted-foreground text-xs">
 								{t("credits.creditUnit", { count: tier.tierCredits })}
 								{" · "}
-								{formatUsd(tierPriceUsd(tier, interval), locale)}{" "}
+								{formatPlanPrice(
+									tierPriceUsd(tier, interval),
+									locale,
+									dzdPerUsdRate,
+								)}{" "}
 								{interval === "year" ? copy.perYear : copy.perMonth}
 							</p>
-							<p className="mt-1 text-muted-foreground text-xs">
-								{offline.localPriceNote}
-							</p>
+							{dzdPerUsdRate === null ? (
+								<p className="mt-1 text-muted-foreground text-xs">
+									{offline.localPriceNote}
+								</p>
+							) : null}
 						</div>
 						<Button
 							type="button"
@@ -678,7 +698,7 @@ export function ManualPaymentRequestPanel({
 							<Select
 								value={contact.preferredPaymentMethod || NO_METHOD_PREFERENCE}
 								onValueChange={(value) => {
-									const parsed = manualPaymentMethodSchema.safeParse(value);
+									const parsed = preferredPaymentMethodSchema.safeParse(value);
 									setContact((current) => ({
 										...current,
 										preferredPaymentMethod: parsed.success ? parsed.data : "",
@@ -705,7 +725,7 @@ export function ManualPaymentRequestPanel({
 										<SelectItem value={NO_METHOD_PREFERENCE}>
 											{offline.form.noMethodPreference}
 										</SelectItem>
-										{manualPaymentMethods.map((method) => (
+										{preferredPaymentMethodSchema.options.map((method) => (
 											<SelectItem key={method} value={method}>
 												{offline.methods[method]}
 											</SelectItem>

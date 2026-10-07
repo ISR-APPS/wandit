@@ -140,6 +140,7 @@ describe("ManualPaymentRequestPanel selection changes", () => {
 		render(
 			createElement(ManualPaymentRequestPanel, {
 				defaultFullName: "Ada",
+				dzdPerUsdRate: null,
 				onClose: vi.fn(),
 				onSelectionChange,
 				plans,

@@ -1,3 +1,7 @@
+/**
+ * Admin settings card for billing operations: the USD to DZD rate and the Stripe webhook replay.
+ * The settings page renders it. It calls the product-settings and webhook-replay mutations.
+ */
 import {
 	AlertTriangleIcon,
 	CheckCircle2Icon,
@@ -43,6 +47,7 @@ type BillingOpsCardProps = {
 	settings: ProductSettingsView;
 };
 
+/** Saving the rate needs the admin permission settings:manage. A 409 means another admin saved first. */
 export function BillingOpsCard({
 	reloadSettings,
 	settings,
@@ -161,7 +166,7 @@ export function BillingOpsCard({
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<CardTitle>Billing ops</CardTitle>
 						<CardDescription>
-							Manage offline receipt pricing and replay stored billing webhooks.
+							Manage DZD pricing and replay stored billing webhooks.
 						</CardDescription>
 					</div>
 				</div>
@@ -229,7 +234,8 @@ export function BillingOpsCard({
 								aria-describedby="billing-dzd-rate-description billing-dzd-rate-error"
 							/>
 							<FieldDescription id="billing-dzd-rate-description">
-								DZD per 1 USD, used to price offline receipts in dinars.
+								DZD per 1 USD. It prices offline receipts, and the DZD plan
+								prices that visitors in Algeria see and pay with SlickPay.
 							</FieldDescription>
 							<FieldError id="billing-dzd-rate-error">
 								{rateSubmitted && !dzdRateIsValid

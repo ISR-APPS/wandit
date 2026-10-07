@@ -36,6 +36,9 @@ export const apiErrorCodes = [
 	"MANUAL_PAYMENTS_DISABLED",
 	"MANUAL_REQUEST_PENDING",
 	"MANUAL_SUBSCRIPTION_UNSUPPORTED",
+	// SlickPay checkout: 503 when the API has no SlickPay key, 502 when SlickPay does not create the invoice.
+	"SLICKPAY_NOT_CONFIGURED",
+	"SLICKPAY_UNAVAILABLE",
 	"V2_BUILDER_DISABLED",
 	"V2_ENV_MISSING",
 	"V2_MODEL_UNPRICED",
