@@ -89,7 +89,8 @@ export function ActivityPanel({
 			</div>
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 py-4"
+				// A wheel at the end of the steps does not scroll the document behind the panel.
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4"
 			>
 				<div ref={contentRef} className="flex flex-col">
 					{message.parts.filter(isActivityPart).map((part, index) => {
