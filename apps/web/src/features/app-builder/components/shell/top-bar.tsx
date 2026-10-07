@@ -1,7 +1,8 @@
 /**
  * The two halves of the top bar of the app builder. ProjectBar holds the
  * project controls: back link, project menu, version history, and the chat
- * expand button. WorkBar holds the view switcher, publish, and the user menu.
+ * expand button. WorkBar holds the view switcher, the Publish pill, and the user menu.
+ * Publish is off for now: the pill shows "Soon" and opens nothing.
  * It shows no credit balance. Billing opens from the user menu.
  * The preview controls live in the bar of each preview card.
  * Rendered by pages/app-builder-page.tsx, which owns every value shown
@@ -10,6 +11,7 @@
 
 import { CodeIcon } from "@phosphor-icons/react/Code";
 import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
 import { Link } from "@tanstack/react-router";
@@ -27,7 +29,6 @@ import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import type { BuilderView } from "../../lib/constants";
 import { ProjectMenu } from "./project-menu";
-import { PublishPopover } from "./publish-popover";
 import { SegmentedControl } from "./segmented-control";
 import { VersionsPopover } from "./versions-popover";
 
@@ -105,32 +106,56 @@ export type WorkBarProps = {
 	view: BuilderView;
 	/** Writes the picked view to `?view=` of the URL. The view switcher calls it. */
 	onChangeView: (view: BuilderView) => void;
-	/** True when the chat can take a message. Passed to the publish popover for "Ask the AI to fix". */
+	/** True when the chat can take a message. The publish popover reads it when Publish comes back. */
 	canAskFix: boolean;
-	/** Sends one chat message and opens the chat. The publish popover sends the gate findings with it. */
+	/** Sends one chat message and opens the chat. The publish popover reads it when Publish comes back. */
 	onAskFix: (text: string) => void;
 };
 
 /** On desktop this half sits over the main card. A drag of the split moves it with the card. */
-export function WorkBar({
-	project,
-	view,
-	onChangeView,
-	canAskFix,
-	onAskFix,
-}: WorkBarProps) {
+export function WorkBar({ view, onChangeView }: WorkBarProps) {
 	return (
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
 			<ViewSwitcher view={view} onChangeView={onChangeView} />
 			<div className="ms-auto flex shrink-0 items-center gap-2">
-				<PublishPopover
-					project={project}
-					canAskFix={canAskFix}
-					onAskFix={onAskFix}
-				/>
+				<PublishComingSoon />
 				<UserMenu />
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The Publish pill while publishing is off: the publish build and the staging
+ * serving do not work yet (audit P0-11). To turn Publish on again, render
+ * PublishPopover of ./publish-popover here with project, canAskFix, and onAskFix.
+ */
+function PublishComingSoon() {
+	const { t } = useTranslation();
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				{/* A disabled button gets no pointer events, so this span shows the tooltip. */}
+				<span className="inline-flex">
+					<Button
+						disabled
+						aria-label={t("appBuilder.publish.comingSoon")}
+						className="h-9 gap-1.5 rounded-full font-grotesk font-semibold has-[>svg]:px-2.5 sm:has-[>svg]:px-4"
+					>
+						<RocketLaunchIcon aria-hidden weight="fill" className="size-4" />
+						<span className="hidden sm:inline">
+							{t("appBuilder.publish.cta")}
+						</span>
+						<span className="hidden rounded-full bg-primary-foreground/20 px-1.5 text-[11px] leading-4 sm:inline">
+							{t("appBuilder.publish.soon")}
+						</span>
+					</Button>
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="bottom">
+				{t("appBuilder.publish.comingSoon")}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
