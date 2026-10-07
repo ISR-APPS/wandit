@@ -2,8 +2,9 @@
  * Dashboard page at `/dashboard`: the prompt box that creates a project and
  * the project grid with search and status filters. The route file imports
  * it by path. Calls the projects queries, the V1 and V2 create hooks, the
- * credits banners, and the landing key button and platform word. It owns
- * the app type and the Plan chip of a V2 create.
+ * credits banners, the billing subscription query, and the landing key
+ * button and platform word. It owns the app type and the Plan chip of a V2
+ * create, and the V1 lock for a free plan.
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import type { TargetPlatform } from "@wandit/contracts";
@@ -19,6 +20,7 @@ import {
 	useV2BuilderEnabled,
 } from "@/features/app-builder";
 import { promptStash } from "@/features/auth";
+import { useBillingSubscriptionQuery } from "@/features/billing";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
@@ -152,6 +154,13 @@ export default function DashboardPage() {
 
 	const { outOfCredits } = useOutOfCredits();
 	const promptLocked = outOfCredits;
+	// Product rule until V2 ships: only a paid plan builds a V1 page. A free
+	// plan sees a locked box. The box also stays locked while the plan loads.
+	// The V1 create hook checks the same rule for the autostart and the landing.
+	const subscriptionQuery = useBillingSubscriptionQuery();
+	const plan = subscriptionQuery.data;
+	const isPaidPlan = plan?.subscription?.entitled === true;
+	const v1Locked = !v2Enabled && !isPaidPlan;
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
@@ -247,7 +256,7 @@ export default function DashboardPage() {
 											: undefined
 									}
 									attachmentsEnabled
-									disabled={promptLocked}
+									disabled={promptLocked || v1Locked}
 									initialValue={restoredPrompt}
 									initialComposer={restoredComposer}
 									onSubmit={create}
@@ -255,6 +264,18 @@ export default function DashboardPage() {
 								/>
 							</OutOfCreditsBanner>
 						</div>
+						{/* Small white text fails contrast on ember, so the hint sits on a night pill. */}
+						{!v2Enabled && plan ? (
+							<p
+								role="status"
+								className="mx-auto mt-5 flex w-fit max-w-full items-center gap-2 rounded-2xl bg-night px-4 py-2 text-center text-paper text-xs leading-snug"
+							>
+								<Spark aria-hidden className="size-3.5 shrink-0 text-spark" />
+								{isPaidPlan
+									? t("projects.v1Gate.paidHint")
+									: t("projects.v1Gate.freeHint")}
+							</p>
+						) : null}
 						<InsufficientCreditsDialog
 							open={insufficientOpen}
 							onOpenChange={setInsufficientOpen}

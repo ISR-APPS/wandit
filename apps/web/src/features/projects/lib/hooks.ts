@@ -3,7 +3,7 @@
  * useCreateProjectWithPrompt creates a V1 project, or stashes the prompt of a
  * signed-out visitor. useAutostartStashedPrompt restores that stash on the
  * dashboard and can create at once. Calls the create mutation, the prompt
- * stash, the credit balance query, and the router.
+ * stash, the credit balance query, the billing subscription query, and the router.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
 	useAuthModal,
 	useSession,
 } from "@/features/auth";
+import { useBillingSubscriptionQuery } from "@/features/billing";
 import { creditsKeys, useCreditBalanceQuery } from "@/features/credits";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
@@ -58,6 +59,9 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 	const { data: session, isPending: isSessionPending } = useSession();
 	const { open } = useAuthModal();
 	const balanceQuery = useCreditBalanceQuery({ enabled: Boolean(session) });
+	const subscriptionQuery = useBillingSubscriptionQuery({
+		enabled: Boolean(session),
+	});
 	const createProject = useCreateProject();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -69,6 +73,20 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
 		) => {
+			// Product rule until V2 ships: only a paid plan builds a V1 page.
+			// The dashboard autostart can run before the plan loads, so wait for it.
+			const plan = subscriptionQuery.data
+				? subscriptionQuery
+				: await subscriptionQuery.refetch();
+			if (!plan.data) {
+				toast.error(getApiErrorMessage(plan.error));
+				return false;
+			}
+			if (!plan.data.subscription?.entitled) {
+				toast.error(t("projects.v1Gate.freeHint"));
+				return false;
+			}
+
 			const name = deriveProjectName(prompt);
 			// Convenience precheck only (see create-precheck.ts): any positive
 			// balance may start a run; the server performs the atomic reservation
@@ -150,6 +168,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			createProject,
 			navigate,
 			queryClient,
+			subscriptionQuery,
 			t,
 		],
 	);
