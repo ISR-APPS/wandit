@@ -274,6 +274,7 @@ describe("getPhonePreviewLink", () => {
 	const tokenAnswer: PreviewTokenResponse = {
 		token: "payload.signature",
 		previewUrl: `https://${runHost}/?wt=payload.signature`,
+		tabUrl: `https://${runHost}/?wt=payload.signature`,
 		expiresAt: "2026-09-26T10:15:00.000Z",
 	};
 	const link = {

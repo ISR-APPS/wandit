@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
@@ -24,8 +31,10 @@ const project: AppProject = {
 	hasCodeChanges: true,
 };
 
+// The iframe loads the frame host. "Open in a new tab" must get the run host, another origin.
 const PREVIEW_ORIGIN =
-	"https://r-abcdef123456--p-nadi-fitness.wanditpreview.app";
+	"https://f-abcdefghijklmnopqrs27--p-nadi-fitness.wanditpreview.app";
+const TAB_ORIGIN = "https://r-abcdef123456--p-nadi-fitness.wanditpreview.app";
 const TITLE = "Preview of Nadi Fitness";
 
 // No turn runs and the backend is unknown: the boot screen has nothing to show over the frame.
@@ -46,6 +55,7 @@ function depsWithTokens(...tokens: string[]): PreviewTokenDeps {
 		getPreviewToken.mockResolvedValueOnce({
 			token,
 			previewUrl: `${PREVIEW_ORIGIN}/?wt=${token}`,
+			tabUrl: `${TAB_ORIGIN}/?wt=${token}`,
 			// One hour out: the scheduled re-mint never fires during a spec run.
 			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
 		});
@@ -154,5 +164,21 @@ describe("WebPreview", () => {
 				`${PREVIEW_ORIGIN}/invoices?wt=t2`,
 			),
 		);
+	});
+
+	// The frame host label is a bearer secret. The old button opened it in a top-level tab, where the address bar shows it.
+	it("opens the run host tab URL in a new tab, never the frame host", async () => {
+		// jsdom has no window.open; the spy records the call and opens nothing.
+		const open = vi.spyOn(window, "open").mockReturnValue(null);
+		render(previewElement(propsWith(depsWithTokens("t1"), 0)));
+		await screen.findByTitle(TITLE);
+
+		fireEvent.click(screen.getByRole("button", { name: "Open in a new tab" }));
+		const calls = [...open.mock.calls];
+		open.mockRestore();
+
+		expect(calls).toEqual([
+			[`${TAB_ORIGIN}/?wt=t1`, "_blank", "noopener,noreferrer"],
+		]);
 	});
 });

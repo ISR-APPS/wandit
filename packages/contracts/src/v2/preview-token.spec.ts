@@ -10,6 +10,7 @@ import {
 } from "./preview";
 import {
 	base64UrlEncode,
+	previewFrameIdFor,
 	signPreviewToken,
 	verifyPreviewToken,
 } from "./preview-token";
@@ -29,6 +30,10 @@ const CLAIMS: PreviewTokenClaims = {
 // HMAC-SHA256 is deterministic, so a change here means a format change.
 const TOKEN =
 	"eyJwaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJyaWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ1aWQiOiJ1c2VyLTEiLCJ1cCI6Imh0dHBzOi8veC01MTczLnZlcmNlbC5ydW4iLCJleHAiOjE4MDAwMDAwMDAsImp0aSI6IjAxMjM0NTY3ODlhYmNkZWYifQ.KCsfQH9iVVye07PUxDP88vGNEY_zOsZ8-jJBv3vfnq4";
+
+// Fixed vector of the frame id of CLAIMS. The API and the Worker deploy apart,
+// and both must derive this id, or every builder frame answers 403.
+const FRAME_ID = "6guvo5cifdquf6oxwyhzy";
 
 const DOMAIN = "wanditpreview.app";
 // `22222222-2222-4222-8222-222222222222` without dashes, first 12 chars.
@@ -67,6 +72,12 @@ describe("signPreviewToken", () => {
 	it("produces the fixed token vector", async () => {
 		const token = await signPreviewToken(CLAIMS, KEY);
 		expect(token).toBe(TOKEN);
+	});
+});
+
+describe("previewFrameIdFor", () => {
+	it("produces the fixed frame id vector", async () => {
+		expect(await previewFrameIdFor(CLAIMS, KEY)).toBe(FRAME_ID);
 	});
 });
 

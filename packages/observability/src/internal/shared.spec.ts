@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { scrubEvent } from "./shared";
+import { redactPreviewSecrets, scrubEvent } from "./shared";
 
 const autoVercelAiEvent = () => ({
 	exception: {
@@ -101,5 +101,28 @@ describe("scrubEvent", () => {
 
 		expect(scrubEvent(event)).toBe(event);
 		expect(body.token).toBe("[Filtered]");
+	});
+});
+
+describe("redactPreviewSecrets", () => {
+	const PROJECT = "4b26e381-c37a-4f47-83e2-9d2b39036e08";
+	it.each([
+		[
+			"a frame host URL",
+			`https://f-abcdefghijklmnopqrstu--p-${PROJECT}.wanditpreview.app/login`,
+			`https://f-redacted--p-${PROJECT}.wanditpreview.app/login`,
+		],
+		[
+			"a phone host",
+			`m-abcdefghijklmnopqrstu--p-${PROJECT}.wanditpreview.app`,
+			`m-redacted--p-${PROJECT}.wanditpreview.app`,
+		],
+		[
+			"a run host, which needs its cookie",
+			`https://r-882ca69f29b0--p-${PROJECT}.wanditpreview.app/`,
+			`https://r-882ca69f29b0--p-${PROJECT}.wanditpreview.app/`,
+		],
+	])("handles %s", (_name, input, expected) => {
+		expect(redactPreviewSecrets(input)).toBe(expected);
 	});
 });

@@ -4,8 +4,10 @@ One Cloudflare Worker on the `*.wanditpreview.app/*` route. It answers hosts
 of the form `r-<rid12>--p-<projectId>.wanditpreview.app`, checks a signed
 15-minute token, and forwards verified requests (HTTP and WebSocket) to the
 sandbox dev-port origin stored in the token claim `up`. It also answers the
-phone hosts `m-<phoneId>--p-<projectId>.wanditpreview.app` of Expo Go
-(WANDIT-193, see "The phone link" below).
+frame hosts `f-<frameId>--p-<projectId>.wanditpreview.app` of the builder
+iframe (see "The frame host" below) and the phone hosts
+`m-<phoneId>--p-<projectId>.wanditpreview.app` of Expo Go (WANDIT-193, see
+"The phone link" below).
 
 ## The token
 
@@ -13,8 +15,9 @@ The API route `GET /api/v2/projects/:id/preview-token` signs the claims
 `{pid, rid, uid, up, exp, jti}` with `PREVIEW_TOKEN_SIGNING_KEY`
 (`packages/contracts/src/v2/preview-token.ts`). The flow:
 
-1. The browser opens `https://<host>/?wt=<token>` (the `previewUrl` of the
-   route response).
+1. The browser opens `https://<run host>/?wt=<token>`: the `tabUrl` of
+   each mint ("Open in a new tab") and the `previewUrl` of
+   `?client=phone`. The builder iframe uses the frame host (see below).
 2. The Worker verifies the token, compares `pid`/`rid12` to the host, sets
    `Set-Cookie: __Host-wandit_preview=<token>; Secure; HttpOnly;
    SameSite=None; Path=/; Partitioned`, and answers 302 to the same URL
@@ -40,6 +43,71 @@ A request whose `Origin` is the preview host itself goes upstream with the
 sandbox origin instead. Expo CLI refuses a request whose `Origin` host is
 not its `Host`, and a browser sends `Origin` on a font load. A foreign
 `Origin` passes unchanged, so the dev server still refuses it.
+
+## The frame host
+
+iOS WebKit (Safari and every iPhone browser) drops a cross-site cookie in
+an iframe, so the cookie of the run host never comes back and the builder
+shows its blocked state. A `Partitioned` cookie fails too in WebKit 26.5
+(Playwright build, checked locally). The builder iframe therefore uses a
+host that carries its own secret:
+
+1. The API answers `previewUrl` =
+   `https://f-<frameId>--p-<projectId>.<PREVIEW_DOMAIN>/?wt=<token>`.
+   `frameId` is `previewFrameIdFor` of `@wandit/contracts`: the first 13
+   bytes (104 bits) of `HMAC-SHA256(PREVIEW_TOKEN_SIGNING_KEY,
+   "frame:<pid>:<rid>:<uid>")` in lower-case base32 (21 characters). So
+   one run and one user keep one frame host. These four paths mint a new
+   token and reload the frame on the same host: the reload button, a pick
+   of the page that shows now, a turn that ends with runtime errors, and
+   the renewal about 1 minute before `exp`. The app keeps its origin, so it
+   keeps its localStorage, its IndexedDB, and its Supabase login.
+2. On `?wt=`, the Worker verifies the token, checks `pid` against the host
+   and the frame id against the token (403 otherwise), and spends one
+   request of the token `jti`. It stores the claims in the `PreviewFrame`
+   Durable Object of the frame id (`src/frame.ts`, binding
+   `PREVIEW_FRAME`). The object keeps the claims with the later `exp`, so
+   an old tab with an older token cannot end the frame early. Its alarm
+   deletes the claims at their `exp`. Then the Worker answers 302 to the
+   URL without `wt`, with no cookie. A failed store answers 500.
+3. A top-level tab (`Sec-Fetch-Dest: document`) gets 403 and a page that
+   points to the builder, also on `?wt=`, before any claims call. A popup or a copied
+   link of the app never shows the app in an address bar. The builder
+   iframe sends `iframe`; Safari before 16.4 sends no such header.
+4. Each later request first spends one request of its client IP budget
+   (binding `PREVIEW_FRAME_IP_RATE`, 30,000 per minute: 50 users behind one
+   venue NAT IP at the full `jti` budget), so a guessed frame id gets 429
+   and no object call. Then it reads the claims from the object. No claims, or
+   expired claims, answer 401 (the token-expired page on a navigation).
+   The builder mints again only in the last minute of its token. Before
+   that, it shows its blocked state with "Open in a new tab", which opens
+   the `tabUrl` on the run host. Another
+   project answers 403. The Worker rate-limits on the claims `jti` and
+   forwards like a cookie request. All tabs and devices of one user on one
+   run share the budget of the newest `jti`. WebSockets (Vite HMR) pass
+   through.
+
+Why a Durable Object and not a `PREVIEW_KV` row: the object reads its own
+write at once, from every location. KV shows a new or changed row at once
+only "usually" in the location of the write, and a miss stays cached for
+60 s. A miss after the 302 shows the same blocked state as the iOS bug. The
+cost is one object call per frame request, a few ms near the user.
+
+The secret id is in the host, so it reaches DNS resolvers, the TLS SNI,
+and the `Origin` header of each CORS request that the app sends to another
+origin: a `fetch` to Supabase, a font from Google Fonts, a module script
+from a CDN (checked locally in WebKit and Chromium). No header can remove
+`Origin` there. `Referrer-Policy: strict-origin-when-cross-origin` sends
+the same origin in the `Referer`. A leaked host opens the dev server of one run (the app source
+and its `VITE_*` values) while the builder of that user keeps the run open,
+and until 15 minutes after the last mint. The run host needed the cookie
+too, so this is a security trade-off of the frame host. The builder keeps
+the host out of PostHog: the iframe has `ph-no-capture`, and the network
+capture drops every preview URL (`packages/analytics/src/browser.ts`).
+
+The frame host has no redirect pattern in the Supabase `uri_allow_list`.
+The templates allow only email and password sign-in, which needs no
+redirect (`templates/web-app/CLAUDE.md`, "Sign-in").
 
 ## The phone link
 
@@ -73,9 +141,13 @@ Expo Go sends no cookie, so a phone gets its own host instead of the
 
 Every response sets `Content-Security-Policy: frame-ancestors
 <FRAME_ANCESTORS>`, `X-Robots-Tag: noindex`, `Referrer-Policy:
-strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`,
-`Cache-Control: no-store`, and drops the upstream `X-Frame-Options`
-(security.md 9.3 item 4).
+strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, and drops
+the upstream `X-Frame-Options` (security.md 9.3 item 4).
+
+`Referrer-Policy` stays `strict-origin-when-cross-origin`, not
+`same-origin`. `same-origin` breaks a YouTube iframe ("Error 153") and
+sends `Origin: null` on a cross-origin form POST. It closes only a part
+of the leak, because a CORS request still sends the host in `Origin`.
 
 `FRAME_ANCESTORS` names the builder origins that can show a preview in
 an iframe:
@@ -97,7 +169,8 @@ values. Then deploy the top-level Worker (see Deploy).
 Each forwarded request also writes `preview:last-seen:<pid>` to `PREVIEW_KV`
 (at most once per 60 s per isolate; the idle sweep reads it) and one data
 point to the `wandit_preview_proxy` Analytics Engine dataset. The outcome
-blob is one of: `forwarded` (preview served), `redirect` (token exchange),
+blob is one of: `forwarded` (preview served), `redirect` (token exchange,
+cookie or frame claims),
 `phone_link` (phone link minted),
 `unauthorized` (token rejected), `forbidden` (claims mismatch),
 `not_running` (sandbox down), `rate_limited` (over budget), `not_found`
@@ -161,3 +234,25 @@ cd apps/preview-proxy && npx wrangler deploy --dry-run --outdir dist --env ""
   and `npx wrangler deploy --env ""` for `main`. Without an `--env` flag
   wrangler 4.114 warns that no target environment was named; `--env ""`
   selects the top-level config.
+- The frame host needs the `PREVIEW_FRAME` Durable Object binding (top
+  level and `env.staging`) and the migration `v1` (`new_sqlite_classes:
+  ["PreviewFrame"]`, inherited by `env.staging`). `wrangler deploy` applies
+  the migration. It also needs the rate limit binding `PREVIEW_FRAME_IP_RATE`
+  (namespace `1002`, top level and `env.staging`). No KV namespace or secret is new.
+- Rollout order of the frame host. Only the top-level Worker has the
+  route, so it serves the previews of production and of staging. An older
+  Worker answers 404 `Not found` on an `f-` host, posts no message, and the
+  builder shows no retry button, on desktop too. So the change ships in
+  two PRs.
+  1. PR 1 holds only `packages/contracts` (`parsePreviewHost`,
+     `previewFrameIdFor`, `base32Encode`, `framePreviewHostFor`) and
+     `apps/preview-proxy`. It goes through `dev`, `staging`, and `main`.
+     The `main` push deploys the top-level Worker with the migration. This
+     Worker still serves the `r-` and `m-` hosts.
+  2. Check the `main` deploy. This request must answer 401, not 404:
+     `curl -sI https://f-aaaaaaaaaaaaaaaaaaaaa--p-00000000-0000-0000-0000-000000000000.wanditpreview.app/`
+  3. PR 2 holds the API and the web build that send `f-` hosts. Merge it
+     to `staging` only after step 2 passes.
+  A hand deploy `npx wrangler deploy --env ""` from another branch does not
+  last. The next `main` push that touches `packages/contracts` or
+  `apps/preview-proxy` deploys the Worker of `main` again.

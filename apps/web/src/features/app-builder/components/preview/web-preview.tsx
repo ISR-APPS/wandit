@@ -155,10 +155,11 @@ export function WebPreview({
 		else setFramePath(path);
 	}
 
+	// The tab URL, not the iframe URL: the frame host label is a bearer secret, and an address bar shows it.
 	function openInNewTab() {
-		if (preview.previewUrl === null) return;
+		if (preview.tabUrl === null) return;
 		window.open(
-			previewSrcFor(preview.previewUrl, currentPath),
+			previewSrcFor(preview.tabUrl, currentPath),
 			"_blank",
 			"noopener,noreferrer",
 		);
@@ -273,7 +274,7 @@ export function WebPreview({
 							variant="ghost"
 							size="icon-sm"
 							className={CAPSULE_BUTTON_CLASS}
-							disabled={preview.previewUrl === null}
+							disabled={preview.tabUrl === null}
 							onClick={openInNewTab}
 						>
 							<ArrowSquareOutIcon

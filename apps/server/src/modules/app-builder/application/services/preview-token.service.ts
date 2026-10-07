@@ -18,10 +18,13 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
+	framePreviewHostFor,
 	PREVIEW_TOKEN_QUERY,
 	PREVIEW_TOKEN_TTL_SECONDS,
+	type PreviewTokenClaims,
 	type PreviewTokenQuery,
 	type PreviewTokenResponse,
+	previewFrameIdFor,
 	previewHostFor,
 	signPreviewToken,
 } from "@wandit/contracts";
@@ -73,8 +76,10 @@ export class PreviewTokenService {
 
 	/**
 	 * Signs the preview token of the project's running sandbox and answers
-	 * the `?wt=` URL on the isolated `r-<rid12>--p-<projectId>` host.
-	 * A phone query adds the Expo Go username claim. Throws 404 for a
+	 * the `?wt=` URL on the frame host `f-<frameId>--p-<projectId>` of this
+	 * run and user, plus `tabUrl` on the run host `r-<rid12>--p-<projectId>`.
+	 * A phone query answers the run host in both and adds the Expo Go
+	 * username claim. Throws 404 for a
 	 * missing, out-of-scope, or V1 project and 409 `SANDBOX_NOT_RUNNING`
 	 * when no running row has a preview host. A failed vendor keep-alive
 	 * only logs; the token still answers.
@@ -104,26 +109,34 @@ export class PreviewTokenService {
 			});
 		}
 
-		// `exp` is unix seconds; the Worker compares it to its own clock.
-		const exp = Math.floor(Date.now() / 1000) + PREVIEW_TOKEN_TTL_SECONDS;
-		const token = await signPreviewToken(
-			{
-				exp,
-				// The schema accepts it only with client=phone; the Worker copies
-				// it into the phone link and the Expo manifest.
-				expoUsername: query.expoUsername,
-				jti: randomUUID(),
-				pid,
-				rid: row.id,
-				uid: scope.userId,
-				up: `https://${row.previewHost}`,
-			},
-			requireV2Env("PREVIEW_TOKEN_SIGNING_KEY", this.v2Env),
-		);
+		const signingKey = requireV2Env("PREVIEW_TOKEN_SIGNING_KEY", this.v2Env);
+		const domain = requireV2Env("PREVIEW_DOMAIN", this.v2Env);
+		const claims: PreviewTokenClaims = {
+			// `exp` is unix seconds; the Worker compares it to its own clock.
+			exp: Math.floor(Date.now() / 1000) + PREVIEW_TOKEN_TTL_SECONDS,
+			// The schema accepts it only with client=phone; the Worker copies
+			// it into the phone link and the Expo manifest.
+			expoUsername: query.expoUsername,
+			jti: randomUUID(),
+			pid,
+			rid: row.id,
+			uid: scope.userId,
+			up: `https://${row.previewHost}`,
+		};
+		const token = await signPreviewToken(claims, signingKey);
 
 		// The token holds base64url characters and "." only, so the query
 		// value needs no percent-encoding.
-		const previewUrl = `https://${previewHostFor(pid, row.id, requireV2Env("PREVIEW_DOMAIN", this.v2Env))}/?${PREVIEW_TOKEN_QUERY}=${token}`;
+		const tokenQuery = `?${PREVIEW_TOKEN_QUERY}=${token}`;
+		// A top-level tab gets the run host and a first-party cookie. The frame
+		// host label is a bearer secret, so no address bar may show it.
+		const tabUrl = `https://${previewHostFor(pid, row.id, domain)}/${tokenQuery}`;
+		// The phone caller POSTs to the mint route, and only the run host has it.
+		// The iframe gets the frame host: iOS WebKit drops the run host cookie.
+		const previewUrl =
+			query.client === "phone"
+				? tabUrl
+				: `https://${framePreviewHostFor(pid, await previewFrameIdFor(claims, signingKey), domain)}/${tokenQuery}`;
 
 		// A user who opens the preview counts as activity; the stamp keeps
 		// the idle sweep away while the preview is open.
@@ -153,8 +166,9 @@ export class PreviewTokenService {
 		}
 
 		return {
-			expiresAt: new Date(exp * 1000).toISOString(),
+			expiresAt: new Date(claims.exp * 1000).toISOString(),
 			previewUrl,
+			tabUrl,
 			token,
 		};
 	}
