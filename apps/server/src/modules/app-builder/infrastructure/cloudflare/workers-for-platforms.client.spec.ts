@@ -161,6 +161,28 @@ describe("WorkersForPlatformsClient.createAssetUploadSession", () => {
 		expect(requests[0]?.headers["content-type"]).toBe("application/json");
 		expect(JSON.parse(requests[0]?.body ?? "")).toEqual({ manifest });
 	});
+
+	it("accepts the real success answer with errors and messages set to null", async () => {
+		const { manifest } = assetManifest(PROJECT_ID, [
+			{ content: bytes("<h1>hi</h1>"), path: "/index.html" },
+		]);
+		const hash = manifest["/index.html"]?.hash ?? "";
+		const { client } = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({
+					errors: null,
+					messages: null,
+					result: { buckets: [[hash]], jwt: "session-jwt" },
+					success: true,
+				}),
+			),
+		]);
+
+		const session = await client.createAssetUploadSession(SCOPE, manifest);
+
+		expect(session).toEqual({ buckets: [[hash]], jwt: "session-jwt" });
+	});
 });
 
 describe("WorkersForPlatformsClient.uploadAssets", () => {

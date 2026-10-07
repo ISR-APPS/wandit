@@ -24,7 +24,11 @@ export type CloudflareApiError = z.infer<typeof cloudflareApiErrorSchema>;
 export function cloudflareEnvelopeSchema<T extends z.ZodType>(result: T) {
 	return z.object({
 		success: z.boolean(),
-		errors: z.array(cloudflareApiErrorSchema),
+		// The assets-upload-session success answers `"errors": null` (seen 2026-10-07).
+		errors: z
+			.array(cloudflareApiErrorSchema)
+			.nullable()
+			.transform((errors) => errors ?? []),
 		result: result.nullable(),
 	});
 }

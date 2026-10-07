@@ -559,6 +559,8 @@
 	},
 	"publish": {
 		"cta": "Publier",
+		"soon": "Bientôt",
+		"comingSoon": "La publication arrive bientôt.",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} changement",
