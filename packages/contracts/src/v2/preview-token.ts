@@ -1,8 +1,10 @@
 /**
- * Signs and verifies the preview token the preview-proxy Worker trusts.
- * The API `PreviewTokenService` calls `signPreviewToken`; the Worker calls
- * `verifyPreviewToken`. Both runtimes share this file, so it uses WebCrypto
- * (`globalThis.crypto.subtle`) only — no `node:` import, no `Buffer`.
+ * Signs and verifies the preview token the preview-proxy Worker trusts, and
+ * derives the secret id of the frame host. The API `PreviewTokenService`
+ * calls `signPreviewToken` and `previewFrameIdFor`; the Worker calls
+ * `verifyPreviewToken` and `previewFrameIdFor`. Both runtimes share this
+ * file, so it uses WebCrypto (`globalThis.crypto.subtle`) only — no `node:`
+ * import, no `Buffer`.
  */
 import { type PreviewTokenClaims, previewTokenClaimsSchema } from "./preview";
 
@@ -40,6 +42,62 @@ function base64UrlDecode(value: string): Uint8Array<ArrayBuffer> {
 		bytes[i] = binary.charCodeAt(i);
 	}
 	return bytes;
+}
+
+/** RFC 4648 base32 in lower case: the alphabet of the `m-` and `f-` host labels. */
+const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+
+/**
+ * Encodes bytes as lower-case base32 without padding. 13 bytes (104 bits)
+ * give 21 characters. Hex would need 26 and push the host label over the
+ * DNS limit of 63. The Worker encodes phone ids with it, and
+ * `previewFrameIdFor` encodes frame ids.
+ */
+export function base32Encode(bytes: Uint8Array): string {
+	let pending = 0;
+	let pendingBits = 0;
+	let encoded = "";
+	for (const byte of bytes) {
+		pending = (pending << 8) | byte;
+		pendingBits += 8;
+		// One base32 character holds 5 bits.
+		while (pendingBits >= 5) {
+			pendingBits -= 5;
+			encoded += BASE32_ALPHABET.charAt((pending >> pendingBits) & 31);
+		}
+		// Keep only the bits not yet written, so the number stays small.
+		pending &= (1 << pendingBits) - 1;
+	}
+	// The last bits fill the high end of one more character.
+	if (pendingBits > 0) {
+		encoded += BASE32_ALPHABET.charAt((pending << (5 - pendingBits)) & 31);
+	}
+	return encoded;
+}
+
+/** 13 bytes: 104 bits of secret in the 21 characters of a host label. */
+const FRAME_ID_BYTES = 13;
+
+/**
+ * Secret id of the frame host of one run and one user: the first 104 bits of
+ * an HMAC over `pid`, `rid`, and `uid`. The API puts it in `previewUrl`; the
+ * Worker checks it against the token before it stores the claims. A renewal
+ * keeps the id, so the app keeps its origin and its browser storage.
+ */
+export async function previewFrameIdFor(
+	claims: Pick<PreviewTokenClaims, "pid" | "rid" | "uid">,
+	key: string,
+): Promise<string> {
+	const cryptoKey = await importSigningKey(key);
+	// The token HMAC signs base64url text, which has no ":". So this input
+	// can never equal a token payload, and one key serves both uses. `pid`
+	// and `rid` are UUIDs with no ":", so `uid` can hold any character.
+	const mac = await crypto.subtle.sign(
+		"HMAC",
+		cryptoKey,
+		textEncoder.encode(`frame:${claims.pid}:${claims.rid}:${claims.uid}`),
+	);
+	return base32Encode(new Uint8Array(mac, 0, FRAME_ID_BYTES));
 }
 
 /** Imports the signing key as an HMAC-SHA256 CryptoKey. The key never leaves the process. */

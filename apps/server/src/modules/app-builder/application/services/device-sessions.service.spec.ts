@@ -123,6 +123,7 @@ function setup(options?: {
 		mint: vi.fn<PreviewTokenService["mint"]>(async () => ({
 			expiresAt: "2026-09-25T00:15:00.000Z",
 			previewUrl: `https://r-111111111111--p-${PROJECT_ID}.wanditpreview.app/?wt=tok`,
+			tabUrl: `https://r-111111111111--p-${PROJECT_ID}.wanditpreview.app/?wt=tok`,
 			token: "tok",
 		})),
 	};

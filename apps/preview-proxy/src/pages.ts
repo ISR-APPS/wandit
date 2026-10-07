@@ -70,6 +70,17 @@ export function notRunningPage(): string {
 	);
 }
 
+/**
+ * 403 on a top-level tab of a frame host. The host label is a bearer secret,
+ * so only the builder iframe shows the app. No postMessage: a tab has no parent.
+ */
+export function frameOnlyPage(): string {
+	return shell(
+		"Open the preview from the builder",
+		'This address works only inside the builder. To see the app in a tab, use "Open in a new tab" in the builder.',
+	);
+}
+
 /** 500 on a proxy error. No postMessage: the parent knows no event for it. */
 export function proxyErrorPage(): string {
 	return shell(

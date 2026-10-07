@@ -5,8 +5,10 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	framePreviewHostFor,
 	PREVIEW_TOKEN_QUERY,
 	PREVIEW_TOKEN_TTL_SECONDS,
+	previewFrameIdFor,
 	previewHostFor,
 	previewTokenResponseSchema,
 	verifyPreviewToken,
@@ -101,7 +103,7 @@ function fixture(options?: {
 }
 
 describe("PreviewTokenService.mint", () => {
-	it("mints a token the Worker verifies, on the isolated preview host", async () => {
+	it("mints a token the Worker verifies, on the frame host of its run and user, and a tab URL on the run host", async () => {
 		const { sandboxes, service, sessions } = fixture({ row: sessionRow() });
 
 		const body = await service.mint(SCOPE, PROJECT_ID);
@@ -121,7 +123,12 @@ describe("PreviewTokenService.mint", () => {
 			uid: "user-1",
 			up: `https://${PREVIEW_HOST}`,
 		});
+		const frameId = await previewFrameIdFor(verified.claims, SIGNING_KEY);
 		expect(parsed.previewUrl).toBe(
+			`https://${framePreviewHostFor(PROJECT_ID, frameId, DOMAIN)}/?${PREVIEW_TOKEN_QUERY}=${parsed.token}`,
+		);
+		// The frame host label is a bearer secret, so a top-level tab must get the run host.
+		expect(parsed.tabUrl).toBe(
 			`https://${previewHostFor(PROJECT_ID, RUN_ID, DOMAIN)}/?${PREVIEW_TOKEN_QUERY}=${parsed.token}`,
 		);
 		// The token `exp` and the `expiresAt` field are the same instant.
@@ -157,7 +164,7 @@ describe("PreviewTokenService.mint", () => {
 		warnSpy.mockRestore();
 	});
 
-	it("puts the Expo Go username in a phone token and logs the mint with the ids", async () => {
+	it("puts the Expo Go username in a phone token on the run host and logs the mint with the ids", async () => {
 		const { service } = fixture({ row: sessionRow() });
 		// Nest's Logger is a library class; the spy only records the audit line.
 		const logSpy = vi
@@ -169,12 +176,17 @@ describe("PreviewTokenService.mint", () => {
 			expoUsername: "zack",
 		});
 
+		const parsed = previewTokenResponseSchema.parse(body);
 		const verified = await verifyPreviewToken(
-			previewTokenResponseSchema.parse(body).token,
+			parsed.token,
 			SIGNING_KEY,
 			Math.floor(Date.now() / 1000),
 		);
 		expect(verified.ok && verified.claims.expoUsername).toBe("zack");
+		// The phone-link mint route lives on the run host only.
+		expect(new URL(parsed.previewUrl).hostname).toBe(
+			previewHostFor(PROJECT_ID, RUN_ID, DOMAIN),
+		);
 		expect(logSpy).toHaveBeenCalledWith("preview.phone-token.minted", {
 			projectId: PROJECT_ID,
 			userId: "user-1",
@@ -193,12 +205,14 @@ describe("PreviewTokenService.mint", () => {
 			SIGNING_KEY,
 			Math.floor(Date.now() / 1000),
 		);
-		expect(verified.ok && verified.claims.pid).toBe(PROJECT_ID);
-		expect(
-			parsed.previewUrl.startsWith(
-				`https://${previewHostFor(PROJECT_ID, RUN_ID, DOMAIN)}/`,
-			),
-		).toBe(true);
+		if (!verified.ok) {
+			throw new Error(`preview token did not verify: ${verified.reason}`);
+		}
+		expect(verified.claims.pid).toBe(PROJECT_ID);
+		const frameId = await previewFrameIdFor(verified.claims, SIGNING_KEY);
+		expect(new URL(parsed.previewUrl).hostname).toBe(
+			framePreviewHostFor(PROJECT_ID, frameId, DOMAIN),
+		);
 	});
 
 	it("answers 409 SANDBOX_NOT_RUNNING when the live row is stopped", async () => {
