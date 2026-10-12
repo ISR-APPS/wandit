@@ -451,8 +451,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
-  refuses at the plan limit (`backendsPerPlan`; 1000 on every plan for
-  the staging tests) with 403 `BACKEND_LIMIT_REACHED`. The count and the
+  refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
+  business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
   backend.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
@@ -692,11 +692,8 @@ app, or a project of another workspace answers 404.
 Rate limits (WANDIT-181): `RedisRateLimitGuard` counts per user and, with
 `ipLimit`, per client IP that `TRUSTED_PROXY_CIDRS` confirms (the Better
 Auth rule; without a trusted IP the IP key is skipped). Project create:
-50 per user and 500 per IP per day. Turn create: 30 per user and 2000 per
-IP per 10 minutes. Publish: 300 per IP per hour. Staging sizes these caps
-for an event room behind one NAT IP. Production uses 10 per user and 30 per
-IP for project create, 90 per IP for turn create, and 30 per IP per hour for
-publish. A Redis error lets the request through with a Sentry
+10 per user and 30 per IP per day. Turn create: 30 per user and 90 per
+IP per 10 minutes. Publish: 10 per user and 30 per IP per hour. A Redis error lets the request through with a Sentry
 warning. Every audit row of these routes goes through `AuditEventsService`
 (`audit_events`, action names in `packages/contracts/src/v2/audit.ts`).
 
@@ -1294,8 +1291,8 @@ Check order, per request:
    402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row.
    `GENERATION_BILLING_MODE=off` skips this check.
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
-   `LLM_PROXY_DAILY_USER_CAP_USD` ($50 in production, ESTIMATE until
-   WANDIT-174; $100,000 on staging, see `docs/v2/runbook.md`). Over:
+   `LLM_PROXY_DAILY_USER_CAP_USD` ($50, ESTIMATE until
+   WANDIT-174). Over:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
    runtime then stops the turn as `stopped_project_cap` with the failure
    code `daily_cap`. The chat shows the reset time and no Retry.
@@ -1441,8 +1438,8 @@ minute), and `@RequireWorkspacePermission("project", "update")`.
 1. The project is a V2 `mobile-app` project in scope, else 404.
 2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
    503 `V2_ENV_MISSING`.
-3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`;
-   100000 on every plan for the staging tests, see `docs/v2/runbook.md`),
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
+   starter 0, pro 60, business 180),
    else 402 `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count
    their billed minutes, or their elapsed minutes before the bill.
 4. The user holds no open session: Redis `SET NX PX` on
