@@ -1,7 +1,13 @@
+/**
+ * Serves V1 project routes and denies new project creation.
+ * Nest calls this controller after the session and workspace guards.
+ * Existing project routes call ProjectsService.
+ */
 import {
 	Body,
 	Controller,
 	Delete,
+	ForbiddenException,
 	Get,
 	HttpCode,
 	Inject,
@@ -38,11 +44,15 @@ import { projectScopeFrom } from "../../../domain/project-scope";
 // The x-wandit-workspace header (resolved by WorkspaceContextGuard) selects
 // personal vs org scope. Role gates apply only in org scope — personal
 // workspaces bypass them (the owner is omnipotent in their own space).
+/** Keeps existing projects available while V1 creation is closed. */
 @Controller("v1/projects")
 export class ProjectsController {
 	constructor(
 		@Inject(ProjectsService)
-		private readonly projectsService: ProjectsService,
+		private readonly projectsService: Pick<
+			ProjectsService,
+			"delete" | "get" | "list" | "listPaged" | "update"
+		>,
 	) {}
 
 	@Get()
@@ -66,18 +76,20 @@ export class ProjectsController {
 		);
 	}
 
+	/** Denies creation before credit reservations or project writes. */
 	@RequireWorkspacePermission("project", "create")
 	@Post()
 	create(
 		@Body(new ZodValidationPipe(createProjectBodySchema))
-		body: CreateProjectBody,
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		_body: CreateProjectBody,
+		@CurrentUser() _user: AuthUser,
+		@CurrentWorkspace() _workspace: WorkspaceContext,
 	): Promise<CreateProjectResponse> {
-		return this.projectsService.create(
-			projectScopeFrom(workspace, user.id),
-			body,
-		);
+		// The launch restriction must also cover direct API requests.
+		throw new ForbiddenException({
+			code: "V1_PROJECT_CREATION_DISABLED",
+			message: "New V1 projects are disabled.",
+		});
 	}
 
 	@Get(":projectId")
