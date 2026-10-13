@@ -3,20 +3,46 @@
 Operator steps for the V2 app builder. Each entry names the issue that
 added it. WANDIT-176 adds the staging alpha entries.
 
-## Staging-only limits (restored on 2026-10-12)
+## Staging-only limits to restore before production
 
-The event tests lifted these limits on staging. An unknown user then reached
-V2 on staging, so all limits are back at the production values on every
-environment. Do not lift them again without a gate on who can sign in.
+The staging tests before the event lift these limits, so a tester on any
+plan can use the features without a stop. A pull request from `staging`
+to `main` must restore every value of this list first. The refusal paths
+stay in the code, so the restore changes only the numbers. Each constant
+has a `STAGING ONLY` comment; remove it with the restore.
 
-- `BACKEND_DEFAULTS.backendsPerPlan`: starter 0, pro 1, business 1000.
-- `DEVICE_MINUTES_PER_PLAN`: starter 0, pro 60, business 180.
-- `LLM_PROXY_DAILY_USER_CAP_USD`: 50.
-- `PROJECT_CREATE_LIMIT` 10 and `PROJECT_CREATE_IP_LIMIT` 30 per day.
-- `TURN_CREATE_IP_LIMIT`: 90 per 10 min.
-- `PUBLISH_IP_LIMIT`: 30 per hour.
-- The signup grant in the admin app (Product controls): decide per
-  environment. Each new account gets it, so it is a cost per sign-up.
+- `BACKEND_DEFAULTS.backendsPerPlan` in
+  `apps/server/src/modules/app-builder/domain/backend-lifecycle.ts`.
+  Staging: 1000 on every plan. Production: starter 0, pro 1, business
+  1000. Reason: a tester on any plan can add a backend to a V2 project
+  (403 `BACKEND_LIMIT_REACHED` before).
+- `DEVICE_MINUTES_PER_PLAN` in
+  `apps/server/src/modules/app-builder/domain/device-minutes.ts`.
+  Staging: 100000 minutes per month on every plan. Production: starter 0,
+  pro 60, business 180. Reason: a tester on any plan can start the
+  in-browser device of Appetize (402 `DEVICE_MINUTES_EXHAUSTED` before).
+- `LLM_PROXY_DAILY_USER_CAP_USD` in
+  `apps/server/src/modules/app-builder/infrastructure/redis/llm-spend-counters.ts`.
+  Staging: 100000 USD of model cost per user per UTC day. Production: 50.
+  Reason: two testers on Opus 5.5 Fast reached $50 on 2026-10-06, and
+  every next turn failed with 402 `V2_DAILY_CAP_REACHED`.
+- `PROJECT_CREATE_LIMIT` and `PROJECT_CREATE_IP_LIMIT` in
+  `apps/server/src/modules/app-builder/presentation/http/controllers/app-projects.controller.ts`.
+  Staging: 50 creates per user and 500 per IP per day. Production: 10 and
+  30. Reason: an event room shares one NAT IP, and Zack rehearses on his
+  own account (429 `RATE_LIMITED` before, with a Retry-After of up to 24 h).
+- `TURN_CREATE_IP_LIMIT` in
+  `apps/server/src/modules/app-builder/presentation/http/controllers/turns.controller.ts`.
+  Staging: 2000 turn posts per IP per 10 min. Production: 90. Reason: every
+  message, Approve, Deny, and answer is one turn post, so about 18 active
+  people on one IP reached 90.
+- `PUBLISH_IP_LIMIT` in
+  `apps/server/src/modules/app-builder/presentation/http/controllers/publish.controller.ts`.
+  Staging: 300 publishes per IP per hour. Production: 30. Reason: an event
+  room shares one NAT IP, and every attendee can publish.
+- The signup grant in the admin app (Product controls). Staging: on, with
+  the amount that Zack picks for the event. Production: decide before the
+  launch. Reason: staging gave a new account 0 credits on 2026-10-06.
 
 ## Harness host deploys (audit P0-05)
 
