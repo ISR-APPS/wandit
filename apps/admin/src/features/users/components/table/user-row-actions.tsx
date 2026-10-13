@@ -1,5 +1,5 @@
 /**
- * Row menu in the users table: grant credits, change role, and ban.
+ * Row menu in the users table: grant credits, change role, refund the last payment, and ban.
  * The users table and the mobile list render it. Each item needs its staff permission.
  */
 import { Link } from "@tanstack/react-router";
@@ -10,6 +10,7 @@ import {
 	CreditCardIcon,
 	EllipsisIcon,
 	ExternalLinkIcon,
+	RotateCcwIcon,
 	ShieldCheckIcon,
 	UserCogIcon,
 } from "lucide-react";
@@ -40,14 +41,17 @@ import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
+import { RefundUserDialog } from "@/features/users/components/refund-user-dialog";
 
-type ActiveDialog = "credits" | "role" | "ban" | null;
+type ActiveDialog = "credits" | "role" | "refund" | "ban" | null;
 
 function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
 	const { data: session } = useSession();
 	const canSetRole = useAdminPermission({ users: ["set-role"] });
 	const canBan = useAdminPermission({ users: ["ban"] });
+	// Full admins only: the support role has no billing:manage.
+	const canRefund = useAdminPermission({ billing: ["manage"] });
 	const isSelf = session?.user.id === user.id;
 	const canGrantCredits =
 		useAdminPermission({ credits: ["grant"] }) &&
@@ -121,20 +125,31 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 							Copy user ID
 						</DropdownMenuItem>
 					</DropdownMenuGroup>
-					{canToggleBanned && (
+					{canRefund || canToggleBanned ? (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuGroup>
-								<DropdownMenuItem
-									variant={user.banned ? "default" : "destructive"}
-									onSelect={() => setActiveDialog("ban")}
-								>
-									{user.banned ? <ShieldCheckIcon /> : <BanIcon />}
-									{user.banned ? "Restore access" : "Ban user"}
-								</DropdownMenuItem>
+								{canRefund ? (
+									<DropdownMenuItem
+										variant="destructive"
+										onSelect={() => setActiveDialog("refund")}
+									>
+										<RotateCcwIcon />
+										Refund last payment
+									</DropdownMenuItem>
+								) : null}
+								{canToggleBanned ? (
+									<DropdownMenuItem
+										variant={user.banned ? "default" : "destructive"}
+										onSelect={() => setActiveDialog("ban")}
+									>
+										{user.banned ? <ShieldCheckIcon /> : <BanIcon />}
+										{user.banned ? "Restore access" : "Ban user"}
+									</DropdownMenuItem>
+								) : null}
 							</DropdownMenuGroup>
 						</>
-					)}
+					) : null}
 				</DropdownMenuContent>
 			</DropdownMenu>
 
@@ -150,6 +165,13 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 					user={user}
 					open={activeDialog === "role"}
 					onOpenChange={(open) => setActiveDialog(open ? "role" : null)}
+				/>
+			) : null}
+			{canRefund ? (
+				<RefundUserDialog
+					user={user}
+					open={activeDialog === "refund"}
+					onOpenChange={(open) => setActiveDialog(open ? "refund" : null)}
 				/>
 			) : null}
 			{canToggleBanned ? (

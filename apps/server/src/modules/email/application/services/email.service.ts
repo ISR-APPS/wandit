@@ -1,3 +1,7 @@
+/**
+ * Sends product email through Resend: sign-in links and codes, invitations, domain and billing notices.
+ * Auth flows, billing services, and Trigger reminder tasks call it. The copy lives in auth-email-templates.ts.
+ */
 import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { APIError } from "better-auth/api";
@@ -11,6 +15,8 @@ import {
 	magicLinkEmail,
 	manualRequestEmail,
 	otpEmail,
+	type SubscriptionRenewalReminderEmailData,
+	subscriptionRenewalReminderEmail,
 } from "../../templates/auth-email-templates";
 
 /**
@@ -85,6 +91,26 @@ export class EmailService {
 			{
 				idempotencyKey: input.idempotencyKey,
 			},
+		);
+	}
+
+	/**
+	 * Sends the renewal or expiry notice of one subscription period. The link opens the web billing page.
+	 * `idempotencyKey` makes a repeat send within 24 hours a no-op at Resend.
+	 */
+	async sendSubscriptionRenewalReminder(
+		input: SubscriptionRenewalReminderEmailData & {
+			idempotencyKey: string;
+			to: string;
+		},
+	): Promise<void> {
+		const billingUrl = new URL("/billing", env.CORS_ORIGIN).toString();
+
+		await this.deliver(
+			input.to,
+			subscriptionRenewalReminderEmail(input, billingUrl),
+			`subscription renewal reminder (${input.kind}): ${billingUrl}`,
+			{ idempotencyKey: input.idempotencyKey },
 		);
 	}
 

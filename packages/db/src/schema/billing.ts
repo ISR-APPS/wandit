@@ -256,6 +256,12 @@ export const subscriptions = pgTable(
 			withTimezone: true,
 		}).notNull(),
 		cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull(),
+		// The current_period_end value that the last renewal reminder email covered.
+		// A renewal moves current_period_end, so the next period gets its own reminder.
+		// Only the subscription-renewal-reminders Trigger task writes it. Null means no reminder yet.
+		renewalReminderPeriodEnd: timestamp("renewal_reminder_period_end", {
+			withTimezone: true,
+		}),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

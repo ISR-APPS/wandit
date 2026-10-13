@@ -30,6 +30,7 @@ function subscription(): SubscriptionCreditRow {
 		priceLookupKey: "pro_250_year",
 		provider: "stripe",
 		providerSubscriptionId: "sub_remote",
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 250,
 		updatedAt: new Date(0),
