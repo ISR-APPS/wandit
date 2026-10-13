@@ -41,12 +41,16 @@ import {
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
-// 10 creates per user per day (WANDIT-181). Each create can provision a
+// Creates per user per day (WANDIT-181). Each create can provision a
 // backend and starts a first turn, so the cap stops a script that farms them.
-const PROJECT_CREATE_LIMIT = 10;
-// Three times the user cap: three people behind one office IP still fit,
-// but the cap stops one person who uses many accounts.
-const PROJECT_CREATE_IP_LIMIT = 30;
+// Staging allows 50, so Zack can rehearse the event demo on his own account.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const PROJECT_CREATE_LIMIT = 50;
+// Creates per client IP per day. The cap stops one person who uses many
+// accounts. An event room shares one NAT IP, so staging sizes it for the room.
+// LIMIT: one NAT IP fits about 100 people with 5 creates each. Upgrade: skip the IP cap for known event IPs.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const PROJECT_CREATE_IP_LIMIT = 500;
 const PROJECT_CREATE_WINDOW_MS = 24 * 60 * 60_000;
 
 @Controller("v2/projects")
