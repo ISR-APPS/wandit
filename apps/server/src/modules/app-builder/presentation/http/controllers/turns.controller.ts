@@ -51,10 +51,12 @@ import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 // 30 creates or cancels per user per 10 min — a human cannot click faster.
 const TURN_MUTATION_LIMIT = 30;
 const TURN_MUTATION_WINDOW_MS = 600_000;
-// 90 turn creates per IP per 10 min (WANDIT-181): three times the user cap.
-// Three people behind one office IP still fit, but the cap stops one person
-// who uses many accounts.
-const TURN_CREATE_IP_LIMIT = 90;
+// Turn creates per client IP per 10 min (WANDIT-181). A message, an Approve,
+// a Deny, and a question answer each post a turn. The cap stops one person
+// who uses many accounts. An event room shares one NAT IP, so staging sizes it for the room.
+// LIMIT: one NAT IP fits about 100 people with 20 posts each. Upgrade: skip the IP cap for known event IPs.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const TURN_CREATE_IP_LIMIT = 2000;
 
 // An open SSE slot stays taken until the stream closes or its window ends.
 // 16 min: Railway ends every HTTP response at 15 min, and the browser then
