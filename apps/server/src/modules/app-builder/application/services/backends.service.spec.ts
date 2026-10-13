@@ -61,6 +61,7 @@ function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
 		priceLookupKey: "pro_250_month",
 		provider: "stripe",
 		providerSubscriptionId: "sub_stripe_1",
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 250,
 		updatedAt: NOW,

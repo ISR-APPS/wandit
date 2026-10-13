@@ -1489,6 +1489,70 @@ export type AdminManualBillingReceiptConfig = z.infer<
 	typeof adminManualBillingReceiptConfigSchema
 >;
 
+// --- User refunds (the "Refund last payment" action in the users table) ---
+
+/**
+ * The last paid Stripe plan payment of a user. The amounts come live from the Stripe charge.
+ * Only personal Stripe subscriptions count. Top-ups, domain orders, and team plans do not.
+ */
+export const adminUserRefundPaymentSchema = z.object({
+	stripeInvoiceId: z.string(),
+	// Minor units of `currency` (cents for usd). Stripe captured this amount.
+	amountPaidMinor: z.int().min(0),
+	// Minor units of `currency`. Stripe refunded this part already.
+	amountRefundedMinor: z.int().min(0),
+	// Lowercase ISO 4217 code, as Stripe sends it ("usd").
+	currency: z.string().length(3),
+	// When Stripe collected the payment. Null on invoice rows written before this column existed.
+	paidAt: isoDateTimeSchema.nullable(),
+	plan: billingPlanIdSchema,
+	interval: billingIntervalSchema,
+	// True when Stripe shows the subscription as ended already.
+	subscriptionCanceled: z.boolean(),
+});
+
+export type AdminUserRefundPayment = z.infer<
+	typeof adminUserRefundPaymentSchema
+>;
+
+/** GET body of the refund route. The admin refund dialog reads it before the admin confirms. */
+export const adminUserRefundPreviewSchema = z.object({
+	// Null when the user has no paid personal Stripe plan payment, or when `paidOffline` is true.
+	payment: adminUserRefundPaymentSchema.nullable(),
+	// True when the user has a live personal offline or SlickPay subscription. These have no refund API.
+	paidOffline: z.boolean(),
+});
+
+export type AdminUserRefundPreview = z.infer<
+	typeof adminUserRefundPreviewSchema
+>;
+
+/** POST body of the refund route: the invoice that the preview showed. Stripe invoice ids start with "in_". */
+export const adminUserRefundInputSchema = z.object({
+	stripeInvoiceId: z.string().min(4).max(255).startsWith("in_"),
+});
+
+export type AdminUserRefundInput = z.infer<typeof adminUserRefundInputSchema>;
+
+/** POST answer of the refund route. The webhooks remove the plan credits later. */
+export const adminUserRefundResultSchema = z.object({
+	// Null when Stripe had refunded the full charge already, so no new refund was made.
+	refund: z
+		.object({
+			id: z.string(),
+			// Stripe refund status: "pending", "succeeded", "failed", "requires_action", or "canceled".
+			status: z.string().nullable(),
+			// Minor units of `currency`.
+			amountMinor: z.int().min(0),
+			currency: z.string(),
+		})
+		.nullable(),
+	// The route always ends the Stripe subscription in the same call.
+	subscriptionCanceled: z.literal(true),
+});
+
+export type AdminUserRefundResult = z.infer<typeof adminUserRefundResultSchema>;
+
 export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
 /** The API paths that the admin app calls. The admin controllers serve them. */
@@ -1538,6 +1602,8 @@ export const adminRoutes = {
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
+	/** GET reads the refund preview. POST refunds the last Stripe plan payment and cancels the plan. Needs billing:manage. */
+	userRefund: (userId: string) => `/api/v1/admin/users/${userId}/refund`,
 	overviewStats: "/api/v1/admin/stats/overview",
 	signupStats: "/api/v1/admin/stats/signups",
 	webhookReplay: (eventId: string) =>

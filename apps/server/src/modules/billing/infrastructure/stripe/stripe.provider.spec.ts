@@ -113,6 +113,13 @@ function setup() {
 			_options?: Stripe.RequestOptions,
 		) => subscription,
 	);
+	const subscriptionsCancel = vi.fn(
+		async (
+			_id: string,
+			_params?: Stripe.SubscriptionCancelParams,
+			_options?: Stripe.RequestOptions,
+		) => subscription,
+	);
 	const invoicesCreatePreview = vi.fn(
 		async () => ({ amount_due: 2_500, currency: "usd" }) as Stripe.Invoice,
 	);
@@ -200,6 +207,7 @@ function setup() {
 			create: refundsCreate,
 		},
 		subscriptions: {
+			cancel: subscriptionsCancel,
 			list: subscriptionsList,
 			retrieve: subscriptionsRetrieve,
 			update: subscriptionsUpdate,
@@ -231,6 +239,7 @@ function setup() {
 		sessionsCreate,
 		sessionsExpire,
 		sessionsRetrieve,
+		subscriptionsCancel,
 		subscriptionsRetrieve,
 		subscriptionsList,
 		subscriptionsUpdate,
@@ -1239,6 +1248,25 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.setCancelAtPeriodEnd("sub_1", true),
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
+	});
+
+	it.each([
+		"canceled",
+		"incomplete_expired",
+	] as const)("does not cancel or release a schedule again when the subscription is already %s", async (status) => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedulesRelease,
+			subscriptionsCancel,
+		} = setup();
+		subscription.status = status;
+		subscription.schedule = "sub_sched_1";
+
+		await provider.cancelSubscriptionNow("sub_1", "admin-refund-cancel:sub_1");
+
+		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
+		expect(subscriptionsCancel).not.toHaveBeenCalled();
 	});
 
 	it("keeps an upgrade retryable when schedule release succeeded before a definite update error", async () => {

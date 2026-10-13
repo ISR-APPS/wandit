@@ -1,3 +1,8 @@
+/**
+ * Stripe adapter of billing: customers, checkouts, subscription changes, refunds, and reads.
+ * Billing, orders, and affiliates services call it, often through the PAYMENT_PROVIDER port.
+ * Calls the Stripe API. Wraps write failures with an unknown result in AmbiguousPaymentProviderWriteError.
+ */
 import {
 	Injectable,
 	InternalServerErrorException,
@@ -681,6 +686,51 @@ export class StripeProvider implements PaymentProvider {
 			this.rethrowPaymentWrite(
 				error,
 				"Stripe subscription cancellation update ended with an ambiguous write result",
+				priorRemoteMutation,
+			);
+		}
+	}
+
+	/**
+	 * Ends a Stripe subscription now, with no proration credit and no final invoice.
+	 * AdminUserRefundsService calls it after an admin refund. A call on an ended subscription does nothing.
+	 * The customer.subscription.deleted webhook then expires the plan credits.
+	 */
+	async cancelSubscriptionNow(
+		providerSubscriptionId: string,
+		idempotencyKey: string,
+	): Promise<void> {
+		let priorRemoteMutation = false;
+
+		try {
+			const subscription = await this.stripe().subscriptions.retrieve(
+				providerSubscriptionId,
+			);
+
+			// A retry after a partial failure finds the subscription ended already.
+			if (
+				subscription.status === "canceled" ||
+				subscription.status === "incomplete_expired"
+			) {
+				return;
+			}
+
+			// An attached schedule owns cancellation behavior. Release our managed
+			// downgrade schedule first, as setCancelAtPeriodEnd does.
+			priorRemoteMutation = await this.releaseManagedDowngradeSchedule(
+				subscription,
+				`${idempotencyKey}:release-schedule`,
+			);
+
+			await this.stripe().subscriptions.cancel(
+				providerSubscriptionId,
+				{ invoice_now: false, prorate: false },
+				{ idempotencyKey },
+			);
+		} catch (error) {
+			this.rethrowPaymentWrite(
+				error,
+				"Stripe immediate subscription cancellation ended with an ambiguous write result",
 				priorRemoteMutation,
 			);
 		}

@@ -3,7 +3,7 @@
 // Copy is English-only for v1 — the sender has no reliable locale signal for
 // a recipient who has never signed in.
 
-import type { BillingPlanId } from "@wandit/contracts";
+import type { BillingInterval, BillingPlanId } from "@wandit/contracts";
 
 export type EmailContent = {
 	subject: string;
@@ -15,6 +15,22 @@ export type ExternalDomainDelegationReminderEmailData = {
 	dashboardUrl: string;
 	domainName: string;
 	nameServers: readonly string[];
+};
+
+/** Data of the reminder that the subscription-renewal-reminders Trigger task sends. */
+export type SubscriptionRenewalReminderEmailData = {
+	/** Interval that the renewal charges ("renews"), or the interval of the plan that ends ("expires"). */
+	interval: BillingInterval;
+	/** "renews": Stripe charges the card on file. "expires": a manual plan ends unless the user renews it. */
+	kind: "expires" | "renews";
+	/** Display name of the recipient. User text. */
+	name: string;
+	/** Workspace name of an organization plan. Null for a personal plan. User text. */
+	organizationName: string | null;
+	/** subscriptions.current_period_end: the moment the plan renews or expires. */
+	periodEnd: Date;
+	/** Plan that the renewal charges ("renews"), or the plan that ends ("expires"). */
+	plan: BillingPlanId;
 };
 
 export type ManualRequestEmailData = {
@@ -33,7 +49,11 @@ const PLAN_NAMES = {
 	business: "Business",
 } as const satisfies Record<BillingPlanId, string>;
 
-function shell(bodyHtml: string): string {
+const DEFAULT_FOOTER =
+	"If you didn't request this email, you can safely ignore it.";
+
+// `footer` is the plain-text last line. Sign-in emails keep the default; a billing notice passes its own.
+function shell(bodyHtml: string, footer = DEFAULT_FOOTER): string {
 	return `<!doctype html>
 <html>
 <body style="margin:0;padding:0;background-color:#f6f5f2;">
@@ -42,7 +62,7 @@ function shell(bodyHtml: string): string {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background-color:#ffffff;border-radius:16px;padding:40px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <tr><td style="font-size:20px;font-weight:700;color:#1a1815;padding-bottom:24px;">Wandit</td></tr>
 ${bodyHtml}
-<tr><td style="font-size:12px;color:#8a857d;padding-top:32px;border-top:1px solid #eeece8;">If you didn't request this email, you can safely ignore it.</td></tr>
+<tr><td style="font-size:12px;color:#8a857d;padding-top:32px;border-top:1px solid #eeece8;">${escapeHtml(footer)}</td></tr>
 </table>
 </td></tr>
 </table>
@@ -120,6 +140,80 @@ export function externalDomainDelegationReminderEmail(
 <tr><td style="font-size:13px;color:#8a857d;line-height:1.6;padding-bottom:16px;">Button not working? Paste this link into your browser:<br><a href="${escapeHtml(dashboardUrl)}" style="color:${EMBER};word-break:break-all;">${escapeHtml(dashboardUrl)}</a></td></tr>
 <tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">If you no longer want this domain connected, you can remove it in settings.</td></tr>`),
 		text: `Finish connecting ${domainName} to Wandit\n\nThe domain ${domainName} is connected to Wandit, but its nameservers still point elsewhere.\n\nTo finish setup, change the nameservers at your domain registrar to:\n${textNameServers}\n\nOpen domain settings:\n${dashboardUrl}\n\nIf you no longer want this domain connected, you can remove it in settings.`,
+	};
+}
+
+// UTC because the server does not know the time zone of the recipient. The output ends in "UTC".
+const RENEWAL_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+	month: "long",
+	timeZone: "UTC",
+	timeZoneName: "short",
+	year: "numeric",
+});
+
+/**
+ * Renewal or expiry notice about 3 days before the period end.
+ * `billingUrl` is the absolute URL of the web billing page. It shows the active workspace.
+ */
+export function subscriptionRenewalReminderEmail(
+	data: SubscriptionRenewalReminderEmailData,
+	billingUrl: string,
+): EmailContent {
+	const name = sanitizeHeaderText(data.name);
+	const organizationName =
+		data.organizationName === null
+			? null
+			: sanitizeHeaderText(data.organizationName);
+	const planName = PLAN_NAMES[data.plan];
+	const planLabel = `${planName} plan (${data.interval === "year" ? "yearly" : "monthly"})`;
+	const owner =
+		organizationName === null
+			? `Your ${planLabel}`
+			: `The ${planLabel} of the ${organizationName} workspace`;
+	const billingPage =
+		organizationName === null
+			? "the billing page"
+			: `the billing page of the ${organizationName} workspace`;
+	const date = RENEWAL_DATE_FORMAT.format(data.periodEnd);
+	// Product rule: Stripe renews and charges by itself. A manual plan (SlickPay, offline) only ends.
+	const copy =
+		data.kind === "renews"
+			? {
+					lines: [
+						`${owner} renews automatically on ${date}. We charge the card on file on that date.`,
+						`To change or cancel the plan, open ${billingPage} before that date.`,
+					],
+					subject: `Your Wandit ${planName} plan renews soon`,
+				}
+			: {
+					lines: [
+						`${owner} expires on ${date}. It does not renew automatically.`,
+						`To keep the plan, renew it on ${billingPage} before that date.`,
+					],
+					subject: `Your Wandit ${planName} plan expires soon`,
+				};
+	const lines = [name ? `Hi ${name},` : "Hi,", ...copy.lines];
+	const footer = "You get this email because you bought this Wandit plan.";
+	const htmlLines = lines
+		.map(
+			(line) =>
+				`<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">${escapeHtml(line)}</td></tr>`,
+		)
+		.join("\n");
+
+	return {
+		subject: copy.subject,
+		html: shell(
+			`
+${htmlLines}
+<tr><td style="padding-top:8px;padding-bottom:24px;"><a href="${escapeHtml(billingUrl)}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">Open billing</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">Button not working? Paste this link into your browser:<br><a href="${escapeHtml(billingUrl)}" style="color:${EMBER};word-break:break-all;">${escapeHtml(billingUrl)}</a></td></tr>`,
+			footer,
+		),
+		text: `${lines.join("\n\n")}\n\nOpen billing:\n${billingUrl}\n\n${footer}`,
 	};
 }
 

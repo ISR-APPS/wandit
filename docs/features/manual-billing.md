@@ -33,7 +33,10 @@ pay by card, so Stripe is not the only way to subscribe.
    payments"). Off → no Cash / transfer tab, `POST /billing/manual-request` answers 409
    `MANUAL_PAYMENTS_DISABLED`. Admin grants/renewals never depend on it.
 
-Non-goals (v1): no automatic reminders before expiry, no self-serve renewal payment, no DZD
+About 3 days before `currentPeriodEnd`, the `subscription-renewal-reminders` Trigger task emails the
+buyer that the plan expires (see the renewal reminder paragraph in `billing.md`).
+
+Non-goals (v1): no self-serve renewal payment, no DZD
 revenue in the admin revenue analytics (manual payments have their own table; analytics
 stay USD/Stripe), no mobile (native) UI.
 

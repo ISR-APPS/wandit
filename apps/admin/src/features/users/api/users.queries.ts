@@ -1,3 +1,7 @@
+/**
+ * TanStack Query hooks and cache keys of the admin users feature.
+ * The users pages, detail cards, and dialogs call the hooks. The hooks call users.services.ts.
+ */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type {
@@ -8,6 +12,7 @@ import type {
 import {
 	getProjectVersionHtml,
 	getUser,
+	getUserRefundPreview,
 	listUserPages,
 	listUserProjects,
 	listUsers,
@@ -26,6 +31,8 @@ export const userKeys = {
 		[...userKeys.detail(userId), "projects"] as const,
 	projectList: (params: ListUserProjectsParams) =>
 		[...userKeys.projects(params.userId), params] as const,
+	refundPreview: (userId: string) =>
+		[...userKeys.detail(userId), "refund-preview"] as const,
 	versionHtml: (projectId: string, versionId: string) =>
 		[
 			...userKeys.all,
@@ -50,6 +57,17 @@ export function useUserQuery(userId: string | undefined) {
 		queryKey: userKeys.detail(userId ?? "none"),
 		queryFn: () => getUser(userId as string),
 		enabled: Boolean(userId),
+	});
+}
+
+/** The refund preview of a user. The refund dialog mounts it only while the dialog is open. */
+export function useUserRefundPreviewQuery(userId: string) {
+	return useQuery({
+		queryKey: userKeys.refundPreview(userId),
+		queryFn: () => getUserRefundPreview(userId),
+		// Money: no cache. Each open starts in the loading state and shows the live Stripe amounts.
+		staleTime: 0,
+		gcTime: 0,
 	});
 }
 

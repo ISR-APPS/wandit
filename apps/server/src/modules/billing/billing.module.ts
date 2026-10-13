@@ -11,6 +11,7 @@ import { CreditsModule } from "../credits/credits.module";
 import { EmailModule } from "../email/email.module";
 import { OrdersModule } from "../orders/orders.module";
 import { SettingsModule } from "../settings/settings.module";
+import { AdminUserRefundsService } from "./application/services/admin-user-refunds.service";
 import { BillingService } from "./application/services/billing.service";
 import { BillingWebhookRetryService } from "./application/services/billing-webhook-retry.service";
 import { ManualSubscriptionRequestsService } from "./application/services/manual-subscription-requests.service";
@@ -43,6 +44,7 @@ import {
 	slickpayClientFromEnv,
 } from "./infrastructure/slickpay/slickpay.client";
 import { AdminManualBillingController } from "./presentation/http/controllers/admin-manual-billing.controller";
+import { AdminUserRefundsController } from "./presentation/http/controllers/admin-user-refunds.controller";
 import { BillingController } from "./presentation/http/controllers/billing.controller";
 import { ManualBillingController } from "./presentation/http/controllers/manual-billing.controller";
 import { SlickpayBillingController } from "./presentation/http/controllers/slickpay-billing.controller";
@@ -52,6 +54,7 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 @Module({
 	controllers: [
 		AdminManualBillingController,
+		AdminUserRefundsController,
 		BillingController,
 		ManualBillingController,
 		SlickpayBillingController,
@@ -74,6 +77,7 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 	],
 	providers: [
 		WebOriginWriteGuard,
+		AdminUserRefundsService,
 		BillingChangeIntentsRepository,
 		BillingCheckoutAttemptsRepository,
 		BillingCreditLedgerRepository,

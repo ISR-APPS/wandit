@@ -77,6 +77,7 @@ function subscription(
 		priceLookupKey: "pro_175_year",
 		provider: "manual",
 		providerSubscriptionId: `manual_${IDEMPOTENCY_KEY}`,
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 175,
 		updatedAt: PERIOD_START,

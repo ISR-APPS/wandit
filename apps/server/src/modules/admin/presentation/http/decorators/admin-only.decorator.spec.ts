@@ -26,6 +26,7 @@ import {
 } from "../../../../auth/auth.constants";
 import { AdminSignupGrantsController } from "../../../../auth/presentation/http/controllers/admin-signup-grants.controller";
 import { AdminManualBillingController } from "../../../../billing/presentation/http/controllers/admin-manual-billing.controller";
+import { AdminUserRefundsController } from "../../../../billing/presentation/http/controllers/admin-user-refunds.controller";
 import { FeedbackAdminController } from "../../../../feedback/presentation/http/controllers/feedback-admin.controller";
 import { AdminSettingsController } from "../../../../settings/presentation/http/controllers/admin-settings.controller";
 import { StoryLinkAdminController } from "../../../../story-links/presentation/http/controllers/story-link-admin.controller";
@@ -52,6 +53,7 @@ const adminControllers = [
 	AdminMeController,
 	FeedbackAdminController,
 	AdminManualBillingController,
+	AdminUserRefundsController,
 	AdminOrganizationsController,
 	AdminProjectsController,
 	AdminPublicationsController,

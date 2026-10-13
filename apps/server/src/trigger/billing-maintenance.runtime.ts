@@ -1,6 +1,7 @@
 /**
  * Builds the billing service graphs of the Trigger.dev billing tasks by hand, without Nest.
- * The refill, reconciliation, manual expiry, SlickPay sweep, affiliate, signup grant, and webhook tasks call it.
+ * The refill, reconciliation, manual expiry, SlickPay sweep, renewal reminder, affiliate, signup grant,
+ * and webhook tasks call it.
  * Each function takes one task database pool and returns the services that the task calls.
  */
 import { logger as triggerLogger } from "@trigger.dev/sdk";
@@ -27,6 +28,7 @@ import { StripeWebhookProcessor } from "../modules/billing/application/services/
 import { SubscriptionCreditsService } from "../modules/billing/application/services/subscription-credits.service";
 import { SubscriptionLifecycleService } from "../modules/billing/application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "../modules/billing/application/services/subscription-refill.service";
+import { SubscriptionRenewalRemindersService } from "../modules/billing/application/services/subscription-renewal-reminders.service";
 import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
@@ -58,6 +60,7 @@ import {
 	triggerDomainConfigurationTask,
 	triggerDomainPurchaseTask,
 } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
+import { EmailService } from "../modules/email/application/services/email.service";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { DomainRegistrationFulfillment } from "../modules/orders/application/fulfillment/domain-registration.fulfillment";
@@ -125,6 +128,17 @@ export function createManualBillingRuntime(db: TriggerDatabase) {
 			new BillingCheckoutAttemptsRepository(db),
 			new ProductSettingsService(new ProductSettingsRepository(db)),
 			createLifecycleEvents(db),
+		),
+	};
+}
+
+/** The renewal reminder graph. EmailService reads RESEND_API_KEY and CORS_ORIGIN from env. */
+export function createSubscriptionRenewalRemindersRuntime(db: TriggerDatabase) {
+	return {
+		renewalReminders: new SubscriptionRenewalRemindersService(
+			new SubscriptionsRepository(db),
+			new EmailService(),
+			triggerLogger,
 		),
 	};
 }
