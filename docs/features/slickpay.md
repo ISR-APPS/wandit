@@ -6,8 +6,8 @@ One payment buys one month or one year of one plan. It never renews automaticall
 ## Who sees it
 
 - The API has `SLICKPAY_PUBLIC_KEY`, and the Cloudflare header `cf-ipcountry` of the visitor is `DZ`.
-- These visitors see every price in DZD: `dzdPriceFor(priceUsd, rate)`. The rate is the admin setting "USD → DZD rate" (default 270).
-- Their plan picker shows the "CIB / Edahabia" tab, not the Stripe Card tab. The Cash / transfer tab does not change.
+- These visitors see the landing prices and the SlickPay prices in DZD: `dzdPriceFor(priceUsd, rate)`. The rate is the admin setting "USD → DZD rate" (default 270).
+- Their plan picker shows Card (Stripe, USD), then "CIB / Edahabia" (DZD), then Cash / transfer. Card is the default tab. A manual subscriber has no Card tab.
 - All other visitors see USD prices and Stripe.
 - SlickPay does not depend on the admin switches "Paid subscriptions" or "Offline payments". To turn it off, remove `SLICKPAY_PUBLIC_KEY`.
 

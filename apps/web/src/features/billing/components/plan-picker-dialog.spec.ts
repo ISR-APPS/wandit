@@ -572,17 +572,18 @@ describe("plan picker query resilience", () => {
 		expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
 	});
 
-	it("shows a visitor in Algeria the CIB / Edahabia tab instead of Card", () => {
+	it("shows a visitor in Algeria Card first, then CIB / Edahabia and Cash / transfer", () => {
 		pickerState.manualPaymentsEnabled = true;
 		pickerState.slickpayRate = 270;
 
 		renderPicker();
 
 		expect(
-			screen.getByRole("tab", { name: "CIB / Edahabia", selected: true }),
+			screen.getAllByRole("tab").map((tab) => tab.textContent?.trim()),
+		).toEqual(["Card", "CIB / Edahabia", "Cash / transfer"]);
+		expect(
+			screen.getByRole("tab", { name: "Card", selected: true }),
 		).toBeTruthy();
-		expect(screen.getByRole("tab", { name: "Cash / transfer" })).toBeTruthy();
-		expect(screen.queryByRole("tab", { name: "Card" })).toBeNull();
 	});
 
 	it("still honors a valid paid-subscriptions switch", () => {

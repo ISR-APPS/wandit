@@ -71,7 +71,7 @@ export function Pricing() {
 	const selectedTier =
 		proPlan?.tiers.find((tier) => tier.tierCredits === selectedCredits) ??
 		proPlan?.tiers[0];
-	// Visitors in Algeria must never see USD, so the prices wait for the local-pricing answer.
+	// Visitors in Algeria see DZD on this page, so the prices wait for the local-pricing answer.
 	// Not null only for them. A failed request falls back to USD.
 	const pricesReady = !localPricingQuery.isPending;
 	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;

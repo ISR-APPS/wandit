@@ -3,7 +3,7 @@
  * §5.6): name → create the organization → switch the app into it → send the
  * OWNER to Business checkout (the workspace header now scopes the checkout to
  * the new org, so the subscription lands on the org, never the person).
- * Visitors in Algeria go to the plan picker instead, which shows the SlickPay tab.
+ * Visitors in Algeria go to the plan picker instead: Card, CIB / Edahabia, or Cash / transfer.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -133,7 +133,7 @@ export function CreateWorkspaceDialog({
 				switchWorkspace(created.data.id);
 			}
 
-			// Visitors in Algeria pay in the plan picker (SlickPay tab), not in a direct Stripe checkout.
+			// Visitors in Algeria pick Card, SlickPay, or Cash / transfer in the plan picker, not in a direct Stripe checkout.
 			if (dzdPerUsdRate !== null) {
 				// The dialog stays mounted. Clear the org so that the next "Create team" makes a new one.
 				setCreatedOrgId(null);
