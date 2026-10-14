@@ -1,3 +1,8 @@
+/**
+ * PostHog client for Node runtimes: events, identify, and per-user flags.
+ * The API `AnalyticsService` and the Trigger `init.ts` call `createNodeAnalytics`.
+ * It calls posthog-node. Without a key, every method is a no-op.
+ */
 import { PostHog } from "posthog-node";
 
 import {
@@ -6,6 +11,7 @@ import {
 	type WanditAnalyticsOptions,
 } from "./internal/shared";
 
+/** The PostHog wrapper that `createNodeAnalytics` returns. One per process. */
 export type NodeAnalytics = {
 	/** False when no key was provided — every method is then a no-op. */
 	enabled: boolean;
@@ -15,6 +21,10 @@ export type NodeAnalytics = {
 		properties?: Record<string, unknown>,
 	): void;
 	identify(distinctId: string, properties?: Record<string, unknown>): void;
+	/**
+	 * Per-user flag answer. Undefined only when the options have no key.
+	 * A missing flag or a failed PostHog call answers false.
+	 */
 	isFeatureEnabled(
 		flag: string,
 		distinctId: string,
@@ -27,6 +37,10 @@ export type NodeAnalytics = {
 	client: PostHog | undefined;
 };
 
+/**
+ * Builds the PostHog wrapper. Without `options.key`, it returns a no-op stub,
+ * and its flag answer is undefined.
+ */
 export function createNodeAnalytics(
 	options: WanditAnalyticsOptions & {
 		/** Set true in short-lived runtimes (Trigger tasks): flushAt 1 / flushInterval 0. Long-running server keeps batching defaults. */
@@ -68,8 +82,10 @@ export function createNodeAnalytics(
 		identify: (distinctId, properties) => {
 			client.identify({ distinctId, properties });
 		},
-		isFeatureEnabled: (flag, distinctId) =>
-			client.isFeatureEnabled(flag, distinctId),
+		// posthog-node also answers undefined for a missing flag or a failed
+		// call. A rollout gate must read both as off, not as "no key".
+		isFeatureEnabled: async (flag, distinctId) =>
+			(await client.isFeatureEnabled(flag, distinctId)) ?? false,
 		flush: async () => {
 			// posthog-node prepares capture() events through a Promise chain before
 			// enqueueing them. Yield one event-loop turn so flush() sees those events.
