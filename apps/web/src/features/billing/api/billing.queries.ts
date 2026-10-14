@@ -39,14 +39,10 @@ export function useBillingPlansQuery() {
 	});
 }
 
-/** `enabled: false` skips the fetch, for a caller that also renders for a signed-out visitor. */
-export function useBillingSubscriptionQuery(
-	options: { enabled?: boolean } = {},
-) {
+export function useBillingSubscriptionQuery() {
 	return useQuery({
 		queryKey: billingKeys.subscription(),
 		queryFn: getBillingSubscription,
-		enabled: options.enabled ?? true,
 	});
 }
 

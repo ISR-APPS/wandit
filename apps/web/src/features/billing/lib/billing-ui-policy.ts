@@ -163,10 +163,8 @@ export function getPlanPickerPaymentMethods(input: {
 	// SlickPay cannot change a Stripe subscription (the API answers 409), so a Stripe subscriber keeps the Card tab.
 	const slickpayAvailable =
 		input.slickpayOffered && (!input.subscription || manualSubscription);
-	// Product rule: visitors in Algeria pay with SlickPay, not Stripe.
-	// To show both tabs to them, remove "&& !slickpayAvailable" from this line.
-	const cardAvailable =
-		input.paidSubscriptionsEnabled && !manualSubscription && !slickpayAvailable;
+	// Product rule: visitors in Algeria see Card next to SlickPay. A manual subscription cannot move to Stripe.
+	const cardAvailable = input.paidSubscriptionsEnabled && !manualSubscription;
 
 	return {
 		card: cardAvailable,
@@ -175,7 +173,7 @@ export function getPlanPickerPaymentMethods(input: {
 	};
 }
 
-/** Keeps the preferred tab when it is available. Else SlickPay, then Card, then Cash / transfer. */
+/** Keeps the preferred tab when it is available. Else Card, then SlickPay, then Cash / transfer. */
 export function resolvePlanPickerPaymentMethod(
 	preferred: PlanPickerPaymentMethod | null | undefined,
 	available: PlanPickerPaymentMethods,
@@ -184,8 +182,8 @@ export function resolvePlanPickerPaymentMethod(
 		return preferred;
 	}
 
-	// SlickPay comes first: it is the default tab where it shows.
-	const defaultOrder = ["slickpay", "card", "offline"] as const;
+	// Card comes first: Stripe checkout works for every visitor.
+	const defaultOrder = ["card", "slickpay", "offline"] as const;
 
 	return defaultOrder.find((method) => available[method]) ?? null;
 }

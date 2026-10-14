@@ -2,7 +2,9 @@
 
 The V2 app builder produces a full web app inside a persistent sandbox,
 driven by a coding-agent harness. V1 page projects never touch this module
-(D11). `app.module.ts` loads it only when `V2_BUILDER_ENABLED=true`; every
+(D11). `app.module.ts` loads it only when `V2_BUILDER_ENABLED=true`. On the
+Railway environment `production`, `closeV2BuilderInProduction` in
+`packages/env/src/server.ts` forces that switch to false. Every
 route is additionally gated by `V2BuilderEnabledGuard` (product setting +
 PostHog flag `v2-builder`).
 
