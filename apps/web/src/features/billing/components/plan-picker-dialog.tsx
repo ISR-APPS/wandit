@@ -767,8 +767,8 @@ function PlanPickerContent({
 					tier={businessTier}
 					tiers={businessPlan.tiers}
 					basePer100Usd={businessPlan.basePer100Usd}
-					// The teaser opens create-team. A new team in Algeria pays with SlickPay in DZD.
-					dzdPerUsdRate={dzdPerUsdRate}
+					// The teaser is on the Card tab, which charges USD. Create-team opens this picker again with every tab.
+					dzdPerUsdRate={null}
 					interval={interval}
 					perLabel={interval === "year" ? copy.perYear : copy.perMonth}
 					selectId="billing-tier-business"
@@ -942,17 +942,18 @@ function PlanPickerContent({
 						}
 					}}
 				>
+					{/* Same order as the default tab in resolvePlanPickerPaymentMethod: Card, SlickPay, Cash / transfer. */}
 					<TabsList className="w-full" aria-label={copy.offline.tabs.ariaLabel}>
-						{slickpayAvailable ? (
-							<TabsTrigger value="slickpay" className="flex-1">
-								<CreditCard aria-hidden />
-								{copy.slickpay.tab}
-							</TabsTrigger>
-						) : null}
 						{cardAvailable ? (
 							<TabsTrigger value="card" className="flex-1">
 								<CreditCard aria-hidden />
 								{copy.offline.tabs.card}
+							</TabsTrigger>
+						) : null}
+						{slickpayAvailable ? (
+							<TabsTrigger value="slickpay" className="flex-1">
+								<CreditCard aria-hidden />
+								{copy.slickpay.tab}
 							</TabsTrigger>
 						) : null}
 						{offlineAvailable ? (
