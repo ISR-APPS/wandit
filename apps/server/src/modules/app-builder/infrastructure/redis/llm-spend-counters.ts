@@ -26,7 +26,7 @@ export const LLM_RUN_RATE_LIMIT_PER_MINUTE = 120;
 
 // Daily per-user spend ceiling in whole USD. ESTIMATE until WANDIT-174
 // replaces it with plan-aware limits.
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 export const LLM_PROXY_DAILY_USER_CAP_USD = 100_000;
 
 // 48 h: outlives the day key so a day-boundary request still lands on it.

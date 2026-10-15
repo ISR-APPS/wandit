@@ -18,6 +18,9 @@ import type {
 	AdminUserProject,
 	AdminUserProjectsResponse,
 	AdminUserProjectsSort,
+	AdminUserRefundInput,
+	AdminUserRefundPreview,
+	AdminUserRefundResult,
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
@@ -41,6 +44,8 @@ export type {
 	AdminUserProject,
 	AdminUserProjectsResponse,
 	AdminUserProjectsSort,
+	AdminUserRefundPreview,
+	AdminUserRefundResult,
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
@@ -130,5 +135,10 @@ export type SetUserAdminViewsInput = AdminSetAdminViewsInput & {
 };
 
 export type SetUserBannedInput = AdminSetBannedInput & {
+	userId: string;
+};
+
+/** Refunds the last Stripe plan payment of `userId`. The invoice id comes from the refund preview. */
+export type RefundUserInput = AdminUserRefundInput & {
 	userId: string;
 };

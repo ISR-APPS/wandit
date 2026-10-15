@@ -66,9 +66,31 @@ export function refineServerEnv(
 	}
 }
 
+/**
+ * Product rule: the V2 builder runs on staging and on a local API only.
+ * On the Railway production environment, V2_BUILDER_ENABLED is always false, whatever Railway sets.
+ * The API then never loads the app-builder module, so every /api/v2 route answers 404.
+ * Before you remove this rule, restore the V2 production limits (docs/v2/runbook.md).
+ */
+export function closeV2BuilderInProduction<
+	Values extends {
+		RAILWAY_ENVIRONMENT_NAME?: string;
+		V2_BUILDER_ENABLED: boolean;
+	},
+>(values: Values): Values {
+	if (values.RAILWAY_ENVIRONMENT_NAME !== "production") {
+		return values;
+	}
+	return { ...values, V2_BUILDER_ENABLED: false };
+}
+
 // Validated config object. Other code should import `env` instead of process.env.
 export const env = createEnv({
-	createFinalSchema: (shape) => z.object(shape).superRefine(refineServerEnv),
+	createFinalSchema: (shape) =>
+		z
+			.object(shape)
+			.superRefine(refineServerEnv)
+			.transform(closeV2BuilderInProduction),
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
@@ -303,11 +325,14 @@ export const env = createEnv({
 		LINEAR_FEEDBACK_TEAM_ID: z.string().min(1).optional(),
 		// V2 app builder (docs/v2). All optional at boot; requireV2Env() checks at call time.
 		// The V2 app builder switch. The API loads the app-builder module only
-		// when true.
+		// when true. closeV2BuilderInProduction forces it to false on production.
 		V2_BUILDER_ENABLED: z
 			.enum(["true", "false"])
 			.default("false")
 			.transform((value) => value === "true"),
+		// Railway sets it to the environment name: "production" or "staging".
+		// Unset on a local API and on Trigger.dev.
+		RAILWAY_ENVIRONMENT_NAME: z.string().min(1).optional(),
 		// D17: Claude Code first, OpenCode later; the value changes without a
 		// code change.
 		V2_HARNESS: v2HarnessSchema,

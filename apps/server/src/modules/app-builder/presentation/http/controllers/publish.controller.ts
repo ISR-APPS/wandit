@@ -54,7 +54,7 @@ const PUBLISH_LIMIT = 10;
 // Publishes per client IP per hour. The cap stops one person who uses many
 // accounts. An event room shares one NAT IP, so staging sizes it for the room.
 // LIMIT: one NAT IP fits about 100 people with 3 publishes each. Upgrade: skip the IP cap for known event IPs.
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 const PUBLISH_IP_LIMIT = 300;
 const PUBLISH_WINDOW_MS = 60 * 60_000;
 

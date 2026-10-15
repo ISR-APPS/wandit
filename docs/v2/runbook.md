@@ -3,13 +3,16 @@
 Operator steps for the V2 app builder. Each entry names the issue that
 added it. WANDIT-176 adds the staging alpha entries.
 
-## Staging-only limits to restore before production
+## Staging-only limits to restore before V2 opens on production
 
-The staging tests before the event lift these limits, so a tester on any
-plan can use the features without a stop. A pull request from `staging`
-to `main` must restore every value of this list first. The refusal paths
-stay in the code, so the restore changes only the numbers. Each constant
-has a `STAGING ONLY` comment; remove it with the restore.
+The staging tests lift these limits, so a tester on any plan can use the
+features without a stop. These values also ship to `main`, but they have
+no effect there: on the Railway environment `production`,
+`closeV2BuilderInProduction` in `packages/env/src/server.ts` keeps V2
+off, so the API never loads the app-builder module. Before you remove
+that rule, restore every value of this list. The refusal paths stay in
+the code, so the restore changes only the numbers. Each constant has a
+`STAGING ONLY` comment; remove it with the restore.
 
 - `BACKEND_DEFAULTS.backendsPerPlan` in
   `apps/server/src/modules/app-builder/domain/backend-lifecycle.ts`.

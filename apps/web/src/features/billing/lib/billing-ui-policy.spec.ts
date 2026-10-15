@@ -134,10 +134,10 @@ describe("billing UI policy", () => {
 				expected: { card: true, offline: true, slickpay: false },
 			},
 			{
-				label: "a visitor in Algeria pays with SlickPay, not Stripe",
+				label: "a visitor in Algeria pays by card or with SlickPay",
 				slickpayOffered: true,
 				subscription: null,
-				expected: { card: false, offline: true, slickpay: true },
+				expected: { card: true, offline: true, slickpay: true },
 			},
 			{
 				label: "a Stripe subscriber in Algeria keeps the card tab",
@@ -166,7 +166,7 @@ describe("billing UI policy", () => {
 			{
 				preferred: null,
 				available: { card: true, offline: true, slickpay: true },
-				expected: "slickpay",
+				expected: "card",
 			},
 			{
 				preferred: null,

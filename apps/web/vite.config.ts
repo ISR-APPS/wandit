@@ -1,6 +1,7 @@
 /**
  * Vite config of the web app: the dev port from apps/web/.env, Tailwind,
- * the router code split, and the Sentry source map upload.
+ * the router code split, the V2 builder build switch, and the Sentry source
+ * map upload.
  */
 
 import tailwindcss from "@tailwindcss/vite";
@@ -10,6 +11,17 @@ import { wanditSentryVitePlugin } from "@wandit/observability/vite";
 import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => ({
+	define: {
+		// Product rule: the V2 app builder is open on staging only. Vercel sets
+		// VERCEL_ENV at build time: "production" for wandit.dev, "preview" for
+		// staging and PR previews. Local builds have no value and keep V2.
+		// When false, the bundler drops the V2 code from the bundle.
+		// turbo.json lists VERCEL_ENV in tasks.build.env. Without that entry,
+		// turbo removes the value and its cache mixes the two builds.
+		__V2_BUILDER_IN_BUILD__: JSON.stringify(
+			process.env.VERCEL_ENV !== "production",
+		),
+	},
 	server: {
 		// Overridable per checkout via PORT in apps/web/.env (untracked), so
 		// worktrees can run beside the main checkout without --port flags.

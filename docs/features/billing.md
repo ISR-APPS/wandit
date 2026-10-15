@@ -158,6 +158,8 @@ Bootstrap gets `rawBody: true` (Nest native support on the Fastify adapter); the
 | `charge.dispute.closed` | on won/warning-closed/prevented, restore only excess cumulative clawback |
 | anything else | mark `skipped`, 200 |
 
+Renewal reminder emails do not come from `invoice.upcoming`. The `subscription-renewal-reminders` Trigger task runs every hour. It emails each `active` or `trialing` subscription that does not cancel at the period end. The email goes to the buyer (`subscriptions.user_id`, never a banned user), about 3 days before `current_period_end`. Stripe rows get "the plan renews and the card on file is charged". Manual rows (SlickPay and offline) get "the plan expires; renew it on the billing page". The column `subscriptions.renewal_reminder_period_end` keeps it to one email per period. Keep the Stripe dashboard setting "Send emails about upcoming renewals" off, or Stripe users get two emails.
+
 Failed inbox events are retried by a scheduled Trigger.dev task with capped exponential backoff; `POST /api/v1/admin/webhooks/:id/replay` dispatches an idempotent on-demand Trigger task for one durable event. Yearly refills, metering reconciliation and recovery, affiliate approval and attribution retry, signup-grant recovery, and model-price refresh also run in Trigger.dev. These billing jobs do not depend on `QUEUE_ENABLED`, Redis, or `apps/worker`.
 
 The signup-grant handoff is only an accelerator: failed grants remain in `signup_grant_outbox` and the scheduled database sweep is authoritative. Affiliate-attribution retry is different because the signed signup token is intentionally not persisted in our database: its globally idempotent Trigger handoff is the durable retry. A missing or temporarily unavailable Trigger API key must not make the API fail to boot, but then attribution has only its inline attempt; production must configure the key before accepting attributed signups.
@@ -175,6 +177,7 @@ Trigger.dev deploys these UTC schedules:
 | Billing webhook dead-letter retry | `*/10 * * * *` |
 | Signup-grant outbox | `*/5 * * * *` |
 | Model-price refresh | `0 * * * *` |
+| Subscription renewal reminders | `0 * * * *` |
 
 The metering schedule deliberately processes a bounded set of all pending generation references in one run per minute; provider events never fan out into per-event Trigger runs. Frequent schedules have bounded concurrency, finite maximum duration, and run TTLs shorter than their intervals so a delayed deployment cannot build an expensive stale backlog.
 

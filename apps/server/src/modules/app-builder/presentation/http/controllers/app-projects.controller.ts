@@ -44,12 +44,12 @@ import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 // Creates per user per day (WANDIT-181). Each create can provision a
 // backend and starts a first turn, so the cap stops a script that farms them.
 // Staging allows 50, so Zack can rehearse the event demo on his own account.
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 const PROJECT_CREATE_LIMIT = 50;
 // Creates per client IP per day. The cap stops one person who uses many
 // accounts. An event room shares one NAT IP, so staging sizes it for the room.
 // LIMIT: one NAT IP fits about 100 people with 5 creates each. Upgrade: skip the IP cap for known event IPs.
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 const PROJECT_CREATE_IP_LIMIT = 500;
 const PROJECT_CREATE_WINDOW_MS = 24 * 60 * 60_000;
 

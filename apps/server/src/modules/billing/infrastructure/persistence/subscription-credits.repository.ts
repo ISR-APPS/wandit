@@ -1,3 +1,8 @@
+/**
+ * Drizzle queries for plan credits: subscriptions, invoice applications, and refill slots.
+ * The subscription credit, refill, manual billing, and admin refund services call it.
+ * Takes the same owner advisory lock as CreditsRepository, so ledger writes serialize.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
@@ -137,6 +142,48 @@ export class SubscriptionCreditsRepository {
 			.select()
 			.from(billingInvoiceApplications)
 			.where(eq(billingInvoiceApplications.stripeInvoiceId, stripeInvoiceId))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * The last paid invoice of the user's personal Stripe plan, with its subscription.
+	 * The admin refund preview reads it. Team plans and offline plans never match.
+	 */
+	async findLatestPaidPersonalStripeInvoice(userId: string): Promise<{
+		invoice: InvoiceApplicationRow;
+		subscription: SubscriptionCreditRow;
+	} | null> {
+		const [row] = await this.db
+			.select({
+				invoice: billingInvoiceApplications,
+				subscription: subscriptions,
+			})
+			.from(billingInvoiceApplications)
+			.innerJoin(
+				subscriptions,
+				eq(subscriptions.id, billingInvoiceApplications.subscriptionId),
+			)
+			.where(
+				and(
+					eq(subscriptions.userId, userId),
+					isNull(subscriptions.organizationId),
+					eq(subscriptions.provider, "stripe"),
+					// Old rows have no amount snapshot. A zero amount means Stripe collected nothing.
+					or(
+						isNull(billingInvoiceApplications.amountPaidMinor),
+						gt(billingInvoiceApplications.amountPaidMinor, 0),
+					),
+				),
+			)
+			// Old rows have no paid_at. The apply time is close to the payment time.
+			.orderBy(
+				desc(
+					sql`coalesce(${billingInvoiceApplications.paidAt}, ${billingInvoiceApplications.appliedAt})`,
+				),
+				desc(billingInvoiceApplications.stripeInvoiceId),
+			)
 			.limit(1);
 
 		return row ?? null;

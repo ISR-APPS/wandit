@@ -1,3 +1,8 @@
+/**
+ * Reads and updates the one `product_settings` row, with a short in-process cache.
+ * Settings routes, product guards, auth and billing services, and Trigger tasks call it.
+ * It calls ProductSettingsRepository, which reads and writes the row through Drizzle.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	centiCreditsToCredits,
@@ -6,6 +11,7 @@ import {
 	type ProductSettingsUpdateResponse,
 	type PublicSettings,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import { SettingsVersionConflictError } from "../../domain/errors/settings-version-conflict.error";
 import { PRODUCT_SETTINGS_CACHE_TTL_MS } from "../../domain/product-settings.constants";
@@ -50,6 +56,7 @@ export class ProductSettingsService {
 		return settings;
 	}
 
+	/** The switches the web reads before sign-in, at GET /api/v1/settings/public. */
 	async getPublic(): Promise<PublicSettings> {
 		const settings = await this.get();
 
@@ -62,7 +69,8 @@ export class ProductSettingsService {
 			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,
-			v2BuilderEnabled: settings.v2BuilderEnabled,
+			// The web opens V2 only when this API serves it. On production, the env forces V2_BUILDER_ENABLED off.
+			v2BuilderEnabled: settings.v2BuilderEnabled && env.V2_BUILDER_ENABLED,
 		};
 	}
 

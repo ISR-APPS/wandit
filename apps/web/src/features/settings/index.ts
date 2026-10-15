@@ -1,1 +1,4 @@
-export { usePublicSettingsQuery } from "./api/settings.queries";
+export {
+	publicSettingsQuery,
+	usePublicSettingsQuery,
+} from "./api/settings.queries";
