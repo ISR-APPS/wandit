@@ -1,11 +1,12 @@
 /**
  * Route of the V2 app builder at `/app/$projectId`.
+ * Sends the user to `/dashboard` when V2 is closed, for example on production.
  * Validates the search params, fills the project query before the page
  * renders, warms the turn estimate and the Code view cache, and lazy-loads
  * the page chunk. The `/_auth` parent already checked the session.
  */
 
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 
 import Loader from "@/components/loader";
@@ -16,6 +17,7 @@ import {
 	codeSnapshotQuery,
 	turnEstimateQuery,
 } from "@/features/app-builder";
+import { publicSettingsQuery } from "@/features/settings";
 import { pageTitle } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
 
@@ -27,6 +29,13 @@ const AppBuilderPage = lazy(
 export const Route = createFileRoute("/_auth/app/$projectId")({
 	validateSearch: (search: Record<string, unknown>) =>
 		appBuilderSearchSchema.parse(search),
+	beforeLoad: async () => {
+		// Product rule: V2 is open on staging only. The production API always answers false here.
+		const settings = await queryClient.ensureQueryData(publicSettingsQuery);
+		if (!settings.v2BuilderEnabled) {
+			throw redirect({ to: "/dashboard", replace: true });
+		}
+	},
 	loader: async ({ params }) => {
 		const project = await queryClient.ensureQueryData(
 			appProjectQuery(params.projectId),
