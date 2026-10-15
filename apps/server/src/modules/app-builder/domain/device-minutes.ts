@@ -33,7 +33,7 @@ export const DEVICE_SESSION_LOCK_TTL_MS =
  * (`maxConcurrent`), the session time limit, and the idle timeout still
  * limit the cost.
  */
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 export const DEVICE_MINUTES_PER_PLAN = Object.freeze({
 	starter: 100_000,
 	pro: 100_000,

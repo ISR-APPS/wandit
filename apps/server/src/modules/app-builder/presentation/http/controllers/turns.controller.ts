@@ -55,7 +55,7 @@ const TURN_MUTATION_WINDOW_MS = 600_000;
 // a Deny, and a question answer each post a turn. The cap stops one person
 // who uses many accounts. An event room shares one NAT IP, so staging sizes it for the room.
 // LIMIT: one NAT IP fits about 100 people with 20 posts each. Upgrade: skip the IP cap for known event IPs.
-// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 const TURN_CREATE_IP_LIMIT = 2000;
 
 // An open SSE slot stays taken until the stream closes or its window ends.
