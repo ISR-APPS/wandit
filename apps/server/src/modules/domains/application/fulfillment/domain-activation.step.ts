@@ -135,11 +135,13 @@ export class DomainActivationStep {
 				return this.activateAndComplete(row, null);
 			}
 
-			await bestEffortDeleteCustomHostname(row, this.dependencies);
+			// Fail the row first. A new attach can delete this row and adopt its
+			// hostname. Then markDomainFailed throws and the adopted hostname stays.
 			await this.dependencies.markDomainFailed(
 				row.id,
 				"Domain is no longer attached to a project",
 			);
+			await bestEffortDeleteCustomHostname(row, this.dependencies);
 
 			return { processed: false, reason: "detached" };
 		}

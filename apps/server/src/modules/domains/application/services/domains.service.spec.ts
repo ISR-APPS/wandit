@@ -32,9 +32,10 @@ import type {
 	DomainRegistrationCheckResult,
 	DomainRegistrationCheckService,
 } from "../../infrastructure/dns/domain-registration-check.service";
-import type {
-	DomainRow,
-	DomainsRepository,
+import {
+	canExternalAttachReplace,
+	type DomainRow,
+	type DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
 import type { ProjectServing } from "../fulfillment/domain-activation.step";
 import { DomainsService } from "./domains.service";
@@ -122,13 +123,13 @@ class FakeDomainsRepository {
 		return row;
 	}
 
-	async createExternalReplacingTerminal(input: {
+	async createExternalReplacingReleased(input: {
 		name: string;
 		projectId: string;
 		tld: string;
 		userId: string;
 	}) {
-		this.deleteTerminalNameOrThrow(input.name);
+		this.deleteReplaceableNameOrThrow(input.name, input.userId);
 
 		return this.createExternal(input);
 	}
@@ -375,14 +376,20 @@ class FakeDomainsRepository {
 		return row;
 	}
 
-	private deleteTerminalNameOrThrow(name: string) {
+	private deleteReplaceableNameOrThrow(name: string, attachingUserId: string) {
 		const existing = [...this.rows.values()].find((row) => row.name === name);
 
 		if (!existing) {
 			return;
 		}
 
-		if (existing.status !== "failed" && existing.status !== "transferred_out") {
+		// The fake has no soft-deleted projects.
+		if (
+			!canExternalAttachReplace(
+				{ ...existing, projectDeletedAt: null },
+				attachingUserId,
+			)
+		) {
 			throw new Error(`${name} already connected`);
 		}
 
@@ -480,7 +487,7 @@ class FakeProvider implements DomainProvider {
 class FakeCustomHostnameService {
 	requiredRecords: Array<{ name: string; type: "TXT"; value: string }> = [];
 	status = "pending";
-	readonly createCustomHostname = vi.fn(async () => ({
+	readonly findOrCreateCustomHostname = vi.fn(async () => ({
 		hostnameStatus: "pending",
 		id: "cf_1",
 		requiredRecords: [
@@ -882,7 +889,7 @@ describe("DomainsService", () => {
 		});
 		expect(repository.rows.size).toBe(0);
 		expect(registration.check).not.toHaveBeenCalled();
-		expect(cloudflare.createCustomHostname).not.toHaveBeenCalled();
+		expect(cloudflare.findOrCreateCustomHostname).not.toHaveBeenCalled();
 		expect(provider.checkAvailability).not.toHaveBeenCalled();
 		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
 	});
@@ -897,7 +904,7 @@ describe("DomainsService", () => {
 		);
 		const createExternal = vi.spyOn(
 			repository,
-			"createExternalReplacingTerminal",
+			"createExternalReplacingReleased",
 		);
 
 		const error = await service
@@ -921,7 +928,7 @@ describe("DomainsService", () => {
 		);
 		expect(createExternal).not.toHaveBeenCalled();
 		expect(repository.rows.size).toBe(0);
-		expect(cloudflare.createCustomHostname).not.toHaveBeenCalled();
+		expect(cloudflare.findOrCreateCustomHostname).not.toHaveBeenCalled();
 		expect(zones.findZoneByName).not.toHaveBeenCalled();
 		expect(zones.createZone).not.toHaveBeenCalled();
 		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
@@ -940,7 +947,7 @@ describe("DomainsService", () => {
 
 		expect(registration.check).toHaveBeenCalledExactlyOnceWith("uncertain.org");
 		expect(repository.rows.size).toBe(1);
-		expect(cloudflare.createCustomHostname).toHaveBeenCalledOnce();
+		expect(cloudflare.findOrCreateCustomHostname).toHaveBeenCalledOnce();
 		expect(zones.findZoneByName).not.toHaveBeenCalled();
 		expect(zones.createZone).not.toHaveBeenCalled();
 	});
@@ -1452,7 +1459,9 @@ describe("DomainsService", () => {
 
 	it("deletes the external row when Cloudflare hostname creation fails", async () => {
 		const { cloudflare, dispatcher, repository, service } = setup();
-		cloudflare.createCustomHostname.mockRejectedValueOnce(new Error("cf down"));
+		cloudflare.findOrCreateCustomHostname.mockRejectedValueOnce(
+			new Error("cf down"),
+		);
 
 		await expect(
 			service.attachExternal(scope, projectId, { name: "broken.dz" }),
