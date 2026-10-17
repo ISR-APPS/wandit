@@ -1,3 +1,8 @@
+/**
+ * Purchase fulfillment step: gets the www custom hostname of a purchased domain
+ * and writes its validation TXT records at the registrar.
+ * DomainPurchaseOrchestrator calls it. It calls Cloudflare and Name.com through ports.
+ */
 import { domainDnsSchema } from "@wandit/contracts";
 
 import {
@@ -15,7 +20,8 @@ import type {
 } from "./domain-fulfillment.contracts";
 
 type CustomHostnameProvider = {
-	createCustomHostname(host: string): Promise<CustomHostnameResult>;
+	/** Adopts the hostname when Cloudflare already has one for this name. */
+	findOrCreateCustomHostname(host: string): Promise<CustomHostnameResult>;
 	deleteCustomHostname(id: string): Promise<void>;
 	getCustomHostnameStatus(id: string): Promise<CustomHostnameResult>;
 };
@@ -31,6 +37,7 @@ type CustomHostnameConfigurationState = {
 	): Promise<DomainFulfillmentRow>;
 };
 
+/** A retried run is a no-op after `dns.customHostnameDnsConfigured` is set. */
 export class CustomHostnameConfigurationStep {
 	constructor(
 		private readonly customHostnames: CustomHostnameProvider,
@@ -43,7 +50,7 @@ export class CustomHostnameConfigurationStep {
 		let current = row;
 
 		if (!current.cfCustomHostnameId) {
-			const hostname = await this.customHostnames.createCustomHostname(
+			const hostname = await this.customHostnames.findOrCreateCustomHostname(
 				current.name,
 			);
 			const dns = this.dnsState(current);
