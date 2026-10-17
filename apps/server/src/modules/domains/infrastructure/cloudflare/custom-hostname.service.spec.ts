@@ -42,7 +42,7 @@ describe("CustomHostnameService", () => {
 		).resolves.toBeUndefined();
 	});
 
-	it("creates the apex hostname with the bare name while www stays canonical", async () => {
+	it("creates the apex hostname with the bare name", async () => {
 		const service = new CustomHostnameService();
 		(service as unknown as { requiredEnv: () => string }).requiredEnv = vi.fn(
 			() => "configured",
@@ -83,7 +83,6 @@ describe("CustomHostnameService", () => {
 			sslStatus: "pending_validation",
 			status: "pending_validation",
 		});
-		await service.createCustomHostname("example.com");
 
 		const bodies = fetchWithTimeout.mock.calls.map(
 			(call) =>
@@ -96,8 +95,78 @@ describe("CustomHostnameService", () => {
 		);
 		expect(bodies).toEqual([
 			{ hostname: "example.com", ssl: { method: "http", type: "dv" } },
-			{ hostname: "www.example.com", ssl: { method: "http", type: "dv" } },
 		]);
+	});
+
+	it.each([
+		[
+			"creates the www hostname when none exists",
+			[],
+			[
+				["GET", null],
+				[
+					"POST",
+					{ hostname: "www.example.com", ssl: { method: "http", type: "dv" } },
+				],
+			],
+		],
+		[
+			"adopts an active www hostname as is",
+			[
+				{
+					hostname: "www.example.com",
+					id: "cf_www",
+					ssl: { status: "active" },
+					status: "active",
+				},
+			],
+			[["GET", null]],
+		],
+		[
+			"adopts a pending www hostname and restarts its validation",
+			[
+				{
+					hostname: "www.example.com",
+					id: "cf_www",
+					ssl: { status: "pending_validation" },
+					status: "pending",
+				},
+			],
+			[
+				["GET", null],
+				["PATCH", { ssl: { method: "http", type: "dv" } }],
+			],
+		],
+	])("%s", async (_label, found, expectedCalls) => {
+		const service = new CustomHostnameService();
+		const fetchWithTimeout = vi
+			.fn<(url: string, init: RequestInit) => Promise<Response>>()
+			.mockResolvedValueOnce(Response.json({ result: found, success: true }))
+			.mockResolvedValueOnce(
+				Response.json({
+					result: { id: "cf_www", ssl: { status: "pending_validation" } },
+					success: true,
+				}),
+			);
+		// Replaces the private env read and network call: CI has no Cloudflare token.
+		Object.assign(service, {
+			fetchWithTimeout,
+			requiredEnv: () => "configured",
+		});
+
+		await expect(
+			service.findOrCreateCustomHostname("example.com"),
+		).resolves.toMatchObject({ id: "cf_www" });
+
+		expect(fetchWithTimeout.mock.calls[0]?.[0]).toMatch(
+			/\/custom_hostnames\?hostname=www\.example\.com$/,
+		);
+		expect(
+			fetchWithTimeout.mock.calls.map(([, init]) => [
+				init.method,
+				init.body ? JSON.parse(String(init.body)) : null,
+			]),
+		).toEqual(expectedCalls);
 	});
 
 	it("finds an existing hostname by exact name and returns null otherwise", async () => {

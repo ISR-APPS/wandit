@@ -55,7 +55,7 @@ function customHostname(
 
 function setup() {
 	const customHostnames = {
-		createCustomHostname: vi.fn(async () => customHostname("cf_1")),
+		findOrCreateCustomHostname: vi.fn(async () => customHostname("cf_1")),
 		deleteCustomHostname: vi.fn(async () => undefined),
 		getCustomHostnameStatus: vi.fn(async () => customHostname("cf_1")),
 	};
@@ -116,7 +116,7 @@ describe("CustomHostnameConfigurationStep", () => {
 			value: "token-2",
 		};
 		const { customHostnames, dnsProvider, state, step } = setup();
-		customHostnames.createCustomHostname.mockResolvedValue(
+		customHostnames.findOrCreateCustomHostname.mockResolvedValue(
 			customHostname("cf_created", [challengeOne, challengeOne, challengeTwo]),
 		);
 
@@ -166,7 +166,7 @@ describe("CustomHostnameConfigurationStep", () => {
 				purchaseDnsConfigured: true,
 			},
 		});
-		expect(customHostnames.createCustomHostname).toHaveBeenCalledWith(
+		expect(customHostnames.findOrCreateCustomHostname).toHaveBeenCalledWith(
 			"example.com",
 		);
 		expect(dnsProvider.setDnsRecords).toHaveBeenCalledOnce();
@@ -205,7 +205,7 @@ describe("CustomHostnameConfigurationStep", () => {
 				],
 			},
 		});
-		expect(customHostnames.createCustomHostname).not.toHaveBeenCalled();
+		expect(customHostnames.findOrCreateCustomHostname).not.toHaveBeenCalled();
 		expect(customHostnames.getCustomHostnameStatus).toHaveBeenCalledOnce();
 		expect(customHostnames.getCustomHostnameStatus).toHaveBeenCalledWith(
 			"cf_backfill",
@@ -239,7 +239,7 @@ describe("CustomHostnameConfigurationStep", () => {
 		const { customHostnames, dnsProvider, state, step } = setup();
 
 		await expect(step.execute(input)).resolves.toBe(input);
-		expect(customHostnames.createCustomHostname).not.toHaveBeenCalled();
+		expect(customHostnames.findOrCreateCustomHostname).not.toHaveBeenCalled();
 		expect(customHostnames.getCustomHostnameStatus).not.toHaveBeenCalled();
 		expect(customHostnames.deleteCustomHostname).not.toHaveBeenCalled();
 		expect(dnsProvider.setDnsRecords).not.toHaveBeenCalled();
@@ -276,7 +276,7 @@ describe("CustomHostnameConfigurationStep", () => {
 	it("deletes an unclaimed hostname when id persistence loses its CAS", async () => {
 		const persistenceError = new Error("financial race");
 		const { customHostnames, dnsProvider, state, step } = setup();
-		customHostnames.createCustomHostname.mockResolvedValue(
+		customHostnames.findOrCreateCustomHostname.mockResolvedValue(
 			customHostname("cf_unclaimed", [
 				{ name: "_cf.example.com", type: "TXT", value: "token" },
 			]),
@@ -295,7 +295,7 @@ describe("CustomHostnameConfigurationStep", () => {
 		const persistenceError = new Error("financial race");
 		const cleanupError = new Error("Cloudflare cleanup failed");
 		const { customHostnames, dnsProvider, logger, state, step } = setup();
-		customHostnames.createCustomHostname.mockResolvedValue(
+		customHostnames.findOrCreateCustomHostname.mockResolvedValue(
 			customHostname("cf_cleanup_failure"),
 		);
 		state.updatePostRegistrationState.mockRejectedValueOnce(persistenceError);
