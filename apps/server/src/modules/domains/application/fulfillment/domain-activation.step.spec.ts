@@ -544,8 +544,8 @@ describe("DomainActivationStep", () => {
 		});
 
 		expect(fixture.events).toEqual([
-			"delete-hostname:cf_domain_1",
 			"mark-domain-failed:Domain is no longer attached to a project",
+			"delete-hostname:cf_domain_1",
 		]);
 		expect(fixture.domain).toMatchObject({
 			error: "Domain is no longer attached to a project",
@@ -553,6 +553,24 @@ describe("DomainActivationStep", () => {
 		});
 		expect(fixture.dependencies.putDomainPointer).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFulfilled).not.toHaveBeenCalled();
+	});
+
+	it("keeps the hostname when a new attach already deleted the detached row", async () => {
+		const fixture = setup(
+			domain("configuring", {
+				paymentOrderId: null,
+				projectId: null,
+				provider: null,
+				providerDomainId: null,
+				source: "external",
+			}),
+		);
+		const rowGone = new Error("Domain not found");
+		fixture.dependencies.markDomainFailed.mockRejectedValueOnce(rowGone);
+
+		await expect(fixture.step.execute(fixture.domain)).rejects.toBe(rowGone);
+
+		expect(fixture.dependencies.deleteCustomHostname).not.toHaveBeenCalled();
 	});
 
 	it("deletes the apex custom hostname next to the www hostname when cleaning a failed row", async () => {

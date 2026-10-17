@@ -165,6 +165,43 @@ describe("DomainDnsDiagnosticsService", () => {
 		expect(dnsMocks.resolve6).toHaveBeenCalledWith("www.brand.com");
 	});
 
+	it.each([
+		{
+			label: "TXT",
+			record: {
+				name: "_cf-custom-hostname.www",
+				purpose: "ownership_or_ssl_validation",
+				type: "TXT",
+				value: "expected-token",
+			},
+		},
+		{
+			label: "CNAME with no A or AAAA",
+			record: {
+				name: "www",
+				purpose: "traffic",
+				type: "CNAME",
+				value: "customers.wandit.app",
+			},
+		},
+	])("reports a $label record as missing when the DNS host answers NODATA", async ({
+		record,
+	}) => {
+		const row = domainRow({ dns: { records: [record] } });
+		const noData = Object.assign(new Error("query ENODATA"), {
+			code: "ENODATA",
+		});
+		for (const resolver of Object.values(dnsMocks)) {
+			resolver.mockRejectedValue(noData);
+		}
+
+		await expect(
+			serviceFor(row).getStatus(row.id, scope),
+		).resolves.toMatchObject({
+			records: [{ observedValues: [], status: "missing" }],
+		});
+	});
+
 	it("resolves NS nameserver records at the apex like the other record types", async () => {
 		const row = domainRow({
 			dns: {

@@ -1,3 +1,8 @@
+/**
+ * Shows the DNS records a user adds at the DNS provider, one table row for each record.
+ * Each row shows the type, the host in registrar form, the value, copy buttons, and an optional status.
+ * ExternalDomainSetupOptions renders it. The caller passes the statuses from the DNS status query.
+ */
 import { Button } from "@wandit/ui/components/button";
 import {
 	Table,
@@ -24,10 +29,12 @@ import type {
 	DnsRecordDiagnosticStatus,
 	RequiredDomainRecord,
 } from "../api/domains.dto";
-import { dnsPurposeKey } from "../lib/helpers";
+import { dnsPurposeKey, relativeDnsHost } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 
 type DnsRecordsTableProps = {
+	/** Apex name of the domain, for example "example.com". The Name column shows each host relative to it. */
+	domainName: string;
 	records: RequiredDomainRecord[];
 	diagnostics?: DnsRecordDiagnostic[];
 	isRefreshing?: boolean;
@@ -37,7 +44,12 @@ type DnsRecordsTableProps = {
 	showStatus?: boolean;
 };
 
+/**
+ * Only the Name cell shows the relative host. Row keys and status matching use the raw stored name,
+ * because the server diagnostics return raw names.
+ */
 export function DnsRecordsTable({
+	domainName,
 	records,
 	diagnostics,
 	isRefreshing = false,
@@ -86,46 +98,65 @@ export function DnsRecordsTable({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{records.map((record) => (
-						<TableRow key={recordKey(record)}>
-							<TableCell className="font-mono text-xs">{record.type}</TableCell>
-							<TableCell dir="ltr" className="font-mono text-xs">
-								{record.name}
-							</TableCell>
-							<TableCell>
-								<div className="flex min-w-72 items-start gap-2">
-									<div className="min-w-0 flex-1">
-										<p
-											dir="ltr"
-											className="break-all font-mono text-foreground text-xs"
-										>
-											{record.value}
-										</p>
-										<p className="mt-1 text-muted-foreground text-xs">
-											{t(dnsPurposeKey(record))}
-										</p>
-									</div>
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-xs"
-										aria-label={t("settings.domains.copyDnsValue")}
-										onClick={() => void copy(record.value)}
-									>
-										<Copy />
-									</Button>
-								</div>
-							</TableCell>
-							{showStatus ? (
-								<TableCell>
-									<RecordStatus
-										diagnostic={diagnosticFor(record)}
-										isRefreshing={isRefreshing}
-									/>
+					{records.map((record) => {
+						const host = relativeDnsHost(domainName, record.name);
+
+						return (
+							<TableRow key={recordKey(record)}>
+								<TableCell className="font-mono text-xs">
+									{record.type}
 								</TableCell>
-							) : null}
-						</TableRow>
-					))}
+								<TableCell dir="ltr">
+									<div className="flex items-center gap-2">
+										<span title={record.name} className="font-mono text-xs">
+											{host}
+										</span>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-xs"
+											aria-label={t("settings.domains.copyDnsName")}
+											onClick={() => void copy(host)}
+										>
+											<Copy />
+										</Button>
+									</div>
+								</TableCell>
+								<TableCell>
+									<div className="flex min-w-72 items-start gap-2">
+										<div className="min-w-0 flex-1">
+											<p
+												dir="ltr"
+												className="break-all font-mono text-foreground text-xs"
+											>
+												{record.value}
+											</p>
+											<p className="mt-1 text-muted-foreground text-xs">
+												{t(dnsPurposeKey(record))}
+											</p>
+										</div>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-xs"
+											aria-label={t("settings.domains.copyDnsValue")}
+											onClick={() => void copy(record.value)}
+										>
+											<Copy />
+										</Button>
+									</div>
+								</TableCell>
+								{showStatus ? (
+									<TableCell>
+										<RecordStatus
+											diagnostic={diagnosticFor(record)}
+											isRefreshing={isRefreshing}
+										/>
+									</TableCell>
+								) : null}
+							</TableRow>
+						);
+					})}
 				</TableBody>
 			</Table>
 		</div>
