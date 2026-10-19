@@ -41,6 +41,23 @@ import { STRIPE_API_VERSION } from "./stripe.constants";
 const RESTRICTED_PORTAL_CONFIGURATION_NAME =
 	"Wandit restricted billing portal v2";
 
+/**
+ * Timing fields for the plan change preview and the plan change update.
+ * Stripe refuses `proration_date` together with `billing_cycle_anchor: "now"`.
+ * So an anchor reset prorates at the time of each request.
+ * `proration_date` is in Unix seconds, because Stripe takes seconds.
+ */
+// LIMIT: an anchor-reset charge can be above its preview by old price x delay / period, in minor units.
+// The 15 min intent TTL caps the delay on the first attempt. A retry of a "processing" intent has no cap.
+// Upgrade: preview again on confirm and ask when the amount changes.
+function planChangeTiming(
+	params: PreviewSubscriptionChangeParams,
+): { billing_cycle_anchor: "now" } | { proration_date: number } {
+	return params.billingCycleAnchorNow
+		? { billing_cycle_anchor: "now" }
+		: { proration_date: Math.floor(params.prorationDate.getTime() / 1000) };
+}
+
 @Injectable()
 export class StripeProvider implements PaymentProvider {
 	private readonly logger = new Logger(StripeProvider.name);
@@ -344,9 +361,7 @@ export class StripeProvider implements PaymentProvider {
 			const updated = await stripe.subscriptions.update(
 				params.providerSubscriptionId,
 				{
-					...(params.billingCycleAnchorNow
-						? { billing_cycle_anchor: "now" as const }
-						: {}),
+					...planChangeTiming(params),
 					expand: ["latest_invoice"],
 					items: [
 						{
@@ -356,7 +371,6 @@ export class StripeProvider implements PaymentProvider {
 					],
 					payment_behavior: "pending_if_incomplete",
 					proration_behavior: "always_invoice",
-					proration_date: Math.floor(params.prorationDate.getTime() / 1000),
 				},
 				{ idempotencyKey: params.idempotencyKey },
 			);
@@ -640,12 +654,9 @@ export class StripeProvider implements PaymentProvider {
 		const preview = await stripe.invoices.createPreview({
 			subscription: params.providerSubscriptionId,
 			subscription_details: {
-				...(params.billingCycleAnchorNow
-					? { billing_cycle_anchor: "now" as const }
-					: {}),
+				...planChangeTiming(params),
 				items: [{ id: item.id, price: priceId }],
 				proration_behavior: "always_invoice",
-				proration_date: Math.floor(params.prorationDate.getTime() / 1000),
 			},
 		});
 
