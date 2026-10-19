@@ -482,13 +482,22 @@ describe("StripeProvider", () => {
 		});
 	});
 
-	it("uses the same fixed proration timestamp for preview and metadata-free update", async () => {
+	// Stripe refuses proration_date with billing_cycle_anchor "now" (Sentry WANDIT-SERVER-Q).
+	it.each([
+		{ billingCycleAnchorNow: true, timing: { billing_cycle_anchor: "now" } },
+		{
+			billingCycleAnchorNow: false,
+			timing: { proration_date: 1_785_587_696 },
+		},
+	])("sends one timing field to preview and metadata-free update (anchor now: $billingCycleAnchorNow)", async ({
+		billingCycleAnchorNow,
+		timing,
+	}) => {
 		const { invoicesCreatePreview, provider, subscriptionsUpdate } = setup();
-		const prorationDate = new Date("2026-08-01T12:34:56.000Z");
 		const input = {
-			billingCycleAnchorNow: true,
+			billingCycleAnchorNow,
 			newPriceLookupKey: "pro_500_year",
-			prorationDate,
+			prorationDate: new Date("2026-08-01T12:34:56.000Z"),
 			providerSubscriptionId: "sub_1",
 		};
 
@@ -503,24 +512,21 @@ describe("StripeProvider", () => {
 			}),
 		).resolves.toEqual({ outcome: "applied" });
 
-		const prorationDateSeconds = Math.floor(prorationDate.getTime() / 1000);
 		expect(invoicesCreatePreview).toHaveBeenCalledWith({
 			subscription: "sub_1",
 			subscription_details: {
-				billing_cycle_anchor: "now",
+				...timing,
 				items: [{ id: "si_1", price: "price_1" }],
 				proration_behavior: "always_invoice",
-				proration_date: prorationDateSeconds,
 			},
 		});
 		const updateParams = subscriptionsUpdate.mock.calls[0]?.[1];
 		expect(updateParams).toEqual({
-			billing_cycle_anchor: "now",
+			...timing,
 			expand: ["latest_invoice"],
 			items: [{ id: "si_1", price: "price_1" }],
 			payment_behavior: "pending_if_incomplete",
 			proration_behavior: "always_invoice",
-			proration_date: prorationDateSeconds,
 		});
 		expect(updateParams).not.toHaveProperty("metadata");
 		expect(subscriptionsUpdate.mock.calls[0]?.[2]).toEqual({

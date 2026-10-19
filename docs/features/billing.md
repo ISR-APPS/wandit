@@ -108,7 +108,7 @@ defined by valid plan/tier pairs.
   (`status not in ('canceled','incomplete_expired')`) subscription per owner.
 - `billing_webhook_events` — durable inbox with claim leases, attempt counts, failed-event retry, and terminal processed/skipped states.
 - `billing_checkout_attempts` — a UUID nonce is persisted before either subscription or top-up Checkout Session creation; guarded states are `created → session_attached → completed|expired`.
-- `billing_change_intents` — binds a preview, target price, fixed `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome.
+- `billing_change_intents` — binds a preview, target price, `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome. Stripe gets `proration_date` only when `anchor_reset` is false. An anchor reset (every upgrade) prorates at request time, because Stripe refuses both fields together.
 - `billing_invoice_applications` — invoice-scoped grant journal and monotonic cycle guard.
 - `subscription_refill_slots` — eleven charge/invoice-funded monthly refill slots for a paid yearly period.
 
@@ -136,7 +136,7 @@ Endpoints (all authed via global guard, `@CurrentUser`; response envelope idiom)
 | `POST /api/v1/billing/checkout` | persist attempt nonce, then create a nonce-idempotent subscription Checkout Session |
 | `POST /api/v1/billing/topup` | `{packId}` → Checkout Session URL (payment mode) |
 | `POST /api/v1/billing/portal` | restricted Billing Portal (payment method, invoices, cancel only) |
-| `POST /api/v1/billing/change/preview` | fixed-proration Stripe preview + one-time change intent |
+| `POST /api/v1/billing/change/preview` | Stripe preview (upgrades prorate at request time; downgrades use the fixed `proration_date`) + one-time change intent |
 | `POST /api/v1/billing/change` | consume `{intentId}`; return `applied|payment_required|failed` plus fresh subscription/balance |
 | `POST /api/v1/billing/cancel` · `/resume` | toggle `cancel_at_period_end` |
 | `POST /api/v1/billing/sync` | re-fetch the authenticated user's Stripe subscriptions and return the refreshed subscription view; safe no-op without a configured customer/provider |

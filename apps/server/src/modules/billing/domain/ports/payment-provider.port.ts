@@ -1,3 +1,8 @@
+/**
+ * Port between billing services and the payment provider, with its param and result types.
+ * Billing services and the orders service inject it by the PAYMENT_PROVIDER token.
+ * billing-payments.module.ts binds the token to StripeProvider.
+ */
 import type {
 	BillingInterval,
 	BillingPlanId,
@@ -72,6 +77,7 @@ export type CreateTopupCheckoutParams = {
 export type PreviewSubscriptionChangeParams = {
 	billingCycleAnchorNow: boolean;
 	newPriceLookupKey: string;
+	/** Proration time for a change without an anchor reset. Not sent when billingCycleAnchorNow is true: Stripe refuses both. */
 	prorationDate: Date;
 	providerSubscriptionId: string;
 };

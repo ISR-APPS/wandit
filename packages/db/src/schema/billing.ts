@@ -567,8 +567,8 @@ export const billingChangeIntents = pgTable(
 		}).notNull(),
 		previewTotalMinor: integer("preview_total_minor").notNull(),
 		currency: text("currency").notNull(),
-		// Ruling 7: decided at preview time and replayed verbatim at execution
-		// so the quoted amount and the Stripe call can never disagree.
+		// Ruling 7: decided at preview time and replayed verbatim at execution,
+		// so the preview and the Stripe call use the same anchor mode.
 		anchorReset: boolean("anchor_reset").notNull().default(false),
 		status: billingChangeIntentStatus("status").notNull().default("open"),
 		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

@@ -1,3 +1,10 @@
+/**
+ * Grants plan and top-up credits from paid Stripe invoices and checkout sessions,
+ * and expires plan credits when a subscription is deleted.
+ * StripeEventRouter calls it for Stripe webhooks. The Trigger.dev billing maintenance task
+ * replays failed webhook events through the same router.
+ * It writes credit_ledger and billing_invoice_applications through CreditsService and repositories.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
@@ -842,10 +849,10 @@ export class SubscriptionCreditsService {
 	}
 
 	/**
-	 * Ruling 7 fulfillment: an upgrade that reset the billing anchor carries a
-	 * full-period line at the full catalog price for the new plan plus the
-	 * negative proration credit for the old one. A delta-priced (pre-deploy)
-	 * update invoice has proration lines only and keeps the delta path.
+	 * Ruling 7: an upgrade that resets the billing anchor has two lines.
+	 * One is the new plan at its full catalog price for a full period.
+	 * The other is the old-plan proration credit. It is negative, or $0 just before renewal.
+	 * A delta-priced (pre-deploy) update invoice has proration lines only and keeps the delta path.
 	 */
 	private isAnchorResetUpdate(plans: SubscriptionUpdatePlans): boolean {
 		const line = plans.newPlan.line;
@@ -854,7 +861,7 @@ export class SubscriptionCreditsService {
 			!line.proration &&
 			line.amount === this.catalogPriceMinor(plans.newPlan.parsed) &&
 			plans.oldPlan !== null &&
-			plans.oldPlan.amount < 0
+			plans.oldPlan.amount <= 0
 		);
 	}
 
@@ -1347,11 +1354,13 @@ export class SubscriptionCreditsService {
 			);
 		}
 
+		// An upgrade minutes before renewal has unused time below half a cent.
+		// Stripe then writes the old-plan line at $0, so 0 must count here.
 		const oldPlan =
 			lines.find(
 				(line) =>
 					line.proration &&
-					line.amount < 0 &&
+					line.amount <= 0 &&
 					line.lookupKey !== currentPlan.lookupKey,
 			) ?? null;
 
