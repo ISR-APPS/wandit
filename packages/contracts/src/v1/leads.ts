@@ -487,6 +487,13 @@ export const leadCaptureBodySchema = z.object({
 	attribution: leadAttributionSchema.optional(),
 	commune: z.string().trim().max(120).optional(),
 	deploymentId: uuidSchema.optional().catch(undefined),
+	// Calling code of the page's market, digits only ("964"), read from the dial
+	// chip at publish time. A bad value is dropped: it must never reject a lead.
+	dialCode: z
+		.string()
+		.regex(/^[1-9][0-9]{0,2}$/)
+		.optional()
+		.catch(undefined),
 	extras: leadExtrasSchema.optional(),
 	name: z.string().trim().min(1).max(200),
 	phone: z.string().trim().min(6).max(40),

@@ -580,6 +580,9 @@ importers:
       jose:
         specifier: ^6.2.3
         version: 6.2.3
+      libphonenumber-js:
+        specifier: ^1.13.7
+        version: 1.13.7
       mammoth:
         specifier: ^1.12.0
         version: 1.12.0
