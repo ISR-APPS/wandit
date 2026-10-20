@@ -4,12 +4,45 @@
  *
  * Plain exported functions, NO NestJS DI on purpose (precedent: stampHtml) —
  * the Nest publish path and Trigger.dev tasks share this module.
+ * It reads the market dial code from the page with cheerio and bakes it into the runtime.
  */
 import { leadsRoutes } from "@wandit/contracts";
+import { load } from "cheerio";
 
+import {
+	foldArabicDigits,
+	isSupportedCallingCode,
+} from "../domain/normalize-lead-phone";
 import { buildLeadsRuntimeScript } from "./leads-runtime-script";
 
 export const LEADS_RUNTIME_SCRIPT_ID = "wandit-leads-runtime";
+
+// "+" and 1 to 3 digits, with no digit after them: "964" in "IQ +964", "212" in "+212 / +33".
+const DIAL_CHIP_PATTERN = /\+\s*([1-9][0-9]{0,2})(?![0-9])/g;
+
+/**
+ * Reads the market calling code from the chip beside a phone input: "964" from "IQ +964".
+ * The builder prompts put that chip in the input's own group, next to a national-number field.
+ * Returns undefined when no group has a supported code. Capture then assumes +213.
+ */
+export function findMarketDialCode(html: string): string | undefined {
+	const $ = load(html);
+	for (const input of $('input[type="tel"]').toArray()) {
+		const group = $(input).parent();
+		// Only the input's own group. A form or a row with other fields also holds
+		// prices such as "+500 DA", which look like calling codes.
+		// LIMIT: a <select> dial picker in the group gives no code (0 of 170 live pages). Upgrade: read the selected option in the runtime.
+		const groupFields = group.find(
+			'input:not([type="hidden"]):not([data-wandit-hp]), select, textarea',
+		);
+		if (group.is("form") || groupFields.length > 1) continue;
+		const groupText = foldArabicDigits(group.text());
+		for (const [, dialCode] of groupText.matchAll(DIAL_CHIP_PATTERN)) {
+			if (dialCode && isSupportedCallingCode(dialCode)) return dialCode;
+		}
+	}
+	return undefined;
+}
 
 /**
  * Insert the leads runtime immediately before the LAST `</body>`
@@ -18,6 +51,7 @@ export const LEADS_RUNTIME_SCRIPT_ID = "wandit-leads-runtime";
  * blocks are replaced so archived publish bytes are restamped with the
  * pending deployment id. If the id survives canonical removal, the document
  * carries bytes the injector does not recognize and is returned unchanged.
+ * The new block also carries the page's market dial code (findMarketDialCode).
  */
 export function injectLeadsRuntime(
 	html: string,
@@ -41,7 +75,11 @@ export function injectLeadsRuntime(
 	// back to the active deployment for its stale id).
 	if (stripped.includes(`id="${LEADS_RUNTIME_SCRIPT_ID}"`)) return html;
 
-	const block = `<script id="${LEADS_RUNTIME_SCRIPT_ID}">${buildLeadsRuntimeScript(options)}</script>`;
+	const runtime = buildLeadsRuntimeScript({
+		...options,
+		dialCode: findMarketDialCode(stripped),
+	});
+	const block = `<script id="${LEADS_RUNTIME_SCRIPT_ID}">${runtime}</script>`;
 	// Match on the case-preserved HTML: toLowerCase is not length-preserving
 	// ("İ" lowers to two code units), so an index taken from a lowered copy
 	// can splice the script into the middle of the closing tag.
