@@ -22,10 +22,13 @@
  * clipped client-side to the contract caps so a valid lead is never rejected
  * for length. Accepted non-honeypot sends also fire Meta Lead/Purchase and
  * TikTok Lead/CompletePayment events after the endpoint answers 2xx.
+ * Each send also carries the market dial code that publish read from the page.
  */
 export function buildLeadsRuntimeScript(options: {
 	captureUrl: string;
 	deploymentId: string;
+	/** Market calling code from the page's dial chip ("964"). Absent when the page has none. */
+	dialCode?: string;
 }): string {
 	// JSON-escape, then fold "<" to \u003c so no baked value can ever smuggle a
 	// script-close sequence into the inline tag.
@@ -37,6 +40,10 @@ export function buildLeadsRuntimeScript(options: {
 		/</g,
 		"\\u003c",
 	);
+	const dialCode = JSON.stringify(options.dialCode ?? "").replace(
+		/</g,
+		"\\u003c",
+	);
 
 	// NOTE: this is a template literal — backslashes meant for the script must
 	// be doubled (\\s below), and the script text must never contain a
@@ -45,6 +52,7 @@ export function buildLeadsRuntimeScript(options: {
 	try {
 		var captureUrl = ${captureUrl};
 		var deploymentId = ${deploymentId};
+		var dialCode = ${dialCode};
 		var DEDUPE_WINDOW_MS = 120000;
 		var HEURISTIC_DELAY_MS = 2500;
 		var MAX_PAYLOAD_BYTES = 12 * 1024;
@@ -378,6 +386,9 @@ export function buildLeadsRuntimeScript(options: {
 			var value = purchaseValue(lead);
 			var body = { phone: phone };
 			if (deploymentId) body.deploymentId = deploymentId;
+			// The visitor types a national number beside the market chip. The
+			// server needs the chip's calling code to build E.164.
+			if (dialCode) body.dialCode = dialCode;
 			var name = clip(lead.name, 200);
 			if (name) body.name = name;
 			var wilaya = clip(lead.wilaya, 120);

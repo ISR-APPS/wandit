@@ -64,6 +64,8 @@ async function flushMicrotasks(): Promise<void> {
 function createRuntimeHarness(
 	options: {
 		deploymentId?: string;
+		/** Market calling code baked at publish ("964"). */
+		dialCode?: string;
 		fetch?: RuntimeFetch;
 		honeypot?: string;
 		href?: string;
@@ -78,6 +80,7 @@ function createRuntimeHarness(
 	const script = buildLeadsRuntimeScript({
 		captureUrl: CAPTURE_URL,
 		deploymentId: options.deploymentId ?? DEPLOYMENT_ID,
+		dialCode: options.dialCode,
 	});
 	const documentListeners = new Map<string, RuntimeHandler[]>();
 	const windowListeners = new Map<string, RuntimeHandler[]>();
@@ -271,6 +274,15 @@ describe("buildLeadsRuntimeScript", () => {
 			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}")
 				.deploymentId,
 		).toBeUndefined();
+	});
+
+	it("sends the baked market dial code with the lead", () => {
+		const harness = createRuntimeHarness({ dialCode: "964" });
+
+		harness.emitLead({ phone: "07701234567" });
+		expect(
+			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+		).toMatchObject({ dialCode: "964", phone: "07701234567" });
 	});
 
 	it("wires CORS fetch acknowledgement and pagehide-only beacon fallback", () => {
