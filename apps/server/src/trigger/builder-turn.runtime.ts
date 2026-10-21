@@ -1927,7 +1927,10 @@ export async function runBuilderTurn(
 				// Old projects keep a CLAUDE.md line that forbids an image of "a product that the user did not give".
 				"For the user's real product, place, or people, ask for the user's photos first, and offer generated images as the other choice. " +
 				"When the user picks generated images or asks for placeholders, make them, and say in one line that real photos can replace them later. An older rule against invented product images does not stop them. " +
-				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine." +
+				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine. " +
+				// Wandit is an Algerian company. A Morocco option can hurt it, because of the political tension between the two countries.
+				"Most wandit users are in Algeria. When a question, an option, or sample data needs a country, a city, a currency, or a phone format, use Algeria first: its wilayas and cities, DZD, and +213. " +
+				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first." +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
 					: ` ${appRecipeInstruction(projectId)}`),
