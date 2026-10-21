@@ -16,7 +16,11 @@ import {
 	FastifyAdapter,
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { appBuilderRoutes, feedbackRoutes } from "@wandit/contracts";
+import {
+	aiChatRoutes,
+	appBuilderRoutes,
+	feedbackRoutes,
+} from "@wandit/contracts";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
@@ -72,15 +76,21 @@ async function bootstrap() {
 	// Fastify accepts 1 MiB of JSON by default, and every route keeps that limit
 	// except feedback: its screenshot data URL alone can reach 2.6 MB. The V2
 	// LLM proxy routes get 4 MiB too: a builder prompt with cache_control
-	// blocks can exceed 1 MiB. Nest registers the controller routes in
+	// blocks can exceed 1 MiB. The V1 AI chat stream gets 4 MiB too. The web
+	// and native apps send the full chat history with each message, and long
+	// chats pass 1 MiB. Nest registers the controller routes in
 	// `app.init()`, which `app.listen()` calls below, so this hook is in place
 	// before the routes are added.
+	// LIMIT: a chat above 4 MiB still gets 413. Upgrade: the server builds the
+	// history from the database (branch feat/v1-chat-compaction).
 	adapter.getInstance().addHook("onRoute", (route) => {
 		const methods = Array.isArray(route.method) ? route.method : [route.method];
 		const isLargeBodyRoute =
 			route.url === feedbackRoutes.create ||
 			route.url === appBuilderRoutes.llmProxyMessages ||
-			route.url === appBuilderRoutes.llmProxyCountTokens;
+			route.url === appBuilderRoutes.llmProxyCountTokens ||
+			// Fastify reports the route pattern, so the constant gets the param name.
+			route.url === aiChatRoutes.stream(":chatId");
 
 		if (methods.includes("POST") && isLargeBodyRoute) {
 			route.bodyLimit = 4 * 1024 * 1024;
