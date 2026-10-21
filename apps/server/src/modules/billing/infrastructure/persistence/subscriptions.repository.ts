@@ -117,7 +117,7 @@ export type UpsertSubscriptionInput = {
 	userId: string;
 };
 
-/** One subscription that needs a renewal reminder email, with its recipient. */
+/** One manual subscription (SlickPay, offline) that needs an expiry reminder email, with its recipient. */
 export type RenewalReminderRow = {
 	/** End of the period that the email announces. Part of the keyset cursor. */
 	currentPeriodEnd: Date;
@@ -129,13 +129,7 @@ export type RenewalReminderRow = {
 	name: string;
 	/** Workspace name of an organization row. Null for a personal row. */
 	organizationName: string | null;
-	/** Interval of a scheduled Stripe downgrade that starts at the period end. Null: no change, or same interval. */
-	pendingInterval: BillingInterval | null;
-	/** Plan of a scheduled Stripe downgrade that starts at the period end. Null: no change, or same plan. */
-	pendingPlan: BillingPlanId | null;
 	plan: BillingPlanId;
-	/** "stripe" (renews automatically) or "manual" (SlickPay and offline, ends at the period end). */
-	provider: string;
 };
 
 /** Last row of the previous reminder page. The next page starts after this pair. */
@@ -439,8 +433,8 @@ export class SubscriptionsRepository {
 	}
 
 	/**
-	 * Lists the rows of the subscription-renewal-reminders task: period end in (from, until],
-	 * not yet reminded for this period end. Ordered and keyset paged by (current_period_end, id).
+	 * Lists the rows of the subscription-renewal-reminders task: manual plans with a period end
+	 * in (from, until], not yet reminded for this period end. Ordered and keyset paged by (current_period_end, id).
 	 */
 	async listDueForRenewalReminder(input: {
 		/** Null on the first page. */
@@ -467,19 +461,16 @@ export class SubscriptionsRepository {
 				interval: subscriptions.interval,
 				name: user.name,
 				organizationName: organization.name,
-				pendingInterval: subscriptions.pendingInterval,
-				pendingPlan: subscriptions.pendingPlan,
 				plan: subscriptions.plan,
-				provider: subscriptions.provider,
 			})
 			.from(subscriptions)
 			.innerJoin(user, eq(user.id, subscriptions.userId))
 			.leftJoin(organization, eq(organization.id, subscriptions.organizationId))
 			.where(
 				and(
-					// Product rule: only live plans that end or renew at the period end.
-					// A plan set to cancel gets no reminder, and banned users get no email.
-					inArray(subscriptions.provider, ["manual", "stripe"]),
+					// Product rule: only live manual plans. They end at the period end and never renew by themselves.
+					// Stripe sends its own renewal email. A plan set to cancel and a banned user get no email.
+					eq(subscriptions.provider, "manual"),
 					inArray(subscriptions.status, entitledSubscriptionStatuses),
 					eq(subscriptions.cancelAtPeriodEnd, false),
 					eq(user.banned, false),
