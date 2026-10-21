@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildLeadsCaptureUrl,
+	findMarketDialCode,
 	injectLeadsRuntime,
 	LEADS_RUNTIME_SCRIPT_ID,
 } from "./inject-leads-runtime";
@@ -90,6 +91,43 @@ describe("injectLeadsRuntime", () => {
 
 		expect(result).toContain(JSON.stringify(captureUrl));
 		expect(result).toContain(JSON.stringify(deploymentId));
+	});
+
+	it("bakes the market dial code of the phone chip into the runtime", () => {
+		const html =
+			'<body><form><div class="phone-group"><span>IQ +964</span><input type="tel" name="phone"></div></form></body>';
+
+		expect(injectLeadsRuntime(html, OPTIONS)).toContain(
+			'var dialCode = "964";',
+		);
+	});
+});
+
+describe("findMarketDialCode", () => {
+	// Markup shapes taken from live pages, plus the price traps next to them.
+	it.each([
+		{
+			expected: "964",
+			html: '<div class="phone-group" dir="ltr"><span class="market">IQ +964</span><input id="phone" type="tel" autocomplete="tel-national"></div>',
+		},
+		{
+			expected: "212",
+			html: '<div class="phone-input-group"><span>🇲🇦 +212 / +33</span><input type="tel" name="phone"></div>',
+		},
+		{
+			expected: "216",
+			html: '<div class="phone-group"><span>+٢١٦</span><input type="tel" name="phone"></div>',
+		},
+		{
+			expected: undefined,
+			html: '<form><span>Livraison +500 DA</span><input type="tel" name="phone"></form>',
+		},
+		{
+			expected: undefined,
+			html: '<form><div class="row"><span>Livraison +500 DA</span><input type="text" name="name"><input type="tel" name="phone"></div></form>',
+		},
+	])("reads $expected from the phone group", ({ expected, html }) => {
+		expect(findMarketDialCode(html)).toBe(expected);
 	});
 });
 
