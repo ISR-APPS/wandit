@@ -433,8 +433,9 @@ export class SubscriptionsRepository {
 	}
 
 	/**
-	 * Lists the rows of the subscription-renewal-reminders task: manual plans with a period end
-	 * in (from, until], not yet reminded for this period end. Ordered and keyset paged by (current_period_end, id).
+	 * Lists the due rows of the subscription-renewal-reminders task.
+	 * A row is a live manual plan with a period end in (from, until] and no reminder for it.
+	 * Ordered and keyset paged by (current_period_end, id).
 	 */
 	async listDueForRenewalReminder(input: {
 		/** Null on the first page. */

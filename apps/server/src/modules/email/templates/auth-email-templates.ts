@@ -174,7 +174,6 @@ export function subscriptionRenewalReminderEmail(
 			? "the billing page"
 			: `the billing page of the ${organizationName} workspace`;
 	const date = RENEWAL_DATE_FORMAT.format(data.periodEnd);
-	// Product rule: a manual plan does not renew by itself. It ends unless the user renews it.
 	const lines = [
 		name ? `Hi ${name},` : "Hi,",
 		`${owner} expires on ${date}. It does not renew automatically.`,
