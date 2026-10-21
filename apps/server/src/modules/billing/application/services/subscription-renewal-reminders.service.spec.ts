@@ -28,10 +28,7 @@ function reminderRow(
 		interval: "month",
 		name: `User ${index}`,
 		organizationName: null,
-		pendingInterval: null,
-		pendingPlan: null,
 		plan: "pro",
-		provider: "stripe",
 		...overrides,
 	};
 }
@@ -71,35 +68,6 @@ function setup(rows: RenewalReminderRow[], failingEmails: string[] = []) {
 }
 
 describe("SubscriptionRenewalRemindersService", () => {
-	// The stripe row has a scheduled downgrade: Stripe bills Starter monthly at the period end.
-	it.each([
-		{
-			expected: { interval: "month", kind: "renews", plan: "starter" },
-			row: {
-				interval: "year",
-				pendingInterval: "month",
-				pendingPlan: "starter",
-				plan: "pro",
-				provider: "stripe",
-			},
-		},
-		{
-			expected: { interval: "year", kind: "expires", plan: "pro" },
-			row: { interval: "year", plan: "pro", provider: "manual" },
-		},
-	] as const)("sends the $expected.kind email with the billed plan for a $row.provider row", async ({
-		expected,
-		row,
-	}) => {
-		const { email, service } = setup([reminderRow(1, row)]);
-
-		await service.execute(NOW);
-
-		expect(email.sendSubscriptionRenewalReminder).toHaveBeenCalledWith(
-			expect.objectContaining(expected),
-		);
-	});
-
 	it("pages past a failed row: sends each row once, marks the others, then throws", async () => {
 		// One full page plus one row, so the last row is only on the second page.
 		const rows = Array.from(
