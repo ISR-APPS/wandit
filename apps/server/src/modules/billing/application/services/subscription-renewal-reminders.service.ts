@@ -1,5 +1,6 @@
 /**
- * Sends one renewal reminder email per subscription period, about 3 days before current_period_end.
+ * Sends one expiry reminder email per manual subscription period (SlickPay, offline), about 3 days
+ * before current_period_end. Stripe plans get no email here, because Stripe sends its own renewal email.
  * The Trigger task `subscription-renewal-reminders` calls execute() every hour, without Nest.
  * Reads and marks rows through SubscriptionsRepository and sends through EmailService, both passed in.
  */
@@ -15,7 +16,7 @@ const MARK_MAX_ATTEMPTS = 3;
 const MARK_RETRY_DELAY_MS = 50;
 
 /**
- * 3 days: enough time to change the card, cancel, or renew a manual plan before the date.
+ * 3 days: enough time to renew a manual plan before the date.
  * The hourly run sends the email within one hour of this mark.
  */
 const RENEWAL_REMINDER_LEAD_DAYS = 3;
@@ -84,9 +85,6 @@ export class SubscriptionRenewalRemindersService {
 				// the next page returns the unmarked failed row again.
 				after = { currentPeriodEnd: row.currentPeriodEnd, id: row.id };
 
-				// Product rule: only Stripe renews by itself. A manual plan (SlickPay, offline) ends.
-				const renews = row.provider === "stripe";
-
 				// A mark failure comes after the send: the user has the email, and only the row stays due.
 				let stage: "mark" | "send" = "send";
 
@@ -94,16 +92,11 @@ export class SubscriptionRenewalRemindersService {
 					await this.email.sendSubscriptionRenewalReminder({
 						// The period end is in the key: the next period gets its own email.
 						idempotencyKey: `subscription-renewal-reminder:${row.id}:${row.currentPeriodEnd.toISOString()}`,
-						// A scheduled downgrade starts at the renewal, so Stripe charges for the pending plan.
-						// An expiry notice names the current plan, because that plan ends.
-						interval: renews
-							? (row.pendingInterval ?? row.interval)
-							: row.interval,
-						kind: renews ? "renews" : "expires",
+						interval: row.interval,
 						name: row.name,
 						organizationName: row.organizationName,
 						periodEnd: row.currentPeriodEnd,
-						plan: renews ? (row.pendingPlan ?? row.plan) : row.plan,
+						plan: row.plan,
 						to: row.email,
 					});
 					sent += 1;

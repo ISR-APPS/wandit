@@ -1,5 +1,5 @@
 /**
- * Scheduled task: every hour, email the subscriptions whose period ends in the next 3 days.
+ * Scheduled task: every hour, email the manual subscriptions (SlickPay, offline) whose period ends in the next 3 days.
  * The Trigger scheduler calls it. The work lives in SubscriptionRenewalRemindersService,
  * built by createSubscriptionRenewalRemindersRuntime on a fresh database pool.
  */

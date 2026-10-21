@@ -7,7 +7,6 @@ describe("subscriptionRenewalReminderEmail", () => {
 		const email = subscriptionRenewalReminderEmail(
 			{
 				interval: "month",
-				kind: "renews",
 				name: '<img src=x onerror="alert(1)">',
 				organizationName: "<b>Acme</b>",
 				periodEnd: new Date("2026-10-16T14:05:00.000Z"),
