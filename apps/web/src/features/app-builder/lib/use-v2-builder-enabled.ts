@@ -1,8 +1,8 @@
 /**
  * React hook for the V2 app-builder rollout switch.
- * No caller yet; WANDIT-175 wires it into the V2 composer. It combines the
- * public product setting, the PostHog flag `v2-builder`, and the client
- * presence through `resolveV2BuilderEnabled`.
+ * The dashboard, the landing hero create hook, and useCloudTabEnabled call
+ * it. It combines the public product setting, the PostHog flag `v2-builder`,
+ * and the client presence through `resolveV2BuilderEnabled`.
  */
 import { getAnalytics } from "@wandit/analytics/browser";
 import { useFeatureFlagEnabled } from "@wandit/analytics/react";
@@ -12,12 +12,17 @@ import { resolveV2BuilderEnabled } from "./v2-builder-flag";
 
 /**
  * True when the V2 app builder is open for the current user. False while
- * the public settings are still loading.
+ * the public settings are still loading. Always false in a build without
+ * V2 (the Vercel production build).
  */
 export function useV2BuilderEnabled(): boolean {
 	const flagEnabled = useFeatureFlagEnabled("v2-builder");
 	const { data: publicSettings } = usePublicSettingsQuery();
 
+	// Product rule: V2 is open on staging only. The production build has no V2 code to open.
+	if (!__V2_BUILDER_IN_BUILD__) {
+		return false;
+	}
 	return resolveV2BuilderEnabled({
 		flagEnabled,
 		hasAnalytics: getAnalytics() !== undefined,

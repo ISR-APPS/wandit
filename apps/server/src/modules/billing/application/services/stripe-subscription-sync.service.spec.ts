@@ -91,6 +91,7 @@ class FakeSubscriptionsRepository {
 			pendingInterval: existing?.pendingInterval ?? null,
 			pendingPlan: existing?.pendingPlan ?? null,
 			pendingTierCredits: existing?.pendingTierCredits ?? null,
+			renewalReminderPeriodEnd: existing?.renewalReminderPeriodEnd ?? null,
 			updatedAt: new Date(0),
 		} satisfies SubscriptionRow;
 		this.rowsByProviderId.set(input.providerSubscriptionId, row);
@@ -257,6 +258,7 @@ class FakeSubscriptionsRepository {
 			priceLookupKey: "pro_250_month",
 			provider: "stripe",
 			tierCredits: 250,
+			renewalReminderPeriodEnd: null,
 			updatedAt: new Date(0),
 			...input,
 		} satisfies SubscriptionRow;

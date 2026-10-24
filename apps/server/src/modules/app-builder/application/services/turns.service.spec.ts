@@ -84,6 +84,7 @@ function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
 		priceLookupKey: "business_1000_year",
 		provider: "stripe",
 		providerSubscriptionId: "sub_stripe_1",
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 1_000,
 		updatedAt: now,

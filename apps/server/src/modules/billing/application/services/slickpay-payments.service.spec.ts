@@ -92,6 +92,7 @@ function subscriptionRow(
 		priceLookupKey: "pro_250_month",
 		provider: "manual",
 		providerSubscriptionId: "manual_55555555-5555-4555-8555-555555555555",
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 250,
 		updatedAt: new Date("2026-10-06T12:00:00.000Z"),

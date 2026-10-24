@@ -70,6 +70,7 @@ export function refineServerEnv(
  * Product rule: the V2 builder runs on staging and on a local API only.
  * On the Railway production environment, V2_BUILDER_ENABLED is always false, whatever Railway sets.
  * The API then never loads the app-builder module, so every /api/v2 route answers 404.
+ * Before you remove this rule, restore the V2 production limits (docs/v2/runbook.md).
  */
 export function closeV2BuilderInProduction<
 	Values extends {

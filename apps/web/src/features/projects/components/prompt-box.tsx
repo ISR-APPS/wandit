@@ -2271,7 +2271,8 @@ export function PromptBox({
 								isHero={isHero}
 							/>
 						)}
-						{platformChoice && planChoice ? (
+						{/* The constant removes the app-builder Plan chip from the production bundle. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice && planChoice ? (
 							<PlanModeToggle
 								isPlanMode={planChoice.value}
 								onPlanModeChange={planChoice.onChange}

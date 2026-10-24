@@ -102,6 +102,7 @@ function subscriptionRow(provider: "manual" | "stripe"): SubscriptionRow {
 		priceLookupKey: "pro_350_month",
 		provider,
 		providerSubscriptionId: `${provider}_subscription_1`,
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 350,
 		updatedAt: NOW,

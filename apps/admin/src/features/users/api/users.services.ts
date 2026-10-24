@@ -1,3 +1,7 @@
+/**
+ * HTTP calls of the admin users feature: list, detail, pages, projects, and staff actions.
+ * The query and mutation hooks in this folder call them. They call the admin API through api-client.
+ */
 import {
 	adminProjectVersionHtmlResponseSchema,
 	adminRoutes,
@@ -5,6 +9,9 @@ import {
 	adminUserPagesResponseSchema,
 	adminUserProjectsQuerySchema,
 	adminUserProjectsResponseSchema,
+	adminUserRefundInputSchema,
+	adminUserRefundPreviewSchema,
+	adminUserRefundResultSchema,
 } from "@wandit/contracts";
 
 import { apiGet, apiPost, apiPut } from "@/lib/api-client";
@@ -14,11 +21,14 @@ import type {
 	AdminProjectVersionHtmlResponse,
 	AdminUserPagesResponse,
 	AdminUserProjectsResponse,
+	AdminUserRefundPreview,
+	AdminUserRefundResult,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	ListUserPagesParams,
 	ListUserProjectsParams,
 	ListUsersParams,
+	RefundUserInput,
 	SetUserAdminViewsInput,
 	SetUserBannedInput,
 	UserDetail,
@@ -138,4 +148,26 @@ export function setUserBanned({
 		banned,
 		reason,
 	});
+}
+
+/** Reads the last Stripe plan payment of a user, with live Stripe amounts. Needs billing:manage. */
+export async function getUserRefundPreview(
+	userId: string,
+): Promise<AdminUserRefundPreview> {
+	const payload = await apiGet<unknown>(adminRoutes.userRefund(userId));
+
+	return adminUserRefundPreviewSchema.parse(payload);
+}
+
+/** Refunds that payment through Stripe and cancels the Stripe plan now. A repeated call refunds once. */
+export async function refundUser({
+	userId,
+	stripeInvoiceId,
+}: RefundUserInput): Promise<AdminUserRefundResult> {
+	const payload = await apiPost<unknown>(
+		adminRoutes.userRefund(userId),
+		adminUserRefundInputSchema.parse({ stripeInvoiceId }),
+	);
+
+	return adminUserRefundResultSchema.parse(payload);
 }

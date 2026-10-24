@@ -3,6 +3,7 @@
  * refreshes the credits, and opens `/app/$projectId`. Same result shape as
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
+ * The Vercel production build gets a flow that never creates.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,7 +45,7 @@ export type UseCreateAppProjectWithPromptResult = {
  * `mobile` when it has no mobile template. Both come back as errors here,
  * so the dashboard has no precheck.
  */
-export function useCreateAppProjectWithPrompt(
+function useAppProjectCreateFlow(
 	targetPlatform: TargetPlatform,
 	mode: BuilderTurnMode,
 ): UseCreateAppProjectWithPromptResult {
@@ -110,3 +111,20 @@ export function useCreateAppProjectWithPrompt(
 		setInsufficientOpen,
 	};
 }
+
+// The flow of a build without V2. Callers never read it, because useV2BuilderEnabled answers false there.
+const NO_APP_PROJECT_CREATE: UseCreateAppProjectWithPromptResult = {
+	create: () => Promise.resolve(false),
+	isCreating: false,
+	insufficientOpen: false,
+	setInsufficientOpen: () => undefined,
+};
+
+/**
+ * The V2 create flow. A build without V2 (the Vercel production build) gets
+ * a flow that never creates. The bundler then removes the V2 create code and services.
+ */
+export const useCreateAppProjectWithPrompt: typeof useAppProjectCreateFlow =
+	__V2_BUILDER_IN_BUILD__
+		? useAppProjectCreateFlow
+		: () => NO_APP_PROJECT_CREATE;

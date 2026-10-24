@@ -48,6 +48,7 @@ function subscriptionRow(
 		pendingPlan: null,
 		pendingTierCredits: null,
 		provider: "manual",
+		renewalReminderPeriodEnd: null,
 		updatedAt: new Date(),
 	};
 }

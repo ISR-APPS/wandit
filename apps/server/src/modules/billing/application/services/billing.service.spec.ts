@@ -98,6 +98,7 @@ function subscriptionRow(
 		priceLookupKey: "pro_250_month",
 		provider: "stripe",
 		providerSubscriptionId: "sub_1",
+		renewalReminderPeriodEnd: null,
 		status: "active",
 		tierCredits: 250,
 		updatedAt: new Date("2026-07-24T10:00:00.000Z"),

@@ -366,6 +366,7 @@ class FakeSubscriptionsRepository {
 			pendingPlan: null,
 			pendingInterval: null,
 			pendingTierCredits: null,
+			renewalReminderPeriodEnd: null,
 			updatedAt: new Date(TEST_NOW),
 		} satisfies SubscriptionRow;
 		this.rows.set(input.providerSubscriptionId, row);

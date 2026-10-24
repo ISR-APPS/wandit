@@ -39,12 +39,14 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	/** Provisional default (ESTIMATE): at most this many rows in each of the six steps of one sweep run. */
 	sweepBatchCap: 50,
 	/**
-	 * Backends one owner may hold per plan. A free user (`starter`) gets none.
-	 * WANDIT-153 decides the backend price.
+	 * Backends one owner may hold per plan. 1000 means no practical limit.
+	 * Every plan gets 1000 for the staging tests, so any tester can add a backend.
+	 * Zack sets the per-plan caps again after the tests. WANDIT-153 decides the backend price.
 	 */
+	// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
 	backendsPerPlan: Object.freeze({
-		starter: 0,
-		pro: 1,
+		starter: 1000,
+		pro: 1000,
 		business: 1000,
 	} satisfies Record<BillingPlanId, number>),
 });
