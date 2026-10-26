@@ -16,6 +16,11 @@
 		"backToTop": "Wandit — back to top",
 		"home": "Wandit — home"
 	},
+	"v2Banner": {
+		"title": "Wandit V2 is coming soon.",
+		"body": "You will be able to build mobile and web apps. Subscribers get it first, with extra credits.",
+		"cta": "See plans"
+	},
 	"hero": {
 		"leadStart": "Build me a",
 		"platforms": {
