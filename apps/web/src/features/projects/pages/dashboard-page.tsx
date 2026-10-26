@@ -1,9 +1,9 @@
 /**
  * Dashboard page at `/dashboard`: the prompt box that creates a project and
  * the project grid with search and status filters. The route file imports
- * it by path. Calls the projects queries, the V1 and V2 create hooks, the
- * credits banners, and the landing key button and platform word. It owns
- * the app type and the Plan chip of a V2 create.
+ * it by path. Calls the projects queries, the V1 and V2 create hooks, and
+ * the credits banners. From the landing it uses the key button, the platform
+ * word, and the V2 strip. It owns the app type and the Plan chip of a V2 create.
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import type { TargetPlatform } from "@wandit/contracts";
@@ -24,7 +24,11 @@ import {
 	OutOfCreditsBanner,
 	useOutOfCredits,
 } from "@/features/credits";
-import { KeycapButton, PlatformToken } from "@/features/landing";
+import {
+	KeycapButton,
+	PlatformToken,
+	V2ComingSoonBanner,
+} from "@/features/landing";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
@@ -189,6 +193,8 @@ export default function DashboardPage() {
 	return (
 		<DashboardShell>
 			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+				{/* "/" sends signed-in users to the dashboard, so the dashboard repeats the V2 strip. */}
+				<V2ComingSoonBanner className="mt-4 rounded-2xl md:mt-6 dark:ring-1 dark:ring-white/10" />
 				<PendingInvitesBanner className="mt-6" />
 				{/* The prompt panel repeats the ember hero of the landing page. The first
 				    screen after sign-in then looks like the landing. */}
