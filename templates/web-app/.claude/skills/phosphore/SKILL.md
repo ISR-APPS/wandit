@@ -47,7 +47,7 @@ Terse engineer register in the demo's language, written as terminal grammar: com
 - NO third hue, ever. Errors, warnings and "before" states are dim or inverse video — this tube has one electron gun.
 - GRADIENTS exist only as the radial vignette and the bloom shadow. Never on grounds, type, borders or buttons.
 
-FIXED TOKEN MAP — GROUND→--background · PHOSPHOR standard→--foreground · PHOSPHOR bright→--primary · GROUND→--primary-foreground · alternate GROUND→--secondary · NEAR-WHITE→--accent · DIM→--muted · DIM→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, bloom or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: VT323 400 (Google Fonts) ONLY at ≥2rem — it is illegible small and must never set body text, labels or buttons. Zero letter-spacing (the face is already a grid). Never italic.

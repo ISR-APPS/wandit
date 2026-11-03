@@ -241,7 +241,7 @@ function renderThread(
 			options.history ?? EMPTY_HISTORY,
 		);
 	}
-	const view = renderHook(() => useBuilderThread(PROJECT_ID, deps), {
+	const view = renderHook(() => useBuilderThread(PROJECT_ID, undefined, deps), {
 		wrapper: ({ children }: { children: ReactNode }) =>
 			createElement(
 				QueryClientProvider,

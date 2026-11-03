@@ -3,7 +3,8 @@
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
  * mode menu picks the app type, web or mobile, through `platformChoice`,
- * and the Plan chip of the app-builder feature sets `planChoice`.
+ * the Plan chip of the app-builder feature sets `planChoice`, and its
+ * model menu sets `modelChoice`.
  * Calls the attachments upload service and the voice dictation hook.
  */
 
@@ -91,7 +92,11 @@ import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
-import { PlanModeToggle } from "@/features/app-builder";
+import {
+	type BuilderModelPick,
+	BuilderModelPicker,
+	PlanModeToggle,
+} from "@/features/app-builder";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
 import { KeycapButton } from "@/features/landing";
@@ -1648,6 +1653,8 @@ export type PromptBoxProps = {
 		value: boolean;
 		onChange: (isPlanMode: boolean) => void;
 	};
+	/** The model menu of a V2 create, from useBuilderModelPick of the caller. It shows only with `platformChoice`. */
+	modelChoice?: BuilderModelPick;
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
@@ -1686,6 +1693,7 @@ export function PromptBox({
 	showBanner = false,
 	platformChoice,
 	planChoice,
+	modelChoice,
 	isSubmitting = false,
 	disabled = false,
 	initialValue = "",
@@ -2276,6 +2284,14 @@ export function PromptBox({
 							<PlanModeToggle
 								isPlanMode={planChoice.value}
 								onPlanModeChange={planChoice.onChange}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
+						) : null}
+						{/* The same constant removes the model menu from the production bundle. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice && modelChoice ? (
+							<BuilderModelPicker
+								pick={modelChoice}
 								disabled={submissionPending || disabled}
 								size={isHero ? "md" : "sm"}
 							/>

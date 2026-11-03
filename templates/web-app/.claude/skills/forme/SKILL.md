@@ -48,7 +48,7 @@ Short, flat, physical French — a coach who counts your reps and sells you noth
 - GRADIENTS: forbidden as decoration; the only one is the tonal ramp inside a graded photograph.
 - On the red panel the ink INVERTS to #0A0A0A — black type on red, hairlines rgba(10,10,10,.35). Red is never a bed for white text.
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · ACCENT RED→--primary · second ground→--primary-foreground · PANEL→--secondary · SHADOW RED→--accent · muted ink→--muted · ink at 14%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, grade layer or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: a condensed grotesque in UPPERCASE — Oswald (default), Barlow Condensed, Archivo Narrow. One per site. Weights 500–700, letter-spacing -.005em to -.015em.

@@ -1,8 +1,9 @@
 /**
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks and of the files, the textarea, then the add
- * menu (a file or an image), the Plan chip, the credit estimate, dictation,
- * and send. While the tray shows, send becomes the answer pill of the tray.
+ * menu (a file or an image), the Plan chip, the model menu, the credit
+ * estimate, dictation, and send. While the tray shows, send becomes the
+ * answer pill of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
  * uploaded files; a send that the API refuses puts them back. Uploads go
  * through the projects feature, with the dashboard limits.
@@ -52,6 +53,8 @@ import {
 } from "@/features/projects";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
+import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
 import { TargetChip } from "./target-chip";
@@ -91,6 +94,8 @@ export type ComposerProps = {
 	/** State of the Plan chip. The chip locks with the textarea while a turn runs, and hides while the tray shows. */
 	isPlanMode: boolean;
 	onPlanModeChange: (isPlanMode: boolean) => void;
+	/** The model menu state of the project, from useBuilderModelPick on the page. The menu locks and hides like the Plan chip. */
+	modelPick: BuilderModelPick;
 };
 
 /** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
@@ -127,13 +132,6 @@ const UPLOAD_ERROR_KEYS: Record<
 	failed: "projects.promptBox.attachments.failed",
 };
 
-// A soft navy chip that turns into a solid night pill (spark in dark mode)
-// while its menu is open. A copy of HERO_CHIP_CLASS in
-// features/projects/components/prompt-box.tsx, so the two prompt boxes match.
-// The open look keys on aria-expanded: a tooltip on the same button overwrites data-state.
-const CHIP_CLASS =
-	"group/trigger rounded-full border-transparent bg-night/[0.05] font-grotesk font-medium text-night/75 shadow-none transition-colors duration-200 hover:bg-night/[0.09] hover:text-night aria-expanded:bg-night aria-expanded:text-paper dark:border-transparent dark:bg-white/[0.06] dark:text-foreground/75 dark:aria-expanded:bg-spark dark:aria-expanded:text-night dark:hover:bg-white/[0.1] dark:hover:text-foreground";
-
 // The send circle and the answer pill share the ember face, with a soft
 // ember (#d16022) glow. Disabled is a flat navy tint, not a faded ember: a
 // pale orange reads as "almost ready".
@@ -157,6 +155,7 @@ export function Composer({
 	placeholder,
 	isPlanMode,
 	onPlanModeChange,
+	modelPick,
 }: ComposerProps) {
 	const { t } = useTranslation();
 	const [draft, setDraftState] = useState("");
@@ -380,7 +379,10 @@ export function Composer({
 									variant="outline"
 									size="icon-sm"
 									disabled={files.length >= MAX_FILES}
-									className={cn(CHIP_CLASS, "text-night dark:text-foreground")}
+									className={cn(
+										PROMPT_CHIP_CLASS,
+										"text-night dark:text-foreground",
+									)}
 								>
 									<PlusIcon weight="bold" className="size-4" aria-hidden />
 								</Button>
@@ -397,13 +399,16 @@ export function Composer({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					{/* The tray answer pill needs this room. The answers keep the mode; the skip X shows the chip again. */}
+					{/* The tray answer pill needs this room. The answers keep the mode and the model; the skip X shows the chips again. */}
 					{submitOverride ? null : (
-						<PlanModeToggle
-							isPlanMode={isPlanMode}
-							onPlanModeChange={onPlanModeChange}
-							disabled={isSending}
-						/>
+						<>
+							<PlanModeToggle
+								isPlanMode={isPlanMode}
+								onPlanModeChange={onPlanModeChange}
+								disabled={isSending}
+							/>
+							<BuilderModelPicker pick={modelPick} disabled={isSending} />
+						</>
 					)}
 					{turnEstimateCredits !== null ? (
 						<span className="ms-auto flex items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50">

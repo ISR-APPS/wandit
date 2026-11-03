@@ -9,14 +9,9 @@ import {
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
-import type { BillingPlanId } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type {
-	SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
@@ -65,32 +60,6 @@ afterEach(() => {
 		env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
 	).GENERATION_BILLING_MODE = INITIAL_GENERATION_BILLING_MODE;
 });
-
-function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
-	const now = new Date("2026-09-16T00:00:00.000Z");
-	return {
-		cancelAtPeriodEnd: false,
-		createdAt: now,
-		currentPeriodEnd: now,
-		currentPeriodStart: now,
-		id: "sub_1",
-		interval: "year",
-		organizationId: null,
-		pendingAppliedBy: null,
-		pendingInterval: null,
-		pendingPlan: null,
-		pendingTierCredits: null,
-		plan,
-		priceLookupKey: "business_1000_year",
-		provider: "stripe",
-		providerSubscriptionId: "sub_stripe_1",
-		renewalReminderPeriodEnd: null,
-		status: "active",
-		tierCredits: 1_000,
-		updatedAt: now,
-		userId: "user-1",
-	};
-}
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 	return {
@@ -254,11 +223,6 @@ function setup(
 			async () => null,
 		),
 	};
-	const subscriptions = {
-		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
-			async () => null,
-		),
-	};
 	const lock = new FakeTurnLock();
 	const starter = {
 		cancel: vi.fn(async () => undefined),
@@ -292,7 +256,6 @@ function setup(
 		v2Env,
 		counters,
 		caps,
-		subscriptions,
 		audit,
 		backends,
 	);
@@ -309,7 +272,6 @@ function setup(
 		service,
 		sessions,
 		starter,
-		subscriptions,
 		turnEvents,
 		turns,
 	};
@@ -521,14 +483,13 @@ describe("TurnsService.create", () => {
 		});
 	});
 
-	it("denies a picked model outside the plan allow-list before the hold", async () => {
+	it("denies a picked model with no price row before the hold", async () => {
 		const { metering, service, turns } = setup();
-		// The default starter plan may only run the default and haiku.
 
 		const failure = await service
 			.create(SCOPE, "project-1", {
 				...BODY,
-				model: "anthropic/claude-opus-5",
+				model: "x/unpriced",
 			})
 			.catch((error: unknown) => error);
 
@@ -542,11 +503,9 @@ describe("TurnsService.create", () => {
 		expect(turns.create).not.toHaveBeenCalled();
 	});
 
-	it("runs a plan-allowed model pick and stores it on the row", async () => {
-		const { metering, service, subscriptions, turns } = setup();
-		subscriptions.findActiveByOwner.mockResolvedValue(
-			subscriptionRow("business"),
-		);
+	it("runs a priced model outside the plan list and stores it on the row", async () => {
+		// Only the business plan list holds Opus 5. This actor has no plan.
+		const { metering, service, turns } = setup();
 
 		const result = await service.create(SCOPE, "project-1", {
 			...BODY,

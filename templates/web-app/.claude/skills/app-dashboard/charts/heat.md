@@ -43,18 +43,18 @@ Breakdown part:
 1. Header: the title.
 2. Ranked rows in the order of the data. Each row has a step square, the name, and the value at the end.
 
-- The style gives the panel, the cell size and corners, the gaps, the sizes, and the weights.
-- The snippet shows the logic. Its cell size, gaps, and corners are the no-style defaults.
+- The panel is a `Card`.
+- The snippet shows the logic. Keep its cell size, gaps, and corners.
 - The calendar fits its slot. A strip takes a mini height of SKILL.md.
 - Each skeleton keeps the header, the calendar or the strip, the facts, and the legend in their final sizes.
 
 ## Rules
 
-- The heat is plain elements, not recharts. CSS grid draws the calendar. `ChartContainer` and the chart knobs do not apply.
+- The heat is plain elements, not recharts. CSS grid draws the calendar. `ChartContainer` and the chart tokens do not apply.
 - `HEAT_STEPS` holds the 5 steps from `--muted` to `--chart-1`. Step 0 is a day with no event.
   Steps 1 to 4 split the range from 0 to the busiest cell in 4 equal parts. The legend shows the same 5 steps.
 - `heatStep` returns a `number` from 0 to 4, the index of a step in `HEAT_STEPS`. Type a cell step as `number`.
-- The only hue is `--chart-1`. A style that sets `--chart-1` changes the scale.
+- The only hue is `--chart-1`. The theme sets it, so a theme change also changes the scale.
 - The breakdown squares take the step of each part against the largest part.
 - `day` is `YYYY-MM-DD` with no time. Read the weekday with `getUTCDay()` of `` new Date(`${day}T00:00:00Z`) ``.
 - Format a date with `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })` on the same date.
@@ -63,19 +63,20 @@ Breakdown part:
 - A strip of days uses `grid grid-flow-col auto-cols-fr`, so 7, 30, or 90 days fill the same width.
   Use `gap-px` for 90 days. The period control of a strip follows the home.
   A strip of hours uses `grid-cols-12 @xl/main:grid-cols-24`, so it wraps into 2 rows at 375 px.
-- The style gives the cell size and the gap in px. With no style rule: `size-[16px]` and `gap-[4px]`.
-  Never use the spacing scale (`size-4`, `gap-1`) for them: density scales it and resizes the calendar.
-- 90 days take up to 14 week columns. With the defaults, the calendar is 14 cells of 16 px and 13 gaps of 4 px: 276 px.
-  This width is the same at every density.
-- At 375 px, `main` has `p-4`, and a default panel has a 1 px border and `px-6`. The paddings scale with density.
-  The room for the calendar: about 301 px at compact, 293 px at regular, 285 px at comfortable.
-  The calendar fits in each. With `size-4 gap-1`, the calendar takes about 303 px at comfortable and overflows.
-- Larger cells only from `@xl/main:`, also in px. A style with other cells, a wider border, or more padding checks this sum again.
+- The cell size and the gap are in px: `size-[14px] gap-[3px]`, then `@xl/main:size-[16px] @xl/main:gap-[4px]`.
+  Use them at every theme scale. The user can change the scale in the builder, and the page stays.
+  Never use the spacing scale (`size-4`, `gap-1`) for them: the theme scale changes it and resizes the calendar.
+- 90 days take up to 14 week columns. The base calendar is 14 cells of 14 px and 13 gaps of 3 px: 235 px.
+  From `@xl/main:`, it is 14 cells of 16 px and 13 gaps of 4 px: 276 px. Px values do not follow the theme scale.
+- At 375 px, the room is 375 px minus two times this sum: the `p-4` of the page, the `Card` border, and its `px-6`.
+  The theme scale and border change the sum: about 293 px at scale md with 1 px, and 273 px at scale xl with 3 px.
+  The base calendar fits at every scale.
+- Larger cells only from `@xl/main:`, also in px. Then check this sum again.
 - The calendar or the strip has `role="img"` and an `aria-label`: the title, the period, its total, and the busiest day.
 - Each cell has a `title` with its date and its count, for a mouse pointer. The legend has `aria-hidden="true"`.
 - Every count goes through `Intl.NumberFormat(locale)`.
 - Money: add `style: "currency"` and the currency of the user to the number formatter.
-- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+- The period control shows only with `onDaysChange`. It is a `Select`. `Tabs` also fit: the theme draws them.
   Write each choice with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
   It has `aria-label={t("chart.period")}`.
 - Empty trend: every day is 0. Every cell shows step 0: this is the empty frame of the form.
@@ -102,16 +103,19 @@ const HEAT_STEPS = [
 function heatStep(value: number, max: number): number {
 	return value <= 0 || max <= 0 ? 0 : Math.min(HEAT_STEPS.length - 1, Math.ceil((value / max) * (HEAT_STEPS.length - 1)));
 }
-/** One column per week, Monday on top. No-style defaults: 16 px cells, 4 px gaps, and 2 px corners. */
+/**
+ * One column per week, Monday on top: 14 px cells and 3 px gaps, 16 px and 4 px from @xl/main:.
+ * rounded-xs gives 2 px corners: a theme radius step is too round for a 14 px cell.
+ */
 function HeatCalendar({ points, label, cellTitle }: { points: DailyPoint[]; label: string; cellTitle: (point: DailyPoint) => string }) {
 	const max = Math.max(0, ...points.map((point) => point.current));
 	const first = points[0];
 	// Blank cells move the first day down to the row of its weekday. getUTCDay gives 0 for Sunday.
 	const blanks = first ? (new Date(`${first.day}T00:00:00Z`).getUTCDay() + 6) % 7 : 0;
 	return (
-		<div role="img" aria-label={label} className="grid w-fit grid-flow-col grid-rows-7 gap-[4px]">
+		<div role="img" aria-label={label} className="grid w-fit grid-flow-col grid-rows-7 gap-[3px] @xl/main:gap-[4px]">
 			{Array.from({ length: blanks }, (_, blank) => <span key={`blank-${blank}`} />)}
-			{points.map((point) => <span key={point.day} title={cellTitle(point)} className={cn("size-[16px] rounded-[2px]", HEAT_STEPS[heatStep(point.current, max)])} />)}
+			{points.map((point) => <span key={point.day} title={cellTitle(point)} className={cn("size-[14px] rounded-xs @xl/main:size-[16px]", HEAT_STEPS[heatStep(point.current, max)])} />)}
 		</div>
 	);
 }

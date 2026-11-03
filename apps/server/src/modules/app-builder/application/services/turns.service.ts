@@ -3,7 +3,7 @@
  * stream access checks, and the end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * model allow-list, the monthly cap, and the per-actor turn limit, then
+ * model price check, the monthly cap, and the per-actor turn limit, then
  * the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
@@ -27,7 +27,6 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
-	allowedLlmModels,
 	appBuilderRoutes,
 	builderTurnSpecSchema,
 	type CancelTurnResponse,
@@ -39,8 +38,6 @@ import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
 import { getErrorMessage } from "@wandit/observability/error";
 
-import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
-import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { harnessModelMultiplier } from "../../../metering/domain/harness-price-table";
@@ -57,6 +54,7 @@ import { ProjectsRepository } from "../../../projects/infrastructure/persistence
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
+import { llmModelPrice } from "../../domain/llm-model-prices";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
 import {
 	TURN_EVENT_READER,
@@ -144,6 +142,23 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 	opencode: "opencode",
 };
 
+/**
+ * Refuses a picked model with no row in `LLM_MODEL_PRICES`: 400
+ * `V2_MODEL_DENIED`. `create` and the V2 create-project route call it
+ * before any write.
+ */
+export function assertPickableModel(modelId: string): void {
+	// Product rule (staging and local only): every priced model runs on
+	// every plan. Credits bill the real provider cost, so a pick cannot
+	// under-bill. docs/v2/runbook.md names the restore before production.
+	if (llmModelPrice(modelId) === undefined) {
+		throw new BadRequestException({
+			code: "V2_MODEL_DENIED",
+			message: "This model is not available",
+		});
+	}
+}
+
 @Injectable()
 export class TurnsService {
 	private readonly logger = new Logger(TurnsService.name);
@@ -172,11 +187,6 @@ export class TurnsService {
 		private readonly counters: LlmSpendCounterStore,
 		@Inject(ProjectCostCapsRepository)
 		private readonly caps: Pick<ProjectCostCapsRepository, "findByProjectId">,
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: Pick<
-			SubscriptionsRepository,
-			"findActiveByOwner"
-		>,
 		@Inject(AuditEventsService)
 		private readonly audit: Pick<AuditEventsService, "record">,
 		/** Starts a failed or missing backend again when a new message arrives. */
@@ -245,25 +255,10 @@ export class TurnsService {
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
 
-		let model = defaultModel;
 		if (body.model !== undefined) {
-			// Without a deploy default the plan allow-list cannot be computed,
-			// so every pick is denied.
-			const allowed =
-				defaultModel === null
-					? []
-					: allowedLlmModels(
-							await resolveBillingPlan(this.subscriptions, subject),
-							defaultModel,
-						);
-			if (!allowed.includes(body.model)) {
-				throw new BadRequestException({
-					code: "V2_MODEL_DENIED",
-					message: "This plan may not run that model",
-				});
-			}
-			model = body.model;
+			assertPickableModel(body.model);
 		}
+		const model = body.model ?? defaultModel;
 
 		// The monthly cap refuses before the hold: the pool could pay, the
 		// cap could not — buying credits is not the fix.

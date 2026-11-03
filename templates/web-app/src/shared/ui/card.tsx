@@ -1,21 +1,23 @@
 // shadcn-style card primitives (port of shadcn/ui, MIT).
 // Sections, KPI cards, and chart cards use these slots.
 // CardAction puts a control (a period Select, an icon) at the end of the header row.
-// Card and CardTitle read the style knobs of src/styles/tokens.css.
+// Card reads the --surface-* role tokens of src/styles/engine.css: border, corners, and shadow.
+// The paddings use the spacing scale (the shadcn 6 steps), so the scale axis resizes them.
 
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
 
 /**
- * A panel. The --surface-* knobs give its border width, corners, and shadow.
- * cn() drops a knob class when the caller gives a full radius, a border width, or a shadow size.
+ * A panel. The --surface-* tokens give its border, corners, and shadow. py-6 and gap-6 space the slots.
+ * cn() drops a token class when the caller gives a radius, a border, a shadow, a padding, or a gap class.
  */
 function Card({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card"
 			className={cn(
-				"border-(length:--surface-border-width) flex flex-col gap-6 rounded-(--surface-radius) bg-card py-6 text-card-foreground shadow-(--surface-shadow)",
+				// min-w-0: in a grid with no column count, a chart or a wide table must not widen the page at 375 px.
+				"border-(length:--surface-border-width) flex min-w-0 flex-col gap-6 rounded-(--surface-radius) border-(--surface-border-color) bg-card py-6 text-card-foreground shadow-(--surface-shadow)",
 				className,
 			)}
 			{...props}
@@ -25,6 +27,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
 
 /**
  * The title and the description rows. A CardAction child adds an end column.
+ * Its side padding is px-6, like CardContent and CardFooter.
  * Children can use `@container/card-header` queries on its width.
  */
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -40,15 +43,12 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
-/** The panel title. The --title-* knobs give its weight, tracking, and case. A caller class wins. */
+/** The panel title, semibold in the body face. A caller class wins. */
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card-title"
-			className={cn(
-				"font-(--title-weight) leading-none tracking-(--title-tracking) [text-transform:var(--title-case)]",
-				className,
-			)}
+			className={cn("font-semibold leading-none", className)}
 			{...props}
 		/>
 	);
@@ -78,6 +78,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
+/** The body of the panel. Its side padding is px-6. */
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
@@ -88,6 +89,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
+/** A row of actions or notes under the body. Its side padding is px-6. */
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div

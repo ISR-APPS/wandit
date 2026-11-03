@@ -15,7 +15,12 @@ PostHog flag `v2-builder`).
 - The harness is the Claude Code adapter of the AI SDK `HarnessAgent`
   (D17). `V2_HARNESS` selects it; OpenCode comes later without a code
   change.
-- The default model comes from `V2_DEFAULT_MODEL` (D10).
+- The default model comes from `V2_DEFAULT_MODEL` (D10). Since
+  2026-10-17 it can be the Paper Instruments model
+  `paperinstruments/ultramarine-1-flash`. A turn on a model that is not
+  Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
+  Claude Code call, also helper and subagent calls, to it. The harness
+  then turns off the experimental betas, tool search, and WebSearch.
 - The turn stream is the Trigger.dev stream `ui`, read by the API and
   relayed as SSE (D20 — one box for the whole stream).
 - The durable git store is code.storage (D21).
@@ -26,9 +31,9 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
-| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
+| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json` |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
@@ -39,8 +44,9 @@ PostHog flag `v2-builder`).
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
+| `infrastructure/langfuse/` | The OTLP exporter of the LLM proxy generations |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
 | `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService` |
 
@@ -58,7 +64,8 @@ PostHog flag `v2-builder`).
   (D20).
 - `TurnLock` — the per-project lock serializing turns.
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
-  back into a fresh sandbox (D21).
+  back into a fresh sandbox (D21). `GitFileReader` reads one committed
+  file for the theme GET.
 - `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
 - `MobileBuildTaskStarter` — queues the `mobile-build` Trigger task.
 
@@ -243,10 +250,11 @@ service checks the scope:
   500..250_000 cc and the per-turn cap. The `data-turn-created` part
   carries the estimate: `credits` in whole credits, `basis` (`fixed`
   or `history`), `modelId`, and `multiplier` (the output-rate ratio
-  over the default model). The optional `model` body field must be in
-  the payer's plan allow-list; a denied pick answers 400
-  `V2_MODEL_DENIED`, a picked or default model with no price row
-  answers 503 `V2_MODEL_UNPRICED` (a deploy error).
+  over the default model). The optional `model` body field can name any
+  model with a row in `LLM_MODEL_PRICES`; the plan does not limit it
+  (staging and local only, see `docs/v2/runbook.md`). Another id answers
+  400 `V2_MODEL_DENIED` (`assertPickableModel`). A default model with no
+  price row answers 503 `V2_MODEL_UNPRICED` (a deploy error).
   Two create-time stops refuse early: a project at its monthly cap
   answers 403 `PROJECT_CREDIT_CAP_REACHED` with `cap: "monthly"`, and a
   user holding three reserved `agent_session` events answers 429
@@ -285,6 +293,10 @@ defaults to 1_000_000 and accepts at most 250_000; `monthlyCapCredits` null
 means no monthly cap. `GET` answers the row or the plan defaults; `PUT`
 upserts and answers the row. A non-`v2_app` project answers 404.
 
+`GET /api/v2/models` (`ModelsController`, behind the same guard) answers
+`BuilderModelsResponse`: `defaultModel` (`V2_DEFAULT_MODEL` or null) and
+`models`, every row of `LLM_MODEL_PRICES`. The builder dropdown reads it.
+
 Wire format — the D20 envelope is unwrapped for the browser (the task
 keeps writing it on the `ui` stream): one `data:` line of JSON per frame,
 no `id:`/`event:` lines, `: heartbeat` comments, `data: [DONE]` to end. A
@@ -315,7 +327,7 @@ Rules the code pins:
 
 ## Projects (WANDIT-175)
 
-Two routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
+Three routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
 the same workspace permissions V1 uses (`project:create`, read = any
 member):
 
@@ -323,7 +335,8 @@ member):
   (WANDIT-192): when the API booted without
   `templates/mobile-app/template_version`, a mobile create answers 503
   `MOBILE_TEMPLATE_UNAVAILABLE` and writes nothing. The service reads the
-  files once, at boot. Then it checks attachments and the settled balance, and writes the project row (`engine = 'v2_app'`), the
+  files once, at boot. Then it checks attachments, the optional `model`
+  (the turn rule: 400 `V2_MODEL_DENIED` before any row), and the settled balance, and writes the project row (`engine = 'v2_app'`), the
   first chat, the first user message, and the `builder_sessions` row in
   one transaction. The first builder turn starts right after the commit
   and adopts that message row — a failed turn still answers 201 with
@@ -332,6 +345,14 @@ member):
   The title job and `v2_project_created` follow.
 - `GET /:projectId` answers the `AppProject` shape; a `v1_page` row in
   scope answers 404 like a missing one.
+- `GET /:projectId/chats/:chatId/cost` answers `ChatCostResponse`: the
+  full cost of one chat, so a user can compare models.
+  `LlmProxyRequestsRepository.sumByChat` sums the `llm_proxy_requests`
+  rows of the chat's `builder_turns`: `usdMicros`, the token counts, and
+  `byModel` (`usdMicros` and `requestCount` per model). `credits` is the
+  sum of the turns' `credits` (centi-credits), and `turnCount` their
+  count. The route runs the scope check of the turn routes. A chat out of
+  scope or of another project answers 404.
 
 Deletion rides the V1 route: a `v2_app` soft-delete queues the
 `delete-app-project` task. The task is idempotent on `projectId` and
@@ -453,8 +474,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
-  refuses at the plan limit (`backendsPerPlan`; 1000 on every plan for
-  the staging tests) with 403 `BACKEND_LIMIT_REACHED`. The count and the
+  refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
+  business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
   backend.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
@@ -694,11 +715,8 @@ app, or a project of another workspace answers 404.
 Rate limits (WANDIT-181): `RedisRateLimitGuard` counts per user and, with
 `ipLimit`, per client IP that `TRUSTED_PROXY_CIDRS` confirms (the Better
 Auth rule; without a trusted IP the IP key is skipped). Project create:
-50 per user and 500 per IP per day. Turn create: 30 per user and 2000 per
-IP per 10 minutes. Publish: 300 per IP per hour. Staging sizes these caps
-for an event room behind one NAT IP. Production uses 10 per user and 30 per
-IP for project create, 90 per IP for turn create, and 30 per IP per hour for
-publish. A Redis error lets the request through with a Sentry
+10 per user and 30 per IP per day. Turn create: 30 per user and 90 per
+IP per 10 minutes. Publish: 10 per user and 30 per IP per hour. A Redis error lets the request through with a Sentry
 warning. Every audit row of these routes goes through `AuditEventsService`
 (`audit_events`, action names in `packages/contracts/src/v2/audit.ts`).
 
@@ -857,15 +875,20 @@ One run does this, in order:
    non-`v2_app` project or a missing framework/template version fails the
    turn before any sandbox work; a framework without a template profile
    fails it `project_template_unknown`. The model is `turn.model ??
-   V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
-2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
-   computes `capUsd` for the token claims from `perTurnCapCredits` — the
-   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (1_000_000 cc). The pre-start
-   stop rules throw into `failTurn`: the builder flag off →
+   V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`. A turn
+   that answers waiting cards runs on the session row `model` instead: it
+   continues the paused Claude Code process, which keeps its start model.
+2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan. The
+   pre-start stop rules throw into `failTurn`: the builder flag off →
    `stopped_disabled`, a settled balance at 0 → `stopped_no_credits`,
-   the monthly cap already reached → `stopped_project_cap`.
+   the monthly cap already reached → `stopped_project_cap`. Then it
+   computes `capUsd` for the token claims: the lower of
+   `perTurnCapCredits` (the row value or `DEFAULT_PER_TURN_CAP_CREDITS`,
+   1_000_000 cc) and the settled balance at the start. On a tie the
+   balance wins. With billing off, the per-turn cap only.
 3. Mints the scoped proxy token (`mintLlmProxyToken`) with the run, turn,
-   user, project, workspace, and plan claims.
+   user, project, workspace, plan, and model claims. The chat binding
+   carries the same claims.
 4. Wakes a `paused` or `restoring` backend first (WANDIT-184, a 180 s
    poll, see "Backend lifecycle"). Then it builds the allow-listed env
    (`buildSandboxEnv`): the run token becomes
@@ -895,9 +918,9 @@ One run does this, in order:
    version, so these rules reach it only here. A mobile project adds the
    Expo sentence. A web project adds the app design recipe (`domain/app-recipe.ts`): one stable
    sentence per project id, so the warm CLI and the prompt cache stay
-   valid. The sentence gives 3 ranked styles and 3 ranked homes, and one
-   accent, fonts, mode, shell, density, KPI form, and chart form. Claude
-   Code loads the template `CLAUDE.md` from the workspace root. The `session_starting` status is
+   valid. The sentence gives 3 ranked homes, one KPI form, and one chart
+   form. The theme is not in it: the host writes `src/styles/theme.json`
+   (see "Theme file"). Claude Code loads the template `CLAUDE.md` from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note
@@ -939,7 +962,8 @@ One run does this, in order:
    `V2_RUN_CAP_REACHED` or `V2_DAILY_CAP_REACHED` before the next tick.
    So at the stream end and in the failure path, the task reads the
    first `cap_rejected` row of the turn. Reason `run_cap` stops the turn
-   on the cap. Reason `daily_cap` also stops it as
+   as `stopped_no_credits` when the balance set `capUsd`, else as
+   `stopped_project_cap`. Reason `daily_cap` also stops it as
    `stopped_project_cap`, but its `error` code is `daily_cap`: the web
    then shows the reset time at 00:00 UTC and no Retry.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
@@ -971,7 +995,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@1"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@4"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
@@ -1056,7 +1080,8 @@ In Plan Mode the agent does not build. It interviews the user with
   - a plan turn gets the answers after the Plan Mode rules.
 - Process: the tool list is in the bridge query key, so a mode change
   starts a new Claude Code process on the same conversation. On the
-  harness host, a kept session serves only the turns of its own mode.
+  harness host, a kept session serves only the turns of its own mode and
+  its own model.
 - Cost: a plan turn pays its real LLM usage from the proxy rows, like each
   other turn. The hold rules do not change.
 
@@ -1105,8 +1130,76 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is
   `"not-applicable"` — it never asks.
+- `set_theme` changes the app theme on the user's words. Only a build
+  turn of a web-app@1.1.0+ project gets it (`supportsAppTheme`). It is
+  `"not-applicable"`. The input is all optional strings, parsed with
+  tolerance (`parseThemePatch`). A bad value changes nothing, and the result
+  text lists the allowed values. See "Theme file".
 - MCP connector tools are out of scope here: they need the Nest
   container, and the task has none (follow-up issue).
+
+## Theme file
+
+A web-app@1.1.0+ project keeps its theme in `src/styles/theme.json`. The
+template reads it at load and refuses a file that fails its schema. Only
+the host writes the file, always with `buildAppThemeFile` and
+`appThemeFileText` (JSON with tabs). The template settings deny Edit and
+Write on it to the agent. The writers:
+
+1. The pre-turn fallback (`ensureThemeFile` in `builder-turn.runtime.ts`).
+   After the sandbox is ready, it reads the disk file and the HEAD file
+   (`git show`). A theme.json in HEAD that parses wins over a different
+   disk file (a dead worker ran no guard). A HEAD file with origin
+   `template` gets card 1 of the deal for business `other`, with origin
+   `host`. With no HEAD file, a missing, broken, or `template` disk file
+   gets the same card.
+2. The theme question. An `ask_user` question with `theme: { business }`
+   and no options gets the 3 cards of `dealThemeCards` as options when the
+   turn pauses. Each tray option carries its whole file in `theme`. The
+   answer turn (`themeOfAnswer`) builds the picked card again from its
+   look id (the deal has no state) and writes it (origin `user`) before
+   the agent resumes. "You choose" writes card 1 (origin `host`). A skip,
+   or text without a pick, writes card 1 too, but keeps a theme with
+   origin `user`. The answer gets the host note "Theme set: <name>." or
+   "Theme kept: <name>.", then "Do not edit src/styles/theme.json."
+3. The `set_theme` host tool (`applyThemePatch`). A business-only call
+   never replaces a theme that the user picked. A reroll keeps the mode
+   of a theme that the user picked.
+4. The turn-end guard (`restoreThemeFile`). Before each commit (success,
+   stop, and cancel) and at the end of a failed turn that is not stale,
+   the runtime compares the file with the last file that the host knows in
+   this turn. On a difference it writes the host file back and logs
+   `builder-turn.theme-file-restored`. This undoes a write from a script or
+   `biome --write` that the deny rules do not see. A failed turn has no
+   turn commit. When the host file differs from HEAD, the failed turn
+   commits only `src/styles/theme.json` (source `wip`, message
+   "Theme: <name>"). So the next pre-turn fallback keeps that theme.
+5. The Save of the builder Thème sheet: `PUT /api/v2/projects/:id/theme`
+   (`AppThemeService.save`) with `{ selection, expectedHeadSha }`. It takes
+   the turn lock (holder `restore:theme-<uuid>`, so a turn submit answers
+   409), builds the file with origin `user`, writes it, and commits only
+   `src/styles/theme.json` (`commitTurn` with `paths`) with source `theme`
+   and the message "Theme: <name>". It never boots a sandbox. 409 codes:
+   `BUILDER_TURN_RUNNING` (lock held), `BUILDER_TURN_WAITING`,
+   `PREVIEW_NOT_RUNNING`, and `THEME_HEAD_MOVED` (the sandbox HEAD is not
+   `expectedHeadSha`, or the head CAS fails). A failed git command or push
+   resets HEAD to `expectedHeadSha` and writes the old file back. After a
+   later failure, code.storage can hold the commit, so the sandbox keeps the
+   commit and the new file. 10 saves per user per minute (`@RateLimit`).
+
+`GET /api/v2/projects/:id/theme` answers `{ theme, world, headSha,
+editable }`. It reads the file and HEAD of the running sandbox, else the
+file at the stored `main` head through `GitFileReader` (code.storage
+`GET /repos/file`, `git:read` token). A missing or broken file answers the
+pre-turn fallback file (`fallbackThemeSelection`). Without a sandbox and a
+stored head it answers 409 `PREVIEW_NOT_RUNNING`. `editable` is false before
+web-app@1.1.0; `theme` is then the template default
+(`APP_THEME_TEMPLATE_SELECTION`, origin `template`).
+
+A web-app@1.0.0 project has no theme file and gets none of these steps.
+`infrastructure/template/app-theme-drift.spec.ts` keeps the template
+`theme-options.ts` equal to `APP_THEME_OPTIONS` and the template
+`theme.json` equal to the host build of `APP_THEME_TEMPLATE_SELECTION`.
 
 Run a turn locally: from `apps/server`, start the worker with
 `npx trigger.dev@4.5.3 dev`, then create a turn through
@@ -1277,14 +1370,16 @@ Check order, per request:
    `base64url(json).base64url(hmac-sha256)`, signed with the first key of
    `LLM_PROXY_SIGNING_KEY`; verification accepts any key in the list, so
    rotation adds the new key, then swaps minting. Claims: `runId`,
-   `turnId`, `userId`, `projectId`, `workspaceId`, `plan`, `capUsd`, `exp`
+   `turnId`, `userId`, `projectId`, `workspaceId`, `plan`, `capUsd`,
+   `model` (the turn model; absent on an older token), `exp`
    (mint + 65 minutes: a 60-minute turn never loses its token). A bad or
    expired token gets 401 `V2_TOKEN_INVALID` and writes no row. A token
    whose run was revoked (`llm:revoked:run:{runId}` exists — the turn
    ended) gets the same 401 and also writes no row.
 2. **Model.** The body's `model` must be in `allowedLlmModels(plan)` —
    `V2_DEFAULT_MODEL` plus the plan's paid list in
-   `@wandit/contracts` (`llmProxyAllowedModels`). A dated bare id like
+   `@wandit/contracts` (`llmProxyAllowedModels`) — or be the token
+   `model`. A bound chat gives the model of the turn that runs now. A dated bare id like
    `claude-haiku-4-5-20251001` — what Claude Code sends for its aliases —
    is normalized to `anthropic/claude-haiku-4-5` before the check. An
    absent model means the default. A denied model gets 403
@@ -1293,17 +1388,24 @@ Check order, per request:
    60 s window, 120 requests per minute (ESTIMATE). Over the limit: 429
    `V2_RATE_LIMITED` with `retry-after: 60` and a `rate_limited` row.
 4. **Run cap.** Redis `llm:spend:run:{runId}` micros vs `capUsd`. Over:
-   402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row.
+   402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row. The runtime mints
+   `capUsd` as the lower of the per-turn cap and the payer's settled
+   balance at the turn start. When the balance is lower or equal, the turn stops
+   as `stopped_no_credits` at the first request over it, and the chat
+   shows the upgrade banner. Else it stops as `stopped_project_cap`.
    `GENERATION_BILLING_MODE=off` skips this check.
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
-   `LLM_PROXY_DAILY_USER_CAP_USD` ($50 in production, ESTIMATE until
-   WANDIT-174; $100,000 on staging, see `docs/v2/runbook.md`). Over:
+   `LLM_PROXY_DAILY_USER_CAP_USD` ($50, ESTIMATE until
+   WANDIT-174). Over:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
    runtime then stops the turn as `stopped_project_cap` with the failure
    code `daily_cap`. The chat shows the reset time and no Retry.
    `GENERATION_BILLING_MODE=off` skips this check.
 
-Then the forward. `upstreamFor(modelId, env)` picks the upstream and key:
+Then the forward. `upstreamFor(modelId, env)` picks the upstream and key.
+A `paperinstruments/` model always goes to `https://api.paperinstruments.com`
+with `PAPERINSTRUMENTS_API_KEY` (Bearer) and the id without the prefix,
+whatever `V2_LLM_UPSTREAM_BASE_URL` names. Other models get
 `AI_GATEWAY_API_KEY` when the upstream host is `ai-gateway.vercel.sh`,
 `OPENROUTER_API_KEY` for `openrouter/` model ids or an `openrouter.ai`
 host, `ANTHROPIC_API_KEY` otherwise. Anthropic gets `x-api-key`; the
@@ -1312,7 +1414,13 @@ gateway and OpenRouter get `Authorization: Bearer`. A missing key is a 503
 `anthropic-version`, `anthropic-beta`, `X-Wandit-Run`, the query string,
 and the body bytes unchanged — except `model`, rewritten to the upstream's
 id when the two differ (api.anthropic.com gets the bare id the client
-sent, a gateway gets the normalized `anthropic/...` id). The body
+sent, a gateway gets the normalized `anthropic/...` id). A Paper request
+also gets `x-session-id` when the Claude Code session id is a UUID (for
+cache reads). Each `document` (PDF), `thinking`, and `redacted_thinking`
+block, also one inside a `tool_result`, becomes a text block: Paper
+answers 400 to them, and they stay in the chat history. Paper answers an
+empty balance with 429 `insufficient_quota`; the proxy reports it to
+Sentry and answers 402, so Claude Code does not retry it. The body
 cap is 4 MiB, set in `main.ts` at the route level.
 
 The answer streams through without buffering; each chunk also feeds the
@@ -1326,6 +1434,9 @@ adds the price row of the default model before the first turn. The row
 lands before the Redis counters, so a failed insert never inflates
 spend. The rows are the billing source of truth for a turn; the
 `llm:spend:run:<runId>` counter only drives the mid-turn checkpoints.
+With the Langfuse keys set, the parser also rebuilds the answer, and
+`finish` sends one generation for each Messages call
+(`docs/observability.md`).
 
 Two sweeps maintain the money records. `reconcile-agent-sessions`
 (Trigger cron `*/15 * * * *` UTC, queue `meteringMaintenanceQueue`)
@@ -1353,11 +1464,14 @@ stream end.
 Env: `LLM_PROXY_SIGNING_KEY`, `V2_DEFAULT_MODEL`,
 `V2_LLM_UPSTREAM_BASE_URL` (unset → `https://api.anthropic.com`),
 `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENROUTER_API_KEY`,
-`REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
+`PAPERINSTRUMENTS_API_KEY` (API only), `REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
 checkpoints, the settle, and the proxy run and daily spend caps; the env
 schema refuses `off` when `NODE_ENV=production`), `AI_USD_PER_CREDIT` (0.032, the credit
-anchor the settle uses). Logs carry ids, tokens counts, micros, and
-status — never a body, a token, or a provider key.
+anchor the settle uses), `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
+(both unset: no Langfuse export), `LANGFUSE_BASE_URL` (unset →
+`https://cloud.langfuse.com`, the EU region). Logs carry ids, tokens
+counts, micros, and status — never a body, a token, or a provider key.
+Langfuse gets the bodies; logs still never do.
 
 ## Preview
 
@@ -1443,8 +1557,8 @@ minute), and `@RequireWorkspacePermission("project", "update")`.
 1. The project is a V2 `mobile-app` project in scope, else 404.
 2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
    503 `V2_ENV_MISSING`.
-3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`;
-   100000 on every plan for the staging tests, see `docs/v2/runbook.md`),
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
+   starter 0, pro 60, business 180),
    else 402 `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count
    their billed minutes, or their elapsed minutes before the bill.
 4. The user holds no open session: Redis `SET NX PX` on

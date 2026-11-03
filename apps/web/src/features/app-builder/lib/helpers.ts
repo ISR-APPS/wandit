@@ -1,24 +1,33 @@
 /**
  * Pure helpers of the app builder, with no React. Four list and test the
- * panels of the More view and pick the open one. Four pairs store the open
+ * panels of the More view and pick the open one. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
- * and the Expo Go username. One copies text to the clipboard. One puts an
+ * the Expo Go username, and the model pick. Two pair a model with its Fast
+ * variant for the model menu. One copies text to the clipboard. One puts an
  * app page path on the signed preview URL. Two convert the spending limits
- * between the Settings fields and the API. Called by the page, the More view
- * and its nav, the Settings panel, the chat cards, the Expo Go popover, and
- * the preview panel.
+ * between the Settings fields and the API. One formats a USD amount of the
+ * chat cost. Two serve the Thème sheet: the drop rule of its draft and the
+ * brand color field. Called by the page, the More view and its nav, the
+ * Settings panel, the chat cards, the Expo Go popover, the preview panel, the
+ * web preview, the Thème sheet, the model menu, the model pick hook, and the
+ * create flow.
  */
 
 import {
+	type BuilderModelsResponse,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	expoUsernameSchema,
+	type LlmModelPrice,
 	type UpdateProjectCostCapsRequest,
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
+import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
+import type { Locale } from "@wandit/internationalization";
 
 import type { AppProjectKind } from "../api/dto";
 import {
+	BUILDER_MODEL_STORAGE_KEY_PREFIX,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
 	CHAT_VIEW_STORAGE_KEY,
@@ -178,6 +187,97 @@ export function writeExpoUsername(expoUsername: string): void {
 	}
 }
 
+/**
+ * Model of the next turn for a project, or for the next new project when
+ * `projectId` is null. The stored pick wins when `list` still has it, then
+ * the deploy default. Undefined sends no model: the server picks its default.
+ */
+export function readBuilderModel(
+	projectId: string | null,
+	list: BuilderModelsResponse,
+): string | undefined {
+	// The API refuses an id without a price row, so only a listed id is sent.
+	const isListed = (modelId: string | null): modelId is string =>
+		modelId !== null && list.models.some((model) => model.modelId === modelId);
+	let stored: string | null;
+	try {
+		stored = window.localStorage.getItem(builderModelStorageKey(projectId));
+	} catch {
+		// Private mode can block storage. The default model then runs.
+		stored = null;
+	}
+	if (isListed(stored)) return stored;
+	return isListed(list.defaultModel) ? list.defaultModel : undefined;
+}
+
+/** Stores the model pick of a project, or of the next new project when `projectId` is null. A storage failure is not an error for the user. */
+export function writeBuilderModel(
+	projectId: string | null,
+	modelId: string,
+): void {
+	try {
+		window.localStorage.setItem(builderModelStorageKey(projectId), modelId);
+	} catch {
+		// Private mode or a full quota: the pick only lasts the session.
+	}
+}
+
+/** Storage key of one model pick. The read and the write must use the same key, so both call this. */
+function builderModelStorageKey(projectId: string | null): string {
+	return `${BUILDER_MODEL_STORAGE_KEY_PREFIX}${projectId ?? "new"}`;
+}
+
+// The Vercel AI Gateway names every Fast variant `<base id>-fast`, for example `zai/glm-5.3-fast`.
+const FAST_MODEL_ID_SUFFIX = "-fast";
+
+/**
+ * Fast variant row of a listed model: the row `<modelId>-fast`, or undefined.
+ * The model menu shows its lightning toggle only when this row exists.
+ */
+export function fastModelOf(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+): LlmModelPrice | undefined {
+	const fastModelId = `${modelId}${FAST_MODEL_ID_SUFFIX}`;
+	return models.find((model) => model.modelId === fastModelId);
+}
+
+/**
+ * Base model id of a pick: `<X>` for `<X>-fast` when `<X>` is listed too, else
+ * the pick. An orphan `-fast` row, for example `moonshotai/kimi-k3-fast`, is its
+ * own base.
+ */
+export function baseModelIdOf(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+): string {
+	if (!modelId.endsWith(FAST_MODEL_ID_SUFFIX)) return modelId;
+	const baseModelId = modelId.slice(0, -FAST_MODEL_ID_SUFFIX.length);
+	return models.some((model) => model.modelId === baseModelId)
+		? baseModelId
+		: modelId;
+}
+
+/** 1 USD in the unit of the chat cost route. */
+const USD_MICROS_PER_USD = 1_000_000;
+
+/**
+ * USD text of an amount in USD micros. Below 1 dollar it shows 4 decimals,
+ * so a cheap chat does not read $0.00. From 1 dollar it shows 2 decimals.
+ */
+export function formatUsdMicros(usdMicros: number, locale: Locale): string {
+	// 100 micros are 0.0001 USD, and 10,000 of those are 1 USD. The rounded
+	// value decides, so 0.99996 USD shows as $1.00, not $1.0000.
+	const tenThousandthsOfUsd = Math.round(usdMicros / 100);
+	const fractionDigits = tenThousandthsOfUsd < 10_000 ? 4 : 2;
+	return new Intl.NumberFormat(locale, {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: fractionDigits,
+		maximumFractionDigits: fractionDigits,
+	}).format(usdMicros / USD_MICROS_PER_USD);
+}
+
 /** Writes text to the clipboard. False, with a console error, when the browser refuses. */
 export async function copyToClipboard(text: string): Promise<boolean> {
 	try {
@@ -252,4 +352,36 @@ function creditsTextToCap(text: string): number | null | undefined {
 	const centiCredits = creditsToCentiCredits(Number(trimmed));
 	// A cap of 0 would stop every turn, so the contract asks for 1 cc at least.
 	return centiCredits >= 1 ? centiCredits : undefined;
+}
+
+/**
+ * The draft theme of the Thème sheet. `theme` shows in the preview iframe. `basedOn` is the saved
+ * theme.json of the theme query when the user made the draft.
+ */
+export type ThemeDraft = { theme: AppThemeFile; basedOn: AppThemeFile };
+
+/**
+ * True when the draft must go: a turn runs, or the saved theme.json changed under it.
+ * The files compare by reference. After THEME_HEAD_MOVED, the refetch can answer an equal file.
+ * Structural sharing of TanStack Query then keeps the old object, so the draft stays.
+ */
+export function isThemeDraftStale(input: {
+	draft: ThemeDraft;
+	/** The `theme` of the theme query now. Undefined while the query has no data. */
+	savedTheme: AppThemeFile | undefined;
+	isTurnRunning: boolean;
+}): boolean {
+	return input.isTurnRunning || input.draft.basedOn !== input.savedTheme;
+}
+
+/** Six hex digits, with or without the leading "#". Case does not matter. */
+const BRAND_HEX_TEXT = /^#?([0-9a-f]{6})$/i;
+
+/**
+ * The brand color that the user typed, in the `#rrggbb` lower-case form of the theme schema.
+ * null for any other text, for example "#fff" or "blue".
+ */
+export function brandHexOf(text: string): `#${string}` | null {
+	const digits = BRAND_HEX_TEXT.exec(text.trim())?.[1];
+	return digits === undefined ? null : `#${digits.toLowerCase()}`;
 }

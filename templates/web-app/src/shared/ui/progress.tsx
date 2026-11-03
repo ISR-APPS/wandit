@@ -1,6 +1,8 @@
 // shadcn-style progress bar on the Radix progress primitive (port of shadcn/ui, MIT).
 // KPI meters and the rows of a breakdown card show a share of a target with it.
 // The bar sets a width, not a translateX, so it fills from the start side in Arabic too.
+// The bar is ink on a track of 15% ink. A light accent can be under 3:1 on its own tint; ink keeps 3:1 or more.
+// Its corner is --badge-radius of src/styles/engine.css, so radius=none gives a square bar.
 
 import { Progress as ProgressPrimitive } from "radix-ui";
 import type * as React from "react";
@@ -28,7 +30,7 @@ function Progress({
 		<ProgressPrimitive.Root
 			data-slot="progress"
 			className={cn(
-				"relative h-2 w-full overflow-hidden rounded-full bg-primary/20",
+				"relative h-2 w-full overflow-hidden rounded-(--badge-radius) bg-foreground/15",
 				className,
 			)}
 			value={shownValue}
@@ -37,7 +39,7 @@ function Progress({
 		>
 			<ProgressPrimitive.Indicator
 				data-slot="progress-indicator"
-				className="h-full bg-primary transition-all"
+				className="h-full bg-foreground transition-all"
 				style={{
 					width: `${shownValue === null ? 0 : (shownValue / max) * 100}%`,
 				}}

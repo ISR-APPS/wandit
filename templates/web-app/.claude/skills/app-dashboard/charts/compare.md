@@ -27,7 +27,7 @@ Breakdown part:
 2. Split bar: one thin bar, cut into the parts.
 3. Rows: one per part, with a color mark, the name, the value, and the share.
 
-- The style gives the panel, the curve type, the grid, the axes, the sizes, and the weights.
+- The panel is a `Card`.
 - The trend plot takes a main height of SKILL.md. The breakdown takes a side height.
 - Each skeleton keeps the header, the legend, the plot, the bar, and the rows in their final sizes.
 
@@ -36,9 +36,9 @@ Breakdown part:
 - `ChartContainer` from `~/shared/ui/chart` with a `ChartConfig`. The series read `var(--color-current)` and `var(--color-previous)`.
 - `ChartContainer` has `aspect-video` by default. Add `aspect-auto` with the height class.
 - This period is `var(--chart-1)`. The previous period is the neutral `var(--muted-foreground)`, with `strokeDasharray="4 4"`.
-- Do not set `strokeWidth`. The knob `--chart-stroke` sets it for both lines.
+- Do not set `strokeWidth`. `ChartContainer` draws both lines 2 px wide.
 - Put the `Line` of this period first. The tooltip lists the series in that order.
-- The grid and the axes follow the style. With no style rule: `<CartesianGrid vertical={false} />`,
+- The grid and the axes: `<CartesianGrid vertical={false} />`,
   and `tickLine={false} axisLine={false} tickMargin={8}` on both axes.
 - `day` is `YYYY-MM-DD` with no time. Format `` new Date(`${day}T00:00:00Z`) `` with
   `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })`.
@@ -52,13 +52,13 @@ Breakdown part:
   Give the same options as `valueFormat` to `ChartTooltipContent`.
 - `isAnimationActive={false}` on every series.
 - The plot has `role="img"` and the `aria-label` of the snippet.
-- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+- The period control shows only with `onDaysChange`. It is a `Select`. `Tabs` also fit: the theme draws them.
   The choices are `PERIOD_DAYS`, written with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
   It has `aria-label={t("chart.period")}`.
 - Empty trend: every day is 0 in both periods. The plot keeps its height and draws the real zeros:
   the dates, and both lines on the base. Hide the Y axis. One muted sentence and one action link sit over the plot.
 - The split bar is plain elements. Each part has the width `(value / total) * 100` in percent.
-  The rows repeat every value, so the bar has `aria-hidden="true"` and no tooltip. Its corners follow the style.
+  The rows repeat every value, so the bar has `aria-hidden="true"` and no tooltip. Its corners are `rounded-sm`, so radius=none gives square ends.
 - The parts use `bg-chart-1` to `bg-chart-5`, then `bg-muted-foreground` for a sixth part.
 - The share is `Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 })`, in a column of fixed width at the end.
 - Empty breakdown: the total is 0. The split bar is one empty track in `bg-muted`. The sentence and the action link go under it.

@@ -1,16 +1,18 @@
 /**
  * `commitTurn`: the one-commit-per-turn write (WANDIT-171).
  * The builder-turn task and the restore flow call it after a turn's file
- * changes. It runs git inside the sandbox through `SandboxHandle.exec`,
- * stores the patch and numstat in R2, pushes to code.storage, writes the
- * `app_commits` row, and moves the `main` head compare-and-swap. The task
- * calls it through `commitTurnUnlessClean`, which skips a turn with no change.
+ * changes; the theme save calls it for theme.json only. It runs git inside
+ * the sandbox through `SandboxHandle.exec`, stores the patch and numstat in
+ * R2, pushes to code.storage, writes the `app_commits` row, and moves the
+ * `main` head compare-and-swap. The task calls it through
+ * `commitTurnUnlessClean`, which skips a turn with no change.
  */
 import { type GitNumstatEntry, parseNumstat } from "../../domain/git-numstat";
 import type { GitStore } from "../../domain/ports/git-store";
 import type {
 	SandboxExecResult,
 	SandboxHandle,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 import type {
 	AppCommitRow,
@@ -65,22 +67,30 @@ export type CommitTurnDeps = {
 	putPatch: PutPatch;
 };
 
-/** One commit input; the task fills the turn fields, a restore nulls them. */
+/** One commit input. The task fills the turn fields. A restore and a theme save set them to null. */
 export type CommitTurnInput = {
 	projectId: string;
-	/** The user whose action made the commit (turn author or restorer). */
+	/** The user whose action made the commit: the turn author, the restorer, or the user who saved the theme. */
 	userId: string;
 	/** Org workspace of the project, or null on a personal project. */
 	organizationId: string | null;
-	/** The chat whose turn produced the commit; null on a restore. */
+	/** The chat whose turn produced the commit; null on a restore and on a theme save. */
 	chatId: string | null;
-	/** The `builder_turns` row; null on a restore, which is not a turn. */
+	/** The `builder_turns` row; null on a restore and on a theme save, which are not turns. */
 	turnId: string | null;
-	/** Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore. */
+	/**
+	 * Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore,
+	 * `theme-<uuid>` on a theme save.
+	 */
 	messageId: string;
-	source: "agent" | "wip" | "restore";
+	source: "agent" | "wip" | "restore" | "theme";
 	summary: string;
 	restoredFromSha?: string;
+	/**
+	 * Worktree paths that the commit holds. Without it, the commit holds every change (`git add -A`).
+	 * The theme save names only src/styles/theme.json, so the files of a failed turn stay uncommitted.
+	 */
+	paths?: string[];
 };
 
 /**
@@ -109,16 +119,20 @@ export function versionNumstatKey(projectId: string, sha: string): string {
  * code.storage. Write order per WANDIT-171: patch files to R2, push to the
  * remote, the `app_commits` row, then the `main` head CAS. The
  * `msg/<messageId>` tag is the idempotency key: a retried call does not
- * add a second commit for the same message.
+ * add a second commit for the same message. With `input.paths`, the commit
+ * holds only those paths, also when other files are staged.
  */
 export async function commitTurn(
-	sandbox: SandboxHandle,
+	sandbox: SandboxReader,
 	deps: CommitTurnDeps,
 	input: CommitTurnInput,
 ): Promise<CommitTurnResult> {
 	const exec = (args: string[]) => mustRunGit(sandbox, args, CommitTurnError);
+	// A pathspec after `--` makes `git commit` take only these paths and leave
+	// the rest of the index out of the commit.
+	const pathspec = input.paths === undefined ? [] : ["--", ...input.paths];
 
-	await exec(["add", "-A"]);
+	await exec(input.paths === undefined ? ["add", "-A"] : ["add", ...pathspec]);
 
 	// A retried turn must not add a second commit for the same message. The
 	// Wandit-Message trailer on HEAD means the commit already exists.
@@ -156,6 +170,7 @@ export async function commitTurn(
 			"--no-verify",
 			"--allow-empty",
 			...trailers,
+			...pathspec,
 		]);
 	}
 
@@ -283,7 +298,7 @@ export async function commitTurnUnlessClean(
 // it. A diverged head is a real conflict. A missing row is not a lost
 // CAS: `upsertBranchHead` creates it for any parent sha.
 async function recoverPushedHead(
-	sandbox: SandboxHandle,
+	sandbox: SandboxReader,
 	deps: CommitTurnDeps,
 	input: CommitTurnInput,
 	sha: string,
@@ -329,7 +344,7 @@ async function recoverPushedHead(
 // Upgrade: push from the Trigger worker with a git bundle made in the
 // sandbox, or through the code.storage commit API.
 async function pushOnce(
-	sandbox: SandboxHandle,
+	sandbox: SandboxReader,
 	gitStore: GitStore,
 	projectId: string,
 ): Promise<{

@@ -53,6 +53,9 @@ export const createAppProjectRequestSchema = z
 		languages: z.array(appLanguageSchema).min(1).max(3),
 		// The mode of the first turn: the Plan toggle of the prompt box. Absent: `build`.
 		mode: builderTurnModeSchema.optional(),
+		// The model of the first turn, same rule as `model` of the create-turn
+		// body. The session row stores it. Absent: the deploy default.
+		model: z.string().min(1).optional(),
 	})
 	.refine(
 		(body) =>

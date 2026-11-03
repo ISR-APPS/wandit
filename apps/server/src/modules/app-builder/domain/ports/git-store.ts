@@ -2,7 +2,8 @@
  * Port: the durable git store for app code (D21 — code.storage).
  * The project-create flow calls `GitStore`; the sandbox-wake path calls
  * `RepoRestorer` to push the repo back into a fresh sandbox. WANDIT-171
- * implements both.
+ * implements both. The theme service reads one committed file through
+ * `GitFileReader`.
  */
 import type { SandboxHandle } from "./sandbox-provider";
 
@@ -45,4 +46,20 @@ export interface GitStore {
 /** Pushes the stored repository back into a sandbox that lost it. */
 export interface RepoRestorer {
 	restore(projectId: string, sandbox: SandboxHandle): Promise<void>;
+}
+
+/** Nest token for the `GitFileReader` implementation. The module binds it to the `GitStore` class. */
+export const GIT_FILE_READER = Symbol.for("app-builder.git-file-reader");
+
+/** Reads one committed file without a sandbox. The theme GET route reads theme.json of a stopped sandbox. */
+export interface GitFileReader {
+	/**
+	 * The bytes of `path` at `ref`, a branch name or a commit sha. Null when the repository or the
+	 * file does not exist there. Throws on any other failure.
+	 */
+	readFile(
+		projectId: string,
+		ref: string,
+		path: string,
+	): Promise<Uint8Array | null>;
 }

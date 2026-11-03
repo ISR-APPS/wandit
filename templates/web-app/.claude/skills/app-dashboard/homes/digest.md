@@ -71,14 +71,14 @@ The list query returns no row: this is the first visit.
 - Summary: one clause, "Nothing was recorded in the last 7 days", in the words of the app.
 - Setup strip: under the summary, above section 1.
 - Section 1: the total 0, the empty frame of the chart file, and 3 empty ranked lines.
-- Section 2: the open count 0, an empty share track, and the empty frame of the style.
+- Section 2: the open count 0, an empty share track, and the empty frame.
 - Section 3: the same frames as section 1, with its own add action.
 
 ## Rules
 
 - One column at every width: `mx-auto flex w-full max-w-[60rem] flex-col gap-8`. The summary has `max-w-prose`.
 - Sections never sit side by side. Each chart spans the column.
-- The style separates the sections: a rule, a gap, or one panel per section when the style uses panels.
+- Each section is one `Card`. The theme draws its border and shadow. The gap separates the cards.
 - Every heading is an h2 with its figure at the end of the line. The page keeps one h1: the period title.
 - 375 px: the same column. The charts keep their heights, and the lists keep their values at the end.
 - The skeleton draws the summary lines and two sections.

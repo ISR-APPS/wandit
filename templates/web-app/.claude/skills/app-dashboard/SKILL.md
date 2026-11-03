@@ -1,34 +1,29 @@
 ---
 name: app-dashboard
-description: Design system of the area behind sign-in of an app - a SaaS, a dashboard, a back office, a management tool, a CRM, or an internal tool. It explains the app recipe of your session instructions, the design brief, and the data, table, state, and check rules. Load it before every screen behind login.
+description: Design system of the area behind sign-in of an app - a SaaS, a dashboard, a back office, a management tool, a CRM, or an internal tool. It explains the app recipe of your session instructions, the theme, the design brief, and the data, table, state, and check rules. Load it before every screen behind login.
 ---
 
 # App dashboard
 
 The people who use this app work in it every day. It must look like a finished product, not a demo.
 The recipe in your session instructions makes each app different. This file tells you how to apply it.
-The style, home, kpi, and chart files give specs, not code. Write new code for this app.
-Only the token blocks of the style file (fonts, palette, accents, knobs) go in as they are.
-frame.md, data.md, and tables.md give tested code: keep its logic.
+The theme file gives the look, and the kit draws it. The home, kpi, and chart files give specs, not code.
+Write new code for this app. data.md and tables.md give tested code: keep its logic.
 Name features, tables, and messages after the user's business.
 
 ## Scope
 
 - This skill applies to `/app` and its child routes. `CLAUDE.md` comes first.
-  On these screens, the style of the recipe replaces the design worlds.
+  On these screens, the theme replaces the design worlds.
   The Design brief below applies the `frontend-design` method to this area.
-- Both (public pages and an app area): the app area keeps the world palette and fonts.
-  Skip the palette, the accent, and the fonts of the style. The world gives the mode:
-  mode=light when the world has no `.dark` block. Skip a style whose Mode line does not allow the world scheme.
-  A dark world `--background` needs a style that allows dark. A light one needs a style that allows light.
-  Take the knobs, the Anatomy, and the Signature from the style.
+- Both (public pages and an app area): one theme serves both areas. `CLAUDE.md` "Design" says how the host sets it.
 
 ## Public pages
 
 - An internal tool: replace `src/routes/index.tsx` with the file below. Delete `src/features/landing/`,
   and the `landing` and `nav` groups of `messages.ts`. Keep `/login`.
 - Keep the route `/`. The build crawls links from `/`. A redirect builds. A missing `/` breaks the publish.
-- A public product: one short page at `/` in the app style, with no world. It has a hero, three facts
+- A public product: one short page at `/` in the app theme, with no world. It has a hero, three facts
   from the brief, and a footer. The hero has the product sentence and the sign-up action.
   Load `frontend-design` for this page only. Put no chart on it: it renders on the server.
 
@@ -49,53 +44,30 @@ export const Route = createFileRoute("/")({
 
 ## The recipe
 
-The host picks the recipe from the project id. Do not replace it with your own choice. Its shape:
-`style=<s1>|<s2>|<s3> accent=<1-3> fonts=<1-2> mode=<light|dark> shell=<id> density=<id> home=<h1>|<h2>|<h3> kpi=<id> chart=<id>`
+The host derives the recipe from the project id. Do not replace it with your own choice. Its shape:
+`home=<h1>|<h2>|<h3> kpi=<id> chart=<id>`
 
-- `style` and `home` give three options in order. Take the first option that fits.
-- Skip an option only for a fact, never for taste. Style: the business is on its Avoid list, the user names
-  a clashing color or mood, or its mode cannot match. Home: the tables and the user's words do not meet its Needs.
-- No ranked style fits: take the first style of the table that fits.
+- `home` gives three options in order. Take the first option that fits.
+  Skip an option only for a fact, never for taste: the tables and the user's words do not meet its Needs.
 - No ranked home fits: follow the Fallback of the first ranked home, then the next Fallback, until a home fits.
   kpi-band ends every chain. The home table gives each Fallback, so the chain needs no other file.
-- `accent` and `fonts` pick a row inside the chosen style file.
-- `mode` applies only to a style that allows light or dark. A style with one mode uses that mode.
-- `shell` and `density` apply, unless the style file fixes them (`Shell: topbar (fixed)`).
 - `kpi` and `chart` give one form each. A form that the data cannot feed: use the fallback of its file.
-- The first build writes line 1 of `src/styles/tokens.css`, with the values that you apply:
-  `/* App recipe: style=<id> accent=<n> fonts=<n> mode=<id> shell=<id> density=<id> home=<id> kpi=<id> chart=<id> */`
-- Later turns keep that line. Only a redesign reads the session recipe again.
-- The user's words win, axis by axis:
-  - "dark", "sombre", "nuit" give mode=dark. Keep the style when it allows dark. Else take the next
-    ranked style that does, or else the first style of the table that does and fits. "light", "clair": the same.
-  - A brand color is the accent. In each palette block, set `--primary`, `--ring`, `--sidebar-primary`,
-    `--sidebar-ring`, and `--chart-1`. Set `--primary-foreground` and `--sidebar-primary-foreground`
-    near white or near black for 4.5:1.
-  - A named product look: take the style whose look line is the closest.
-  - A named Google font replaces `--font-display` or `--font-sans`. Load it in the same fonts link.
-- A redesign that names no look takes the next style of the session recipe that fits.
-  Keep the accent and fonts indexes and the other axes. After the third style, take the first again.
-  The new style replaces the fonts, the palette, the accent, and the knobs. Redraw the panels with its Anatomy.
-- The final answer names the look in plain words, never the ids.
+- Later turns keep the home, the kpi form, and the chart form. Only a redesign of the home picks again.
 
-| Style | Look | Mode | Fits | Avoid |
-|---|---|---|---|---|
-| livre | accounting ledger on cool paper, ruled, no boxes | light | finance, invoicing, legal, wholesale, property, back offices | kids, nightlife, games, fitness |
-| regie | night control room, tiled status wall, condensed figures | dark | logistics, dispatch, field service, fleet, security, monitoring, manufacturing | beauty, kids, wellness, weddings |
-| cadran | precision instrument, thin dials, ruler ticks, light mono figures | light or dark | SaaS metrics, analytics, energy, labs, engineering, IoT | kids, food, beauty |
-| tampon | sticker board, ink borders, hard shadows, flat colors | light | creators, shops, marketing, events, startups, studios, delivery | clinic, legal, funeral, banking |
-| brume | calm morning mist, soft tonal fields, serif figures | light | wellness, beauty, therapy, coaching, hospitality, HR, education | industry, dev tools, logistics, security |
-| console | terminal console, ruled sections, mono figures, key hints | dark | dev tools, APIs, IT, infra, data ops, security, AI ops | beauty, kids, food, wellness |
-| porcelaine | calm clinic, outline panels, tinted headers, range bands | light | health, clinics, dental, vets, labs, pharmacy, care homes, services | nightlife, gaming |
-| suisse | Swiss poster grid, no boxes, giant numerals, color block | light | agencies, media, retail, architecture, sports clubs, any business | funeral, clinic |
-| coffre | vault after hours, steel panels, glowing end dots | dark | finance, wealth, real estate, luxury, legal, hotels, investors | kids, food trucks, schools |
-| preau | bright schoolyard, chunky rounded panels, colored stickers | light | schools, tutoring, kids, sports clubs, camps, pets, family services | legal, banking, funeral |
-| etabli | product workbench, grouped rows, status circles, hairlines | light or dark | project tracking, agencies, tasks, support, recruiting, CRM, content | kids, food, beauty |
-| comptoir | shop counter, perforated order slips, receipt figures | light | shops, orders, COD, inventory, restaurants, repairs, rentals | clinic, therapy, legal |
-| serre | greenhouse, sage ground, leaf corners, deep green sidebar | light | farms, gardens, food producers, cafes, eco, wellness, real estate | dev tools, nightlife, security |
-| coulisses | backstage at night, ticket stubs, vivid gradient marks | dark | events, venues, music, media, nightlife, ticketing, creators, gaming | clinic, finance, legal, B2B industry |
-| carnet | appointment book, date blocks, now line, aubergine sidebar | light | salons, studios, classes, rentals, coaching, front desks, bookings | dev tools, industry |
-| brigade | kitchen ticket wall, ink bands, condensed capitals, timers | light | restaurants, kitchens, workshops, repair shops, print shops, warehouses, construction | clinic, legal, luxury |
+## The theme
+
+- `src/styles/theme.json` gives the whole look: colors, fonts, corners, borders, shadows, the sidebar, and the header.
+- The host writes it. The user picks a look from 3 cards, and can change it later in the builder with no turn.
+- Never edit `src/styles/theme.json`, `theme.ts`, `theme-options.ts`, or `engine.css`. Never change them with a script.
+- Build every screen with the kit parts and the token classes only. The kit draws the theme.
+- Rounded cards with a soft shadow are good. Every panel keeps the `Card` look of the kit.
+- Never write a color, a fixed corner, a thick border, a fixed shadow, a font, or a letter spacing in a page.
+- No capital titles or labels, and no ink bands (a dark fill in the text color).
+- The user asks for another look in words: one `mcp__harness-tools__set_theme` call with only the changed fields.
+  `CLAUDE.md` "Design" gives the fields. Never change the look in the code of a page.
+- The final answer names the look in plain words: the name in "Theme set: <name>" of the tool result or the answer.
+
+## Homes
 
 Judge the Needs on the tables and the user's words, never on rows. The first build has no rows.
 
@@ -116,15 +88,13 @@ Judge the Needs on the tables and the user's words, never on rows. The first bui
 
 | Recipe part | Read, in `.claude/skills/app-dashboard/` |
 |---|---|
-| style (accent, fonts, mode policy, look) | `styles/<id>.md` |
-| mode, shell, density | `frame.md`, section `### <axis>=<id>` |
 | home | `homes/<id>.md` |
 | kpi | `kpis/<id>.md` |
 | chart | `charts/<id>.md` |
 | data | `data.md` |
 | list and detail pages | `tables.md` |
 
-Choose the style and the home from the tables first. Then read these seven files in ONE message, in parallel.
+Choose the home from the table first. Then read these five files in ONE message, in parallel.
 Do not read other option files. When a table can pass 1,000 rows, also read `tables-paging.md`.
 Read with the Read tool, then write with Write or Edit. The hook blocks `cp` from `.claude/`.
 
@@ -134,99 +104,115 @@ Write the brief in the plan, before any code. Keep each part short.
 
 1. Subject: the business, its users, their daily job, and the vernacular of the trade:
    the objects, the materials, the words.
-2. Style: the id, the accent, the fonts, the mode, and one line on how the style meets this business.
-3. Signature: one element from the Signature section of the style, bound to real data of this business.
-   Spend boldness there. Keep the rest quiet.
-4. Home sketch: ASCII of the home at lg. Name the data of each slot.
-5. Default check: write in one line what a generic dashboard does here. That is four equal KPI cards,
-   an area chart, a recent table, and identical rounded cards with one soft shadow.
-   Name each place where the plan matches it. Change that place, unless the home or the style file asks for it.
+2. Look: the theme name (`name` in `src/styles/theme.json`). Do not plan colors or fonts: the theme gives them.
+3. Home sketch: ASCII of the home at lg. Name the data of each slot.
 
 ## Order of work (first build)
 
-1. Plan the kind (app, internal tool, public product), the recipe line with your choices, and the design brief.
-   Then plan the nav map (3 to 7 items, one level), the entities, and the event table of each chart.
-2. The seven reads, in one message.
-3. Data: one `apply_migration` for all tables, policies, and read functions (`data.md`).
+1. Plan the kind (app, internal tool, public product, or Both) and the recipe line with your choices.
+2. Theme: the host wrote it after the theme question (`CLAUDE.md` "Design"). Write its name in the plan.
+3. Write the design brief. Then plan the nav map (3 to 7 items, one level), the entities, and the event table of each chart.
+4. The five reads, in one message.
+5. Data: one `apply_migration` for all tables, policies, and read functions (`data.md`).
    Then `src/features/overview/lib/series.ts` and `src/features/overview/api/overview.queries.ts`.
-4. Tokens, from the style file. Keep every token name and the derived part of `tokens.css`.
-   - Fonts (`### fonts=<n>`): in `head().links` of `src/routes/__root.tsx`, keep the `tokensCss` entry first.
-     Replace the font comment, the `preconnect` entry, and every Fontshare or Google Fonts entry with its one link.
-     In `tokens.css`, replace the comment above `@theme` and the `@theme` font block with its blocks.
-     Also replace the font `html:lang(ar)` block of Part 1 with its block. Keep the knob reset `html:lang(ar)` block of Part 2.
-     Delete every font rule of an earlier style: `font-synthesis-weight` and `font-stretch` rules.
-     Update the font note of the header comment.
-   - Palette: the Light block replaces `:root`. The Dark block replaces `.dark`. A style with one mode
-     leaves the other block as it is.
-   - Accent: the palette blocks hold accent=1. For another accent, set the tokens of its row in each block.
-     Set `--sidebar-ring` like `--ring`. When the block sets `--chart-1` to the old primary, set the new one.
-   - Knobs: put the Knobs block after the palette blocks. It replaces the knobs block of an earlier style.
-     The kit reads the knobs. Do not edit a kit file in `src/shared/ui/` for what a knob does.
-   - Then the mode and density sections of `frame.md`, then line 1.
-5. Shell: the shell section of `frame.md`, then `src/features/app-shell/lib/nav-items.ts`.
-6. Home, in `src/features/overview/`:
+6. Shell: only `src/features/app-shell/lib/nav-items.ts`. The kit renders the shell, the nav, and the header.
+7. Home, in `src/features/overview/`:
    - `overview-page.tsx` places the slots of the home file. Each panel is one component, named after its data.
-   - Draw the page header, the panels, the KPIs, the charts, and the tables with the style Anatomy.
-     The kpi and chart files give the parts and the rules. The style gives sizes, fonts, strokes, and surfaces.
-     Put the signature of the brief on the home.
+   - Draw the page header, the panels, the KPIs, the charts, and the tables with the kit and the role utilities.
+     The kpi and chart files give the parts and the rules.
    - Replace `src/routes/app/index.tsx` with the home route. It is a thin file with a loader, a `pendingComponent`,
      and an `errorComponent`, like the list route of `tables.md`. Add `src/features/overview/index.ts`.
      The home is the first nav item (`to: "/app"`).
-7. One list page and one detail or form page per main entity (`tables.md`), drawn with the style Anatomy.
-8. The public page or the redirect.
-9. The checklist below.
+8. One list page and one detail or form page per main entity (`tables.md`).
+9. The public page or the redirect.
+10. The checklist below.
 
 ## Shell and navigation
 
-- Use the parts of `~/shared/ui/sidebar`. Do not rewrite that file.
-- 3 to 7 items, one level, no sub-menus. The home comes first.
+- `AppShell` renders the shell of the theme: the sidebar style, the collapse mode, the nav color, the active item,
+  the header, and the place of the user menu. Do not edit its files or `~/shared/ui/sidebar` for the look.
+- Write the nav map in `src/features/app-shell/lib/nav-items.ts`. The sidebar reads `NAV_ITEMS`.
+- 3 to 7 items, one level, no sub-menus. The home comes first. Profile stays the last item.
+  Keep each label to one or two short words: the rail mode shows each label under its icon.
 - Each item opens a real route under `/app`. `to` has the route type, so a wrong path fails typecheck.
-- Each icon comes from `lucide-react` and names the thing, for example `ClipboardListIcon`. Import it by name
-  with the `Icon` suffix. Do not draw an SVG icon. A directional icon gets `rtl:rotate-180`.
-- Profile stays the last item. Sign-out stays in the user menu.
-- The app header and the login page already render `<LocaleSwitcher />`. Keep it in both.
-  It renders nothing for one language. In shell=topbar it sits before the user menu.
-- `SidebarMenuBadge` shows only a real count.
-- Each page starts with `PageHeader` from `~/features/app-shell`. The home can draw the page header of the style Anatomy.
-- The style Anatomy gives the sidebar look, the active item, and the brand mark.
-  Inside the sidebar, use only sidebar tokens.
+- Below 48rem, the sidebar opens in a Sheet. A nav click closes it. Sign-out stays in the user menu.
+- The shell and the login page render `<LocaleSwitcher />`. Keep it in both. It renders nothing for one language.
+- Each page starts with `PageHeader` from `~/features/app-shell`.
+  The home can draw its own header when the home file asks for it.
+
+## Icons
+
+- Import nav and page icons from `@phosphor-icons/react`, with the `Icon` suffix (`StorefrontIcon`).
+  The name without the suffix is deprecated.
+- Kit pieces come from `~/shared/ui/icons`: the carets, close, search, check, and sign-out.
+- Never set `weight` on an icon. The theme sets the weight of every icon.
+  The only exception is `weight="fill"` for an on state: a filled star of a rating, a filled heart of a favorite.
+  Write the off state as `weight={isFavorite ? "fill" : undefined}`, so it keeps the theme weight.
+  Also mark the on state with a color: `text-primary` when on, `text-muted-foreground` when off.
+  A theme weight of `fill` fills the off state too, so the color is the only difference then.
+- Use no other icon package and draw no SVG icon.
+- Never use the SSR icons (`@phosphor-icons/react/ssr`, the `SSR` namespace), and never add an `IconContext` provider: both hide the theme weight.
+  `pnpm run typecheck` fails on these, on another icon package, and on a weight other than `fill`.
+- The root hides every icon from screen readers (`aria-hidden`).
+  An icon that carries meaning alone gets `role="img"`, `aria-label`, and `aria-hidden={false}`. `alt` alone stays hidden.
+- Do not draw a tile, a ground, or a color behind a nav icon. The theme draws it.
+- Name the icon after the business object. Never `SquaresFourIcon` for the home by reflex.
+  The home icon names what the business watches: a storefront, a calendar, a gauge, a ticket.
+- Type a map of icons with `KitIcon` from `~/shared/ui/icons`.
+- A directional icon gets `rtl:rotate-180`. A trend arrow mirrors with `rtl:-scale-x-100`.
+
+The kpi files and tables.md use these names. Import them so:
+
+- `import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";`
+- `import { DotsThreeIcon } from "@phosphor-icons/react";`
 
 ## Quality bar
 
 - Numbers:
-  - `tabular-nums` on every number. KPI values use `font-numeric`, the numeral face of the style.
+  - `tabular-nums` on every number. KPI values use `font-numeric`, the numeral face of the theme.
   - Format with `Intl` and the `locale` of `useT()`. A unit or a currency comes only from the data or the user.
   - A delta compares with the same length of time just before. It has a sign (`signDisplay: "exceptZero"`),
     an arrow icon, and a color. A trend arrow mirrors with `rtl:-scale-x-100`, not `rtl:rotate-180`.
   - `goodWhen: "down"` for costs, delays, scrap, downtime, late items. No previous data: no delta, never "0%".
   - A signed number sits in `<bdi dir="ltr">`, so the sign stays in front in Arabic.
   - Name the period once, not under every KPI.
+- Surfaces and colors:
+  - A panel is a `Card`: the theme draws its border, corners, and shadow.
+  - Other page parts use the role utilities: `rounded-surface`, `shadow-surface`, `rounded-control`,
+    `rounded-field`, `bg-canvas`, `label-text` (small labels), and `font-numeric` (figures).
+  - Colors come only from the semantic tokens: `background`, `foreground`, `card`, `muted`, `primary`, `secondary`,
+    `accent`, `destructive`, `border`, `success`, `warning`, `info`, `chart-1` to `chart-5`, and `canvas`.
+  - Never a Tailwind palette color (`bg-blue-500`), `black`, `white`, a raw color (`#`, `rgb(`, `oklch(`),
+    or `shadow-sm`, `shadow-md`, `shadow-lg`. `pnpm run typecheck` runs `scripts/check-theme.mjs`. It fails on them.
+  - check-theme also fails on `uppercase`, `tracking-wide`, `rounded-none`, `rounded-[...]`, `border-2` and wider,
+    `font-[...]`, `bg-foreground`, `bg-contrast`, `text-background`, and a `bg-` class on `CardHeader`.
+  - Body text, links, and figures never use `text-primary`: a light accent fails 4.5:1 on the page.
+    On a `bg-primary` fill, text uses `text-primary-foreground`.
 - Charts:
   - `ChartContainer`, `ChartTooltip`, `ChartTooltipContent` from `~/shared/ui/chart`.
     Colors only `var(--chart-1)` to `var(--chart-5)`, in the `ChartConfig`.
-  - The style gives the curve, the grid, the axes, and the fill. The knobs give the stroke and the fill opacity.
-    With no style rule: `<CartesianGrid vertical={false} />` and axes with `tickLine={false} axisLine={false}`.
+  - The chart file gives the curve, the grid, the axes, and the fill.
+    `ChartContainer` sets the line width and the fill opacity.
   - A Y axis on the main chart only, with compact `Intl` numbers. A tooltip on every chart.
   - Heights by role: main `h-56` to `h-80`, side `h-44` to `h-56`, mini `h-10` to `h-16`.
     A home file can set the height of its slot. The home file wins.
-    Next come the Heights of the style Anatomy. These role ranges come last.
   - At most 5 series.
-  - A breakdown has 2 to 5 parts plus Other. Bars are square when the style radius is 0.
+  - A breakdown has 2 to 5 parts plus Other. Bars are square on radius=none.
   - Arabic (`dir` is `rtl`): `reversed` on the time XAxis and `orientation="right"` on the YAxis.
     Give the chart a margin on that side, so the ticks do not touch the plot.
   - A period control (7, 30, 90 days) changes the query key.
   - `role="img"` and an `aria-label` with the last value and its change.
 - Tables: `DataTable`. Numbers at the end. A status is a word plus a color, never a color alone.
-  Use a `Badge` (`success`, `warning`, `info`, `destructive`, `secondary`) or the status mark of the style.
+  Use a `Badge` (`success`, `warning`, `info`, `destructive`, `secondary`).
 - Layout:
   - Keep the spans of the home file. The panels of one row have equal heights.
     Use `@container/main` queries (`@xl/main:`), not window breakpoints.
   - A page grid has `grid-cols-1` at the base size, so a wide table cannot widen the page.
   - At 375 px: number grids have 1 or 2 columns, charts keep the heights above, tables scroll in their panel.
 - Hierarchy:
-  - One h1 per page. Body text uses `text-sm`. Panel titles follow the style Anatomy.
-  - `primary` marks the main action, the active nav item, and chart-1. A large primary area needs a style rule.
-  - Text keeps 4.5:1 on its surface. A brand color or a tint that you add keeps it too.
+  - One h1 per page. Body text uses `text-sm`. Panel titles use `CardTitle`.
+  - `primary` marks the main action, the active nav item, and chart-1. Never fill a large area with it.
+  - Text keeps 4.5:1 on its surface. A tint that you add keeps it too.
   - No hover style on a panel that a user cannot click.
 
 ## States
@@ -234,37 +220,36 @@ Write the brief in the plan, before any code. Keep each part short.
 - A route has a `pendingComponent` with Skeletons in the final shape.
 - A route has an `errorComponent`: what failed, and Try again (`router.invalidate()`).
 - A panel whose query key changes after a click reads with `useQuery`, with its own Skeleton and error.
-- The first visit (no rows yet) keeps the home. Every panel stays in place, drawn in the style.
-  It shows real zeros and empty frames (the Empty state of the style and of the home file).
+- The first visit (no rows yet) keeps the home. Every panel stays in place, drawn with the kit.
+  It shows real zeros and empty frames (the Empty state of the home file).
   A slim setup strip gives 2 to 4 real first actions. Never replace the home with one setup card.
-- An empty panel keeps its size. It shows its empty frame, one muted sentence, and the action that fills it.
+- An empty frame is the panel at its full size: its title, its head (the table head, the axis, the slots),
+  one muted sentence, and the action that fills it.
 - Zero events in the period is real data. Show the zero.
 - Never insert sample rows. Sample data only when the user asks: `run_sql_write` for the test account.
 
 ## Never
 
-A style file can allow an item of this list that it names.
-
 - A theme, color, or layout picker, or a light/dark switch, unless the user asks for it.
+- A change to the theme files, or CSS in `tokens.css` that sets a theme token.
 - A control that does nothing: a search, a bell, a date picker, an export, a filter.
 - An upsell card, a Pro badge, a team switcher, a credits meter, invented people, lorem ipsum, invented numbers.
 - A home made of copies of one panel. The same comparison sentence under every KPI.
-- The SaaS-card kit: identical rounded cards with one soft shadow everywhere.
-- Caps eyebrow labels over every heading.
+- Capital labels, wide letter spacing, or ink bands.
 - A feature named after the skill example (work orders, factory, machines) when the business has no such thing.
 - Rainbow charts, a legend under every chart.
-- Gradient washes, gradient text, glass blur, emoji icons, animation on page load.
+- Gradient washes, gradient text, glass blur on a panel, emoji icons, animation on page load.
 - A landing page for an internal tool.
 
 ## Checklist before Done
 
-1. Line 1 of `tokens.css` has the App recipe line with style, accent, and fonts.
-2. The tokens hold the style palette, the accent, the fonts, and all 21 knobs. The fonts link is in `__root.tsx`.
-   Both: the world palette and fonts stay, and the knobs come from the style.
-3. The design brief is in the plan. The signature of the style is on the home, bound to real data.
+1. The theme name is in the plan. You did not edit `src/styles/theme.json`, `theme.ts`, `theme-options.ts`, or `engine.css`.
+   A change to `theme.json` from `set_theme` or the theme question comes from the host, and it is correct.
+2. check-theme passes in `pnpm run typecheck`.
+3. The design brief is in the plan.
 4. The home matches its spec, not a KPI row of equal cards unless home=kpi-band.
    The KPIs and the charts match their form files, or their fallback.
-5. The shell matches its section. Every nav item opens a real page. The mobile sheet closes on a nav click.
+5. The shell comes from `AppShell`. Every nav item opens a real page.
 6. Every chart reads an event table through a SQL function. A day with no event shows 0.
 7. Every panel has a loading, an empty, and an error state. The first visit keeps every panel in place.
 8. Every number uses `Intl` with the app locale, and `tabular-nums`.

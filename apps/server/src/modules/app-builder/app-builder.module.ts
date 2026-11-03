@@ -20,6 +20,7 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { AppThemeService } from "./application/services/app-theme.service";
 import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
 import { ChatHistoryService } from "./application/services/chat-history.service";
@@ -45,7 +46,11 @@ import {
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
 import { DEVICE_SESSION_LOCK } from "./domain/ports/device-session-lock";
 import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
-import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
+import {
+	GIT_FILE_READER,
+	GIT_STORE,
+	REPO_RESTORER,
+} from "./domain/ports/git-store";
 import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
@@ -65,6 +70,10 @@ import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
 import { createTurnTaskStarter } from "./infrastructure/host/routing-turn-task-starter";
+import {
+	LangfuseExporter,
+	langfuseExporterFromEnv,
+} from "./infrastructure/langfuse/langfuse-exporter";
 import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
 import { AppPublishRepository } from "./infrastructure/persistence/app-publish.repository";
@@ -112,10 +121,12 @@ import { CostCapsController } from "./presentation/http/controllers/cost-caps.co
 import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
+import { ModelsController } from "./presentation/http/controllers/models.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
 import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
+import { ThemeController } from "./presentation/http/controllers/theme.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -167,10 +178,12 @@ export function createCloudSupabaseClient(
 		DeviceSessionsController,
 		LlmProxyController,
 		MobileBuildsController,
+		ModelsController,
 		PreviewTokenController,
 		ProjectSecretsController,
 		PublishController,
 		SandboxController,
+		ThemeController,
 		TurnsController,
 		V2HealthController,
 		VersionsController,
@@ -196,6 +209,7 @@ export function createCloudSupabaseClient(
 		AppCommitsRepository,
 		AppProjectsService,
 		AppPublishRepository,
+		AppThemeService,
 		AuditEventsRepository,
 		BackendsService,
 		BuilderSessionsRepository,
@@ -246,6 +260,10 @@ export function createCloudSupabaseClient(
 			inject: [V2_ENV],
 		},
 		{ provide: GIT_STORE, useClass: CodeStorageGitStore },
+		// The same code.storage store reads one committed file for the theme GET.
+		{ provide: GIT_FILE_READER, useExisting: GIT_STORE },
+		// Null without both Langfuse keys: the LLM proxy then traces nothing.
+		{ provide: LangfuseExporter, useFactory: langfuseExporterFromEnv },
 		// The LLM proxy reads a wider env slice than V2_ENV (provider keys).
 		{ provide: LLM_PROXY_ENV, useValue: env },
 		// The long-timeout undici dispatcher the chat gateway already uses.

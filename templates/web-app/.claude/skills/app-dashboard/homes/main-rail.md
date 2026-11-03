@@ -58,9 +58,9 @@ The list query returns no row: this is the first visit.
 - Setup strip: at the top of the main column, above the trend. The rail keeps its place.
 - Needs attention: the count 0 and "Nothing needs attention." This is also the healthy state on later visits.
 - Figures: each line shows 0 and "No earlier data".
-- Due next: the empty frame of the style and one muted sentence.
+- Due next: the empty frame and one muted sentence.
 - Trend: the empty frame of the chart file at full height.
-- Newest rows: the table head, the empty frame of the style, one muted sentence, and the add action.
+- Newest rows: the table head, the empty frame, one muted sentence, and the add action.
 
 ## Rules
 
@@ -69,7 +69,7 @@ The list query returns no row: this is the first visit.
 ```tsx
 // From 64rem: main column at the start, rail of 20rem at the end. Below: one column, rail first.
 <div className="grid @5xl/main:grid-cols-[minmax(0,1fr)_20rem] grid-cols-1 items-start @3xl/main:gap-6 gap-4">
-	{/* top-16: under the 3rem sticky app header, with a gap. Match the header height of the shell. */}
+	{/* top-16: under the h-14 app header, with a gap. Match the header height of the shell. */}
 	<div className="@5xl/main:sticky @5xl/main:top-16 @5xl/main:col-start-2 @5xl/main:row-start-1 flex flex-col gap-4">
 		{/* Needs attention, figures, quick actions, due next */}
 	</div>

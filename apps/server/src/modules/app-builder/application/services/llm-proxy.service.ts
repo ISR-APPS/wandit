@@ -3,9 +3,11 @@
  * `LlmProxyController` feeds each inbound request. The service verifies the
  * run token, rejects a revoked run, and checks the model, the rate limit,
  * and the spend caps. It forwards the body to the provider and streams
- * the answer back.
- * It writes one `llm_proxy_requests` row per request. A second controller
- * for the OpenAI-compatible inbound format can reuse it unchanged.
+ * the answer back. A Paper body loses the blocks that Paper refuses.
+ * It writes one `llm_proxy_requests` row per request. With the Langfuse
+ * keys set, it also sends one Langfuse generation for each Messages call.
+ * A second controller for the OpenAI-compatible inbound format can reuse
+ * it unchanged.
  */
 import {
 	Inject,
@@ -17,13 +19,16 @@ import {
 	allowedLlmModels,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
+	uuidSchema,
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/nestjs";
 import { z } from "zod";
 
 import {
+	type AnthropicAssistantMessage,
 	createAnthropicSseUsageParser,
 	type LlmTokenUsage,
+	messageFromAnthropicJson,
 	usageFromAnthropicJson,
 } from "../../domain/anthropic-sse-usage";
 import { llmModelPrice, priceUsdMicros } from "../../domain/llm-model-prices";
@@ -32,8 +37,13 @@ import {
 	type LlmProxyEnv,
 	type LlmUpstream,
 	normalizeInboundModelId,
+	PAPER_INSTRUMENTS_PROVIDER,
 	upstreamFor,
 } from "../../domain/llm-upstream";
+import {
+	LangfuseExporter,
+	type LlmGenerationSink,
+} from "../../infrastructure/langfuse/langfuse-exporter";
 import {
 	LlmProxyRequestsRepository,
 	type LlmProxyRequestWriter,
@@ -67,7 +77,8 @@ export type LlmProxyInboundRequest = {
 	anthropicBeta: string | undefined;
 	// `X-Wandit-Run` header; forwarded unchanged when present.
 	wanditRun: string | undefined;
-	// `x-claude-code-session-id` header; stored on the usage row only.
+	// `x-claude-code-session-id` header; stored on the usage row. Paper
+	// also gets it as `x-session-id` when it is a UUID.
 	claudeSessionId: string | undefined;
 	// Raw request body bytes, forwarded unchanged unless the model field
 	// must be rewritten for the chosen upstream.
@@ -106,6 +117,39 @@ const anthropicRequestBodySchema = z.looseObject({
 	model: z.string().min(1).optional(),
 });
 
+// The `messages` of a request, for the Paper rewrite. Only the block `type`
+// and the blocks nested in a `tool_result` are read; other fields pass through.
+const anthropicMessagesSchema = z.array(
+	z.looseObject({
+		content: z.union([
+			z.string(),
+			z.array(
+				z.looseObject({
+					type: z.string(),
+					content: z
+						.union([z.string(), z.array(z.looseObject({ type: z.string() }))])
+						.optional(),
+				}),
+			),
+		]),
+	}),
+);
+
+// Paper answers 400 to a PDF `document` block and to any `thinking` or
+// `redacted_thinking` block in the history (Paper docs). Paper sends no
+// thinking blocks itself, so they come from a Claude model before a switch.
+const PAPER_REFUSED_BLOCK_TYPES = new Set([
+	"document",
+	"redacted_thinking",
+	"thinking",
+]);
+
+// Takes the place of a refused block, so the model knows that content is gone.
+const PAPER_OMITTED_BLOCK = {
+	type: "text",
+	text: "[Content omitted: this model cannot read PDF files or the thinking of another model.]",
+} as const;
+
 /** Application service behind `LlmProxyController`; see file header. */
 @Injectable()
 export class LlmProxyService {
@@ -118,6 +162,9 @@ export class LlmProxyService {
 		@Inject(LlmProxyRequestsRepository)
 		private readonly requests: LlmProxyRequestWriter,
 		@Inject(LLM_PROXY_FETCH) private readonly upstreamFetch: typeof fetch,
+		// Null without both Langfuse keys: the proxy then traces nothing.
+		@Inject(LangfuseExporter)
+		private readonly langfuse: LlmGenerationSink | null,
 	) {}
 
 	/**
@@ -204,8 +251,10 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 2. Model allow-list: an absent model means the plan default; a
-		// named model outside the list is denied. Claude Code resolves its
+		// 2. Model allow-list: an absent model means the plan default. The
+		// list is the plan list plus the token `model`: the turn's pick, from
+		// any priced row. A bound chat gives the model of the turn that runs
+		// now. Any other named model is denied. Claude Code resolves its
 		// aliases to dated bare ids (`claude-haiku-4-5-20251001`); normalize
 		// them onto the `anthropic/...` list entries before the check.
 		const bodyJson = this.parseBody(input.body);
@@ -215,6 +264,9 @@ export class LlmProxyService {
 				: normalizeInboundModelId(bodyJson.model);
 		const defaultModel = this.requireEnv("V2_DEFAULT_MODEL");
 		const allowed = allowedLlmModels(claims.plan, defaultModel);
+		if (claims.model !== undefined && !allowed.includes(claims.model)) {
+			allowed.push(claims.model);
+		}
 		if (requestedModel !== undefined && !allowed.includes(requestedModel)) {
 			await this.reject(reply, claims, input, startedAt, {
 				status: 403,
@@ -377,11 +429,21 @@ export class LlmProxyService {
 
 		// Rewrite `model` only when the upstream id differs from what the
 		// sandbox sent. An identical id means the raw bytes go out unchanged.
+		// A Paper id never matches (the proxy drops its prefix), so a Paper
+		// body is always rewritten, also its refused blocks.
+		const paperMessages =
+			upstream.provider === PAPER_INSTRUMENTS_PROVIDER && bodyJson !== undefined
+				? paperSafeMessages(bodyJson.messages)
+				: null;
 		const forwardBody =
 			bodyJson === undefined || bodyJson.model === upstream.upstreamModelId
 				? input.body
 				: Buffer.from(
-						JSON.stringify({ ...bodyJson, model: upstream.upstreamModelId }),
+						JSON.stringify({
+							...bodyJson,
+							model: upstream.upstreamModelId,
+							...(paperMessages === null ? {} : { messages: paperMessages }),
+						}),
 						"utf8",
 					);
 
@@ -392,6 +454,13 @@ export class LlmProxyService {
 		};
 		if (input.anthropicBeta !== undefined) {
 			headers["anthropic-beta"] = input.anthropicBeta;
+		}
+		// Paper sends all requests of one session id to one replica, so more
+		// input bills at the cache-read rate (5 times cheaper). The sandbox
+		// sets the header, so only a UUID goes out.
+		const sessionId = uuidSchema.safeParse(input.claudeSessionId);
+		if (upstream.provider === PAPER_INSTRUMENTS_PROVIDER && sessionId.success) {
+			headers["x-session-id"] = sessionId.data;
 		}
 		// The real provider key lives only here; the inbound bearer run token
 		// is never forwarded.
@@ -417,6 +486,7 @@ export class LlmProxyService {
 				upstream,
 				modelId,
 				startedAt,
+				forwardBody,
 				error,
 			);
 			return;
@@ -431,7 +501,8 @@ export class LlmProxyService {
 
 		if (!upstreamResponse.ok) {
 			// The upstream refused or failed: its status and body go back
-			// unchanged, and the row records `upstream_<status>`.
+			// unchanged, and the row records `upstream_<status>`. One exception
+			// is below.
 			let body: Buffer;
 			try {
 				body = Buffer.from(await upstreamResponse.arrayBuffer());
@@ -443,12 +514,23 @@ export class LlmProxyService {
 					upstream,
 					modelId,
 					startedAt,
+					forwardBody,
 					error,
 					upstreamRequestId,
 				);
 				return;
 			}
-			reply.writeHead(upstreamResponse.status, responseHeaders);
+			// Paper answers an empty balance with 429 `insufficient_quota`.
+			// Claude Code retries a 429 for minutes, so the turn hangs. It does
+			// not retry a 402, so the turn fails at once. The row keeps 429.
+			const isPaperQuotaEmpty =
+				upstreamResponse.status === 429 &&
+				upstream.provider === PAPER_INSTRUMENTS_PROVIDER &&
+				body.toString("utf8").includes("insufficient_quota");
+			reply.writeHead(
+				isPaperQuotaEmpty ? 402 : upstreamResponse.status,
+				responseHeaders,
+			);
 			await reply.write(body);
 			reply.end();
 			// A log search by status finds an empty gateway balance (402) or a
@@ -470,10 +552,11 @@ export class LlmProxyService {
 			} else if (
 				upstreamResponse.status === 401 ||
 				upstreamResponse.status === 402 ||
-				upstreamResponse.status === 403
+				upstreamResponse.status === 403 ||
+				isPaperQuotaEmpty
 			) {
 				// The provider rejected the key, or the account has no funds.
-				// An operator must act. A 429 stays out: Claude Code retries it.
+				// An operator must act. Another 429 stays out: Claude Code retries it.
 				Sentry.captureMessage(
 					"LLM upstream refused the account (key or funds)",
 					{
@@ -492,6 +575,9 @@ export class LlmProxyService {
 				usage: zeroUsage(),
 				upstreamRequestId,
 				latencyMs: Date.now() - startedAt,
+				forwardedBody: forwardBody,
+				message: null,
+				upstreamErrorBody: body.toString("utf8"),
 			});
 			return;
 		}
@@ -504,6 +590,7 @@ export class LlmProxyService {
 				responseHeaders,
 				upstreamRequestId,
 				startedAt,
+				forwardedBody: forwardBody,
 			});
 			return;
 		}
@@ -519,12 +606,14 @@ export class LlmProxyService {
 				upstream,
 				modelId,
 				startedAt,
+				forwardBody,
 				error,
 				upstreamRequestId,
 			);
 			return;
 		}
 		if (input.abortSignal.aborted) {
+			const json = safeJsonParse(body);
 			await this.endClientAborted(
 				input,
 				reply,
@@ -532,7 +621,10 @@ export class LlmProxyService {
 				upstream,
 				modelId,
 				startedAt,
-				usageFromAnthropicJson(safeJsonParse(body)),
+				usageFromAnthropicJson(json),
+				forwardBody,
+				// Without Langfuse, the proxy does no content work.
+				this.langfuse === null ? null : messageFromAnthropicJson(json),
 				upstreamRequestId,
 			);
 			return;
@@ -540,12 +632,17 @@ export class LlmProxyService {
 		reply.writeHead(upstreamResponse.status, responseHeaders);
 		await reply.write(body);
 		reply.end();
+		const json = safeJsonParse(body);
 		await this.finish(input, claims, upstream, modelId, {
 			status: "ok",
 			reason: null,
-			usage: usageFromAnthropicJson(safeJsonParse(body)),
+			usage: usageFromAnthropicJson(json),
 			upstreamRequestId,
 			latencyMs: Date.now() - startedAt,
+			forwardedBody: forwardBody,
+			// Without Langfuse, the proxy does no content work.
+			message: this.langfuse === null ? null : messageFromAnthropicJson(json),
+			upstreamErrorBody: null,
 		});
 	}
 
@@ -562,10 +659,14 @@ export class LlmProxyService {
 			responseHeaders: Record<string, string>;
 			upstreamRequestId: string | undefined;
 			startedAt: number;
+			// The bytes the upstream got, for the Langfuse input.
+			forwardedBody: Buffer;
 		},
 	): Promise<void> {
 		reply.writeHead(options.response.status, options.responseHeaders);
-		const parser = createAnthropicSseUsageParser();
+		const parser = createAnthropicSseUsageParser({
+			collectContent: this.langfuse !== null,
+		});
 		const decoder = new TextDecoder();
 		const reader = options.stream.getReader();
 		let clientAborted = false;
@@ -623,13 +724,16 @@ export class LlmProxyService {
 			usage: parser.usage(),
 			upstreamRequestId: options.upstreamRequestId,
 			latencyMs: Date.now() - options.startedAt,
+			forwardedBody: options.forwardedBody,
+			message: parser.message(),
+			upstreamErrorBody: null,
 		});
 	}
 
 	/**
-	 * Ends the reply and writes the `client_aborted` row. `usage` is what
-	 * the upstream reported before the abort: a parsed buffered body, or
-	 * zero when no answer arrived.
+	 * Ends the reply and writes the `client_aborted` row. `usage` and
+	 * `message` are what the upstream sent before the abort: a parsed
+	 * buffered body, or zero and null when no answer arrived.
 	 */
 	private async endClientAborted(
 		input: LlmProxyInboundRequest,
@@ -639,6 +743,8 @@ export class LlmProxyService {
 		modelId: string,
 		startedAt: number,
 		usage: LlmTokenUsage,
+		forwardedBody: Buffer,
+		message: AnthropicAssistantMessage | null,
 		upstreamRequestId?: string,
 	): Promise<void> {
 		reply.end();
@@ -648,6 +754,9 @@ export class LlmProxyService {
 			usage,
 			upstreamRequestId,
 			latencyMs: Date.now() - startedAt,
+			forwardedBody,
+			message,
+			upstreamErrorBody: null,
 		});
 	}
 
@@ -663,6 +772,7 @@ export class LlmProxyService {
 		upstream: LlmUpstream,
 		modelId: string,
 		startedAt: number,
+		forwardedBody: Buffer,
 		error: unknown,
 		upstreamRequestId?: string,
 	): Promise<void> {
@@ -678,6 +788,8 @@ export class LlmProxyService {
 				modelId,
 				startedAt,
 				zeroUsage(),
+				forwardedBody,
+				null,
 				upstreamRequestId,
 			);
 			return;
@@ -695,6 +807,9 @@ export class LlmProxyService {
 			usage: zeroUsage(),
 			upstreamRequestId,
 			latencyMs: Date.now() - startedAt,
+			forwardedBody,
+			message: null,
+			upstreamErrorBody: null,
 		});
 		await this.sendError(
 			reply,
@@ -792,6 +907,12 @@ export class LlmProxyService {
 			usage: LlmTokenUsage;
 			upstreamRequestId?: string | undefined;
 			latencyMs: number;
+			// The bytes the upstream got: the inbound body or its rewrite.
+			forwardedBody: Buffer;
+			// The answer the parser rebuilt; null when none arrived or it did not parse.
+			message: AnthropicAssistantMessage | null;
+			// The upstream body of a non-2xx answer; null on every other path.
+			upstreamErrorBody: string | null;
 		},
 	): Promise<void> {
 		// Anthropic's count_tokens endpoint is free: the row keeps the token
@@ -801,6 +922,28 @@ export class LlmProxyService {
 			input.endpoint === "count_tokens"
 				? 0
 				: (priceUsdMicros(modelId, result.usage) ?? 0);
+		// Langfuse gets each Messages call before the row insert, so a failed
+		// insert still traces. The proxy skips count_tokens: Langfuse would
+		// count its input twice. send() never throws and never waits.
+		if (this.langfuse !== null && input.endpoint === "messages") {
+			const endedAt = Date.now();
+			this.langfuse.send({
+				claims,
+				provider: upstream.provider,
+				modelId,
+				claudeSessionId: input.claudeSessionId ?? null,
+				upstreamRequestId: result.upstreamRequestId ?? null,
+				status: result.status,
+				reason: result.reason,
+				usage: result.usage,
+				usdMicros,
+				startedAt: endedAt - result.latencyMs,
+				endedAt,
+				forwardedBody: result.forwardedBody,
+				message: result.message,
+				upstreamErrorBody: result.upstreamErrorBody,
+			});
+		}
 		try {
 			await this.requests.insert({
 				runId: claims.runId,
@@ -860,6 +1003,44 @@ export class LlmProxyService {
 			latencyMs: result.latencyMs,
 		});
 	}
+}
+
+/**
+ * The `messages` of a Paper request, with each block that Paper refuses
+ * changed to `PAPER_OMITTED_BLOCK`, also inside a `tool_result` (the Read
+ * tool sends a PDF there). Without it, one PDF read or one switch from a
+ * Claude model makes every later call of the chat fail with 400. Returns
+ * null when the field does not parse; the messages then go out unchanged.
+ */
+function paperSafeMessages(
+	messages: unknown,
+): z.infer<typeof anthropicMessagesSchema> | null {
+	const parsed = anthropicMessagesSchema.safeParse(messages);
+	if (!parsed.success) {
+		return null;
+	}
+	const isRefused = (block: { type: string }) =>
+		PAPER_REFUSED_BLOCK_TYPES.has(block.type);
+	return parsed.data.map((message) => {
+		if (!Array.isArray(message.content)) {
+			return message;
+		}
+		const content = message.content.map((block) => {
+			if (isRefused(block)) {
+				return PAPER_OMITTED_BLOCK;
+			}
+			if (Array.isArray(block.content) && block.content.some(isRefused)) {
+				return {
+					...block,
+					content: block.content.map((inner) =>
+						isRefused(inner) ? PAPER_OMITTED_BLOCK : inner,
+					),
+				};
+			}
+			return block;
+		});
+		return { ...message, content };
+	});
 }
 
 function zeroUsage(): LlmTokenUsage {

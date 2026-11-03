@@ -16,26 +16,24 @@ Each figure shows its label, its value, the change, and a small area chart of th
 
 ## Anatomy
 
-1. Label: `item.label`, in the label look of the style (`label-text`).
+1. Label: `item.label`, in `label-text` (the small label style).
 2. Value: `new Intl.NumberFormat(locale, item.format).format(item.value)`, with `font-numeric tabular-nums`.
 3. Delta: one line with the arrow, the percent, and a screen reader text. Or the muted line "No earlier data".
 4. Spark: a mini area chart along the bottom edge of the figure, full width.
 
 - The spark shows the shape of the period. The value and the change stay in text above it.
-- The style gives the panel of a figure: a card, a ruled cell, a tile, a slip, or no box.
-  The style also says if the spark touches the panel edges.
-- The style gives the sizes, the weights, the curve, the fill, and the gaps. The spark height is a mini height of SKILL.md.
-- The snippet shows the logic. Its height, curve, and fill are the no-style defaults.
+- The panel of a figure is a `Card`, unless the home slot says otherwise.
+  The spark stays inside the panel padding.
+- The theme scale changes the gaps. The spark height is a mini height of SKILL.md.
+- The snippet shows the logic. Its height, curve, and fill are the defaults.
 - The skeleton keeps the four parts in their final sizes.
 
 ## Rules
 
 - A figure with fewer than 2 values gets no spark. It keeps its text.
 - One `Area` in `var(--chart-1)`. No axis line, no grid, no tooltip, no animation.
-- Do not set `strokeWidth` or `fillOpacity`. The knobs `--chart-stroke` and `--chart-fill-opacity` set them.
-- The curve type and the fill follow the style Anatomy. A flat fill is `fill="var(--color-value)"` with no gradient.
-- With no style rule: the curve is `type="monotone"`, and the fill is a 20 % tint of the series color.
-  The knob multiplies the fill.
+- Do not set `strokeWidth` or `fillOpacity`. `ChartContainer` sets them: a 2 px line and a fill opacity of 0.6.
+- The curve is `type="monotone"`, and the fill is a 20 % tint of the series color.
 - No Y axis. The Y scale of recharts then starts at 0. A flat series shows a flat band, not a false wave.
 - Time runs from right to left in Arabic: `reversed` on the hidden XAxis.
 - Screen readers skip the spark (`aria-hidden="true"`). The text above gives the facts.
@@ -43,7 +41,7 @@ Each figure shows its label, its value, the change, and a small area chart of th
 - `change` is a ratio from `changeRatio` (data.md). A change of 0.123 shows "+12.3%".
 - Format it with `Intl.NumberFormat(locale, { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 1 })`.
 - A change under 0.05 % shows "0%" in muted text, with no arrow and no color.
-- The arrow shows the direction: `TrendingUpIcon` for a rise, `TrendingDownIcon` for a fall.
+- The arrow shows the direction: `TrendUpIcon` for a rise, `TrendDownIcon` for a fall. SKILL.md, Icons, gives their imports.
 - The color shows good or bad news from `goodWhen`. With `goodWhen: "down"`, a fall is good news.
 - Mirror the arrow with `rtl:-scale-x-100`, never with `rtl:rotate-180`. A rotation turns a rise into a fall.
 - The percent sits in `<bdi dir="ltr">`, so "+12%" keeps its order in Arabic.
@@ -72,7 +70,7 @@ function Spark({ series }: { series: number[] }) {
 				</defs>
 				{/* Time runs from right to left in Arabic. */}
 				<XAxis dataKey="day" hide reversed={dir === "rtl"} />
-				{/* No-style defaults: h-12, type="monotone", and the 20 % tint above. The style Anatomy replaces them. */}
+				{/* h-12, type="monotone", and the 20 % tint above. */}
 				<Area dataKey="value" type="monotone" stroke="var(--color-value)" fill={`url(#${fillId})`} isAnimationActive={false} />
 			</AreaChart>
 		</ChartContainer>

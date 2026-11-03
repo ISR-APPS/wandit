@@ -113,10 +113,13 @@ export function useRestoreVersion(
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.project(projectId),
 			});
-			// A restore rewrites the worktree, so the Code view tree and the
-			// open file refetch too.
+			// A restore rewrites the worktree, so the Code view tree, the
+			// open file, and the theme of the Thème sheet refetch too.
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.code(projectId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.theme(projectId),
 			});
 			deps.onRestored?.();
 		},

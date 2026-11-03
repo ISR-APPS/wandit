@@ -2,10 +2,10 @@
 // The app shell feature composes them: provider, sidebar, trigger, inset, and the menu parts.
 // Sides are logical (start, end), so the sidebar sits on the right in Arabic.
 // On a phone the sidebar opens as a Sheet. No cookie and no effect: the /app layout keeps the state.
-// The group label and the active menu row read the style knobs of src/styles/tokens.css.
+// The shell and nav tokens of src/styles/engine.css give the sizes, corners, rules, shadows, and menu rows.
+// The "rail" collapse is a port of the isr-viraly rail: each nav label stays under its icon.
 
 import { cva, type VariantProps } from "class-variance-authority";
-import { PanelLeftIcon } from "lucide-react";
 import { Direction, Slot } from "radix-ui";
 import {
 	type ComponentProps,
@@ -16,6 +16,7 @@ import {
 } from "react";
 import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
+import { SidebarSimpleIcon } from "~/shared/ui/icons";
 import { Separator } from "~/shared/ui/separator";
 import {
 	Sheet,
@@ -75,7 +76,7 @@ function useSidebar(): SidebarContextValue {
 	return context;
 }
 
-/** Holds the open state and the widths. `defaultOpen={false}` starts collapsed (the rail shell). */
+/** Holds the open state of the desktop sidebar and of the phone Sheet. `defaultOpen={false}` starts collapsed. */
 function SidebarProvider({
 	defaultOpen = true,
 	className,
@@ -107,10 +108,10 @@ function SidebarProvider({
 			<TooltipProvider delayDuration={0}>
 				<div
 					data-slot="sidebar-wrapper"
-					// The icon width holds one 2rem menu button and its padding.
-					// A caller overrides a width with a class or a style.
+					// engine.css gives --sidebar-width, --sidebar-width-icon, and --sidebar-width-rail.
+					// The backdrop: inset puts the page panel on the sidebar tone, floating puts the panels on the canvas.
 					className={cn(
-						"group/sidebar-wrapper flex min-h-svh w-full [--sidebar-width-icon:3rem] [--sidebar-width:16rem] has-data-[variant=inset]:bg-sidebar",
+						"group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=floating]:bg-canvas has-data-[variant=inset]:bg-sidebar",
 						className,
 					)}
 					{...props}
@@ -122,9 +123,20 @@ function SidebarProvider({
 	);
 }
 
+// The collapsed column of each variant in the icon and the rail modes. Tailwind sees only literal classes, so each is written out.
+const COLLAPSED_WIDTH_CLASSES = {
+	sidebar:
+		"group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+var(--sidebar-border-width))] group-data-[collapsible=rail]:w-[calc(var(--sidebar-width-rail)+var(--sidebar-border-width))]",
+	inset:
+		"group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+var(--shell-gap)*2)] group-data-[collapsible=rail]:w-[calc(var(--sidebar-width-rail)+var(--shell-gap)*2)]",
+	floating:
+		"group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+var(--shell-gap)*2+var(--shell-panel-border-width)*2)] group-data-[collapsible=rail]:w-[calc(var(--sidebar-width-rail)+var(--shell-gap)*2+var(--shell-panel-border-width)*2)]",
+} as const;
+
 /**
- * The sidebar column. variant: "sidebar" (a bordered column), "floating" (a card), "inset" (the page is the card).
- * collapsible: "offcanvas" slides it out, "icon" keeps the icons, "none" never closes.
+ * The sidebar column. variant: "sidebar" (a column with an edge rule), "floating" (a detached panel),
+ * "inset" (the page is the panel). collapsible: "offcanvas" slides it out, "icon" keeps the icons,
+ * "rail" keeps the icons with their label under them. Below 48rem every variant is a Sheet.
  */
 function Sidebar({
 	label,
@@ -140,24 +152,13 @@ function Sidebar({
 	/** Logical side: "start" is the left in a left-to-right language. */
 	side?: "start" | "end";
 	variant?: "sidebar" | "floating" | "inset";
-	collapsible?: "offcanvas" | "icon" | "none";
+	collapsible?: "offcanvas" | "icon" | "rail";
 }) {
 	const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
 
-	if (collapsible === "none") {
-		return (
-			<div
-				data-slot="sidebar"
-				className={cn(
-					"flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
-					className,
-				)}
-				{...props}
-			>
-				{children}
-			</div>
-		);
-	}
+	// The collapsed width. floating and inset add the --shell-gap margin; floating and sidebar add their rule.
+	// The gap and the container use the same class, so the page starts where the sidebar ends.
+	const collapsedWidthClass = COLLAPSED_WIDTH_CLASSES[variant];
 
 	if (isMobile) {
 		return (
@@ -168,7 +169,7 @@ function Sidebar({
 					data-mobile="true"
 					// The Sheet has a title and no description.
 					aria-describedby={undefined}
-					className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [--sidebar-width:18rem] [&>button]:hidden"
+					className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
 					side={side}
 				>
 					<SheetHeader className="sr-only">
@@ -195,9 +196,7 @@ function Sidebar({
 				className={cn(
 					"relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
 					"group-data-[collapsible=offcanvas]:w-0",
-					variant === "floating" || variant === "inset"
-						? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-						: "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
+					collapsedWidthClass,
 				)}
 			/>
 			<div
@@ -207,10 +206,11 @@ function Sidebar({
 					side === "start"
 						? "start-0 group-data-[collapsible=offcanvas]:start-[calc(var(--sidebar-width)*-1)]"
 						: "end-0 group-data-[collapsible=offcanvas]:end-[calc(var(--sidebar-width)*-1)]",
-					// floating and inset leave a margin around the sidebar; the plain variant draws a border.
+					// floating and inset leave a margin around the sidebar; the plain variant draws its edge rule.
 					variant === "floating" || variant === "inset"
-						? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
-						: "border-sidebar-border group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=end]:border-s group-data-[side=start]:border-e",
+						? "p-(--shell-gap)"
+						: "group-data-[side=end]:border-s-(length:--sidebar-border-width) group-data-[side=start]:border-e-(length:--sidebar-border-width) border-sidebar-border",
+					collapsedWidthClass,
 					className,
 				)}
 				{...props}
@@ -218,7 +218,7 @@ function Sidebar({
 				<div
 					data-sidebar="sidebar"
 					data-slot="sidebar-inner"
-					className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
+					className="group-data-[variant=floating]:border-(length:--shell-panel-border-width) flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-(--shell-panel-radius) group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-(--shell-panel-shadow)"
 				>
 					{children}
 				</div>
@@ -250,20 +250,27 @@ function SidebarTrigger({
 			}}
 			{...props}
 		>
-			<PanelLeftIcon className="rtl:rotate-180" />
+			<SidebarSimpleIcon className="rtl:rotate-180" />
 		</Button>
 	);
 }
 
-/** The page column beside the sidebar. A div: the app shell puts its own <main> inside. */
+/**
+ * The page column beside the sidebar. A div: the app shell puts its own <main> inside.
+ * floating: the page sits on the canvas. inset: the page is a raised panel drawn with the shell tokens.
+ * --page-surface is the color of the column. The bar and blur headers of engine.css fill with it.
+ */
 function SidebarInset({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="sidebar-inset"
 			className={cn(
 				// min-w-0 lets a wide table scroll inside its card instead of widening the page.
-				"relative flex w-full min-w-0 flex-1 flex-col bg-background",
-				"md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm",
+				"relative flex w-full min-w-0 flex-1 flex-col bg-(--page-surface) [--page-surface:var(--background)]",
+				"md:peer-data-[variant=floating]:[--page-surface:var(--canvas)]",
+				// The sidebar container already holds the gap on its end side. Only an offcanvas sidebar that is out leaves none.
+				"md:peer-data-[variant=inset]:peer-data-[collapsible=offcanvas]:ms-(--shell-gap) md:peer-data-[variant=inset]:m-(--shell-gap) md:peer-data-[variant=inset]:ms-0",
+				"md:peer-data-[variant=inset]:border-(length:--shell-panel-border-width) md:peer-data-[variant=inset]:rounded-(--shell-panel-radius) md:peer-data-[variant=inset]:border-(--shell-panel-border-color) md:peer-data-[variant=inset]:shadow-(--shell-panel-shadow)",
 				className,
 			)}
 			{...props}
@@ -310,14 +317,14 @@ function SidebarSeparator({
 	);
 }
 
-/** The scroll area between the header and the footer. It hides overflow in the icon state. */
+/** The scroll area between the header and the footer. It hides overflow in the icon state, and the side overflow in the rail. */
 function SidebarContent({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="sidebar-content"
 			data-sidebar="content"
 			className={cn(
-				"flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+				"flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden group-data-[collapsible=rail]:overflow-x-hidden",
 				className,
 			)}
 			{...props}
@@ -337,15 +344,16 @@ function SidebarGroup({ className, ...props }: ComponentProps<"div">) {
 	);
 }
 
-/** Small title of a group. It fades out in the icon state. label-text gives the label knobs. */
+/** Small title of a group. It fades out in the icon and the rail states. label-text gives the label weight. */
 function SidebarGroupLabel({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="sidebar-group-label"
 			data-sidebar="group-label"
 			className={cn(
-				"label-text flex h-8 shrink-0 items-center rounded-md px-2 text-sidebar-foreground/70 text-xs outline-hidden ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-				"group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
+				// Full text color: a 70% mix fails 4.5:1 on the brand and contrast tones. label-text marks it as a label.
+				"label-text flex h-8 shrink-0 items-center rounded-md px-2 text-sidebar-foreground text-xs outline-hidden ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+				"group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=rail]:-mt-8 group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=rail]:opacity-0",
 				className,
 			)}
 			{...props}
@@ -390,17 +398,25 @@ function SidebarMenuItem({ className, ...props }: ComponentProps<"li">) {
 }
 
 /**
- * Sizes of a menu row: "default" for a nav item, "lg" for the user row with an avatar.
- * The active row takes the --nav-active-bg knob. Its ::before bar on the start side is
- * --nav-indicator-width wide, so the default 0px hides it.
+ * Sizes of a menu row: "default" for a nav item, "lg" for the brand row and the user row.
+ * The row reads the nav tokens of engine.css. The active row text is --nav-active-fg, never the accent
+ * foreground: on the brand tone that token can equal the sidebar color.
+ * Every row keeps a transparent border of the active width, so the outline nav does not move the label.
+ * The ::before bar on the start side is --nav-indicator-width wide, so the default 0px hides it.
+ * In the collapsed rail a default row stacks its icon over its label (`<Icon /><span>label</span>`).
+ * An lg row (the brand, the user) keeps only its size-8 tile, in the middle of the rail.
  */
 const sidebarMenuButtonVariants = cva(
-	"peer/menu-button relative flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-start text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] before:absolute before:inset-y-0 before:start-0 before:bg-sidebar-primary hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-badge]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-(--nav-active-bg) data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground data-[active=true]:before:w-(--nav-indicator-width) group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+	"peer/menu-button border-(length:--nav-active-border-width) relative flex w-full items-center gap-2 overflow-hidden rounded-nav border-transparent p-2 text-start font-medium text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] before:absolute before:inset-y-0 before:start-0 before:bg-(--nav-indicator-color) hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-badge]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:border-(--nav-active-border-color) data-[active=true]:bg-(--nav-active-bg) data-[active=true]:font-(--nav-active-weight) data-[active=true]:text-(--nav-active-fg) data-[active=true]:shadow-(--nav-active-shadow) data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground data-[active=true]:before:w-(--nav-indicator-width) group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
 	{
 		variants: {
 			size: {
-				default: "h-8 text-sm",
-				lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
+				// --nav-muted-fg: the quiet nav mutes the rows that are not active.
+				// rounded-lg in the rail: a pill corner on the tall rail tile looks like a capsule.
+				// The rail row grows to fit the icon tile and the label. A fixed height cuts the label.
+				default:
+					"h-8 text-(--nav-muted-fg) text-sm group-data-[collapsible=rail]:h-auto group-data-[collapsible=rail]:flex-col group-data-[collapsible=rail]:justify-center group-data-[collapsible=rail]:gap-1 group-data-[collapsible=rail]:rounded-lg group-data-[collapsible=rail]:px-1 group-data-[collapsible=rail]:text-xs group-data-[collapsible=rail]:[&>span:last-child]:max-w-full group-data-[collapsible=rail]:[&>svg]:size-5",
+				lg: "h-12 text-sm group-data-[collapsible=rail]:mx-auto group-data-[collapsible=rail]:size-8! group-data-[collapsible=icon]:p-0! group-data-[collapsible=rail]:p-0!",
 			},
 		},
 		defaultVariants: {
@@ -409,7 +425,7 @@ const sidebarMenuButtonVariants = cva(
 	},
 );
 
-/** One menu row. With `tooltip`, the label shows beside the icon while the sidebar is collapsed. */
+/** One menu row. With `tooltip`, the label shows beside the icon while the sidebar is collapsed, also a cut rail label. */
 function SidebarMenuButton({
 	asChild = false,
 	isActive = false,
@@ -460,18 +476,17 @@ function SidebarMenuButton({
 	);
 }
 
-/** A count at the end of a menu row. Show it only for a real count. */
+/** A count at the end of a menu row. Show it only for a real count. On the active row it takes --nav-active-fg. */
 function SidebarMenuBadge({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="sidebar-menu-badge"
 			data-sidebar="menu-badge"
 			className={cn(
-				"pointer-events-none absolute end-1 flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 font-medium text-sidebar-foreground text-xs tabular-nums",
-				"peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[active=true]/menu-button:text-sidebar-accent-foreground",
-				"peer-data-[size=default]/menu-button:top-1.5",
-				"peer-data-[size=lg]/menu-button:top-2.5",
-				"group-data-[collapsible=icon]:hidden",
+				// Centered on the row, so it fits every row height of the scale axis.
+				"pointer-events-none absolute end-1 top-1/2 flex h-5 min-w-5 -translate-y-1/2 select-none items-center justify-center rounded-md px-1 font-medium text-sidebar-foreground text-xs tabular-nums",
+				"peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[active=true]/menu-button:text-(--nav-active-fg)",
+				"group-data-[collapsible=icon]:hidden group-data-[collapsible=rail]:hidden",
 				className,
 			)}
 			{...props}

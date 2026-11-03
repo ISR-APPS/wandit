@@ -1,7 +1,8 @@
 /**
  * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
- * and devices. Also the storage keys and panel widths of the
- * chat column, and the easing and detail pace of the start-up screens. Read by
+ * and devices. Also the storage keys and panel widths of the chat column,
+ * the storage key of the model pick, and the easing and detail pace of the
+ * start-up screens. Read by
  * the route search schema, the shell, the More view, the Cloud panels, the
  * preview, and the chat. No logic and no React here.
  */
@@ -195,6 +196,13 @@ export const CHAT_LAYOUT_STORAGE_KEY = "wandit-app-builder-chat-layout";
 
 /** localStorage key of the chat view switch, "production" or "developer". The page reads it only in local dev. */
 export const CHAT_VIEW_STORAGE_KEY = "wandit-app-builder-chat-view";
+
+/**
+ * localStorage key prefix of the model menu pick. A project id, or "new"
+ * for the next new project, ends the key. The value is a model id of
+ * `GET /api/v2/models`.
+ */
+export const BUILDER_MODEL_STORAGE_KEY_PREFIX = "wandit:v2-builder-model:";
 
 /** Start width of the chat column. The width of the design (400 px) fits the composer row and every card. */
 export const CHAT_PANEL_DEFAULT_WIDTH = "400px";

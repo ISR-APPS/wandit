@@ -3,9 +3,10 @@
  * and the paged stored history with the live turn stream of
  * use-builder-chat.ts. Maps the messages to the card shapes the pane
  * renders. Turns a chat error into a dictionary sentence and a Reconnect
- * action, and holds the Plan toggle. Calls the workspace chat id query,
- * the history query of app-builder.queries.ts, use-builder-chat.ts,
- * builder-chat-transport.ts, and turn-parts.ts.
+ * action, holds the Plan toggle, and puts the model pick on every send.
+ * Calls the workspace chat id query, the history query of
+ * app-builder.queries.ts, use-builder-chat.ts, builder-chat-transport.ts,
+ * and turn-parts.ts.
  */
 
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -122,6 +123,8 @@ export type BuilderThreadState = {
 	isPlanMode: boolean;
 	/** Sets the Plan toggle until the next turn starts. */
 	setPlanMode: (isPlanMode: boolean) => void;
+	/** Chat id of the project, from the chat id lookup. Undefined while it loads or after it failed. The page reads the chat cost with it. */
+	chatId: string | undefined;
 };
 
 // A shared empty list keeps the useMemo deps stable while the history
@@ -203,11 +206,15 @@ function turnErrorText(
 
 /**
  * Reads the chat of one project: its stored history hydrates the stream,
- * and every further send goes through the real turn routes. `deps` is the
- * test seam of use-builder-chat.ts; production passes nothing.
+ * and every further send goes through the real turn routes. `model` is the
+ * pick of the model menu. Every send carries it, also Retry, question
+ * answers, and approval answers. Undefined sends none: the server default
+ * runs. `deps` is the test seam of use-builder-chat.ts; production passes
+ * nothing.
  */
 export function useBuilderThread(
 	projectId: string,
+	model: string | undefined,
 	deps?: BuilderChatDeps,
 ): BuilderThreadState {
 	const { t } = useTranslation();
@@ -306,7 +313,7 @@ export function useBuilderThread(
 		// Until the created frame of the new turn arrives, the toggle and the
 		// header chip show the mode of this send.
 		setPlanModePick(mode === "plan");
-		return chat.send({ ...input, mode });
+		return chat.send({ ...input, mode, model });
 	};
 
 	// A failed stream ends with a data-turn-error frame and an error chunk.
@@ -354,7 +361,7 @@ export function useBuilderThread(
 			sendTurn({ text, files, targets, mode }),
 		// No mode, so a build turn: only a build turn pauses on an approval.
 		decideApproval: (approvalId, approved) =>
-			void chat.send({ text: "", approval: { approvalId, approved } }),
+			void chat.send({ text: "", approval: { approvalId, approved }, model }),
 		answerQuestions: ({ message, answers, files }) =>
 			sendTurn({ text: message, answers, files }),
 		cancel: chat.cancel,
@@ -386,5 +393,6 @@ export function useBuilderThread(
 		latestTurnMode,
 		isPlanMode,
 		setPlanMode: setPlanModePick,
+		chatId,
 	};
 }

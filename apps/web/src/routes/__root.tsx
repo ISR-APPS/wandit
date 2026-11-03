@@ -1,3 +1,8 @@
+/**
+ * The root route of the web app: the page head, and the providers around every page.
+ * TanStack Router builds the route tree from this file. It wraps every route in
+ * React Query, i18n, theme, auth modal, workspace, and billing modal providers.
+ */
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
@@ -55,7 +60,8 @@ function RootComponent() {
 					<RootProviders />
 				</AppI18nProvider>
 			</QueryClientProvider>
-			<TanStackRouterDevtools position="bottom-left" />
+			{/* Dev builds only. On the left it covers the cost line under the V2 chat composer. */}
+			<TanStackRouterDevtools position="bottom-right" />
 		</>
 	);
 }

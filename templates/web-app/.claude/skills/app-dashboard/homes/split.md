@@ -62,7 +62,7 @@ The list query returns no row: this is the first visit.
 - Trend: the empty frame of the chart file at its full tall height.
 - Figures: each figure shows 0 and "No earlier data".
 - Ranked parts: the rank numbers 1 to 3 with empty share tracks, and one muted sentence.
-- Newest rows: the empty frame of the style, one muted sentence, and the add action.
+- Newest rows: the empty frame, one muted sentence, and the add action.
 
 ## Rules
 

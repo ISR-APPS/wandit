@@ -3,7 +3,7 @@
  * the project grid with search and status filters. The route file imports
  * it by path. Calls the projects queries, the V1 and V2 create hooks, the
  * credits banners, and the landing key button and platform word. It owns
- * the app type and the Plan chip of a V2 create.
+ * the app type, the Plan chip, and the model menu of a V2 create.
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import type { TargetPlatform } from "@wandit/contracts";
@@ -15,6 +15,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import {
+	useBuilderModelPick,
 	useCreateAppProjectWithPrompt,
 	useV2BuilderEnabled,
 } from "@/features/app-builder";
@@ -138,10 +139,14 @@ export default function DashboardPage() {
 	const [isPlanMode, setIsPlanMode] = useState(
 		() => (promptStash.peek()?.mode ?? "plan") === "plan",
 	);
+	// The model of the first turn. null is the scope of the next new project,
+	// so the menu remembers the last pick of a create.
+	const modelPick = useBuilderModelPick(null, v2Enabled);
 	const v1Flow = useCreateProjectWithPrompt();
 	const v2Flow = useCreateAppProjectWithPrompt(
 		targetPlatform,
 		isPlanMode ? "plan" : "build",
+		modelPick.modelId,
 	);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		v2Enabled ? v2Flow : v1Flow;
@@ -246,6 +251,7 @@ export default function DashboardPage() {
 											? { value: isPlanMode, onChange: setIsPlanMode }
 											: undefined
 									}
+									modelChoice={v2Enabled ? modelPick : undefined}
 									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={restoredPrompt}

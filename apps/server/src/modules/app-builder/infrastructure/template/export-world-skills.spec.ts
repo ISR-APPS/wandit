@@ -15,6 +15,7 @@ import {
 	renderSkillMd,
 	toV2AdsText,
 	toV2FormRule,
+	toV2ThemeLine,
 } from "../../../../../scripts/export-world-skills";
 
 const tempDirs: string[] = [];
@@ -90,6 +91,27 @@ describe("toV2FormRule", () => {
 				"On valid submit dispatch data-wandit-hp and wandit:lead on document with the fields in detail.",
 			),
 		).toThrow(/data-wandit-hp/);
+	});
+});
+
+describe("toV2ThemeLine", () => {
+	it("replaces only the token map line and keeps the lines around it", () => {
+		const lines = toV2ThemeLine(
+			"x",
+			"- INK: the #1C1A17 register.\nFIXED TOKEN MAP — GROUND→--background · INK→--foreground. Never emitted CSS.\n\n- Gradients DO NOT EXIST.",
+		).split("\n");
+
+		expect(lines).toHaveLength(4);
+		expect(lines[0]).toBe("- INK: the #1C1A17 register.");
+		expect(lines[1]).toContain("src/styles/theme.json");
+		expect(lines[1]).not.toContain("--background");
+		expect(lines.slice(2)).toEqual(["", "- Gradients DO NOT EXIST."]);
+	});
+
+	it("throws when a token map line has an unknown form", () => {
+		expect(() =>
+			toV2ThemeLine("x", "FIXED TOKEN MAP: GROUND→--background"),
+		).toThrow(/world x/);
 	});
 });
 

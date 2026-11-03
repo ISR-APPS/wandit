@@ -63,7 +63,7 @@ The list query returns no row: this is the first visit.
 - Figures: each shows 0 and "No earlier data".
 - Breakdown and Trend: the empty frames of the chart file at full size.
 - Status: one line per status with 0 and an empty track. The status words teach the workflow.
-- Ranked and Activity: the empty frame of the style, one muted sentence, and the add action.
+- Ranked and Activity: the empty frame, one muted sentence, and the add action.
 
 ## Rules
 

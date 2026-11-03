@@ -549,13 +549,37 @@
 			"dailyCap": "Vous avez atteint la limite d'IA du jour. Elle se réinitialise à 00:00 UTC.",
 			"tooManyTurns": "Trop d'opérations s'exécutent en même temps. Attendez que l'une d'elles se termine.",
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
-			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
+			"modelDenied": "Ce modèle n'est pas disponible. Choisis un autre modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
 			"connectionLost": "Le chat a perdu la connexion au serveur."
 		},
 		"building": "En création",
-		"planning": "En planification"
+		"planning": "En planification",
+		"model": {
+			"title": "Choisis un modèle",
+			"chip": "Modèle : {model}",
+			"default": "Modèle par défaut",
+			"price": "{input} en entrée · {output} en sortie pour 1M de jetons",
+			"fast": "Mode rapide"
+		},
+		"cost": {
+			"line": "Coût du chat : {usd} · {credits} · {turns}",
+			"credits": {
+				"one": "{count} crédit",
+				"other": "{count} crédits"
+			},
+			"turns": {
+				"one": "{count} opération",
+				"other": "{count} opérations"
+			},
+			"byModel": "Coût par modèle",
+			"row": "{model} : {usd} · {requests}",
+			"requests": {
+				"one": "{count} requête",
+				"other": "{count} requêtes"
+			}
+		}
 	},
 	"publish": {
 		"cta": "Publier",
@@ -704,7 +728,8 @@
 			"agent": "Opération",
 			"restore": "Restauration",
 			"wip": "Travail en cours",
-			"merge": "Fusion"
+			"merge": "Fusion",
+			"theme": "Thème"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",
@@ -714,6 +739,176 @@
 		"restoreTitle": "Restaurer cette version ?",
 		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé. Tes données et ta base de données ne changent pas.",
 		"cancel": "Annuler"
+	},
+	"theme": {
+		"open": "Thème",
+		"openHint": "Change les couleurs, les polices et la mise en page de ton app. L’agent ne travaille pas.",
+		"oldTemplate": "Cette app utilise un ancien modèle sans fichier de thème. Demande à l’agent de changer son style.",
+		"unavailable": "Le thème n’est pas disponible. Attends la première version, puis réessaie.",
+		"title": "Thème",
+		"description": "Chaque changement s’affiche tout de suite dans l’aperçu. Enregistrer l’écrit dans ton app comme une nouvelle version.",
+		"close": "Fermer le thème",
+		"unsaved": "Non enregistré",
+		"turnRunning": "L’agent travaille. Tu pourras changer le thème quand il aura fini.",
+		"random": "Au hasard",
+		"reset": "Rétablir",
+		"save": "Enregistrer",
+		"saving": "Enregistrement…",
+		"saved": "Thème enregistré : {name}",
+		"fromLook": "Celle du look",
+		"brandColor": "Couleur de marque",
+		"brandColorHint": "Une couleur hex, par exemple #1f6098.",
+		"brandColorInvalid": "Écris 6 chiffres hex, par exemple #1f6098.",
+		"brandColorPicker": "Choisir une couleur de marque",
+		"borderValue": "{value} px",
+		"families": {
+			"soft": "Doux",
+			"crisp": "Nets",
+			"warm": "Chaleureux",
+			"pop": "Pop"
+		},
+		"fontGroups": {
+			"display": "Polices de titre",
+			"body": "Polices de texte"
+		},
+		"fields": {
+			"look": "Look",
+			"mode": "Mode",
+			"primary": "Couleur principale",
+			"font": "Police",
+			"displayFont": "Police des titres",
+			"scale": "Taille",
+			"radius": "Arrondis",
+			"border": "Bordure",
+			"shadow": "Ombre",
+			"shadowStyle": "Style d’ombre",
+			"content": "Largeur du contenu",
+			"sidebarStyle": "Style de la barre latérale",
+			"sidebarCollapse": "Barre latérale réduite",
+			"sidebarStart": "Barre latérale au chargement",
+			"sidebarTone": "Couleur de la barre latérale",
+			"activeItem": "Élément actif",
+			"header": "En-tête",
+			"userMenu": "Menu utilisateur",
+			"frame": "Cadre du contenu",
+			"icons": "Style des icônes",
+			"navIcon": "Icônes du menu"
+		},
+		"options": {
+			"mode": {
+				"light": "Clair",
+				"dark": "Sombre"
+			},
+			"scale": {
+				"xs": "XS",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"radius": {
+				"none": "Aucun",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"shadow": {
+				"none": "Aucune",
+				"sm": "S",
+				"md": "M",
+				"lg": "L"
+			},
+			"shadowStyle": {
+				"soft": "Douce",
+				"hard": "Dure"
+			},
+			"content": {
+				"full": "Pleine",
+				"centered": "Centrée"
+			},
+			"sidebarStyle": {
+				"inset": "Encart",
+				"classic": "Classique",
+				"floating": "Flottante"
+			},
+			"sidebarCollapse": {
+				"icons": "Icônes",
+				"rail": "Rail",
+				"offcanvas": "Masquée"
+			},
+			"sidebarStart": {
+				"open": "Ouverte",
+				"collapsed": "Réduite"
+			},
+			"sidebarTone": {
+				"canvas": "Page",
+				"tint": "Teinte",
+				"contrast": "Contraste",
+				"brand": "Marque"
+			},
+			"activeItem": {
+				"pill": "Pilule",
+				"bar": "Barre",
+				"block": "Bloc",
+				"outline": "Contour",
+				"quiet": "Discret"
+			},
+			"header": {
+				"bar": "Barre",
+				"blur": "Flou",
+				"plain": "Simple"
+			},
+			"userMenu": {
+				"sidebar-footer": "Bas de barre",
+				"sidebar-header": "Haut de barre",
+				"header": "En-tête"
+			},
+			"frame": {
+				"outlined": "Contour",
+				"flat": "Plat"
+			},
+			"icons": {
+				"thin": "Fin",
+				"light": "Léger",
+				"regular": "Normal",
+				"bold": "Gras",
+				"fill": "Plein",
+				"duotone": "Duo"
+			},
+			"navIcon": {
+				"plain": "Simples",
+				"soft": "Douces",
+				"solid": "Pleines",
+				"color": "Couleurs"
+			}
+		},
+		"hues": {
+			"red": "Rouge",
+			"orange": "Orange",
+			"amber": "Ambre",
+			"yellow": "Jaune",
+			"lime": "Citron vert",
+			"green": "Vert",
+			"emerald": "Émeraude",
+			"teal": "Bleu sarcelle",
+			"cyan": "Cyan",
+			"sky": "Bleu ciel",
+			"blue": "Bleu",
+			"indigo": "Indigo",
+			"violet": "Violet",
+			"purple": "Pourpre",
+			"fuchsia": "Fuchsia",
+			"pink": "Rose",
+			"rose": "Rose framboise"
+		},
+		"errors": {
+			"turnRunning": "L’agent travaille. Enregistre le thème quand il aura fini.",
+			"turnWaiting": "L’agent attend ta réponse dans le chat. Réponds, puis enregistre le thème.",
+			"previewNotRunning": "Ton app ne tourne pas. Réveille l’aperçu, puis enregistre à nouveau.",
+			"headMoved": "Ton app a reçu une nouvelle version pendant tes changements. Le panneau l’a chargée. Enregistre à nouveau.",
+			"changedElsewhere": "Le thème a changé ailleurs. Tes changements n’ont pas été enregistrés."
+		}
 	},
 	"mock": {
 		"notWired": "Cette action n'est pas encore connectée."

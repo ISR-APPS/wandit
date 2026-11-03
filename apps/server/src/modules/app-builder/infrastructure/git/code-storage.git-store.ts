@@ -4,10 +4,12 @@
  * the org's private key — no platform-wide token ever leaves this class.
  * Called by `commitTurn`, the restorer, and the project-create flow. The
  * `mobile-build` task gets a "read" credential here to fetch one commit.
+ * The theme service reads one committed file through `readFile`.
  */
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type {
 	GitCredentialAccess,
+	GitFileReader,
 	GitStore,
 } from "../../domain/ports/git-store";
 import { requireV2Env, V2_ENV, type V2EnvSource } from "../env/v2-env";
@@ -54,6 +56,9 @@ export type CodeStorageGitStoreOptions = {
 const REQUEST_TIMEOUT_MS = 30_000;
 // A repo write is a control-plane call; 300 s covers the API round trip.
 const REPO_WRITE_TOKEN_TTL_SECONDS = 300;
+// One read token serves every retry: 4 attempts of up to 30 s and 3 waits
+// of up to 60 s fit in 300 s. The token never leaves the API process.
+const FILE_READ_TOKEN_TTL_SECONDS = 300;
 // At most 4 attempts per call: one try plus three retries.
 const MAX_ATTEMPTS = 4;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
@@ -77,7 +82,7 @@ const PUSH_MAIN_REFS: CodeStorageRefRule[] = [
 
 /** `GitStore` over the code.storage REST API. */
 @Injectable()
-export class CodeStorageGitStore implements GitStore {
+export class CodeStorageGitStore implements GitStore, GitFileReader {
 	private readonly logger = new Logger(CodeStorageGitStore.name);
 
 	constructor(
@@ -168,6 +173,34 @@ export class CodeStorageGitStore implements GitStore {
 		}
 	}
 
+	/**
+	 * `GET /repos/file` with a `git:read` JWT: the token cannot change the
+	 * repository. A 404 means no repository or no file at `ref`.
+	 */
+	async readFile(
+		projectId: string,
+		ref: string,
+		path: string,
+	): Promise<Uint8Array | null> {
+		const token = await this.mint(["git:read"], {
+			repoName: codeStorageRepoName(projectId),
+			ttlSeconds: FILE_READ_TOKEN_TTL_SECONDS,
+		});
+		const query = new URLSearchParams({ path, ref });
+		const response = await this.request("GET", `/repos/file?${query}`, token);
+		if (response.status === 404) {
+			return null;
+		}
+		if (!response.ok || response.body === null) {
+			throw new GitStoreError(
+				`code.storage file read failed (${response.status})`,
+				response.status,
+				response.detail,
+			);
+		}
+		return response.body;
+	}
+
 	/** `iss`/`sub` fixed claims plus the org's signing key from env. */
 	private async mint(
 		scopes: CodeStorageScope[],
@@ -209,14 +242,20 @@ export class CodeStorageGitStore implements GitStore {
 	 * One API call with retries. A 429 waits `Retry-After` (capped at 60 s)
 	 * or the backoff when the header is missing; a 5xx or a network error
 	 * waits 1 s, 2 s, then 4 s. After 4 attempts the call throws a
-	 * `GitStoreError` whose detail never carries the JWT.
+	 * `GitStoreError` whose detail never carries the JWT. `body` holds the
+	 * bytes of a successful GET, else null.
 	 */
 	private async request(
-		method: "POST" | "DELETE",
+		method: "GET" | "POST" | "DELETE",
 		path: string,
 		token: string,
 		init?: { body: string },
-	): Promise<{ ok: boolean; status: number; detail: string | null }> {
+	): Promise<{
+		ok: boolean;
+		status: number;
+		detail: string | null;
+		body: Uint8Array | null;
+	}> {
 		const url = `${this.apiBaseUrl()}${path}`;
 		let lastError: GitStoreError | null = null;
 
@@ -231,10 +270,15 @@ export class CodeStorageGitStore implements GitStore {
 					body: init?.body,
 					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 				});
-				const detail = await readProblemDetail(response);
+				// A successful GET answers file bytes. Every other answer can carry a problem body.
+				const body =
+					method === "GET" && response.ok
+						? new Uint8Array(await response.arrayBuffer())
+						: null;
+				const detail = body === null ? await readProblemDetail(response) : null;
 				// A 429 or a 5xx is retryable; anything else is a final answer.
 				if (response.status !== 429 && response.status < 500) {
-					return { ok: response.ok, status: response.status, detail };
+					return { body, detail, ok: response.ok, status: response.status };
 				}
 				lastError = new GitStoreError(
 					`code.storage ${method} ${path} answered ${response.status}`,

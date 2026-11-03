@@ -3,49 +3,29 @@
 Operator steps for the V2 app builder. Each entry names the issue that
 added it. WANDIT-176 adds the staging alpha entries.
 
-## Staging-only limits to restore before V2 opens on production
+## Staging limits (restored on 2026-10-17)
 
-The staging tests lift these limits, so a tester on any plan can use the
-features without a stop. These values also ship to `main`, but they have
-no effect there: on the Railway environment `production`,
-`closeV2BuilderInProduction` in `packages/env/src/server.ts` keeps V2
-off, so the API never loads the app-builder module. Before you remove
-that rule, restore every value of this list. The refusal paths stay in
-the code, so the restore changes only the numbers. Each constant has a
-`STAGING ONLY` comment; remove it with the restore.
+The event tests lifted these limits on staging. Zack restored the
+production values on every environment, so staging tests show the real
+stops and upgrade prompts. Do not lift them again without a gate on who
+can sign in.
 
-- `BACKEND_DEFAULTS.backendsPerPlan` in
-  `apps/server/src/modules/app-builder/domain/backend-lifecycle.ts`.
-  Staging: 1000 on every plan. Production: starter 0, pro 1, business
-  1000. Reason: a tester on any plan can add a backend to a V2 project
-  (403 `BACKEND_LIMIT_REACHED` before).
-- `DEVICE_MINUTES_PER_PLAN` in
-  `apps/server/src/modules/app-builder/domain/device-minutes.ts`.
-  Staging: 100000 minutes per month on every plan. Production: starter 0,
-  pro 60, business 180. Reason: a tester on any plan can start the
-  in-browser device of Appetize (402 `DEVICE_MINUTES_EXHAUSTED` before).
-- `LLM_PROXY_DAILY_USER_CAP_USD` in
-  `apps/server/src/modules/app-builder/infrastructure/redis/llm-spend-counters.ts`.
-  Staging: 100000 USD of model cost per user per UTC day. Production: 50.
-  Reason: two testers on Opus 5.5 Fast reached $50 on 2026-10-06, and
-  every next turn failed with 402 `V2_DAILY_CAP_REACHED`.
-- `PROJECT_CREATE_LIMIT` and `PROJECT_CREATE_IP_LIMIT` in
-  `apps/server/src/modules/app-builder/presentation/http/controllers/app-projects.controller.ts`.
-  Staging: 50 creates per user and 500 per IP per day. Production: 10 and
-  30. Reason: an event room shares one NAT IP, and Zack rehearses on his
-  own account (429 `RATE_LIMITED` before, with a Retry-After of up to 24 h).
-- `TURN_CREATE_IP_LIMIT` in
-  `apps/server/src/modules/app-builder/presentation/http/controllers/turns.controller.ts`.
-  Staging: 2000 turn posts per IP per 10 min. Production: 90. Reason: every
-  message, Approve, Deny, and answer is one turn post, so about 18 active
-  people on one IP reached 90.
-- `PUBLISH_IP_LIMIT` in
-  `apps/server/src/modules/app-builder/presentation/http/controllers/publish.controller.ts`.
-  Staging: 300 publishes per IP per hour. Production: 30. Reason: an event
-  room shares one NAT IP, and every attendee can publish.
-- The signup grant in the admin app (Product controls). Staging: on, with
-  the amount that Zack picks for the event. Production: decide before the
-  launch. Reason: staging gave a new account 0 credits on 2026-10-06.
+- `BACKEND_DEFAULTS.backendsPerPlan`: starter 0, pro 1, business 1000.
+- `DEVICE_MINUTES_PER_PLAN`: starter 0, pro 60, business 180.
+- `LLM_PROXY_DAILY_USER_CAP_USD`: 50.
+- `PROJECT_CREATE_LIMIT` 10 and `PROJECT_CREATE_IP_LIMIT` 30 per day.
+- `TURN_CREATE_IP_LIMIT`: 90 per 10 min.
+- `PUBLISH_IP_LIMIT`: 30 per hour.
+- The signup grant in the admin app (Product controls): decide per
+  environment. Each new account gets it, so it is a cost per sign-up.
+
+## Before production
+
+These limits are still lifted. Restore them before V2 goes to production.
+
+- Model picks: every priced model runs on every plan. Restore a plan rule
+  for model picks: the turn check (`assertPickableModel`) and the token
+  `model` in the LLM proxy.
 
 ## Harness host deploys (audit P0-05)
 
@@ -117,8 +97,11 @@ releases the lock, and starts the next queued turn.
    the daily LLM cap ("You reached today's AI limit"): `DEL
    llm:spend:user:<userId>:<yyyymmdd UTC>`. Grant credits does not reset
    this counter.
-7. Every turn of every user fails at the same time: check the AI Gateway
-   balance first, then Redis `INFO persistence`
+7. Every turn of every user fails at the same time: check the balance of
+   the upstream of `V2_DEFAULT_MODEL` first. For a `paperinstruments/`
+   model it is Paper Instruments (Sentry "LLM upstream refused the
+   account", row reason `upstream_429`, body `insufficient_quota`); else
+   the AI Gateway. Then check Redis `INFO persistence`
    (`rdb_last_bgsave_status`), then the `harness-host` deploy status in
    Railway.
 

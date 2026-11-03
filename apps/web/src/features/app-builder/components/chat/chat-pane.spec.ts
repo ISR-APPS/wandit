@@ -8,6 +8,7 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
+import { DAILY_CAP_TURN_ERROR_CODE } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
@@ -166,6 +167,12 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onAnswerQuestions,
 						isPlanMode: false,
 						onPlanModeChange: () => {},
+						// No model list: the menu hides, as while the list loads.
+						modelPick: {
+							models: undefined,
+							modelId: undefined,
+							setModelId: vi.fn(),
+						},
 						onCancel: () => {},
 						errorText: null,
 						onReconnect: null,
@@ -241,6 +248,35 @@ describe("ChatPane", () => {
 		const busy = renderPane({ messages: [message], isSending: true });
 		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 		expect(busy.onDecideApproval).not.toHaveBeenCalled();
+	});
+
+	// A daily cap resend fails until 00:00 UTC. A no-credits stop can go
+	// again after a top-up; this pane has no session, so no balance lock.
+	it.each([
+		{ code: "SANDBOX_LOST", retry: "shows" },
+		{ code: DAILY_CAP_TURN_ERROR_CODE, retry: "hides" },
+		{ code: "stopped_no_credits", retry: "shows" },
+	])("$retry Retry on a failed reply with code $code", ({ code, retry }) => {
+		renderPane({
+			messages: [
+				{ id: "u1", role: "user", parts: [{ type: "text", text: "Build it" }] },
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{
+							type: "data-error",
+							id: "e1",
+							data: { code, message: "Turn stopped", retryable: false },
+						},
+					],
+				},
+			],
+		});
+		expect(screen.getByRole("alert")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Retry" }) !== null).toBe(
+			retry === "shows",
+		);
 	});
 
 	it("locks the composer while the chat id is unknown", () => {

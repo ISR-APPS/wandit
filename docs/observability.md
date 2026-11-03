@@ -84,7 +84,7 @@ Before this branch, these errors **vanished silently** in production:
 
 ## What we deliberately did NOT add (and when to revisit)
 
-1. **Langfuse / LLM tracing platform** — Sentry's AI Agents view covers "what did the agent do" for now. Adopt Langfuse when you're debugging *quality* ("why is the output bad?") rather than *failures*, or when you want prompt A/B history. Free tier exists; ~an afternoon to wire.
+1. **Langfuse for the V1 chat agent.** The V2 builder proxy already sends to Langfuse (section below). The V1 chat stays on Sentry AI Agents.
 2. **Evals** — automated tests for AI output quality (run N briefs through the builder, score results, catch regressions when you change a prompt/model). You don't need them pre-launch. Get them the first time you're scared to change a prompt. Start with Langfuse datasets or AI SDK evals then.
 3. **Ad-blocker tunnel** — 10–30% of browser events get eaten by ad-blockers. Fix is a small `/api/tunnel` proxy endpoint (planned increment; everything works without it — just know browser numbers under-count).
 4. **Sentry uptime/cron monitors** — free tier includes 1 uptime + 1 cron monitor; point the uptime one at `api.wandit.app/api/health` when you're in the dashboard anyway (~2 minutes).
@@ -95,6 +95,31 @@ Before this branch, these errors **vanished silently** in production:
 1. **Server/worker/edge stack traces aren't source-mapped in Sentry yet** — the SPAs and Trigger tasks are. Node runs with `--enable-source-maps` so server stacks still show real TS lines in the error text; a `sentry-cli` upload step is the future increment for perfect mapping.
 2. **A boot crash from a missing env var (e.g. `DATABASE_URL`) is not captured** — env validation runs before Sentry initializes. Railway's deploy log is where you'd see it, same as today.
 3. **Browser events under-count 10–30%** until the ad-blocker tunnel increment lands (see the deferred list).
+
+## LLM calls of the V2 builder (Langfuse)
+
+The API's LLM proxy sends one Langfuse generation for each model call of a builder turn. A generation holds the full request (system, messages, tools), the full answer (text, thinking, tool calls), the model, the token counts, the cost from our price table, the latency, and the status.
+
+- One trace per turn. The trace id is `builder_turns.id` without dashes. Search for it in Tracing.
+- One session per chat (`chatId`). An older run token uses the project id.
+- Not sent: `count_tokens`, and the calls the proxy refuses (bad token, model denied, rate limit, caps). The `llm_proxy_requests` row keeps them.
+- **No keys = off.** No network call, no log. This is the same contract as Sentry and PostHog.
+- A failed export logs one warn with the turn id, the run id, and the status. It never logs the payload or the keys. A streamed or JSON answer never waits for Langfuse. On a failed upstream fetch, the export can delay the 502 by a few ms.
+
+### Turn it on (local dev)
+
+1. Open https://cloud.langfuse.com (EU region). Create the organization `wandit` and the project `wandit-dev`.
+2. Project settings → API keys → create a key pair.
+3. Add `LANGFUSE_PUBLIC_KEY=pk-lf-...` and `LANGFUSE_SECRET_KEY=sk-lf-...` to `apps/server/.env`. Do not set `LANGFUSE_BASE_URL` for the EU region.
+4. Restart the API. `tsx watch` does not reload `.env`.
+5. Run one builder turn. In Langfuse, open Tracing and find the turn id without dashes.
+
+### Privacy: read before staging or production
+
+- Langfuse gets the full prompts: user code, chat text, tool output, and any secret the agent reads (for example the `.env` of a user app). Langfuse becomes a sub-processor of user data.
+- Before you set the keys on staging, record the decision in `docs/v2/DECISIONS.md` D8 and name Langfuse in the privacy text. Use a separate Langfuse project for each environment. Set the keys only on the API service.
+- Production: the V2 builder is off there (`closeV2BuilderInProduction`), so the proxy sends nothing.
+- Hobby plan: 50k units and 1,000 requests per minute. One model call is one unit and one request.
 
 ## Product analytics (PostHog) — the other half
 

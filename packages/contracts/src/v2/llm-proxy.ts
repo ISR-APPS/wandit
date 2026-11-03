@@ -32,6 +32,10 @@ export const llmProxyTokenClaimsSchema = z.object({
 	// chat binding for it, so a request on an older connection of the chat is
 	// billed to the turn that runs now. Absent on a token minted before.
 	chatId: uuidSchema.optional(),
+	// Model id of the turn, in allow-list form, for example
+	// `anthropic/claude-opus-5`. The proxy allows it on top of the plan
+	// list. Absent on a token minted before the model picker.
+	model: z.string().min(1).optional(),
 });
 
 /** TypeScript run-token claims type. */
@@ -39,10 +43,10 @@ export type LlmProxyTokenClaims = z.infer<typeof llmProxyTokenClaimsSchema>;
 
 /**
  * The turn a chat runs now, as the proxy bills it: the claims of that
- * turn's own token. The builder writes it to Redis at the turn start and
- * deletes it at the turn end. The Vercel egress proxy keeps the token rule
- * of a kept-alive connection, so a continued Claude Code process still sends
- * the token of an older turn of the same chat.
+ * turn's own token, with its `model`. The builder writes it to Redis at the
+ * turn start and deletes it at the turn end. The Vercel egress proxy keeps
+ * the token rule of a kept-alive connection, so a continued Claude Code
+ * process still sends the token of an older turn of the same chat.
  */
 export const llmProxyChatBindingSchema = llmProxyTokenClaimsSchema.omit({
 	chatId: true,
@@ -103,6 +107,22 @@ export const llmModelPriceSchema = z.object({
 /** TypeScript price-row type. */
 export type LlmModelPrice = z.infer<typeof llmModelPriceSchema>;
 
+/**
+ * Answer of `GET /api/v2/models`: the models the builder dropdown offers.
+ * Every row of the server price table is pickable; a turn or project
+ * create refuses any other id with 400 `V2_MODEL_DENIED`.
+ */
+export const builderModelsResponseSchema = z.object({
+	// `V2_DEFAULT_MODEL` of the deploy: a turn without a `model` runs on it.
+	// Null when the deploy sets none.
+	defaultModel: z.string().min(1).nullable(),
+	// The price rows, in USD per million tokens, in server table order.
+	models: z.array(llmModelPriceSchema),
+});
+
+/** TypeScript models-list answer. */
+export type BuilderModelsResponse = z.infer<typeof builderModelsResponseSchema>;
+
 /** Validates a plan → model-id map; every billing plan must appear. */
 export const llmProxyModelAllowListSchema = z.record(
 	billingPlanIdSchema,
@@ -127,7 +147,8 @@ export const llmProxyAllowedModels = {
 
 /**
  * Model ids a plan may send to the proxy: the deploy's `V2_DEFAULT_MODEL`
- * plus the plan's paid list. The proxy rejects any other named model.
+ * plus the plan's paid list. The proxy also allows the token `model` of
+ * the turn. It rejects any other named model.
  */
 export function allowedLlmModels(
 	plan: BillingPlanId,

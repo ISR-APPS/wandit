@@ -72,6 +72,42 @@ describe("upstreamFor", () => {
 		}
 	});
 
+	it("sends a paperinstruments/ model to Paper with its own key and the bare id, also behind the gateway", () => {
+		const gatewayEnv: LlmProxyEnv = {
+			...env,
+			PAPERINSTRUMENTS_API_KEY: "paper-key",
+			V2_LLM_UPSTREAM_BASE_URL: "https://ai-gateway.vercel.sh",
+		};
+
+		const result = upstreamFor(
+			"paperinstruments/ultramarine-1-flash",
+			gatewayEnv,
+		);
+
+		expect(result).toEqual({
+			ok: true,
+			upstream: {
+				baseUrl: "https://api.paperinstruments.com",
+				provider: "paperinstruments",
+				upstreamModelId: "ultramarine-1-flash",
+				apiKey: "paper-key",
+				authStyle: "bearer",
+			},
+		});
+	});
+
+	it("never falls back to another provider key for a Paper model", () => {
+		const result = upstreamFor("paperinstruments/ultramarine-1-flash", {
+			...env,
+			V2_LLM_UPSTREAM_BASE_URL: "https://ai-gateway.vercel.sh",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			missingEnv: "PAPERINSTRUMENTS_API_KEY",
+		});
+	});
+
 	it("reports the missing env value when no key is set", () => {
 		const result = upstreamFor("anthropic/claude-sonnet-5", {});
 

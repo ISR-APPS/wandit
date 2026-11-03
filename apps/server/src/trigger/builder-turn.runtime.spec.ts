@@ -6,6 +6,11 @@ import type {
 	LlmProxyChatBinding,
 	SupabaseProjectStatus,
 } from "@wandit/contracts";
+import {
+	type AppThemeOrigin,
+	appThemeFileSchema,
+	buildAppThemeFile,
+} from "@wandit/contracts/v2/app-theme";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +20,10 @@ import {
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
 import type { AuditRecord } from "../modules/app-builder/application/services/audit-events.service";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import {
+	dealThemeCards,
+	withThemeCardOptions,
+} from "../modules/app-builder/domain/app-theme-deal";
 import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
 import type { HarnessStreamEvent } from "../modules/app-builder/domain/ports/builder-harness";
 import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
@@ -37,6 +46,10 @@ import type { ProjectCostCapsRow } from "../modules/app-builder/infrastructure/p
 import type { TurnProjectRow } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../modules/app-builder/infrastructure/redis/fake-turn-lock";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
+import {
+	APP_THEME_FILE_PATH,
+	appThemeFileText,
+} from "../modules/app-builder/infrastructure/sandbox/app-theme-file";
 import {
 	FAKE_WORKSPACE_DIR,
 	FakeSandboxProvider,
@@ -173,14 +186,17 @@ const PENDING_PLAN: HarnessPendingInteraction = {
 
 /**
  * The session row a paused turn leaves behind for the answer turn. `mode`
- * is the mode of the paused turn.
+ * is the mode of the paused turn, `model` the model it ran on.
  */
 function pausedSessionRow(
 	pending: HarnessPendingInteraction[],
 	mode: BuilderTurnMode = "build",
+	model: string | null = null,
 ): BuilderSessionRow {
-	// SAFETY: the runtime reads only resumeState off the session row.
+	// SAFETY: the runtime reads only resumeState, model, and updatedAt off the
+	// session row; it treats a missing updatedAt as null.
 	return {
+		model,
 		resumeState: {
 			harness: "claude_code",
 			mode,
@@ -1951,6 +1967,7 @@ describe("runBuilderTurn", () => {
 	// at the cap. The harness then ends with an error chunk, or ends clean,
 	// before the 30 s tick. A turn whose last request only crossed the cap
 	// had no refusal. The daily cap writes its own code: the web hides Retry.
+	// A run cap set by the balance stops as no credits, so the web asks for an upgrade.
 	it.each([
 		{
 			name: "an error chunk after a run cap refusal",
@@ -1962,16 +1979,30 @@ describe("runBuilderTurn", () => {
 					type: "error" as const,
 				},
 			],
+			balance: 50_000,
 			capReason: "run_cap" as const,
+			capUsd: 0.32,
 			errorCode: "stopped_project_cap",
 			status: "stopped_project_cap",
 		},
 		{
 			name: "a clean end after a run cap refusal",
 			events: [],
+			balance: 50_000,
 			capReason: "run_cap" as const,
+			capUsd: 0.32,
 			errorCode: "stopped_project_cap",
 			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end after a run cap refusal at the balance",
+			events: [],
+			// 300 cc = 3 credits × $0.032 = $0.096, below the per-turn cap.
+			balance: 300,
+			capReason: "run_cap" as const,
+			capUsd: 0.096,
+			errorCode: "stopped_no_credits",
+			status: "stopped_no_credits",
 		},
 		{
 			name: "an error chunk after a daily cap refusal",
@@ -1983,25 +2014,32 @@ describe("runBuilderTurn", () => {
 					type: "error" as const,
 				},
 			],
+			balance: 50_000,
 			capReason: "daily_cap" as const,
+			capUsd: 0.32,
 			errorCode: "daily_cap",
 			status: "stopped_project_cap",
 		},
 		{
 			name: "a clean end with no refusal",
 			events: [],
+			balance: 50_000,
 			capReason: undefined,
+			capUsd: 0.32,
 			errorCode: null,
 			status: "succeeded",
 		},
 	])("ends $status when the harness ends with $name, before a tick", async ({
 		events,
+		balance,
 		capReason,
+		capUsd,
 		errorCode,
 		status,
 	}) => {
-		// 1000 cc = 10 credits; the spend of 320_000 micros is at that cap.
+		// 1000 cc = 10 credits = $0.32; the spend of 320_000 micros is at that cap.
 		const world = makeWorld({
+			balances: [balance],
 			capReason,
 			caps: fakeCapsRow(1000),
 			runSpend: [320_000],
@@ -2012,6 +2050,8 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
+		// The run cap is the lower of the per-turn cap and the balance at start.
+		expect(world.minted[0]?.capUsd).toBeCloseTo(capUsd);
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
 		expect(done?.type === "done" && done.data.status).toBe(status);
 		const error = world.stream
@@ -2739,7 +2779,8 @@ describe("runBuilderTurn", () => {
 	});
 
 	it("falls back to the default per-turn cap when the project has no caps row", async () => {
-		const world = makeWorld({ caps: null });
+		// The balance is above the default cap, so the default cap sets the run cap.
+		const world = makeWorld({ balances: [2_000_000], caps: null });
 		const { controller, input } = makeInput();
 
 		await runBuilderTurn(world.deps, input, controller.signal);
@@ -3195,6 +3236,41 @@ describe("runBuilderTurn", () => {
 			signal: expect.any(AbortSignal),
 			toolResults: [],
 		});
+	});
+
+	// The paused process keeps its start model. A token and a binding with the
+	// new pick made the proxy refuse that model with 403, and the turn failed.
+	it("continues a paused turn on the paused model, not on a new pick", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow(
+			[PENDING_APPROVAL],
+			"build",
+			"anthropic/claude-opus-5",
+		);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_approval",
+		});
+		world.turns.row = fakeTurnRow({
+			model: "anthropic/claude-haiku-4-5",
+			spec: {
+				approval: { approvalId: "appr-1", approved: true },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.minted[0]?.model).toBe("anthropic/claude-opus-5");
+		expect(world.harness.resumeCalls[0]?.input.model).toBe(
+			"anthropic/claude-opus-5",
+		);
+		expect(world.turns.usageCalls[0]?.usage.model).toBe(
+			"anthropic/claude-opus-5",
+		);
 	});
 
 	// The SDK first answers the paused call with its old ids. Only the paused
@@ -4274,6 +4350,302 @@ describe("runBuilderTurn", () => {
 			const done = world.stream.eventsOf(TURN_ID).at(-1);
 			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 			expect(world.promoted).toHaveLength(1);
+		});
+	});
+
+	describe("theme file of a web-app@1.1.0 project", () => {
+		const THEME_PATH = `${FAKE_WORKSPACE_DIR}/src/styles/theme.json`;
+		/** A paused ask_user call with one theme question, as the adapter stores it: no options yet. */
+		const PENDING_THEME_QUESTION: Extract<
+			HarnessPendingInteraction,
+			{ kind: "question" }
+		> = {
+			kind: "question",
+			questions: [
+				{
+					id: "question-0",
+					kind: "free-text",
+					options: [],
+					question: "Which look?",
+					theme: { business: "restaurant" },
+				},
+			],
+			tool: "ask_user",
+			toolCallId: "call-theme",
+		};
+		const themedProject = () =>
+			fakeProjectRow({ templateVersion: "web-app@1.1.0" });
+		/** The theme.json in the sandbox, parsed with the host schema. */
+		const themeFileIn = async (world: ReturnType<typeof makeWorld>) => {
+			const sandbox = await world.sandboxes.getOrCreate(
+				PROJECT_ID,
+				WARM_SANDBOX_OPTIONS,
+			);
+			const bytes = await sandbox.readFile(THEME_PATH);
+			return bytes === null
+				? null
+				: appThemeFileSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
+		};
+
+		/** A valid theme.json text with `origin`, on a deal of another business and project. */
+		const themeTextOf = (origin: AppThemeOrigin) =>
+			appThemeFileText(
+				buildAppThemeFile({
+					origin,
+					selection: dealThemeCards({
+						business: "medical",
+						projectId: "another-project",
+						round: 0,
+					})[0].selection,
+				}),
+			);
+		/** The theme.json text in the sandbox; "" when the file is missing. */
+		const themeTextIn = async (world: ReturnType<typeof makeWorld>) => {
+			const sandbox = await world.sandboxes.getOrCreate(
+				PROJECT_ID,
+				WARM_SANDBOX_OPTIONS,
+			);
+			const bytes = await sandbox.readFile(THEME_PATH);
+			return bytes === null ? "" : new TextDecoder().decode(bytes);
+		};
+
+		// The HEAD column is the theme.json of the last commit; null is a repository with no commit.
+		it.each([
+			["a template file", themeTextOf("template"), null, "host", false],
+			["a host file", themeTextOf("host"), null, "host", true],
+			["a user file", themeTextOf("user"), null, "user", true],
+			["a broken file", '{"version":1}', null, "host", false],
+			// A dead worker ran no turn-end guard: a changed file that parses must not win.
+			[
+				"a changed file with the user theme in HEAD",
+				themeTextOf("host"),
+				themeTextOf("user"),
+				"user",
+				false,
+			],
+		] as const)("before the turn, %s: a HEAD theme wins, and only a theme the host never chose gets a deal", async (_label, text, head, origin, keepsBytes) => {
+			const world = makeWorld({ project: themedProject() });
+			world.harness.events = happyEvents();
+			world.sandboxes.respondTo(
+				"git",
+				head === null
+					? {
+							exitCode: 128,
+							stderr: "fatal: invalid object name 'HEAD'.",
+							stdout: "",
+						}
+					: { exitCode: 0, stderr: "", stdout: head },
+			);
+			const sandbox = await world.sandboxes.getOrCreate(
+				PROJECT_ID,
+				WARM_SANDBOX_OPTIONS,
+			);
+			await sandbox.writeFiles([{ content: text, path: THEME_PATH }]);
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			const after = await themeTextIn(world);
+			expect(after === text).toBe(keepsBytes);
+			expect(appThemeFileSchema.parse(JSON.parse(after)).origin).toBe(origin);
+		});
+
+		it("pauses a theme question with 3 look cards in the envelope and on the card", async () => {
+			const world = makeWorld({ project: themedProject() });
+			world.harness.events = happyEvents();
+			world.harness.unfinishedTurn = true;
+			world.harness.pendingOnSuspend = [PENDING_THEME_QUESTION];
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			// The answer turn reads the picked id from the saved envelope.
+			const saved = world.sessions.saved[0]?.input.resumeState.pending[0];
+			const savedQuestion =
+				saved?.kind === "question" ? saved.questions[0] : undefined;
+			expect(savedQuestion?.kind).toBe("single-choice");
+			const savedIds = savedQuestion?.options.map((option) => option.id);
+			expect(savedIds).toHaveLength(3);
+			type ThemeCardChunk = {
+				data?: {
+					options?: {
+						id: string;
+						theme?: { selection: { source: { look?: string } } };
+					}[];
+				};
+				type?: string;
+			};
+			// SAFETY: the spec wrote the chunks; the theme question is the only data-question part.
+			const card = world.stream
+				.eventsOf(TURN_ID)
+				.filter((e) => e.type === "part")
+				.map((e) => e.data as ThemeCardChunk)
+				.find((chunk) => chunk.type === "data-question");
+			// Each tray option carries the theme of the look that its id names.
+			expect(
+				card?.data?.options?.map(
+					(option) => `look:${option.theme?.selection.source.look}`,
+				),
+			).toEqual(savedIds);
+		});
+
+		it("writes the picked card before the agent resumes and notes it in the answer", async () => {
+			const world = makeWorld({ project: themedProject() });
+			// A warm sandbox keeps the bridge, so the answer goes as a tool result.
+			await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+			const paused = {
+				...PENDING_THEME_QUESTION,
+				questions: PENDING_THEME_QUESTION.questions.map((question) =>
+					withThemeCardOptions(PROJECT_ID, question),
+				),
+			};
+			const picked = paused.questions[0]?.options[1]?.id ?? "";
+			world.sessions.row = pausedSessionRow([paused]);
+			world.turns.row = fakeTurnRow({
+				spec: {
+					answers: [
+						{
+							action: "answered",
+							files: [],
+							optionIds: [picked],
+							questionId: "question-0",
+							text: "",
+							toolCallId: "call-theme",
+						},
+					],
+					attachments: [],
+					composer: null,
+					message: "",
+				},
+			});
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			const file = await themeFileIn(world);
+			expect(file?.origin).toBe("user");
+			expect(
+				`look:${file?.selection.source.kind === "look" ? file.selection.source.look : ""}`,
+			).toBe(picked);
+			const resumed = world.harness.streamCalls[0]?.input;
+			const result =
+				resumed?.kind === "continue" ? resumed.toolResults[0] : undefined;
+			expect(
+				result?.tool === "ask_user" ? result.output.answers[0]?.hostNote : null,
+			).toBe(`Theme set: ${file?.name}. Do not edit src/styles/theme.json.`);
+		});
+
+		it("puts the host theme back before the commit when the agent changed the file", async () => {
+			const world = makeWorld({ project: themedProject() });
+			world.harness.events = happyEvents();
+			// The tool set builds after the pre-turn fallback: an agent script writes here.
+			world.deps.hostTools = {
+				build: async (context) => {
+					await context.sandbox.writeFiles([
+						{ content: '{"version":1}', path: THEME_PATH },
+					]);
+					return { close: async () => {}, toolApproval: {}, tools: {} };
+				},
+			};
+			const commit = world.deps.commit;
+			let themeAtCommit: string | null = null;
+			world.deps.commit = async (sandbox, deps, commitInput) => {
+				const bytes = await sandbox.readFile(THEME_PATH);
+				themeAtCommit = bytes === null ? null : new TextDecoder().decode(bytes);
+				return commit(sandbox, deps, commitInput);
+			};
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(
+				appThemeFileSchema.parse(JSON.parse(themeAtCommit ?? "null")).origin,
+			).toBe("host");
+			expect(world.warnings).toContain("builder-turn.theme-file-restored");
+		});
+
+		const BROKEN_THEME_TEXT = '{"version":1}';
+		it.each([
+			// The next turn puts HEAD back, so the host file of the failed turn needs its own commit.
+			[
+				"a failed turn puts the host theme back and commits theme.json alone",
+				"provider_error",
+				themeTextOf("user"),
+				[{ paths: [APP_THEME_FILE_PATH], source: "wip" }],
+			],
+			// A newer turn owns the sandbox of a stale turn, so its file stays.
+			[
+				"a stale turn leaves the file of the newer turn",
+				"stale",
+				BROKEN_THEME_TEXT,
+				[],
+			],
+			// A theme save, a restore, or a newer turn holds the lock now, so its file stays.
+			[
+				"a turn with a lost lock leaves the file of the lock holder",
+				"lock_lost",
+				BROKEN_THEME_TEXT,
+				[],
+			],
+		] as const)("%s", async (_label, cause, textAfter, commits) => {
+			// Only the keep-alive tick finds a lost lock, so that row drives the timers.
+			if (cause === "lock_lost") {
+				vi.useFakeTimers();
+			}
+			const world = makeWorld({ project: themedProject() });
+			let releaseStream: () => void = () => {};
+			if (cause === "lock_lost") {
+				world.harness.streamHold = new Promise<void>((resolve) => {
+					releaseStream = resolve;
+				});
+			} else {
+				world.harness.streamError = new Error("provider blew up");
+			}
+			// HEAD holds another theme. The pre-turn fallback reads it, then the failed turn reads it.
+			const headRead = { exitCode: 0, stderr: "", stdout: themeTextOf("host") };
+			world.sandboxes.respondTo("git", headRead);
+			world.sandboxes.respondTo("git", headRead);
+			world.deps.hostTools = {
+				build: async (context) => {
+					// A host write (a picked card) gives the user theme. Then an agent script breaks the file.
+					await context.sandbox.writeFiles([
+						{ content: themeTextOf("user"), path: THEME_PATH },
+					]);
+					context.onThemeFileWritten(
+						appThemeFileSchema.parse(JSON.parse(themeTextOf("user"))),
+					);
+					await context.sandbox.writeFiles([
+						{ content: BROKEN_THEME_TEXT, path: THEME_PATH },
+					]);
+					if (cause === "stale") {
+						// A newer turn number owns the project: the next fenced write throws StaleTurnError.
+						world.turns.current = 5;
+					}
+					return { close: async () => {}, toolApproval: {}, tools: {} };
+				},
+			};
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			if (cause === "lock_lost") {
+				await waitForStream(world.harness);
+				// A theme save takes the lock: the next lock refresh fails.
+				await world.lock.release(PROJECT_ID, TURN_ID);
+				// One keep-alive tick runs each 60 s.
+				await vi.advanceTimersByTimeAsync(60_000);
+				releaseStream();
+			}
+			await run;
+
+			expect(world.turns.failCalls).toHaveLength(1);
+			expect(await themeTextIn(world)).toBe(textAfter);
+			expect(
+				world.commits.map(({ paths, source }) => ({ paths, source })),
+			).toEqual(commits);
 		});
 	});
 });

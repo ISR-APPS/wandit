@@ -21,7 +21,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D7 | Arabic, French, and English with RTL from day 1 | changed | 2026-09-12 |
 | D8 | Data residency | confirmed | 2026-09-12 |
 | D9 | Exit paths | changed | 2026-09-12 |
-| D10 | Default model | changed | 2026-09-12 |
+| D10 | Default model | changed | 2026-10-17 |
 | D11 | V1 projects stay on V1 | changed | 2026-09-12 |
 | D12 | Native app as a V2 client | confirmed | 2026-09-12 |
 | D13 | Multiple conversations and branches per project | open | 2026-09-09 |
@@ -39,6 +39,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D25 | Visual edit of text and colors in the V2 preview | default | 2026-10-04 |
 | D26 | App design recipe picked by the host | default | 2026-10-04 |
 | D27 | Plan Mode | default | 2026-10-05 |
+| D28 | App theme owned by the host (D26 change) | default | 2026-10-26 |
 
 ## D1. Sandbox vendor
 
@@ -160,6 +161,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-12.
 - Issues that change: WANDIT-150 (P0-03), WANDIT-151 (P0-04), WANDIT-165 (P1-04), WANDIT-166 (P1-05), WANDIT-174 (P1-13).
 - Notes: Claude Code speaks the Anthropic API only, so the LLM proxy must translate for other models. WANDIT-150 tests this. See D17. Source: report 6.1 and 6.10.
+- Update 2026-10-17 (Zack): test Paper Instruments `ultramarine-1-flash` for every V2 call (main, plan, helper, and subagent model). Set `V2_DEFAULT_MODEL=paperinstruments/ultramarine-1-flash`. Paper serves an Anthropic Messages endpoint, so the proxy does not translate. The CLI needs `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and `ENABLE_TOOL_SEARCH=false`; the harness sets them for every model that is not Claude (Update 2026-10-22: also DeepSeek and GLM through the gateway). Price: $0.15 in, $0.03 cache read, $0.50 out per million tokens. Limits: no web search (the harness turns WebSearch off). No PDF and no thinking blocks of another model in the history (the proxy changes these blocks to text). Source: docs.paperinstruments.com and a CLI 2.1.281 probe.
 
 ## D11. V1 projects stay on V1
 
@@ -351,7 +353,8 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Date: 2026-10-04
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
-- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump. Since 2026-10-06, the recipe axes are style (16 design languages, 3 ranked), accent, fonts, mode, shell, density, home (12, 3 ranked), kpi, and chart. A style replaces the theme, sidebar, and cards axes.
+- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump. Since 2026-10-24, the host gives a theme seed, home (12, 3 ranked), kpi, and chart. From the seed, the template script `scripts/apply-theme.mjs` deals 3 of the 24 theme presets and the structure axes of the chosen preset. The UI kit of the template renders each value.
+- Update 2026-10-26: D28 replaces the theme part of this entry. The recipe keeps home, kpi, and chart.
 
 ## D27. Plan Mode
 
@@ -365,9 +368,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: B is rejected. A session that starts with bypass permissions still runs Write and Bash in plan mode, so only prompt text stops edits. `ExitPlanMode` reads the plan from `~/.claude/plans`, and the template hook blocks that write. The plan-mode footer names `AskUserQuestion`, which Wandit disables. B also needs a bridge fork change and a new template snapshot.
 
+## D28. App theme owned by the host (D26 change)
+
+- Question: Who writes the look of a web app, and how does the user change it?
+- Options: A. The agent writes the theme with a template script (D26). B. The host writes `src/styles/theme.json`, the user picks the look, and the builder saves it with no agent turn.
+- Default: B, for `web-app@1.1.0` and later. This is D25 option B for the theme only.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-10-26
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: With A, the agent wrote capital labels and ink bands from prose. The schema of B cannot express them. The user picks one of 3 cards in the first `ask_user` call, or edits each field in the builder. The agent calls `set_theme` for the user's words. The host restores a file that a turn changed. Older projects keep D26.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D28.
+1. Take the next number. The next number is D29.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

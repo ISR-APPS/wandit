@@ -296,6 +296,42 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(captured.claudeSettings?.env?.WANDIT_TOKEN_EPOCH).toBe("3");
 	});
 
+	// Paper answers 400 to the experimental betas and refuses web_search; the
+	// gateway providers of DeepSeek and GLM have no web_search either. A Claude
+	// session must keep its betas and WebSearch.
+	it.each([
+		{
+			model: "paperinstruments/ultramarine-1-flash",
+			betasFlag: "1",
+			blocksWebSearch: true,
+		},
+		{
+			model: "deepseek/deepseek-v4.1-flash-1017",
+			betasFlag: "1",
+			blocksWebSearch: true,
+		},
+		{
+			model: "anthropic/claude-sonnet-5",
+			betasFlag: undefined,
+			blocksWebSearch: false,
+		},
+	])("sets the other-provider flags only for a model that is not Claude ($model)", async ({
+		model,
+		betasFlag,
+		blocksWebSearch,
+	}) => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), model });
+
+		expect(
+			captured.claudeSettings?.env?.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
+		).toBe(betasFlag);
+		expect(captured.agentSettings?.inactiveTools?.includes("webSearch")).toBe(
+			blocksWebSearch,
+		);
+	});
+
 	it("passes the chat id as the session id", async () => {
 		const { captured, harness } = setup();
 
@@ -1238,6 +1274,15 @@ describe("ClaudeCodeHarness keep-alive (harness host)", () => {
 		{
 			reason: "the turn switches mode",
 			input: { ...sessionInput(), mode: "plan" },
+			options: LIVE,
+		},
+		// The kept session keeps the CLI env and the tools of a Claude model.
+		{
+			reason: "the turn switches to a Paper model",
+			input: {
+				...sessionInput(),
+				model: "paperinstruments/ultramarine-1-flash",
+			},
 			options: LIVE,
 		},
 		// A raw policy push deletes the run-token rule that the kept session added.

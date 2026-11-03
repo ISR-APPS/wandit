@@ -1,0 +1,1 @@
+ALTER TYPE "public"."app_commit_source" ADD VALUE IF NOT EXISTS 'theme';

@@ -245,6 +245,39 @@ describe("CodeStorageGitStore.deleteRepository", () => {
 	});
 });
 
+describe("CodeStorageGitStore.readFile", () => {
+	// The theme GET reads a stopped project with it: a token that can push would be a leak.
+	it("reads a file at a ref with a git:read JWT, and answers null on a 404", async () => {
+		await startServer();
+		answers.push(
+			{ status: 200, body: { version: 1 } },
+			{ status: 404, body: { detail: "not found" } },
+		);
+		const store = makeStore();
+		const sha = "a".repeat(40);
+
+		const bytes = await store.readFile(
+			"project-1",
+			sha,
+			"src/styles/theme.json",
+		);
+		const missing = await store.readFile("project-1", sha, "src/missing.json");
+
+		expect(new TextDecoder().decode(bytes ?? new Uint8Array())).toBe(
+			'{"version":1}',
+		);
+		expect(missing).toBeNull();
+		expect(requests[0]?.method).toBe("GET");
+		expect(requests[0]?.path).toBe(
+			`/api/v1/repos/file?path=src%2Fstyles%2Ftheme.json&ref=${sha}`,
+		);
+		const claims = await tokenClaims(requests[0]?.authorization ?? null);
+		expect(claims.repo).toBe("wandit/project-1");
+		expect(claims.scopes).toEqual(["git:read"]);
+		expect(claims.refs).toBeUndefined();
+	});
+});
+
 describe("CodeStorageGitStore retries", () => {
 	it("retries a 429 once and then succeeds", async () => {
 		await startServer();

@@ -39,7 +39,8 @@ The host machine runs the session and commits your work.
 - The deny rules in `.claude/settings.json` block edits to `CLAUDE.md`, `CLAUDE.local.md`,
   `AGENTS.md`, `.claude/`, `.mcp.json`, `opencode.json`, `.git/hooks/`, `.git/config`,
   `.env`, `.env.*`, `.npmrc`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, `pnpm-workspace.yaml`,
-  `template_version`, `native-modules.json`, and shell start-up files.
+  `template_version`, `native-modules.json`, shell start-up files, and the theme files
+  `src/styles/theme.json`, `src/styles/theme.ts`, `src/styles/theme-options.ts`, and `src/styles/engine.css`.
   Do not change these files in another way.
 - When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
   you added. Then tell the user and pick another package. Leave the `allowBuilds` line
@@ -59,17 +60,18 @@ The app is split by feature. `src/features/profile/` is the example: copy its sh
 ```
 src/
   routes/              thin route files: path, guard, loader, one feature component
-  features/<feature>/  one folder per page or per concern (auth, booking, menu)
+  features/<feature>/  one folder per app page or per concern (auth, bookings, stock)
     api/               server data: <entity>.queries.ts, <entity>.mutations.ts, <entity>.functions.ts
     components/        the UI of the feature, its page component too
     hooks/             hooks that are not queries or mutations
     lib/               zod form schemas, constants, pure helpers
     index.ts           the public barrel of the feature
+  features/site/<page>/  one folder per public page (home, menu), with the same parts. Or features/landing/.
   shared/              code that two or more features use
     ui/                the base kit. Add a new primitive here.
     lib/               supabase.ts, utils.ts
     i18n/              messages.ts, useT, the language config
-  styles/tokens.css    the design tokens
+  styles/              theme.json (the look, written by the host), theme.ts, engine.css, tokens.css (your CSS utilities)
   wandit/              host files. Never edit them and never call them.
 supabase/migrations/   written only by `apply_migration`
 vite-plugins/          host files: dev-only source tags for click-to-edit
@@ -77,7 +79,11 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 
 - Keep `vite-plugins/wandit-source.ts`, its entry in `vite.config.ts`, and the bridge install
   at the top of `src/routes/__root.tsx`. Click-to-edit in the preview needs all three.
+- Keep the theme parts of `src/routes/__root.tsx`: the `<html>` theme attributes and style, the font links,
+  and the `IconContext` provider. `pnpm run typecheck` fails without them.
 - Code outside a feature imports only from the feature's `index.ts`. Inside a feature, import files directly.
+- Every public page component lives in `src/features/site/<page>/` or in `src/features/landing/`.
+  The app features stay in `features/<feature>/`. Among the features, the theme check treats only these two folders as public pages.
 - A route file holds the path, the guard, the loader, and one feature component. No markup, no fetch, no state.
 - Move code to `shared/` only when a second feature needs it.
 - Create a folder only when it gets a file. Delete an example feature that the app does not need.
@@ -131,34 +137,84 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
     Examples: a SaaS, a dashboard, a back office, a management tool ("gestion", "suivi"),
     a CRM, an admin panel, an internal tool. An app is never a landing page with a sign-in button.
   - Both: public pages and an app area, for example a shop and its back office.
+- `src/styles/theme.json` holds the whole look: the colors, the fonts, the corners, the borders, the shadows,
+  the sidebar, and the header. Only the host writes it. Every page reads it through the kit and the token classes.
+- Never edit `src/styles/theme.json`, `src/styles/theme.ts`, `src/styles/theme-options.ts`, or `src/styles/engine.css`.
+  Never change them with a script or a shell command. The host puts them back at the end of the turn.
+- Change the look only with `mcp__harness-tools__set_theme`. Its description lists every field and value.
+  Send only the fields that change. A wrong value returns the correct values: call the tool again with one of them.
+- The first build sets the look one time:
+  - An app, and Both whose public page only leads to sign-up: ask one theme question in the first build.
+    Ask it also when no other question is open. Put it with the other first-build questions ("Ask the user").
+    The question is `{ question: "<in the user's language>", theme: { business: "<category>" } }`, with no options.
+    The host adds 3 look cards and a "You choose" button.
+  - `<category>` is the closest of: medical, beauty, fitness, restaurant, real-estate, construction, automotive,
+    services, education, creative-agency, ecommerce, travel, events, tech-saas, finance, logistics, hr, crm,
+    inventory, dev-tools, other.
+  - The host writes the look before you continue. The answer says "Theme set: <name>" or "Theme kept: <name>".
+    Then call `set_theme` only for a change that the user typed in the answer. Send only the changed fields.
+    For example, "but in dark": `mode: "dark"`. No typed change: do not call `set_theme`.
+  - The theme answer has no "Theme set" and no "Theme kept" line: the host could not write the look.
+    The answer picks a card (`look:<id>`): call `set_theme` with `look: "<id>"` one time.
+    Else call it with `business: "<category>"` one time.
+  - Skip the theme question only when the user says not to ask. Then call `set_theme` with `business: "<category>"`.
+  - A website, and Both whose public pages sell (a menu, a booking, a gallery, a shop): pick a design world (below).
+    Then call `set_theme` with `world: "<world id>"`. The user says not to ask: pick the closest world and say so.
+- Later, the user asks for another look: make one `set_theme` call with only the changed fields. For example:
+  - "dark", "sombre", "nuit": `mode: "dark"`. "light", "clair": `mode: "light"`.
+  - "rounder": `radius` one step up in `none`, `sm`, `md`, `lg`, `xl`. "sharper": one step down.
+  - A brand color: `primary: "#1f6098"`. A color name: `primary: "blue"`.
+  - Three brand colors (page, text, brand): `background`, `foreground`, and `primary`, each `#rrggbb`.
+  - A font for the text: `font: "inter"`. A font for the titles: `displayFont`.
+  - "the menu top right", "my avatar in the header": `userMenu: "header"`.
+  - "hide the sidebar": `sidebarCollapse: "offcanvas"` and `sidebarStart: "collapsed"`.
+  - "bigger": `scale: "lg"`. "more compact": `scale: "sm"`.
+  - "bolder icons": `icons: "bold"`. "filled icons": `icons: "fill"`.
+  - "calmer", "simpler": `shadow: "none"`, `sidebarTone: "canvas"`, and `activeItem: "quiet"`.
+  - "another look", "change the theme": `reroll: true`. A look of the tool list: `look: "<id>"`.
+  - The kit draws the new look at once. Do not change the code of the pages for it.
+- On every page, never write a color, a fixed shadow (`shadow-sm`, `shadow-[...]`), or a font link.
+  Use the kit parts and the token classes (`bg-background`, `text-foreground`, `bg-primary`, `shadow-surface`).
+  `pnpm run typecheck` fails on a color and on a fixed shadow.
+- Behind login, and in every feature except `src/features/site/` and `src/features/landing/`, also never write these:
+  a fixed corner (`rounded-none`, `rounded-[...]`), a thick border (`border-2` and wider), capital titles or labels,
+  wide letter spacing, an ink band (a dark fill in the text color), or a `font-[...]` class.
+  `pnpm run typecheck` fails on them. Rounded cards with a soft shadow are good.
+- Public pages can take these from the world: capitals, letter spacing, thick borders (`border-2`),
+  ink bands (`bg-foreground`), and square corners (`rounded-none`).
+- Corners use the radius classes (`rounded-md`, `rounded-lg`). They follow the `--radius` of the theme.
+  A pill is `rounded-full`.
+- A world gives hex colors and `:root` values as roles. Its ground is `background`, its ink is `foreground`,
+  and its accent is `primary`. For another world color, use the nearest token class, an opacity step
+  (`bg-primary/20`), or `color-mix()` of two tokens.
+  Never redefine a theme token, and never add a `theme-check: ignore` line for a world color.
+- A hard world shadow is a class in `src/styles/tokens.css` with token colors,
+  for example `box-shadow: 4px 4px 0 var(--foreground)`.
+- Never add a theme, color, or layout picker, or a light/dark switch, unless the user asks for it.
 - An app: load the `app-dashboard` skill before every screen behind login and every redesign of it.
-  On those screens, the skill and the style of its recipe replace the design worlds.
+  On those screens, the skill and the theme replace the design worlds.
   The Design brief of the skill applies the `frontend-design` method there.
-  The app recipe in your session instructions gives the look and the layout. The user's words win over it.
+  The app recipe in your session instructions gives the home layout. The user's words win over it.
 - An internal tool has no public page: only the team of one business signs in. `/` redirects to `/app`.
   The request does not say who signs in: ask it in the first build. No answer: build an internal tool.
   The word "SaaS" alone does not say that the public signs up.
-- A product that the public signs up for gets one short public page in the app style, with no world.
+- A product that the public signs up for gets one short public page in the app theme, with no world.
 - A website, and the public pages of Both: load the `frontend-design` skill before every new page
-  and every redesign. It gives the process and the quality bar: plan the tokens,
-  check the plan against the brief, build, then check screenshots and fix.
-- A design world gives the direction of the public pages: palette, fonts, voice, motifs.
-  One world applies per app. On public pages, the world wins on every visual choice that it names.
+  and every redesign. It gives the process and the quality bar: plan, check the plan against the brief,
+  build, then read your code against the brief and fix it. The sandbox has no browser: take no screenshots.
+- A design world gives the direction of the public pages: voice, motifs, layout, and photography.
+  The host makes its palette and fonts into the theme. One world applies per app.
+  On public pages, the world wins on layout, type sizes, and motifs, inside the rules above.
+  Its colors, corners, and fonts come through the tokens.
   `frontend-design` wins on quality: hierarchy, spacing, contrast, accessibility, restraint.
-- A world never shapes the pages behind login. In Both, the app area takes only the world palette and fonts.
+- A world never shapes the pages behind login.
 - This file comes before every skill. A skill section that needs a fact the user did not give
   (a quote, a price, an address, a team member): ask for it, or leave the section out.
 - A website with no world picked: offer 2 to 4 worlds with the other first-build questions,
   or pick the closest world and say so. The index skills list the worlds:
   `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`. Never offer a world for an app.
-- `src/styles/tokens.css` is the single source of colors, radius, and font names. It has two parts.
-  A world or an app style replaces the palette part. Keep the derived part and every token name.
-  World skills name the fonts `--font-heading` and `--font-body`. In this template they are
-  `--font-display` and `--font-sans`.
-- Load the world fonts in `head().links` of `src/routes/__root.tsx`, and remove the links
-  that you replace. A world that names an Arabic font: change `html:lang(ar)` in `tokens.css`.
-- Use semantic tokens (`bg-background`, `text-foreground`, `bg-primary`).
-  Never hardcode a color, a gray, or a shadow outside the token set.
+- A world names its faces, for example DISPLAY and BODY. Use `font-display` for its display face
+  and `font-sans` for its text face. Never load another face.
 - Every screen works at 375 px wide. Spacing uses the Tailwind scale, not pixel values in `style`.
 - Every data view has a loading state (`Skeleton`), an empty state (one sentence and one action),
   and an error state (what failed and what to do).
@@ -211,7 +267,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - Use logical Tailwind utilities only: `ps-`, `pe-`, `ms-`, `me-`, `start-`, `end-`.
   Never use `pl-`, `pr-`, `ml-`, `mr-`, `left-`, `right-`, `text-left`, `text-right`.
   Then Arabic works without a rewrite.
-- Arabic: `config.ts` gives `dir="rtl"`, and `tokens.css` swaps in the Arabic twin fonts.
+- Arabic: `config.ts` gives `dir="rtl"`, and the theme swaps in its Arabic fonts.
   Directional icons get `rtl:rotate-180`. Arabic text uses no italics.
 - User-generated content renders with `dir="auto"`.
 
@@ -235,8 +291,8 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - Put every question of one step in one `mcp__harness-tools__ask_user` call, at most 4.
   The tool description gives the input shape and the answer shape.
 - The first build asks its open choices together: the scope questions, the app language,
-  the design world of a website or of the public pages, and missing facts.
-  An app area gets no style question: the recipe gives the look.
+  the theme question of an app, the design world of a website or of the public pages, and missing facts.
+  "Design" gives the theme question.
 - More than 4 questions: ask the scope questions first. Ask the rest in the next call, after the answers.
 
 ## Supabase

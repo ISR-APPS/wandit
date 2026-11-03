@@ -44,8 +44,12 @@ export function createAskUserTool(): Tool<AskUserHostToolInput, never> {
 			'"single-choice" with 2 to 4 options, each with `worldId` = a world ' +
 			"id from a design-worlds index skill in .claude/skills (web: " +
 			"design-worlds-website, -product, -cod; mobile: design-worlds-mobile); " +
-			"the user then sees the world card. The result is { answers: " +
-			"[{ questionId, question, action, selected, text, files }] }. " +
+			"the user then sees the world card. For the app theme, when " +
+			"src/styles/theme.json exists, ask one question with `theme: " +
+			'{ business }` and no options (business: a set_theme category, or "other"); ' +
+			"the host adds 3 theme cards and writes the pick. The result is { answers: " +
+			"[{ questionId, question, action, selected, text, files, hostNote? }] }. " +
+			"hostNote says what the host did with the answer. " +
 			'"answered": use selected, text, and files. "delegated": decide ' +
 			'yourself. "dismissed": the user skipped; follow `text` when present. ' +
 			"files[].path is the copy inside the project (public/uploads/<name>); " +

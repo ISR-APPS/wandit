@@ -249,12 +249,11 @@ limit.
 
 | Plan | Backends (`BACKEND_DEFAULTS.backendsPerPlan`) |
 | --- | --- |
-| `starter` | 1000 |
-| `pro` | 1000 |
+| `starter` | 0 |
+| `pro` | 1 |
 | `business` | 1000 |
 
-Every plan has 1000 (no practical limit) for the staging tests. The
-per-plan caps come back after the tests. WANDIT-153 decides the price.
+A free user (`starter`) gets no backend. WANDIT-153 decides the price.
 
 At the limit the call throws `BackendLimitReachedError`: HTTP 403 with
 the code `BACKEND_LIMIT_REACHED` and the message `Backend limit reached:

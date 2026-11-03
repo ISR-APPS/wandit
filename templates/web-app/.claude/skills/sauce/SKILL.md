@@ -41,7 +41,7 @@ Second-person Algerian-French, short, spoken, zero marketing. The page talks lik
 - HOT ACCENT (the sauce): the #E8332A / #D6371F / #E23B2E register. A GROUND as often as an accent — full-bleed fields are how this world gets its volume.
 - SUPPORT ACCENT (the mustard): the #FFC93C / #F2B01E / #FFD84D register. Never the ground of more than one section; it carries one field, the chips, the notes and the numerals on the hot accent.
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · HOT ACCENT→--primary · GROUND→--primary-foreground · INK plate→--secondary · SUPPORT ACCENT→--accent · ink at 72%→--muted · ink at 18%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every register sibling or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 - Budget per viewport: ONE accent field, three plates, one mustard note. Cream still wins.
 - On the hot field type is cream and numerals mustard; on mustard, type is ink and numerals the hot accent. Never accent type on accent ground.

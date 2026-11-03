@@ -1,5 +1,6 @@
 /**
- * Picks the app design recipe of a web project from its project id. Rendezvous hashing ranks the options of each axis.
+ * Picks the app design recipe of a web project from its project id.
+ * The recipe is the home, KPI, and chart forms. The theme is not in it: the host writes src/styles/theme.json.
  * `runBuilderTurn` in `builder-turn.runtime.ts` appends its sentence to the session instructions.
  * The template skill `app-dashboard` explains every option id.
  * It has no I/O and stores nothing: the project id gives the recipe again on every turn.
@@ -7,34 +8,10 @@
 import { createHash } from "node:crypto";
 
 /**
- * Option ids per axis, in sentence order. Each id names a file or a section of templates/web-app/.claude/skills/app-dashboard.
- * accent and fonts are indexes inside the chosen style file. mode, shell, and density are sections of frame.md.
- * A new id moves only the projects that it wins. A built app keeps its choices in the App recipe line of its tokens.css.
+ * Option ids per axis, in sentence order. Each id names a file of templates/web-app/.claude/skills/app-dashboard:
+ * homes/<id>.md, kpis/<id>.md, or charts/<id>.md. A new id moves only the projects that it wins.
  */
 export const APP_RECIPE_OPTIONS = {
-	style: [
-		"livre",
-		"regie",
-		"cadran",
-		"tampon",
-		"brume",
-		"console",
-		"porcelaine",
-		"suisse",
-		"coffre",
-		"preau",
-		"etabli",
-		"comptoir",
-		"serre",
-		"coulisses",
-		"carnet",
-		"brigade",
-	],
-	accent: ["1", "2", "3"],
-	fonts: ["1", "2"],
-	mode: ["light", "dark"],
-	shell: ["inset", "floating", "bordered", "rail", "topbar"],
-	density: ["compact", "regular", "comfortable"],
 	home: [
 		"kpi-band",
 		"split",
@@ -53,12 +30,9 @@ export const APP_RECIPE_OPTIONS = {
 	chart: ["area", "bars", "compare", "stacked", "heat"],
 } as const;
 
-// 3 styles and 3 homes: the host cannot know the business.
+// 3 homes: the host cannot know the business.
 // The agent takes the first option that fits it.
 const RANKED_OPTION_COUNT = 3;
-// 30 %: most business users expect a light app. 3 apps in 10 start dark for variety.
-// A style with one mode ignores this axis.
-const DARK_MODE_PERCENT = 30;
 
 // Rendezvous hashing: each (project, axis, option) triple gets its own score.
 // NUL separates the parts, so two different triples never give the same hash input.
@@ -94,27 +68,9 @@ export function rankOptions<T extends string>(
 /**
  * The recipe sentence of a web project. The same id gives the same sentence,
  * so the prompt cache and the warm CLI process stay valid.
- * Style and home give 3 ranked ids; every other axis gives 1 id.
+ * Home gives 3 ranked ids; KPI and chart give 1 id each.
  */
 export function appRecipeInstruction(projectId: string): string {
-	const styles = rankOptions(
-		projectId,
-		"style",
-		APP_RECIPE_OPTIONS.style,
-	).slice(0, RANKED_OPTION_COUNT);
-	const accent = rankOptions(projectId, "accent", APP_RECIPE_OPTIONS.accent)[0];
-	const fonts = rankOptions(projectId, "fonts", APP_RECIPE_OPTIONS.fonts)[0];
-	// The score modulo 100 is a percent bucket from 0 to 99.
-	const mode =
-		scoreOf(projectId, "mode", "dark") % 100 < DARK_MODE_PERCENT
-			? "dark"
-			: "light";
-	const shell = rankOptions(projectId, "shell", APP_RECIPE_OPTIONS.shell)[0];
-	const density = rankOptions(
-		projectId,
-		"density",
-		APP_RECIPE_OPTIONS.density,
-	)[0];
 	const homes = rankOptions(projectId, "home", APP_RECIPE_OPTIONS.home).slice(
 		0,
 		RANKED_OPTION_COUNT,
@@ -123,7 +79,6 @@ export function appRecipeInstruction(projectId: string): string {
 	const chart = rankOptions(projectId, "chart", APP_RECIPE_OPTIONS.chart)[0];
 	return (
 		"App design recipe of this project (the app-dashboard skill reads it; ignore it when that skill does not exist): " +
-		`style=${styles.join("|")} accent=${accent} fonts=${fonts} mode=${mode} shell=${shell} density=${density} ` +
 		`home=${homes.join("|")} kpi=${kpi} chart=${chart}.`
 	);
 }

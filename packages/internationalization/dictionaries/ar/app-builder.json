@@ -585,13 +585,49 @@
 			"dailyCap": "لقد بلغت حد الذكاء الاصطناعي لهذا اليوم. يُعاد ضبطه عند الساعة 00:00 بتوقيت UTC.",
 			"tooManyTurns": "تعمل عمليات كثيرة في الوقت نفسه. انتظر حتى تنتهي إحداها.",
 			"approvalPending": "أجب أولاً على بطاقة الموافقة المفتوحة.",
-			"modelDenied": "باقتك لا تشمل هذا النموذج.",
+			"modelDenied": "هذا النموذج غير متاح. اختر نموذجًا آخر.",
 			"modelUnpriced": "ليس لهذا النموذج سعر بعد. حاول مرة أخرى لاحقًا.",
 			"sendFailed": "تعذّر إرسال رسالتك. أرسلها مرة أخرى.",
 			"connectionLost": "فقدت المحادثة اتصالها بالخادم."
 		},
 		"building": "جارٍ البناء",
-		"planning": "جارٍ التخطيط"
+		"planning": "جارٍ التخطيط",
+		"model": {
+			"title": "اختر نموذجًا",
+			"chip": "النموذج: {model}",
+			"default": "النموذج الافتراضي",
+			"price": "{input} للإدخال · {output} للإخراج لكل مليون رمز",
+			"fast": "الوضع السريع"
+		},
+		"cost": {
+			"line": "تكلفة المحادثة: {usd} · {credits} · {turns}",
+			"credits": {
+				"zero": "{count} رصيد",
+				"one": "{count} رصيد",
+				"two": "{count} رصيد",
+				"few": "{count} أرصدة",
+				"many": "{count} رصيدًا",
+				"other": "{count} رصيد"
+			},
+			"turns": {
+				"zero": "{count} عملية",
+				"one": "عملية واحدة",
+				"two": "عمليتان",
+				"few": "{count} عمليات",
+				"many": "{count} عملية",
+				"other": "{count} عملية"
+			},
+			"byModel": "التكلفة لكل نموذج",
+			"row": "{model}: {usd} · {requests}",
+			"requests": {
+				"zero": "{count} طلب",
+				"one": "طلب واحد",
+				"two": "طلبان",
+				"few": "{count} طلبات",
+				"many": "{count} طلبًا",
+				"other": "{count} طلب"
+			}
+		}
 	},
 	"publish": {
 		"cta": "نشر",
@@ -752,7 +788,8 @@
 			"agent": "عملية",
 			"restore": "استعادة",
 			"wip": "عمل قيد التقدم",
-			"merge": "دمج"
+			"merge": "دمج",
+			"theme": "السمة"
 		},
 		"diff": "الفرق",
 		"numstat": "+{added} −{removed}",
@@ -762,6 +799,176 @@
 		"restoreTitle": "استعادة هذه النسخة؟",
 		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء. لا تتغير بياناتك ولا قاعدة بياناتك.",
 		"cancel": "إلغاء"
+	},
+	"theme": {
+		"open": "السمة",
+		"openHint": "غيّر ألوان تطبيقك وخطوطه وتخطيطه. لا يعمل الوكيل.",
+		"oldTemplate": "يستخدم هذا التطبيق قالبًا أقدم بلا ملف سمة. اطلب من الوكيل تغيير أسلوبه.",
+		"unavailable": "السمة غير متاحة. انتظر الإصدار الأول، ثم حاول مرة أخرى.",
+		"title": "السمة",
+		"description": "يظهر كل تغيير فورًا في المعاينة. يكتبه الحفظ في تطبيقك كإصدار جديد.",
+		"close": "إغلاق السمة",
+		"unsaved": "غير محفوظ",
+		"turnRunning": "الوكيل يعمل. يمكنك تغيير السمة عندما ينتهي.",
+		"random": "عشوائي",
+		"reset": "استعادة",
+		"save": "حفظ",
+		"saving": "جارٍ الحفظ…",
+		"saved": "حُفظت السمة: {name}",
+		"fromLook": "من المظهر",
+		"brandColor": "لون العلامة",
+		"brandColorHint": "لون بصيغة hex، مثلًا #1f6098.",
+		"brandColorInvalid": "اكتب 6 أرقام hex، مثلًا #1f6098.",
+		"brandColorPicker": "اختر لون العلامة",
+		"borderValue": "{value} px",
+		"families": {
+			"soft": "ناعمة",
+			"crisp": "حادة",
+			"warm": "دافئة",
+			"pop": "زاهية"
+		},
+		"fontGroups": {
+			"display": "خطوط العناوين",
+			"body": "خطوط النص"
+		},
+		"fields": {
+			"look": "المظهر",
+			"mode": "الوضع",
+			"primary": "اللون الرئيسي",
+			"font": "الخط",
+			"displayFont": "خط العناوين",
+			"scale": "الحجم",
+			"radius": "الزوايا",
+			"border": "الحدود",
+			"shadow": "الظل",
+			"shadowStyle": "نمط الظل",
+			"content": "عرض المحتوى",
+			"sidebarStyle": "نمط الشريط الجانبي",
+			"sidebarCollapse": "طي الشريط الجانبي",
+			"sidebarStart": "الشريط الجانبي عند التحميل",
+			"sidebarTone": "لون الشريط الجانبي",
+			"activeItem": "العنصر النشط",
+			"header": "الترويسة",
+			"userMenu": "قائمة المستخدم",
+			"frame": "إطار المحتوى",
+			"icons": "نمط الأيقونات",
+			"navIcon": "أيقونات القائمة"
+		},
+		"options": {
+			"mode": {
+				"light": "فاتح",
+				"dark": "داكن"
+			},
+			"scale": {
+				"xs": "XS",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"radius": {
+				"none": "بلا",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"shadow": {
+				"none": "بلا",
+				"sm": "S",
+				"md": "M",
+				"lg": "L"
+			},
+			"shadowStyle": {
+				"soft": "ناعم",
+				"hard": "حاد"
+			},
+			"content": {
+				"full": "كامل",
+				"centered": "في الوسط"
+			},
+			"sidebarStyle": {
+				"inset": "داخلي",
+				"classic": "كلاسيكي",
+				"floating": "عائم"
+			},
+			"sidebarCollapse": {
+				"icons": "أيقونات",
+				"rail": "شريط",
+				"offcanvas": "مخفي"
+			},
+			"sidebarStart": {
+				"open": "مفتوح",
+				"collapsed": "مطوي"
+			},
+			"sidebarTone": {
+				"canvas": "الصفحة",
+				"tint": "مُلوَّن",
+				"contrast": "متباين",
+				"brand": "العلامة"
+			},
+			"activeItem": {
+				"pill": "كبسولة",
+				"bar": "خط",
+				"block": "كتلة",
+				"outline": "إطار",
+				"quiet": "هادئ"
+			},
+			"header": {
+				"bar": "شريط",
+				"blur": "ضبابي",
+				"plain": "بسيط"
+			},
+			"userMenu": {
+				"sidebar-footer": "أسفل الشريط",
+				"sidebar-header": "أعلى الشريط",
+				"header": "الترويسة"
+			},
+			"frame": {
+				"outlined": "بإطار",
+				"flat": "مسطح"
+			},
+			"icons": {
+				"thin": "رفيع",
+				"light": "خفيف",
+				"regular": "عادي",
+				"bold": "عريض",
+				"fill": "ممتلئ",
+				"duotone": "ثنائي اللون"
+			},
+			"navIcon": {
+				"plain": "بسيطة",
+				"soft": "ناعمة",
+				"solid": "مصمتة",
+				"color": "ملونة"
+			}
+		},
+		"hues": {
+			"red": "أحمر",
+			"orange": "برتقالي",
+			"amber": "كهرماني",
+			"yellow": "أصفر",
+			"lime": "ليموني",
+			"green": "أخضر",
+			"emerald": "زمردي",
+			"teal": "أزرق مخضر",
+			"cyan": "سماوي فاتح",
+			"sky": "سماوي",
+			"blue": "أزرق",
+			"indigo": "نيلي",
+			"violet": "بنفسجي",
+			"purple": "أرجواني",
+			"fuchsia": "فوشيا",
+			"pink": "وردي",
+			"rose": "وردي داكن"
+		},
+		"errors": {
+			"turnRunning": "الوكيل يعمل. احفظ السمة عندما ينتهي.",
+			"turnWaiting": "ينتظر الوكيل إجابتك في المحادثة. أجب، ثم احفظ السمة.",
+			"previewNotRunning": "تطبيقك لا يعمل. أيقظ المعاينة، ثم احفظ مرة أخرى.",
+			"headMoved": "حصل تطبيقك على إصدار جديد أثناء تعديلك. حمّلته اللوحة. احفظ مرة أخرى.",
+			"changedElsewhere": "تغيّرت السمة في مكان آخر. لم تُحفظ تغييراتك."
+		}
 	},
 	"mock": {
 		"notWired": "هذا الإجراء غير متصل بعد."
