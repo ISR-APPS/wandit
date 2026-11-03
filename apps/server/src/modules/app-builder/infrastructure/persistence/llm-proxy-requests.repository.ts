@@ -4,10 +4,13 @@
  * The builder-turn runtime and the reconcile sweep call `sumByTurn` to
  * settle a turn's spend; the runtime's timing line calls
  * `firstRequestStartedAtMs`, and its end calls `capRejectionReason`.
+ * `AppProjectsService` calls `sumByChat` for the cost of one chat.
  * `sumUsdMicrosByRun` has no production caller yet.
  */
 import { Inject, Injectable } from "@nestjs/common";
+import type { ChatCostResponse } from "@wandit/contracts";
 import { sql } from "@wandit/db";
+import { builderTurns } from "@wandit/db/schema/builder-turns";
 import { llmProxyRequests } from "@wandit/db/schema/llm-proxy-requests";
 
 import {
@@ -56,6 +59,20 @@ type LlmProxyModelSumDbRow = {
 	output_tokens: number | string;
 	cache_read_tokens: number | string;
 	cache_write_tokens: number | string;
+};
+
+// Raw Postgres row for the per-model query of `sumByChat`; bigint columns
+// come back as strings under node-postgres. `model` is never null: the
+// query drops rows with a null model.
+type LlmProxyChatModelDbRow = LlmProxyModelSumDbRow & {
+	model: string;
+	request_count: number | string;
+};
+
+// Raw Postgres row for the turn query of `sumByChat`.
+type ChatTurnsDbRow = {
+	turn_count: number | string;
+	credits: number | string;
 };
 
 /** Drizzle repository for the `llm_proxy_requests` table. */
@@ -186,5 +203,76 @@ export class LlmProxyRequestsRepository {
 			sum.cacheWriteTokens += modelSum.cacheWriteTokens;
 		}
 		return sum;
+	}
+
+	/**
+	 * The full cost of one chat: the proxy rows of its turns, summed per
+	 * model, plus the settled credits and the turn count. Only turns of
+	 * `projectId` count. All zeros when the chat has no turns.
+	 */
+	async sumByChat(
+		projectId: string,
+		chatId: string,
+	): Promise<ChatCostResponse> {
+		// Every status counts, so a failed stream adds the usage it streamed.
+		// The settle counts only `ok` and `client_aborted` rows. A null model
+		// marks a refused request with no tokens and no price: no entry.
+		const modelRows = await this.db.execute<LlmProxyChatModelDbRow>(sql`
+			select
+				${llmProxyRequests.model} as model,
+				coalesce(sum(${llmProxyRequests.usdMicros}), 0)::bigint as usd_micros,
+				coalesce(sum(${llmProxyRequests.inputTokens}), 0)::bigint as input_tokens,
+				coalesce(sum(${llmProxyRequests.outputTokens}), 0)::bigint as output_tokens,
+				coalesce(sum(${llmProxyRequests.cacheReadTokens}), 0)::bigint as cache_read_tokens,
+				coalesce(sum(${llmProxyRequests.cacheWriteTokens}), 0)::bigint as cache_write_tokens,
+				count(*)::bigint as request_count
+			from ${llmProxyRequests}
+			inner join ${builderTurns}
+				on ${builderTurns.id} = ${llmProxyRequests.turnId}
+			where
+				${builderTurns.chatId} = ${chatId}
+				and ${builderTurns.projectId} = ${projectId}
+				and ${llmProxyRequests.model} is not null
+			group by ${llmProxyRequests.model}
+			order by ${llmProxyRequests.model}
+		`);
+		// A separate query: the join above repeats a turn once per proxy
+		// row, so a sum of `credits` over it would count a turn many times.
+		const turnRows = await this.db.execute<ChatTurnsDbRow>(sql`
+			select
+				count(*)::bigint as turn_count,
+				coalesce(sum(${builderTurns.credits}), 0)::bigint as credits
+			from ${builderTurns}
+			where
+				${builderTurns.chatId} = ${chatId}
+				and ${builderTurns.projectId} = ${projectId}
+		`);
+
+		// bigint comes back as a string under node-postgres. A chat stays far
+		// below 2^53 micros or tokens, so Number() is exact.
+		const cost: ChatCostResponse = {
+			usdMicros: 0,
+			credits: Number(turnRows.rows[0]?.credits ?? 0),
+			turnCount: Number(turnRows.rows[0]?.turn_count ?? 0),
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			byModel: [],
+		};
+		for (const row of modelRows.rows) {
+			const usdMicros = Number(row.usd_micros);
+			cost.byModel.push({
+				model: row.model,
+				usdMicros,
+				requestCount: Number(row.request_count),
+			});
+			cost.usdMicros += usdMicros;
+			cost.inputTokens += Number(row.input_tokens);
+			cost.outputTokens += Number(row.output_tokens);
+			cost.cacheReadTokens += Number(row.cache_read_tokens);
+			cost.cacheWriteTokens += Number(row.cache_write_tokens);
+		}
+		return cost;
 	}
 }

@@ -35,8 +35,15 @@ export const appBuilderRoutes = {
 	// POST restore one version as a new copy-forward commit.
 	restoreVersion: (projectId: string, sha: string) =>
 		`/api/v2/projects/${projectId}/versions/${sha}/restore`,
+	// GET the theme.json of a project; PUT saves a selection as a "theme" commit.
+	theme: (projectId: string) => `/api/v2/projects/${projectId}/theme`,
 	// GET and PUT the monthly and per-turn credit caps of a project.
 	costCaps: (projectId: string) => `/api/v2/projects/${projectId}/cost-caps`,
+	// GET the models the builder dropdown offers, with their prices.
+	models: "/api/v2/models",
+	// GET the full cost of one chat: USD, credits, tokens, per model.
+	chatCost: (projectId: string, chatId: string) =>
+		`/api/v2/projects/${projectId}/chats/${chatId}/cost`,
 	// Base path the in-sandbox agent reaches for LLM traffic (WANDIT-165).
 	llmProxyBase: "/api/v2/llm",
 	// POST Anthropic Messages API passthrough behind the run-token checks.

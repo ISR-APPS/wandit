@@ -3,6 +3,7 @@
  * Run from apps/server: `npx tsx scripts/export-world-skills.ts`.
  * Reads designWorlds and ADS_SKILLS from the ai-chat agent module.
  * `toV2FormRule` swaps the V1 `wandit:lead` form rule of each world doc for V2.
+ * `toV2ThemeLine` swaps the V1 token map line of each world doc for the V2 theme line.
  * `toV2AdsText` swaps the V1 Leads tab of each ads skill for the app's own table.
  * The output is deterministic: a second run writes no changes.
  */
@@ -128,6 +129,30 @@ export function toV2FormRule(worldId: string, doc: string): string {
 	return rewritten;
 }
 
+// In a V2 app the host writes the palette and the fonts of the world to theme.json. The agent never writes tokens.
+const V2_THEME_LINE =
+	"The host sets this world's palette and fonts in src/styles/theme.json. " +
+	"Use token classes (bg-background, text-primary...). " +
+	"Keep the voice, motifs and photography of this world.";
+// The V1 map is one line. Without the s flag, ".*" stops at the line end, so the next line stays.
+const TOKEN_MAP_LINE_RE = /^FIXED TOKEN MAP — .*$/gm;
+
+/**
+ * Replaces the V1 token map line of one world doc with the V2 theme line.
+ * The V1 chat still writes its own :root tokens, so only the export rewrites it.
+ * Throws when a token map line stays in a form that the regex does not know.
+ */
+export function toV2ThemeLine(worldId: string, doc: string): string {
+	const rewritten = doc.replace(TOKEN_MAP_LINE_RE, V2_THEME_LINE);
+	// A new V1 phrasing must fail the export, not reach the agent.
+	if (rewritten.includes("TOKEN MAP")) {
+		throw new Error(
+			`world ${worldId}: a token map line has a form that toV2ThemeLine does not know`,
+		);
+	}
+	return rewritten;
+}
+
 // In a V2 app a lead is a row of the table that its public form writes to.
 const LEADS_TABLE = "the app's leads table";
 const LEADS_QUERY = `a run_sql query on ${LEADS_TABLE}`;
@@ -191,7 +216,7 @@ function worldSkill(world: DesignWorld): SkillFile {
 	return {
 		slug: world.id,
 		description: world.tagline || firstLine(world.doc),
-		body: toV2FormRule(world.id, world.doc),
+		body: toV2ThemeLine(world.id, toV2FormRule(world.id, world.doc)),
 	};
 }
 

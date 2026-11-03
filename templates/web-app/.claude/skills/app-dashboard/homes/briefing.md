@@ -70,7 +70,7 @@ The list query returns no row: this is the first visit.
 
 - The greeting and the date stay. The sentence follows rule 3.
 - Setup strip: under the PageHeader, above the agenda.
-- Agenda: the timeline frame with the now line, the empty frame of the style, and one muted sentence.
+- Agenda: the timeline frame with the now line, the empty frame, and one muted sentence.
 - Today: "0 of 0 done" and an empty meter track.
 - This week: each figure shows 0 and "No earlier data".
 - Trend: the empty frame of the chart file.

@@ -2,11 +2,13 @@
  * The real `HostToolRegistry` of the builder turn (WANDIT-169).
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
- * `generate_image`, `request_network_host`, and the seven backend tools of
- * WANDIT-186. A Plan Mode turn gets only `ask_user` and `present_plan`.
+ * `generate_image`, `request_network_host`, the seven backend tools of
+ * WANDIT-186, and `set_theme` for a web-app@1.1.0+ project. A Plan Mode
+ * turn gets only `ask_user` and `present_plan`.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
  */
+import { supportsAppTheme } from "../../domain/app-theme-deal";
 import type {
 	HostToolContext,
 	HostToolRegistry,
@@ -37,6 +39,7 @@ import {
 	createRequestNetworkHostTool,
 	type RequestNetworkHostHostToolDeps,
 } from "./request-network-host.host-tool";
+import { createSetThemeTool, SET_THEME_TOOL_NAME } from "./set-theme.host-tool";
 
 /**
  * The image deps, the backend tool deps (WANDIT-186), and the network-host
@@ -73,6 +76,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				},
 			});
 		}
+		// Only a template with src/styles/theme.json has a theme to set.
+		const hasAppTheme = supportsAppTheme(context.templateVersion);
 		return Promise.resolve({
 			// Nothing to release yet: the connector clients that need a
 			// close land in the connector follow-up issue.
@@ -92,6 +97,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				run_sql: "not-applicable",
 				run_sql_write: "user-approval",
 				set_secret: "not-applicable",
+				// The theme is the user's own words; the preview shows it at once.
+				...(hasAppTheme ? { [SET_THEME_TOOL_NAME]: "not-applicable" } : {}),
 			},
 			tools: {
 				[ASK_USER_TOOL_NAME]: createAskUserTool(),
@@ -114,6 +121,14 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				run_sql: createRunSqlTool(this.deps, context),
 				run_sql_write: createRunSqlWriteTool(this.deps, context),
 				set_secret: createSetSecretTool(this.deps, context),
+				...(hasAppTheme
+					? {
+							[SET_THEME_TOOL_NAME]: createSetThemeTool(
+								{ logger: this.deps.logger },
+								context,
+							),
+						}
+					: {}),
 			},
 		});
 	}

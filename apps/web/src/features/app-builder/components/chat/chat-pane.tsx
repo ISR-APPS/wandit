@@ -8,15 +8,18 @@
  * shows a refused send or a lost stream. It has a Reconnect button when
  * `onReconnect` is set.
  * When the agent asks the user something, the request tray opens on top of
- * the composer. A failed last reply gets a Retry button that sends its user
- * message again, except a stop on the daily AI limit. The plan card's
+ * the composer. While the payer has no credits, the send locks and an
+ * upgrade strip shows above the composer. A failed last reply gets a Retry
+ * button that sends its user message again, except a stop on the daily AI
+ * limit, and while the payer has no credits. The plan card's
  * "Build this plan" sends a build turn. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
- * reply shows only as the status line. Rendered by
- * pages/app-builder-page.tsx, which owns the thread hook and the details
- * panel. Renders chat-message.tsx, working-row.tsx, composer.tsx, and the
- * request tray.
+ * reply shows only as the status line. Under the composer, a line shows the
+ * full cost of the chat after its first turn. Rendered by
+ * pages/app-builder-page.tsx, which owns the thread hook, the model pick,
+ * the chat cost, and the details panel. Renders chat-message.tsx,
+ * working-row.tsx, composer.tsx, chat-cost-line.tsx, and the request tray.
  */
 
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
@@ -24,6 +27,7 @@ import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
+	type ChatCostResponse,
 	DAILY_CAP_TURN_ERROR_CODE,
 	type PreviewTarget,
 	type TurnQuestionAnswer,
@@ -35,14 +39,17 @@ import type { FileUIPart } from "ai";
 import { AnimatePresence, MotionConfig } from "motion/react";
 import { useRef, useState } from "react";
 
+import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
 import { isActivityPart, liveStatusOf } from "../../lib/turn-parts";
 import { useAutoScroll } from "../../lib/use-auto-scroll";
+import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
 import { SegmentedControl } from "../shell/segmented-control";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
+import { ChatCostLine } from "./chat-cost-line";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
 import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
@@ -94,6 +101,10 @@ export type ChatPaneProps = {
 	isPlanMode: boolean;
 	/** Sets the Plan toggle. The composer locks the chip while a turn runs. */
 	onPlanModeChange: (isPlanMode: boolean) => void;
+	/** The model menu state of the project, from useBuilderModelPick. The composer shows the menu next to the Plan chip. */
+	modelPick: BuilderModelPick;
+	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
+	chatCost?: ChatCostResponse;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
 	/** Sentence of the last rejected send or lost stream, or null. Shown as an alert under the list. */
@@ -135,6 +146,8 @@ export function ChatPane({
 	onAnswerQuestions,
 	isPlanMode,
 	onPlanModeChange,
+	modelPick,
+	chatCost,
 	onCancel,
 	errorText,
 	onReconnect,
@@ -156,11 +169,17 @@ export function ChatPane({
 		: messages.filter((message) => message.id !== liveMessageId);
 	const liveMessage =
 		messages.find((message) => message.id === liveMessageId) ?? null;
-	const retryInput = isSending ? null : retryInputOf(messages);
 	const lastMessageId = messages.at(-1)?.id;
-	// False while a turn runs or the chat is not ready. The composer and the
-	// plan card button lock on it.
-	const canSend = !isSending && isReady;
+	// The balance of the active workspace, the same pool that a turn bills.
+	// The query refreshes at the end of each turn and on window focus, so the
+	// lock lifts by itself after a top-up.
+	const { outOfCredits } = useOutOfCredits();
+	// False while a turn runs, the chat is not ready, or the payer has no
+	// credits: a send then only gets a 402. The composer and the plan card
+	// button lock on it.
+	const canSend = !isSending && isReady && !outOfCredits;
+	// Retry is a send too, so it locks on the same rule.
+	const retryInput = canSend ? retryInputOf(messages) : null;
 
 	// The tray shows the open questions of the last reply. A rejected answer
 	// removes its user bubble, so that reply stays the last reply and its questions stay open.
@@ -374,13 +393,21 @@ export function ChatPane({
 				</div>
 			) : null}
 			<div className="shrink-0 px-4 pt-1 pb-4">
+				{/* The strip sits above the composer and does not wrap it. The banner
+				changes its root element when `active` flips, so a wrapped composer
+				remounts and loses its draft and files. */}
+				{outOfCredits ? (
+					<OutOfCreditsBanner active className="mb-2">
+						{null}
+					</OutOfCreditsBanner>
+				) : null}
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
 					targets={targets}
 					onRemoveTarget={onRemoveTarget}
-					// The composer also locks while the chat id and the history load.
-					// A send without the id drops the turn; a send before the history
-					// puts the reply above it.
+					// The composer also locks while the chat id and the history load,
+					// and while the payer has no credits. A send without the id drops
+					// the turn; a send before the history puts the reply above it.
 					isSending={!canSend}
 					onSend={(input) => {
 						// A plain message after the skip X also answers the skipped
@@ -398,6 +425,7 @@ export function ChatPane({
 					placeholder={placeholder}
 					isPlanMode={isPlanMode}
 					onPlanModeChange={onPlanModeChange}
+					modelPick={modelPick}
 					submitOverride={tray.submit}
 					topSlot={
 						<MotionConfig reducedMotion="user">
@@ -416,6 +444,12 @@ export function ChatPane({
 						</MotionConfig>
 					}
 				/>
+				{/* A chat with no turn has no cost to compare yet. */}
+				{chatCost !== undefined && chatCost.turnCount > 0 ? (
+					<div className="mt-1.5 flex px-3">
+						<ChatCostLine cost={chatCost} />
+					</div>
+				) : null}
 			</div>
 		</div>
 	);
@@ -426,7 +460,9 @@ export function ChatPane({
  * The last reply must hold an error, and the message before it must be the
  * user message of that turn. An approval answer has no user bubble, so its
  * failed reply gets no Retry. A stopped turn has no error: no Retry either.
- * The daily AI limit gets no Retry: a resend fails until 00:00 UTC.
+ * The daily AI limit gets no Retry: a resend fails until 00:00 UTC. A stop
+ * on no credits gets Retry only after a top-up: until then `canSend` hides
+ * it, and the out-of-credits banner owns the upgrade action.
  */
 function retryInputOf(
 	messages: readonly BuilderMessage[],
@@ -434,8 +470,8 @@ function retryInputOf(
 	const reply = messages.at(-1);
 	const userMessage = messages.at(-2);
 	if (reply?.role !== "assistant" || userMessage?.role !== "user") return null;
-	// Every failure except the daily AI limit can be sent again, also a stop
-	// on a credit cap: the agent then continues from the committed files.
+	// Every other failure can be sent again, also a stop on a project credit
+	// cap: the agent then continues from the committed files.
 	const error = reply.parts.find((part) => part.type === "data-error");
 	if (error === undefined || error.data.code === DAILY_CAP_TURN_ERROR_CODE) {
 		return null;

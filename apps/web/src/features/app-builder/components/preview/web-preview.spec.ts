@@ -102,6 +102,7 @@ function propsWith(
 		onSelectingChange: vi.fn(),
 		onPickTarget: vi.fn(),
 		onTryToFix: vi.fn(),
+		isActive: true,
 		deps,
 	};
 }

@@ -76,7 +76,7 @@ Every entity list returns no row: this is the first visit.
 - Tabs: every tab stays, with the count 0.
 - Entity rows: each shows 0, "No earlier data", and a flat mini chart at 0.
 - Breakdown: the empty frame of the chart file. Figures: each shows 0.
-- An entity tab: the empty frame of its chart, the empty table frame of the style, and its add action.
+- An entity tab: the empty frame of its chart, the empty table frame, and its add action.
 
 ## Rules
 

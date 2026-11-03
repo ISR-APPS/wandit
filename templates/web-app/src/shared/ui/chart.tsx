@@ -2,6 +2,7 @@
 // Chart cards wrap one recharts chart in ChartContainer and pass a ChartConfig.
 // The container sets --color-<key> from the config, so a chart reads var(--color-<key>)
 // and the .dark class switches the colors through the tokens. Numbers use the app locale.
+// The tooltip box reads the --overlay-* role tokens of src/styles/engine.css, like a menu.
 
 import type { ComponentProps, ComponentType, ReactNode } from "react";
 import { createContext, useContext } from "react";
@@ -45,8 +46,8 @@ const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 
 /**
  * Sizes one recharts chart to its box and gives it the colors of `config`. Set the height with a class.
- * The --chart-* style knobs set the line and area strokes, the Area fill opacity, and the grid dash.
- * They win over the recharts props strokeWidth, fillOpacity, and strokeDasharray on those parts.
+ * Every line and area curve is 2 px wide. The Area fill opacity is 0.6, the recharts default; a gradient multiplies with it.
+ * These classes win over the recharts props strokeWidth and fillOpacity on those parts.
  */
 function ChartContainer({
 	config,
@@ -71,7 +72,7 @@ function ChartContainer({
 			<div
 				data-slot="chart"
 				className={cn(
-					"[&_.recharts-line-curve]:stroke-(length:--chart-stroke) [&_.recharts-area-curve]:stroke-(length:--chart-stroke) flex aspect-video justify-center text-xs [&_.recharts-area-area]:[fill-opacity:var(--chart-fill-opacity)] [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-cartesian-grid_line]:[stroke-dasharray:var(--chart-grid-dash)] [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden",
+					"flex aspect-video justify-center text-xs [&_.recharts-area-area]:[fill-opacity:0.6] [&_.recharts-area-curve]:stroke-2 [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-line-curve]:stroke-2 [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden",
 					className,
 				)}
 				style={{ ...colorVariables, ...style }}
@@ -154,7 +155,7 @@ function ChartTooltipContent({
 	return (
 		<div
 			className={cn(
-				"grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl",
+				"border-(length:--overlay-border-width) grid min-w-[8rem] items-start gap-1.5 rounded-(--overlay-radius) border-(--overlay-border-color) bg-popover px-2.5 py-1.5 text-popover-foreground text-xs shadow-(--overlay-shadow)",
 				className,
 			)}
 		>
@@ -181,13 +182,17 @@ function ChartTooltipContent({
 								) : (
 									!hideIndicator && (
 										<div
-											className={cn("shrink-0 rounded-[2px] border", {
-												"h-2.5 w-2.5": indicator === "dot",
-												"w-1": indicator === "line",
-												"w-0 border-[1.5px] border-dashed":
-													indicator === "dashed",
-												"my-0.5": nestLabel && indicator === "dashed",
-											})}
+											// The mark follows the badge corner. 2px keeps a soft corner when radius=none sets it to 0.
+											className={cn(
+												"shrink-0 rounded-[max(2px,var(--badge-radius))] border",
+												{
+													"h-2.5 w-2.5": indicator === "dot",
+													"w-1": indicator === "line",
+													"w-0 border-[1.5px] border-dashed":
+														indicator === "dashed",
+													"my-0.5": nestLabel && indicator === "dashed",
+												},
+											)}
 											style={{
 												borderColor: item.color,
 												backgroundColor:
@@ -268,7 +273,8 @@ function ChartLegendContent({
 								<itemConfig.icon />
 							) : (
 								<div
-									className="h-2 w-2 shrink-0 rounded-[2px]"
+									// The mark follows the badge corner. 2px keeps a soft corner when radius=none sets it to 0.
+									className="h-2 w-2 shrink-0 rounded-[max(2px,var(--badge-radius))]"
 									style={{ backgroundColor: item.color }}
 								/>
 							)}

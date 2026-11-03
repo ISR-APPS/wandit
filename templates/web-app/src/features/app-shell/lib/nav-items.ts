@@ -1,21 +1,21 @@
-// The pages of the sidebar, in order. AppSidebar lists them; AppHeader shows the active label.
-// The generated app lists its pages here; a wrong path fails typecheck.
+// The pages of the nav, in order. AppSidebar lists them, also in the phone Sheet.
+// AppHeader shows the active label. The generated app lists its pages here; a wrong path fails typecheck.
 import type { useMatchRoute } from "@tanstack/react-router";
-import { type LucideIcon, UserIcon } from "lucide-react";
 import type { FileRouteTypes } from "~/routeTree.gen";
 import type { TranslationKey } from "~/shared/i18n";
+import { type KitIcon, UserIcon } from "~/shared/ui/icons";
 
-/** One entry of the sidebar. */
+/** One entry of the nav. */
 export type NavItem = {
 	/** Path of a route under /app. The generated route tree types it, so a missing route fails typecheck. */
 	to: FileRouteTypes["to"];
 	/** Message key of the label, for example "shell.profile". */
 	labelKey: TranslationKey;
-	/** A lucide-react icon that names the page, for example `UserIcon`. */
-	icon: LucideIcon;
+	/** An icon that names the page: a kit icon, or any icon of @phosphor-icons/react. */
+	icon: KitIcon;
 };
 
-/** The sidebar entries. The home comes first; Profile stays last. */
+/** The nav entries. The home comes first; Profile stays last. */
 export const NAV_ITEMS: NavItem[] = [
 	{ to: "/app/profile", labelKey: "shell.profile", icon: UserIcon },
 ];

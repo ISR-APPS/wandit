@@ -619,7 +619,7 @@ export type KpiItem = {
 	change: number | null;
 	/** "down" for costs, delays, scrap, downtime, and late items: a fall is good news. */
 	goodWhen: "up" | "down";
-	/** The whole of the value: a count of all, a capacity, the previous-period value, or a user target. The meter form reads it, and a style can read it in other forms (cadran). */
+	/** The whole of the value: a count of all, a capacity, the previous-period value, or a user target. The meter form reads it. */
 	target?: number;
 	/** One value per day, oldest first. Only the spark form reads it. */
 	series?: number[];

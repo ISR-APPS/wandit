@@ -549,13 +549,37 @@
 			"dailyCap": "You reached today's AI limit. It resets at 00:00 UTC.",
 			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
 			"approvalPending": "Answer the open approval card first.",
-			"modelDenied": "Your plan does not include this model.",
+			"modelDenied": "This model is not available. Choose another model.",
 			"modelUnpriced": "This model has no price yet. Try again later.",
 			"sendFailed": "We could not send your message. Send it again.",
 			"connectionLost": "The chat lost its connection to the server."
 		},
 		"building": "Building",
-		"planning": "Planning"
+		"planning": "Planning",
+		"model": {
+			"title": "Choose a model",
+			"chip": "Model: {model}",
+			"default": "Default model",
+			"price": "{input} in · {output} out per 1M tokens",
+			"fast": "Fast mode"
+		},
+		"cost": {
+			"line": "Chat cost: {usd} · {credits} · {turns}",
+			"credits": {
+				"one": "{count} credit",
+				"other": "{count} credits"
+			},
+			"turns": {
+				"one": "{count} turn",
+				"other": "{count} turns"
+			},
+			"byModel": "Cost per model",
+			"row": "{model}: {usd} · {requests}",
+			"requests": {
+				"one": "{count} request",
+				"other": "{count} requests"
+			}
+		}
 	},
 	"publish": {
 		"cta": "Publish",
@@ -704,7 +728,8 @@
 			"agent": "Turn",
 			"restore": "Restore",
 			"wip": "Work in progress",
-			"merge": "Merge"
+			"merge": "Merge",
+			"theme": "Theme"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",
@@ -714,6 +739,176 @@
 		"restoreTitle": "Restore this version?",
 		"restoreBody": "Wandit creates a new version with the code of this one. Nothing is deleted. Your data and your database do not change.",
 		"cancel": "Cancel"
+	},
+	"theme": {
+		"open": "Theme",
+		"openHint": "Change the colors, fonts, and layout of your app. The agent does not run.",
+		"oldTemplate": "This app uses an older template with no theme file. Ask the agent to change its style.",
+		"unavailable": "The theme is not available. Wait for the first version, then try again.",
+		"title": "Theme",
+		"description": "Each change shows at once in the preview. Save writes it to your app as a new version.",
+		"close": "Close the theme",
+		"unsaved": "Not saved",
+		"turnRunning": "The agent is working. You can change the theme when it finishes.",
+		"random": "Random",
+		"reset": "Reset",
+		"save": "Save",
+		"saving": "Saving…",
+		"saved": "Theme saved: {name}",
+		"fromLook": "From the look",
+		"brandColor": "Brand color",
+		"brandColorHint": "A hex color, for example #1f6098.",
+		"brandColorInvalid": "Write 6 hex digits, for example #1f6098.",
+		"brandColorPicker": "Pick a brand color",
+		"borderValue": "{value} px",
+		"families": {
+			"soft": "Soft",
+			"crisp": "Crisp",
+			"warm": "Warm",
+			"pop": "Pop"
+		},
+		"fontGroups": {
+			"display": "Heading faces",
+			"body": "Text faces"
+		},
+		"fields": {
+			"look": "Look",
+			"mode": "Mode",
+			"primary": "Primary color",
+			"font": "Font",
+			"displayFont": "Heading font",
+			"scale": "Size",
+			"radius": "Corners",
+			"border": "Border",
+			"shadow": "Shadow",
+			"shadowStyle": "Shadow style",
+			"content": "Content width",
+			"sidebarStyle": "Sidebar style",
+			"sidebarCollapse": "Sidebar collapse",
+			"sidebarStart": "Sidebar at load",
+			"sidebarTone": "Sidebar color",
+			"activeItem": "Active item",
+			"header": "Header",
+			"userMenu": "User menu",
+			"frame": "Content frame",
+			"icons": "Icon style",
+			"navIcon": "Nav icons"
+		},
+		"options": {
+			"mode": {
+				"light": "Light",
+				"dark": "Dark"
+			},
+			"scale": {
+				"xs": "XS",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"radius": {
+				"none": "None",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"shadow": {
+				"none": "None",
+				"sm": "S",
+				"md": "M",
+				"lg": "L"
+			},
+			"shadowStyle": {
+				"soft": "Soft",
+				"hard": "Hard"
+			},
+			"content": {
+				"full": "Full",
+				"centered": "Centered"
+			},
+			"sidebarStyle": {
+				"inset": "Inset",
+				"classic": "Classic",
+				"floating": "Floating"
+			},
+			"sidebarCollapse": {
+				"icons": "Icons",
+				"rail": "Rail",
+				"offcanvas": "Hidden"
+			},
+			"sidebarStart": {
+				"open": "Open",
+				"collapsed": "Collapsed"
+			},
+			"sidebarTone": {
+				"canvas": "Page",
+				"tint": "Tint",
+				"contrast": "Contrast",
+				"brand": "Brand"
+			},
+			"activeItem": {
+				"pill": "Pill",
+				"bar": "Bar",
+				"block": "Block",
+				"outline": "Outline",
+				"quiet": "Quiet"
+			},
+			"header": {
+				"bar": "Bar",
+				"blur": "Blur",
+				"plain": "Plain"
+			},
+			"userMenu": {
+				"sidebar-footer": "Sidebar end",
+				"sidebar-header": "Sidebar top",
+				"header": "Header"
+			},
+			"frame": {
+				"outlined": "Outlined",
+				"flat": "Flat"
+			},
+			"icons": {
+				"thin": "Thin",
+				"light": "Light",
+				"regular": "Regular",
+				"bold": "Bold",
+				"fill": "Fill",
+				"duotone": "Duotone"
+			},
+			"navIcon": {
+				"plain": "Plain",
+				"soft": "Soft",
+				"solid": "Solid",
+				"color": "Color"
+			}
+		},
+		"hues": {
+			"red": "Red",
+			"orange": "Orange",
+			"amber": "Amber",
+			"yellow": "Yellow",
+			"lime": "Lime",
+			"green": "Green",
+			"emerald": "Emerald",
+			"teal": "Teal",
+			"cyan": "Cyan",
+			"sky": "Sky",
+			"blue": "Blue",
+			"indigo": "Indigo",
+			"violet": "Violet",
+			"purple": "Purple",
+			"fuchsia": "Fuchsia",
+			"pink": "Pink",
+			"rose": "Rose"
+		},
+		"errors": {
+			"turnRunning": "The agent is working. Save the theme when it finishes.",
+			"turnWaiting": "The agent waits for your answer in the chat. Answer it, then save the theme.",
+			"previewNotRunning": "Your app is not running. Wake the preview, then save again.",
+			"headMoved": "Your app got a new version while you edited. The sheet loaded it. Save again.",
+			"changedElsewhere": "The theme changed in another place. Your changes were not saved."
+		}
 	},
 	"mock": {
 		"notWired": "This action is not connected yet."

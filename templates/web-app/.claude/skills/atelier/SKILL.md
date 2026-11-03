@@ -30,7 +30,7 @@ Made by hand, sold by a person. Warm, tactile, unhurried, quietly expensive. The
 - The page closes on a monument: an outlined wordmark at 19.5vw with a 1px accent stroke.
 
 ## Color physics (route the brief's palette through the fixed tokens — the physics is law)
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · ACCENT→--primary · GROUND→--primary-foreground · GROUND-SOFT→--secondary · NOIR→--accent · ink at 52%→--muted · ink at 16%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 Build nine tonal roles from the fixed tokens and never introduce a tenth hue.
 - GROUND: the palette's lightest warm pole, a tinted paper in the #F4EEE3 register. Never #fff, never #fafafa.
 - GROUND-SOFT: a second ground roughly 2 percent darker (the #EDE4D3 relationship) used ONLY for section alternation.

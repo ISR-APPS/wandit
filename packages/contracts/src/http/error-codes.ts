@@ -47,6 +47,11 @@ export const apiErrorCodes = [
 	"BUILDER_APPROVAL_PENDING",
 	"BUILDER_TURN_ACTIVE",
 	"BUILDER_TURN_WAITING",
+	// The theme save (PUT /api/v2/projects/:id/theme): a turn or a restore holds the lock, no sandbox
+	// runs, or the head moved after the theme GET.
+	"BUILDER_TURN_RUNNING",
+	"PREVIEW_NOT_RUNNING",
+	"THEME_HEAD_MOVED",
 	"SANDBOX_NOT_RUNNING",
 	"BUILDER_TURN_STALE",
 	"PROJECT_CREDIT_CAP_REACHED",

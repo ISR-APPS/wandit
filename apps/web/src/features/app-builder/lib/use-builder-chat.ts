@@ -45,7 +45,7 @@ export type BuilderChatSend = {
 	approval?: TurnApprovalAnswer;
 	/** One answer per open `data-question` card, from the request tray. */
 	answers?: TurnQuestionAnswer[];
-	/** Paid model id the user picked for this turn; absent uses the deploy default. */
+	/** Model id from the model menu, a row of `GET /api/v2/models`; absent uses the deploy default. */
 	model?: string;
 	/** `plan` runs the turn in Plan Mode: the agent asks and plans, and changes no file. Absent sends a build turn. */
 	mode?: BuilderTurnMode;
@@ -168,17 +168,22 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can change six caches: the versions, the code, the
-	// project summary, the app backend, the credits, and the next estimate.
-	// All six refresh at once. The code key covers the Code view tree and
-	// every open file. The Cloud keys cover the tables, functions, secrets,
-	// and every other panel. The backend state polls on its own.
+	// A finished turn can change eight caches: the versions, the code, the
+	// theme, the project summary, the app backend, the credits, the next
+	// estimate, and the chat cost. All eight refresh at once. The code key
+	// covers the Code view tree and every open file. The theme changes on a
+	// set_theme call or a theme answer. The Cloud keys cover the tables,
+	// functions, secrets, and every other panel. The backend state polls on
+	// its own.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
 		});
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.code(projectId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.theme(projectId),
 		});
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.project(projectId),
@@ -193,7 +198,10 @@ export function useBuilderChat(
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.turnEstimate(projectId),
 		});
-	}, [queryClient, projectId]);
+		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.chatCost(projectId, chatId),
+		});
+	}, [queryClient, projectId, chatId]);
 
 	const {
 		messages,

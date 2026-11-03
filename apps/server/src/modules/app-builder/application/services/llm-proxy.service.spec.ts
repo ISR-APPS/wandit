@@ -6,6 +6,7 @@ import { ServiceUnavailableException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 
 import type { LlmProxyEnv } from "../../domain/llm-upstream";
+import type { LlmGeneration } from "../../infrastructure/langfuse/langfuse-exporter";
 import type { NewLlmProxyRequest } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
 import { LLM_PROXY_DAILY_USER_CAP_USD } from "../../infrastructure/redis/llm-spend-counters";
@@ -141,8 +142,14 @@ function makeService(env: LlmProxyEnv, upstreamFetch: typeof fetch = fetch) {
 			return { id: "row-1" };
 		},
 	};
-	const service = new LlmProxyService(env, counters, requests, upstreamFetch);
-	return { counters, inserted, service };
+	// Each Langfuse generation the service sends; content collection is on.
+	const generations: LlmGeneration[] = [];
+	const service = new LlmProxyService(env, counters, requests, upstreamFetch, {
+		send: (generation) => {
+			generations.push(generation);
+		},
+	});
+	return { counters, generations, inserted, service };
 }
 
 function token(
@@ -268,7 +275,7 @@ describe("LlmProxyService", () => {
 		);
 		try {
 			const env = makeEnv(upstream.baseUrl);
-			const { service, inserted, counters } = makeService(env);
+			const { service, inserted, counters, generations } = makeService(env);
 			const { input } = inbound(env, { endpoint: "count_tokens" });
 			await service.proxyAnthropic(input, new FakeReply());
 			expect(upstream.requests[0]?.url).toBe("/v1/messages/count_tokens");
@@ -276,6 +283,8 @@ describe("LlmProxyService", () => {
 			// The endpoint is free: no charge on the row, no spend counters.
 			expect(inserted[0]?.usdMicros).toBe(0);
 			expect(await counters.readRunSpend("run_test")).toBe(0);
+			// Langfuse would count the input of the next Messages call twice.
+			expect(generations).toHaveLength(0);
 		} finally {
 			await upstream.close();
 		}
@@ -344,15 +353,40 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("rejects a denied model with 403 and a model_denied row", async () => {
+	it.each([
+		{
+			// No turn pick: the starter list holds no opus, so it is denied.
+			tokenModel: undefined,
+			status: 403,
+			code: "V2_MODEL_DENIED",
+			rowStatus: "model_denied",
+			reason: "anthropic/claude-opus-5",
+			upstreamCalls: 0,
+		},
+		{
+			// The turn picked opus, so its token allows it on any plan.
+			tokenModel: "anthropic/claude-opus-5",
+			status: 200,
+			code: undefined,
+			rowStatus: "ok",
+			reason: null,
+			upstreamCalls: 1,
+		},
+	] as const)("answers $status for opus on starter when the token model is $tokenModel", async ({
+		tokenModel,
+		status,
+		code,
+		rowStatus,
+		reason,
+		upstreamCalls,
+	}) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
 			const { service, inserted } = makeService(env);
 			const reply = new FakeReply();
 			const { input } = inbound(env, {
-				// starter may not call opus.
-				authorization: token(env, { plan: "starter" }),
+				authorization: token(env, { plan: "starter", model: tokenModel }),
 				body: Buffer.from(
 					JSON.stringify({ model: "anthropic/claude-opus-5", messages: [] }),
 					"utf8",
@@ -361,16 +395,12 @@ describe("LlmProxyService", () => {
 
 			await service.proxyAnthropic(input, reply);
 
-			expect(reply.statusCode).toBe(403);
-			const body: { code: string; allowed: string[] } = JSON.parse(
-				reply.bodyText,
-			);
-			expect(body.code).toBe("V2_MODEL_DENIED");
-			expect(body.allowed).toContain("anthropic/claude-sonnet-5");
-			// The upstream was never called.
-			expect(upstream.requests).toHaveLength(0);
-			expect(inserted[0]?.status).toBe("model_denied");
-			expect(inserted[0]?.reason).toBe("anthropic/claude-opus-5");
+			expect(reply.statusCode).toBe(status);
+			const body: { code?: string } = JSON.parse(reply.bodyText);
+			expect(body.code).toBe(code);
+			expect(upstream.requests).toHaveLength(upstreamCalls);
+			expect(inserted[0]?.status).toBe(rowStatus);
+			expect(inserted[0]?.reason).toBe(reason);
 		} finally {
 			await upstream.close();
 		}
@@ -443,6 +473,105 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("sends a Paper model to Paper with its own key, and turns the blocks Paper refuses into text", async () => {
+		// No socket: the stub captures what would go to api.paperinstruments.com.
+		const sent: { url: string; headers: Headers; body: string }[] = [];
+		const upstreamFetch: typeof fetch = (url, init) => {
+			sent.push({
+				url: String(url),
+				headers: new Headers(init?.headers),
+				body: String(init?.body ?? ""),
+			});
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			PAPERINSTRUMENTS_API_KEY: "paper-key",
+			V2_DEFAULT_MODEL: "paperinstruments/ultramarine-1-flash",
+		};
+		const { generations, inserted, service } = makeService(env, upstreamFetch);
+		const pdf = {
+			type: "document",
+			source: {
+				type: "base64",
+				media_type: "application/pdf",
+				data: "JVBERi0=",
+			},
+		};
+		const toolUse = { type: "tool_use", id: "tu_1", name: "Read", input: {} };
+		const { input } = inbound(env, {
+			claudeSessionId: "b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+			body: Buffer.from(
+				JSON.stringify({
+					model: "paperinstruments/ultramarine-1-flash",
+					messages: [
+						{ role: "user", content: [{ type: "text", text: "Read it" }, pdf] },
+						{
+							role: "assistant",
+							// A signed block from a Claude model before a model switch.
+							content: [
+								{ type: "thinking", thinking: "t", signature: "sig" },
+								toolUse,
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "tu_1",
+									content: [{ type: "text", text: "PDF file" }, pdf],
+								},
+							],
+						},
+					],
+				}),
+				"utf8",
+			),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(sent[0]?.url).toBe("https://api.paperinstruments.com/v1/messages");
+		expect(sent[0]?.headers.get("authorization")).toBe("Bearer paper-key");
+		expect(sent[0]?.headers.get("x-session-id")).toBe(
+			"b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+		);
+		const omitted = {
+			type: "text",
+			text: expect.stringContaining("Content omitted"),
+		};
+		expect(JSON.parse(sent[0]?.body ?? "{}")).toMatchObject({
+			model: "ultramarine-1-flash",
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Read it" }, omitted] },
+				{ role: "assistant", content: [omitted, toolUse] },
+				{
+					role: "user",
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "tu_1",
+							content: [{ type: "text", text: "PDF file" }, omitted],
+						},
+					],
+				},
+			],
+		});
+		expect(inserted[0]).toMatchObject({
+			model: "paperinstruments/ultramarine-1-flash",
+			provider: "paperinstruments",
+		});
+		// Langfuse gets the rewrite the model read, not the inbound body.
+		expect(generations[0]?.forwardedBody.toString("utf8")).toBe(sent[0]?.body);
+	});
+
 	it("streams SSE chunks as they arrive and writes the usage row", async () => {
 		const upstream = await startUpstream((_req, res) => {
 			res.writeHead(200, { "content-type": "text/event-stream" });
@@ -455,7 +584,7 @@ describe("LlmProxyService", () => {
 		});
 		try {
 			const env = makeEnv(upstream.baseUrl);
-			const { service, inserted, counters } = makeService(env);
+			const { service, inserted, counters, generations } = makeService(env);
 			const reply = new FakeReply();
 			const { input } = inbound(env);
 
@@ -479,6 +608,10 @@ describe("LlmProxyService", () => {
 			expect(row?.claudeSessionId).toBe("sess_9");
 			// The row exists, so the request no longer counts as in flight.
 			expect(await counters.readInFlight("run_test")).toBe(0);
+			// One generation with the rebuilt answer and the sent bytes.
+			expect(generations).toHaveLength(1);
+			expect(generations[0]?.message?.stopReason).toBe("end_turn");
+			expect(generations[0]?.forwardedBody).toEqual(upstream.requests[0]?.body);
 		} finally {
 			await upstream.close();
 		}
@@ -552,7 +685,7 @@ describe("LlmProxyService", () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
-			const { service, counters, inserted } = makeService(env);
+			const { service, counters, generations, inserted } = makeService(env);
 			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
 			const nowTurnId = "11111111-1111-4111-8111-111111111111";
 			// The paused turn ended and its run is dead; the answer turn runs.
@@ -573,6 +706,8 @@ describe("LlmProxyService", () => {
 			expect(inserted[0]?.runId).toBe("run_now");
 			expect(inserted[0]?.turnId).toBe(nowTurnId);
 			expect(await counters.readInFlight("run_now")).toBe(0);
+			// The call joins the Langfuse trace of the turn that runs now.
+			expect(generations[0]?.claims.turnId).toBe(nowTurnId);
 		} finally {
 			await upstream.close();
 		}
@@ -622,6 +757,7 @@ describe("LlmProxyService", () => {
 					},
 				},
 				fetch,
+				null,
 			);
 
 			await service.proxyAnthropic(inbound(env).input, new FakeReply());
@@ -848,6 +984,44 @@ describe("LlmProxyService", () => {
 		} finally {
 			await upstream.close();
 		}
+	});
+
+	// Claude Code retries a 429 for minutes, but not a 402.
+	it.each([
+		{ errorType: "insufficient_quota", clientStatus: 402 },
+		{ errorType: "rate_limit_error", clientStatus: 429 },
+	])("answers $clientStatus for a Paper 429 $errorType", async ({
+		errorType,
+		clientStatus,
+	}) => {
+		const upstreamFetch: typeof fetch = () =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({ type: "error", error: { type: errorType } }),
+					{ status: 429, headers: { "content-type": "application/json" } },
+				),
+			);
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			PAPERINSTRUMENTS_API_KEY: "paper-key",
+			V2_DEFAULT_MODEL: "paperinstruments/ultramarine-1-flash",
+		};
+		const { service, inserted } = makeService(env, upstreamFetch);
+		const reply = new FakeReply();
+		const { input } = inbound(env, {
+			body: Buffer.from(
+				JSON.stringify({
+					model: "paperinstruments/ultramarine-1-flash",
+					messages: [{ role: "user", content: "hi" }],
+				}),
+				"utf8",
+			),
+		});
+
+		await service.proxyAnthropic(input, reply);
+
+		expect(reply.statusCode).toBe(clientStatus);
+		expect(inserted[0]?.reason).toBe("upstream_429");
 	});
 
 	it("writes upstream_error when the upstream socket dies mid-stream", async () => {

@@ -18,9 +18,16 @@ export const commitShaSchema = z
 
 /**
  * What made the commit. Matches the `app_commit_source` database enum
- * (WANDIT-163).
+ * (WANDIT-163). "theme" is a save of the builder Thème sheet: a commit of
+ * `src/styles/theme.json` only.
  */
-export const appCommitSources = ["agent", "restore", "wip", "merge"] as const;
+export const appCommitSources = [
+	"agent",
+	"restore",
+	"wip",
+	"merge",
+	"theme",
+] as const;
 
 /** Runtime validator for an app commit source. */
 export const appCommitSourceSchema = z.enum(appCommitSources);

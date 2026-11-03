@@ -15,7 +15,7 @@ import { usdMicrosToCentiCredits } from "./model-pricing";
  * `LLM_MODEL_PRICES` changes so a settled event names the table that
  * priced it.
  */
-export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@1";
+export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@4";
 
 /**
  * Cost of `modelId` relative to the default model, rounded to 2 decimals.

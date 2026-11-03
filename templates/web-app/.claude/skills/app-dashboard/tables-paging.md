@@ -141,7 +141,6 @@ export const Route = createFileRoute("/app/work-orders/")({
 // It reuses the empty state, the skeleton, and the error of work-orders-page.tsx.
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
@@ -149,6 +148,11 @@ import { formatRelativeTime } from "~/shared/lib/relative-time";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import { Card, CardContent } from "~/shared/ui/card";
+import {
+	CaretLeftIcon,
+	CaretRightIcon,
+	MagnifyingGlassIcon,
+} from "~/shared/ui/icons";
 import { Input } from "~/shared/ui/input";
 import {
 	Select,
@@ -230,7 +234,7 @@ export function WorkOrdersPagedPage() {
 						{/* min-w-0: the tabs scroll inside the card and never widen the page at 375 px. */}
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<form onSubmit={onSearch} className="relative w-full sm:max-w-xs">
-								<SearchIcon className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+								<MagnifyingGlassIcon className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
 								{/* The key resets the box when the URL changes, for example on Back. */}
 								<Input
 									key={search.q}
@@ -380,7 +384,7 @@ export function WorkOrdersPagedPage() {
 									})
 								}
 							>
-								<ChevronLeftIcon className="rtl:rotate-180" />
+								<CaretLeftIcon className="rtl:rotate-180" />
 								{t("table.previous")}
 							</Button>
 							<Button
@@ -398,7 +402,7 @@ export function WorkOrdersPagedPage() {
 								}
 							>
 								{t("table.next")}
-								<ChevronRightIcon className="rtl:rotate-180" />
+								<CaretRightIcon className="rtl:rotate-180" />
 							</Button>
 						</div>
 					</CardContent>

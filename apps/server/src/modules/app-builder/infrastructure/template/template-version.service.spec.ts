@@ -80,7 +80,7 @@ describe("TemplateVersionService", () => {
 			.mockImplementation(() => undefined);
 
 		expect(new TemplateVersionService().versionFor("web")).toBe(
-			"web-app@1.0.0",
+			"web-app@1.1.0",
 		);
 		expect(TEMPLATE_VERSION_FILE_PATHS).toEqual({
 			mobile: join(TEMPLATE_ARCHIVE_DIR, "mobile-app/template_version"),

@@ -45,7 +45,7 @@ French holiday-elegant: short declaratives with linen manners, concrete hospital
 - ONE deep-marine interlude per page: ground flips to #143A66/#0F2E52, text to cream, plaques to the majolica variant. Exactly one; the page returns to daylight after it.
 - Gradients exist ONLY inside drawn scenes as sky or sea (vertical, 2-stop, within the foam/azure registers) — never on sections, cards, buttons or type. The sun in a scene is pale straw #F5E8C6, never lemon (the sun is not a citrus moment).
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · INK→--primary · GROUND→--primary-foreground · FOAM→--secondary · AZURE→--accent · ink at 82%→--muted · ink at 16%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, wash or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: DM Serif Display OR Prata (Google Fonts), one per site, weight 400 only. Marine ink on cream, cream on marine. Display only above ~1.6rem.

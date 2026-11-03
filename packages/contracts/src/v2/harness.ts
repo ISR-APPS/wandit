@@ -58,6 +58,9 @@ export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 						recommended: z.boolean().optional(),
 					}),
 				),
+				// The theme question of `ask_user`. The task adds the 3 theme
+				// cards to `options`; the answer turn writes the picked theme.
+				theme: z.object({ business: z.string() }).optional(),
 			}),
 		),
 	}),

@@ -45,7 +45,7 @@ French of the amphithéâtre: measured declaratives, exact numbers, and the humi
 - SLATE BLUE #35507A: text links, plus EXACTLY ONE rule on the page — the "rule of attestation" under the page's most important statistic. That is its entire life; slate never fills, never tints, never buttons.
 - GRADIENTS DO NOT EXIST in this world; neither do box-shadows or blurs. The page must survive flat-ink printing unchanged.
 
-FIXED TOKEN MAP — PAPER→--background · INK→--foreground · OXBLOOD→--primary · PAPER→--primary-foreground · second ivory→--secondary · SLATE BLUE→--accent · softened ink→--muted · ink at 25%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, tint or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: EB Garamond / Libre Caslon Text / Crimson Pro — ONE per site, weights 500–600, never 700+. Hero statement clamp(2.6rem,6vw,4.9rem), line-height 1.08–1.14, tracking −0.005em. Chapter titles clamp(2rem,4vw,3.1rem), line-height 1.1.

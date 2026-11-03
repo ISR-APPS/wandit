@@ -1,8 +1,9 @@
 /**
  * Web preview of a web project. pages/app-builder-page.tsx renders it and passes the live URL of the publish status.
- * A stage bar holds the address capsule (viewport toggle, page picker, live app link, reload, new tab) and the Select toggle.
+ * A stage bar holds the address capsule (viewport toggle, page picker, live app link, reload, new tab), the Select toggle, and the Thème button.
  * The "Try to fix" error banner (PreviewErrorBanner) sits under the bar. Below it, the app shows at full width or in a phone of iPhone shape.
  * usePreviewToken mints the preview URL. PreviewPanel shows the iframe and passes the bridge messages. RoutePicker lists the pages.
+ * The Thème button lazy-loads theme-sheet.tsx. This file owns the draft theme, and PreviewPanel posts it to the app.
  */
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -11,7 +12,10 @@ import { CrosshairIcon } from "@phosphor-icons/react/Crosshair";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { GlobeSimpleIcon } from "@phosphor-icons/react/GlobeSimple";
 import { MonitorIcon } from "@phosphor-icons/react/Monitor";
+import { PaletteIcon } from "@phosphor-icons/react/Palette";
+import { useQuery } from "@tanstack/react-query";
 import type { PreviewBridgeMessage, PreviewTarget } from "@wandit/contracts";
+import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
@@ -19,9 +23,10 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
+import { appThemeQuery } from "../../api/app-builder.queries";
 import type { AppProject } from "../../api/dto";
 import type { BootContext } from "../../lib/boot-state";
 import {
@@ -29,7 +34,11 @@ import {
 	MOBILE_VIEWPORT_WIDTH_PX,
 	type WebViewport,
 } from "../../lib/constants";
-import { previewSrcFor } from "../../lib/helpers";
+import {
+	isThemeDraftStale,
+	previewSrcFor,
+	type ThemeDraft,
+} from "../../lib/helpers";
 import { usePreviewRuntimeErrors } from "../../lib/use-preview-runtime-errors";
 import {
 	type PreviewTokenDeps,
@@ -39,6 +48,15 @@ import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { PreviewErrorBanner } from "./preview-error-banner";
 import { PreviewPanel } from "./preview-panel";
 import { RoutePicker } from "./route-picker";
+
+// The sheet holds the contracts look catalog, so the builder chunk loads it only on the first open.
+const ThemeSheet = lazy(() => import("./theme-sheet"));
+
+// The ghost pill of the Select and Thème buttons. The spark tint of a picked kit row marks the active state.
+const STAGE_PILL_BUTTON_CLASS =
+	"h-9 shrink-0 gap-1.5 rounded-full px-3 font-grotesk font-medium text-[13px] text-night/70 hover:bg-night/[0.06] hover:text-night disabled:opacity-40 dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+const STAGE_PILL_ACTIVE_CLASS =
+	"bg-spark/[0.14] text-night hover:bg-spark/20 dark:text-foreground dark:hover:bg-spark/20";
 
 // The capsule buttons are one step smaller than the bar buttons, so they fit the 36 px capsule.
 const CAPSULE_BUTTON_CLASS = cn(TOOLBAR_ICON_BUTTON_CLASS, "size-7");
@@ -81,6 +99,8 @@ export type WebPreviewProps = {
 	onPickTarget: (target: PreviewTarget) => void;
 	/** Sends the "Try to fix" text as one chat message. */
 	onTryToFix: (message: string) => void;
+	/** False while the Code or More view shows. The page keeps this preview mounted, but hidden. */
+	isActive: boolean;
 	/** Spec seam: a fake getPreviewToken for usePreviewToken. Production callers leave it out. */
 	deps?: PreviewTokenDeps;
 };
@@ -103,6 +123,7 @@ export function WebPreview({
 	onSelectingChange,
 	onPickTarget,
 	onTryToFix,
+	isActive,
 	deps,
 }: WebPreviewProps) {
 	const { t } = useTranslation();
@@ -147,6 +168,52 @@ export function WebPreview({
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [isSelecting, onSelectingChange]);
+
+	// The saved theme.json, its world card, and its head. A turn end and a restore refetch it.
+	const themeQuery = useQuery(appThemeQuery(project.id));
+	const [isThemeOpen, setIsThemeOpen] = useState(false);
+	// The sheet stays mounted after the first open, so its close animation plays.
+	const [hasOpenedTheme, setHasOpenedTheme] = useState(false);
+	const [themeDraft, setThemeDraft] = useState<ThemeDraft | null>(null);
+	// A turn rewrites the theme, and a new saved file replaces the base of the draft. The app then shows the new file.
+	if (
+		themeDraft !== null &&
+		isThemeDraftStale({
+			draft: themeDraft,
+			savedTheme: themeQuery.data?.theme,
+			isTurnRunning: bootContext.isTurnRunning,
+		})
+	) {
+		setThemeDraft(null);
+	}
+	// The sheet is a portal, so it stays over the Code and More views. It closes, and no draft goes to a hidden app.
+	if (!isActive && (isThemeOpen || themeDraft !== null)) {
+		setIsThemeOpen(false);
+		setThemeDraft(null);
+	}
+	const isThemeDisabled = themeQuery.data?.editable !== true;
+	// An app from an older template has no theme.json, and the GET fails before the first version.
+	// A failed background refetch keeps the old data, and the button stays usable then.
+	const themeTooltip =
+		themeQuery.data === undefined && themeQuery.isError
+			? t("appBuilder.theme.unavailable")
+			: themeQuery.data?.editable === false
+				? t("appBuilder.theme.oldTemplate")
+				: t("appBuilder.theme.openHint");
+
+	function toggleTheme() {
+		setHasOpenedTheme(true);
+		setIsThemeOpen(!isThemeOpen);
+		// A close without Save shows the saved theme again.
+		if (isThemeOpen) setThemeDraft(null);
+	}
+
+	function changeThemeDraft(theme: AppThemeFile | null) {
+		const saved = themeQuery.data?.theme;
+		setThemeDraft(
+			theme === null || saved === undefined ? null : { theme, basedOn: saved },
+		);
+	}
 
 	function navigateTo(path: string) {
 		setCurrentPath(path);
@@ -293,11 +360,9 @@ export function WebPreview({
 							aria-pressed={isSelecting}
 							disabled={!canStartTurn || !hasBridge}
 							onClick={() => onSelectingChange(!isSelecting)}
-							// The spark tint of a picked kit row marks the active mode.
 							className={cn(
-								"h-9 shrink-0 gap-1.5 rounded-full px-3 font-grotesk font-medium text-[13px] text-night/70 hover:bg-night/[0.06] hover:text-night disabled:opacity-40 dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground",
-								isSelecting &&
-									"bg-spark/[0.14] text-night hover:bg-spark/20 dark:text-foreground dark:hover:bg-spark/20",
+								STAGE_PILL_BUTTON_CLASS,
+								isSelecting && STAGE_PILL_ACTIVE_CLASS,
 							)}
 						>
 							<CrosshairIcon aria-hidden weight="bold" className="size-4" />
@@ -307,6 +372,31 @@ export function WebPreview({
 					<TooltipContent side="bottom">
 						{t("appBuilder.preview.selectHint")}
 					</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					{/* A disabled button gets no pointer or focus events. The span shows the reason in the tooltip. */}
+					<TooltipTrigger asChild>
+						<span
+							tabIndex={isThemeDisabled ? 0 : undefined}
+							className="inline-flex shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ember/30"
+						>
+							<Button
+								variant="ghost"
+								size="sm"
+								aria-pressed={isThemeOpen}
+								disabled={isThemeDisabled}
+								onClick={toggleTheme}
+								className={cn(
+									STAGE_PILL_BUTTON_CLASS,
+									isThemeOpen && STAGE_PILL_ACTIVE_CLASS,
+								)}
+							>
+								<PaletteIcon aria-hidden weight="bold" className="size-4" />
+								{t("appBuilder.theme.open")}
+							</Button>
+						</span>
+					</TooltipTrigger>
+					<TooltipContent side="bottom">{themeTooltip}</TooltipContent>
 				</Tooltip>
 			</div>
 			{runtimeErrors.isBannerShown ? (
@@ -360,10 +450,27 @@ export function WebPreview({
 					}}
 					bootContext={bootContext}
 					isSelecting={isSelecting}
+					liveTheme={themeDraft?.theme ?? null}
 					onBridgeMessage={onBridgeMessage}
 					onFrameLoad={runtimeErrors.onFrameLoad}
 				/>
 			</div>
+			{hasOpenedTheme && themeQuery.data !== undefined ? (
+				<Suspense fallback={null}>
+					<ThemeSheet
+						projectId={project.id}
+						open={isThemeOpen}
+						onClose={() => {
+							setIsThemeOpen(false);
+							setThemeDraft(null);
+						}}
+						saved={themeQuery.data}
+						draft={themeDraft?.theme ?? null}
+						onDraftChange={changeThemeDraft}
+						isReadOnly={bootContext.isTurnRunning}
+					/>
+				</Suspense>
+			) : null}
 		</div>
 	);
 }

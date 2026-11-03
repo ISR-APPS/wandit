@@ -10,13 +10,17 @@ import {
 	type AppProject as ApiAppProject,
 	appBuilderRoutes,
 	appProjectSchema,
+	type BuilderModelsResponse,
 	type BuilderTurnMode,
+	builderModelsResponseSchema,
 	type CancelTurnResponse,
+	type ChatCostResponse,
 	type ChatHistoryPage,
 	type CodeFileResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
+	chatCostResponseSchema,
 	chatHistoryPageSchema,
 	codeFileResponseSchema,
 	codeSnapshotResponseSchema,
@@ -332,6 +336,31 @@ export async function getTurnEstimate(
 		appBuilderRoutes.turnEstimate(projectId),
 	);
 	return turnEstimateResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/models`: every model the model menu offers, with its price in
+ * USD per million tokens, and the deploy default. A turn or a create with an
+ * id outside this list gets 400 V2_MODEL_DENIED.
+ */
+export async function getBuilderModels(): Promise<BuilderModelsResponse> {
+	const data = await apiClient.get<unknown>(appBuilderRoutes.models);
+	return builderModelsResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/chats/:chatId/cost`: the full cost of one chat,
+ * in USD micros and centi-credits, with a split per model. A chat of another
+ * project answers 404, never zeros.
+ */
+export async function getChatCost(
+	projectId: string,
+	chatId: string,
+): Promise<ChatCostResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.chatCost(projectId, chatId),
+	);
+	return chatCostResponseSchema.parse(data);
 }
 
 /**

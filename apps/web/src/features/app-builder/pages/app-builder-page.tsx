@@ -10,7 +10,8 @@
  * The details panel of a reply covers the main card (a sheet on a phone).
  * Raw agent thinking never shows in production; local dev has a switch.
  * The page owns the elements picked in the web preview: the composer shows
- * them as chips.
+ * them as chips. It also owns the model pick of the project, which every
+ * send carries, and reads the chat cost for the line under the composer.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -31,7 +32,11 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import { appProjectQuery, turnEstimateQuery } from "../api/app-builder.queries";
+import {
+	appProjectQuery,
+	chatCostQuery,
+	turnEstimateQuery,
+} from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
@@ -57,6 +62,7 @@ import {
 	writeDeveloperView,
 } from "../lib/helpers";
 import type { AppBuilderSearch } from "../lib/schemas";
+import { useBuilderModelPick } from "../lib/use-builder-model-pick";
 import { useBuilderThread } from "../lib/use-builder-thread";
 import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
 import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
@@ -91,7 +97,12 @@ export default function AppBuilderPage({
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	// The hold of the next turn. A failed read hides the estimate; it never blocks a send.
 	const { data: nextTurnEstimate } = useQuery(turnEstimateQuery(projectId));
-	const thread = useBuilderThread(projectId);
+	// The not-found screen needs no model list. A user outside the rollout
+	// sees that screen, and the list route answers that user 403.
+	const modelPick = useBuilderModelPick(projectId, project !== null);
+	const thread = useBuilderThread(projectId, modelPick.modelId);
+	// The full cost of the chat. A failed read hides the line; it never blocks a send.
+	const { data: chatCost } = useQuery(chatCostQuery(projectId, thread.chatId));
 	// Product rule: raw thinking never shows in production, also not for staff.
 	// Local dev can switch to the developer view to see every step.
 	const [isDeveloperView, setIsDeveloperView] = useState(
@@ -265,6 +276,8 @@ export default function AppBuilderPage({
 			onAnswerQuestions={thread.answerQuestions}
 			isPlanMode={thread.isPlanMode}
 			onPlanModeChange={thread.setPlanMode}
+			modelPick={modelPick}
+			chatCost={chatCost}
 			onCancel={() =>
 				void thread
 					.cancel()
@@ -312,6 +325,7 @@ export default function AppBuilderPage({
 						onPickTarget={pickTarget}
 						// The errors belong to the whole app, so the picks stay for a later message.
 						onTryToFix={(message) => thread.send({ text: message, files: [] })}
+						isActive={view === "preview"}
 					/>
 				) : (
 					<PhonePreview

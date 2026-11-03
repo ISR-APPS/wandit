@@ -2,11 +2,12 @@
  * Types of the request tray: the card that opens on top of the composer
  * when the agent asks the user something. A copy of the V1 tray types
  * (features/workspace/components/chat/request-tray/types.ts), cut to the
- * bodies the V2 `ask_user` tool uses. lib/use-request-tray.ts builds the
- * state; request-tray.tsx and tray-bodies.tsx render it.
+ * bodies the V2 `ask_user` tool uses, plus the theme cards of V2.
+ * lib/use-request-tray.ts builds the state; request-tray.tsx and
+ * tray-bodies.tsx render it.
  */
 
-import type { WorldCard } from "@wandit/contracts";
+import type { TurnQuestionOption, WorldCard } from "@wandit/contracts";
 
 /** One option of a chip question: the id the answer sends back, the label, and the agent's advice. */
 export type ChipOption = {
@@ -20,6 +21,17 @@ export type ChipOption = {
 
 /** One option of a design-world question; `card` is absent when the world has no preview. */
 export type WorldCardOption = { id: string; label: string; card?: WorldCard };
+
+/**
+ * One option of a theme question, for example `look:ardoise` with the look name as label.
+ * `theme` is the theme.json of the card, checked only for its version and name on the wire.
+ * theme-mockup.tsx parses the rest before it draws the mockup.
+ */
+export type ThemeCardOption = {
+	id: string;
+	label: string;
+	theme: TurnQuestionOption["theme"];
+};
 
 /** One image the user picked for an `attachments` question. */
 export type MediaItem = {
@@ -43,6 +55,11 @@ export type TrayBody =
 	| {
 			kind: "world-pick";
 			options: WorldCardOption[];
+			selectedId: string | null;
+	  }
+	| {
+			kind: "theme-pick";
+			options: ThemeCardOption[];
 			selectedId: string | null;
 	  }
 	| {

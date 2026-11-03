@@ -13,15 +13,15 @@ Each figure shows its label and its value, with the change as a colored pill bes
 
 ## Anatomy
 
-1. Label: `item.label`, in the label look of the style (`label-text`).
+1. Label: `item.label`, in `label-text` (the small label style).
 2. Value line: the value, then the delta as a pill at the end of the line.
    The value is `new Intl.NumberFormat(locale, item.format).format(item.value)`, with `font-numeric tabular-nums`.
 3. No earlier data: no pill. The muted line "No earlier data" goes under the value.
 
-- The pill is a `Badge` or the status mark of the style, for example a stamp or a tag.
-- The style gives the panel of a figure: a card, a ruled cell, a tile, a slip, or no box.
-- The style gives the sizes, the weights, and the gaps.
-- The snippet shows the logic. Its `Badge` is the no-style default of the pill.
+- The pill is a `Badge`.
+- The panel of a figure is a `Card`, unless the home slot says otherwise.
+- The theme scale changes the gaps. The home slot gives the value size.
+- The snippet shows the logic. Its `Badge` is the default pill.
 - The skeleton keeps the label, the value, and a pill in their final sizes.
 
 ## Rules
@@ -32,14 +32,15 @@ Each figure shows its label and its value, with the change as a colored pill bes
 - Good news is `success`. Bad news is a tinted destructive pill. "0%" is `secondary`.
 - The Badge `destructive` variant is solid red. Give it the tinted look of `success` with classes.
 - A change under 0.05 % shows "0%" with no arrow.
-- The arrow shows the direction. Mirror it with `rtl:-scale-x-100`, never with `rtl:rotate-180`.
+- The arrow shows the direction: `TrendUpIcon` or `TrendDownIcon` (SKILL.md, Icons).
+  Mirror it with `rtl:-scale-x-100`, never with `rtl:rotate-180`.
   A rotation turns a rise into a fall.
 - The percent sits in `<bdi dir="ltr">`, so "+12%" keeps its order in Arabic.
 - The pill holds a screen reader text that names the comparison.
 - `change: null` shows no pill and the line "No earlier data". Never show "0%" for it.
 - The home names the period once. No figure repeats it.
 
-The pill, with its imports from `lucide-react`, `~/shared/i18n`, `~/shared/lib/utils`, and `~/shared/ui/badge`:
+The pill, with its imports from `@phosphor-icons/react` (SKILL.md, Icons), `~/shared/i18n`, `~/shared/lib/utils`, and `~/shared/ui/badge`:
 
 ```tsx
 // One decimal shows 0.05 % and more. A smaller change shows "0%", so it gets no arrow and no color.
@@ -52,8 +53,7 @@ function ChangePill({ change, goodWhen }: { change: number; goodWhen: KpiItem["g
 	const isFlat = Math.abs(change) < FLAT_CHANGE;
 	// The arrow shows the direction. The color shows good or bad news, from goodWhen.
 	const isGood = change > 0 === (goodWhen === "up");
-	const TrendIcon = change < 0 ? TrendingDownIcon : TrendingUpIcon;
-	// No-style default: a Badge. A style with a stamp or a tag draws that mark, with the same colors.
+	const TrendIcon = change < 0 ? TrendDownIcon : TrendUpIcon;
 	return (
 		<Badge
 			variant={isFlat ? "secondary" : isGood ? "success" : "destructive"}

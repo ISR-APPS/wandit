@@ -2,10 +2,11 @@
  * Port: the host-side tool set the agent may call during a turn.
  * `builder-turn.runtime.ts` calls `build` once per turn after the sandbox
  * exists. `BuilderHostToolRegistry` implements it with `generate_image`,
- * `request_network_host`, and the backend tools of WANDIT-186, or with the
- * Plan Mode tools. AI SDK `ToolSet` only: vendor packages stay out.
+ * `request_network_host`, `set_theme`, and the backend tools of WANDIT-186,
+ * or with the Plan Mode tools. AI SDK `ToolSet` only: vendor packages stay out.
  */
 import type { BuilderTurnMode } from "@wandit/contracts";
+import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
 import type { ToolApprovalStatus as AiToolApprovalStatus, ToolSet } from "ai";
 
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -40,6 +41,18 @@ export type HostToolContext = {
 	sandbox: SandboxHandle;
 	/** `spec.mode` of the turn. `plan` gets only the tools that ask the user. */
 	mode: BuilderTurnMode;
+	/** `projects.templateVersion`, for example "web-app@1.1.0". `set_theme` exists from web-app@1.1.0. */
+	templateVersion: string;
+	/**
+	 * Called after a host tool wrote src/styles/theme.json. The turn-end guard
+	 * of the runtime then keeps this file and undoes later writes of the agent.
+	 */
+	onThemeFileWritten: (file: AppThemeFile) => void;
+	/**
+	 * The theme.json that the runtime trusts now: the turn-start file or the last host write.
+	 * Null when the pre-turn fallback failed. `set_theme` patches it, not the disk file.
+	 */
+	knownThemeFile: () => AppThemeFile | null;
 };
 
 /**

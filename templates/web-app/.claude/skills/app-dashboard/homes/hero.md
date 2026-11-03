@@ -36,7 +36,7 @@ Fact      | Fact      | Fact     | Fact      +-----------+
 
 | Slot | Data kind | Form |
 |---|---|---|
-| Hero figure | The sum of `current` of the daily series over the period. The delta compares it with the sum of `previous`. | The label and period, the value at the largest size of the style, and the delta of the kpi form. |
+| Hero figure | The sum of `current` of the daily series over the period. The delta compares it with the sum of `previous`. | The label and period, the value at the largest size of the page, and the delta of the kpi form. |
 | Hero chart | `dailySeriesQueryOptions(days)`. | A large sparkline: the trend part of the chart file with no axes and no grid, h-28 to h-40. The last point is marked. A tooltip stays. |
 | Facts | The first 3 or 4 `KpiItem` rows of `overviewKpisQueryOptions()`, without the one that repeats the hero. `KPI_COUNT` is 3 or 4. | The kpi form of the recipe, one size below its usual size, in one ruled row with no panels. |
 | List | The next items (a time to come, soonest first), else the newest rows. 5 to 8 rows. | A list: the time or the relative time, the name cell, and the status Badge. |
@@ -70,7 +70,7 @@ The list query returns no row: this is the first visit.
 - Hero: the value 0, "No earlier data", and a flat sparkline at 0 across the full width.
 - Setup strip: under the hero panel, above the facts.
 - Facts: each shows 0 and "No earlier data".
-- List: the empty frame of the style, one muted sentence, and the add action.
+- List: the empty frame, one muted sentence, and the add action.
 
 ## Rules
 
@@ -82,10 +82,10 @@ The list query returns no row: this is the first visit.
   Each fact has `basis-1/2 border-s ps-6 pe-6`, and `@4xl/main:flex-1` puts all facts on one line from 56rem.
   A fact at the start of a line, also after a wrap, shows no start rule: the wrapper clips it.
   The margin in the `calc` is the `ps-6` padding plus the rule width (1 px by default).
-  Density scales `--spacing`, so the margin follows it.
+  The theme scale changes `--spacing`, so the margin follows it.
 - kpi=strip: each fact holds the parts of one cell of strip.md, with no panel.
   The rules and the clip above replace the strip grid.
-- The style signature fits best on the hero panel. Spend the boldness there and keep the facts quiet.
+- Spend the boldness on the hero panel and keep the facts quiet.
 - 375 px: the hero, the chart (h-28), facts 2 x 2, the list.
 - The skeleton draws the hero panel at its full height, the facts row, and 5 list rows.
 - This home differs: one figure dominates, and the only chart belongs to it. No panel grid.

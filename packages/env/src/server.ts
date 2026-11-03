@@ -319,6 +319,13 @@ export const env = createEnv({
 		POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
 		POSTHOG_HOST: z.url().optional(),
+		// Langfuse tracing of the V2 LLM proxy. Unset = off: no network call, no log.
+		// Set both keys; one key alone keeps it off and logs one warn at boot.
+		LANGFUSE_PUBLIC_KEY: z.string().startsWith("pk-lf-").optional(),
+		// Secret. The API sends it only inside the Basic auth header to Langfuse.
+		LANGFUSE_SECRET_KEY: z.string().startsWith("sk-lf-").optional(),
+		// Langfuse host. Unset means https://cloud.langfuse.com, the EU region.
+		LANGFUSE_BASE_URL: z.url().optional(),
 		// Linear, for in-app user feedback. Unset = the feedback route answers
 		// 503 while the rest of the API boots normally.
 		LINEAR_API_KEY: z.string().min(1).optional(),
@@ -357,6 +364,9 @@ export const env = createEnv({
 		// in dev: the code finds the repo `templates/` folder from the cwd.
 		TEMPLATE_ARCHIVE_DIR: z.string().min(1).optional(),
 		ANTHROPIC_API_KEY: z.string().min(1).optional(),
+		// Paper Instruments key (`pi_live_...`). The LLM proxy sends each
+		// `paperinstruments/` model to api.paperinstruments.com with it.
+		PAPERINSTRUMENTS_API_KEY: z.string().min(1).optional(),
 		// Comma-separated list: the first key signs, any key verifies.
 		LLM_PROXY_SIGNING_KEY: z.string().min(1).optional(),
 		// Base URL of the harness host process, which keeps Claude Code

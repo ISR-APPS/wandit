@@ -13,13 +13,13 @@ Each figure shows its label, its value, and one line with the change. It fits ev
 
 ## Anatomy
 
-1. Label: `item.label`, in the label look of the style (`label-text`).
+1. Label: `item.label`, in `label-text` (the small label style).
 2. Value: `new Intl.NumberFormat(locale, item.format).format(item.value)`, with `font-numeric tabular-nums`.
 3. Delta: one line with the arrow, the percent, and a screen reader text. Or the muted line "No earlier data".
 
-- The style gives the panel of a figure: a card, a ruled cell, a tile, a slip, or no box.
-- The style gives the sizes, the weights, and the gaps.
-- The snippet shows the logic. Its text size, gap, and arrow size are the no-style defaults.
+- The panel of a figure is a `Card`, unless the home slot says otherwise.
+- The theme scale changes the gaps. The home slot gives the value size.
+- The snippet shows the logic. Its text size, gap, and arrow size are the defaults.
 - The skeleton keeps the three parts in their final sizes.
 
 ## Rules
@@ -27,7 +27,7 @@ Each figure shows its label, its value, and one line with the change. It fits ev
 - `change` is a ratio from `changeRatio` (data.md). A change of 0.123 shows "+12.3%".
 - Format it with `Intl.NumberFormat(locale, { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 1 })`.
 - A change under 0.05 % shows "0%" in muted text, with no arrow and no color.
-- The arrow shows the direction: `TrendingUpIcon` for a rise, `TrendingDownIcon` for a fall.
+- The arrow shows the direction: `TrendUpIcon` for a rise, `TrendDownIcon` for a fall. SKILL.md, Icons, gives their imports.
 - The color shows good or bad news from `goodWhen`. With `goodWhen: "down"`, a fall is good news.
 - Mirror the arrow with `rtl:-scale-x-100`, never with `rtl:rotate-180`. A rotation turns a rise into a fall.
 - The percent sits in `<bdi dir="ltr">`, so "+12%" keeps its order in Arabic.
@@ -35,7 +35,7 @@ Each figure shows its label, its value, and one line with the change. It fits ev
 - The home names the period once. No figure repeats it.
 - A number in a sentence or in a column header keeps these rules for the value and the change.
 
-The delta line, with its imports from `lucide-react`, `~/shared/i18n`, and `~/shared/lib/utils`:
+The delta line, with its imports from `@phosphor-icons/react` (SKILL.md, Icons), `~/shared/i18n`, and `~/shared/lib/utils`:
 
 ```tsx
 // One decimal shows 0.05 % and more. A smaller change shows "0%", so it gets no arrow and no color.
@@ -52,8 +52,8 @@ function ChangeLine({ item }: { item: KpiItem }) {
 	const isFlat = Math.abs(change) < FLAT_CHANGE;
 	// The arrow shows the direction. The color shows good or bad news, from goodWhen.
 	const isGood = change > 0 === (item.goodWhen === "up");
-	const TrendIcon = change < 0 ? TrendingDownIcon : TrendingUpIcon;
-	// No-style defaults: text-sm, gap-1, and size-4. The style Anatomy replaces them.
+	const TrendIcon = change < 0 ? TrendDownIcon : TrendUpIcon;
+	// Defaults: text-sm, gap-1, and size-4. A home slot can change them.
 	return (
 		<p className={cn("flex items-center gap-1 text-sm", isFlat ? "text-muted-foreground" : isGood ? "text-success" : "text-destructive")}>
 			{isFlat ? null : <TrendIcon className="size-4 rtl:-scale-x-100" />}

@@ -54,7 +54,7 @@ FALLBACK CONTRACT, non-negotiable. The callout labels live in the DOM as a real 
 - An order form that looks like the terminal at a till.
 
 ## Color physics (route the brief's palette through the fixed tokens — the physics is law)
-FIXED TOKEN MAP — BENCH→--background · GLASS→--foreground · SIGNAL→--primary · BENCH→--primary-foreground · BENCH-RAISED→--secondary · DATASHEET ground→--accent · glass at 52%→--muted · glass at 14%→--border · 3px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, glow or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 Nine tonal roles from the fixed tokens, never a tenth hue.
 - BENCH: the palette's darkest cool pole, near-black with B sitting 6 to 12 points above R (the #0B0D10 / #0E1116 relationship). Never #000, never warm, never navy.
 - BENCH-RAISED: one step up, 4 to 7 RGB points (the #14181E register) — the anodized panel surface. This step, not a shadow, is how a panel detaches.

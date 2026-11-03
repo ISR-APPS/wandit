@@ -1,8 +1,8 @@
 /**
- * Orchestration behind the V2 app-project routes: create, get, and the
- * project cost caps. Called by `app-projects.controller.ts` and
- * `cost-caps.controller.ts`. Create order: 1. the template version of the
- * platform. 2. the attachment check. 3. the settled-balance gate. 4. one
+ * Orchestration behind the V2 app-project routes: create, get, the cost of
+ * one chat, and the project cost caps. Called by `app-projects.controller.ts`
+ * and `cost-caps.controller.ts`. Create order: 1. the template version of the
+ * platform. 2. the attachment and model checks. 3. the settled-balance gate. 4. one
  * transaction (project, chat, first message, builder session). 5. the
  * backend provision handoff. 6. the first builder turn, which adopts the
  * message row; when it fails, one stored error reply. 7. the title job and
@@ -18,6 +18,7 @@ import {
 } from "@nestjs/common";
 import {
 	type AppProject,
+	type ChatCostResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	type ProjectCostCaps,
@@ -47,11 +48,13 @@ import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
 import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
+import { LlmProxyRequestsRepository } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { BackendsService } from "./backends.service";
 import {
+	assertPickableModel,
 	HARNESS_BY_ENV,
 	TURN_HOLD_DEFAULT_CREDITS,
 	TurnsService,
@@ -100,7 +103,16 @@ export class AppProjectsService {
 			"countVersions" | "hasFileChanges"
 		>,
 		@Inject(ChatsRepository)
-		private readonly chats: Pick<ChatsRepository, "insertUiMessagesIfAbsent">,
+		private readonly chats: Pick<
+			ChatsRepository,
+			"findAccessibleChatById" | "insertUiMessagesIfAbsent"
+		>,
+		/** Sums the proxy rows of one chat for `chatCost`. */
+		@Inject(LlmProxyRequestsRepository)
+		private readonly proxyRequests: Pick<
+			LlmProxyRequestsRepository,
+			"sumByChat"
+		>,
 	) {}
 
 	/**
@@ -120,6 +132,11 @@ export class AppProjectsService {
 		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
+		// Before any row: an unpriced pick must not leave a project whose
+		// first turn already failed.
+		if (body.model !== undefined) {
+			assertPickableModel(body.model);
+		}
 
 		// D-C: the create path holds nothing; it only refuses a user with no
 		// credits, before any row exists.
@@ -145,7 +162,7 @@ export class AppProjectsService {
 				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,
-				model: this.v2Env.V2_DEFAULT_MODEL ?? null,
+				model: body.model ?? this.v2Env.V2_DEFAULT_MODEL ?? null,
 				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},
@@ -192,6 +209,7 @@ export class AppProjectsService {
 					composer: body.composer,
 					message: body.prompt,
 					mode: body.mode,
+					model: body.model,
 				},
 				{ existingMessageId: messageId },
 			);
@@ -303,6 +321,26 @@ export class AppProjectsService {
 	}
 
 	/**
+	 * `GET /v2/projects/:id/chats/:chatId/cost`: the full cost of one chat,
+	 * so a user can compare models. Same 404 rule as the turn routes.
+	 */
+	async chatCost(
+		scope: ProjectScope,
+		projectId: string,
+		chatId: string,
+	): Promise<ChatCostResponse> {
+		await this.requireV2AppProject(scope, projectId);
+		// Security check, the same as `TurnsService.create`: the chat must be
+		// in scope and belong to this project. A foreign chat id answers 404.
+		const chat = await this.chats.findAccessibleChatById(scope, chatId);
+		if (!chat || chat.projectId !== projectId) {
+			throw new NotFoundException();
+		}
+
+		return this.proxyRequests.sumByChat(projectId, chatId);
+	}
+
+	/**
 	 * `GET /v2/projects/:id/cost-caps`. Called by `cost-caps.controller.ts`
 	 * behind a `limits:manage` role gate. A missing row answers the plan
 	 * default so the settings form has a number to edit.
@@ -338,7 +376,7 @@ export class AppProjectsService {
 	}
 
 	/**
-	 * The cost-cap routes share the turn routes' rule: one 404 for
+	 * The cost-cap and chat-cost routes share the turn routes' rule: one 404 for
 	 * "missing", "out of scope", and "not a V2 project".
 	 */
 	private async requireV2AppProject(

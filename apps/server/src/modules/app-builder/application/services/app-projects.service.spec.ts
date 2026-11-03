@@ -22,6 +22,7 @@ import type {
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
+import type { LlmProxyRequestsRepository } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import type { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { AppProjectsService } from "./app-projects.service";
@@ -129,9 +130,15 @@ function setup() {
 		hasFileChanges: vi.fn(async () => false),
 	};
 	const chats = {
+		findAccessibleChatById: vi.fn<ChatsRepository["findAccessibleChatById"]>(
+			async () => null,
+		),
 		insertUiMessagesIfAbsent: vi.fn<
 			ChatsRepository["insertUiMessagesIfAbsent"]
 		>(async () => undefined),
+	};
+	const proxyRequests = {
+		sumByChat: vi.fn<LlmProxyRequestsRepository["sumByChat"]>(),
 	};
 
 	const service = new AppProjectsService(
@@ -146,6 +153,7 @@ function setup() {
 		backends,
 		appCommits,
 		chats,
+		proxyRequests,
 	);
 
 	return {
@@ -157,6 +165,7 @@ function setup() {
 		credits,
 		projects,
 		projectsService,
+		proxyRequests,
 		service,
 		templateVersion,
 		turns,
@@ -267,6 +276,22 @@ describe("AppProjectsService.create", () => {
 			code: "INVALID_FILE_PART",
 		});
 		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
+	});
+
+	it("answers 400 V2_MODEL_DENIED for an unpriced model and writes nothing", async () => {
+		const { projects, service, turns } = setup();
+
+		const failure = await service
+			.create(SCOPE, { ...BODY, model: "x/unpriced" }, { countryCode: null })
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BadRequestException);
+		// SAFETY: toBeInstanceOf proves the type; getResponse carries the body.
+		expect((failure as BadRequestException).getResponse()).toMatchObject({
+			code: "V2_MODEL_DENIED",
+		});
+		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
 	});
 
 	it("answers 402 on a zero settled balance and writes nothing", async () => {
@@ -534,6 +559,24 @@ describe("AppProjectsService.get", () => {
 		);
 		// The commits of a project out of scope are never read.
 		expect(appCommits.hasFileChanges).not.toHaveBeenCalled();
+	});
+});
+
+describe("AppProjectsService.chatCost", () => {
+	it.each([
+		{ name: "a chat out of scope", chat: null },
+		{
+			name: "a chat of another project",
+			chat: { id: "chat-1", projectId: "project-2", userId: "user-1" },
+		},
+	])("404s on $name and reads no cost", async ({ chat }) => {
+		const { chats, proxyRequests, service } = setup();
+		chats.findAccessibleChatById.mockResolvedValue(chat);
+
+		await expect(
+			service.chatCost(SCOPE, "project-1", "chat-1"),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(proxyRequests.sumByChat).not.toHaveBeenCalled();
 	});
 });
 

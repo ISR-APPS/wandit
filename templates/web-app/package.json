@@ -1,6 +1,6 @@
 {
 	"name": "web-app",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"private": true,
 	"type": "module",
 	"packageManager": "pnpm@11.7.0",
@@ -11,12 +11,13 @@
 		"dev": "vite dev --host 0.0.0.0 --port 5173 --strictPort",
 		"build": "vite build",
 		"preview": "vite preview",
-		"typecheck": "tsc6 --noEmit && node scripts/check-effects.mjs",
+		"typecheck": "tsc6 --noEmit && node scripts/check-effects.mjs && node scripts/check-theme.mjs",
 		"lint": "biome check --error-on-warnings .",
 		"pack": "node scripts/pack.mjs",
 		"smoke": "node scripts/smoke.mjs"
 	},
 	"dependencies": {
+		"@phosphor-icons/react": "2.1.10",
 		"@supabase/supabase-js": "2.116.0",
 		"@tanstack/react-query": "5.104.1",
 		"@tanstack/react-router": "1.170.33",
@@ -24,7 +25,6 @@
 		"@tanstack/react-start": "1.168.50",
 		"class-variance-authority": "0.7.1",
 		"clsx": "2.1.1",
-		"lucide-react": "1.52.0",
 		"radix-ui": "1.6.7",
 		"react": "19.2.8",
 		"react-dom": "19.2.8",

@@ -64,6 +64,18 @@ describe("BuilderHostToolRegistry.build", () => {
 		});
 	});
 
+	it("adds set_theme only to a build turn of a web-app@1.1.0 project", async () => {
+		const { fixture, registry } = await setup();
+		// The fixture project is web-app@1.0.0: the case above proves it has no set_theme.
+		const themed = { ...fixture.context, templateVersion: "web-app@1.1.0" };
+
+		const build = await registry.build(themed);
+		const plan = await registry.build({ ...themed, mode: "plan" });
+
+		expect(Object.keys(build.tools)).toContain("set_theme");
+		expect(Object.keys(plan.tools)).not.toContain("set_theme");
+	});
+
 	it("gives a plan turn only the tools that ask the user", async () => {
 		const { fixture, registry } = await setup();
 

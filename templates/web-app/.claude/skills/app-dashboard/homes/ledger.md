@@ -62,7 +62,7 @@ The list query returns no row: this is the first visit.
 - Setup strip: under the PageHeader, above the totals line.
 - Totals: each figure shows 0 and "No earlier data" in place of the delta.
 - Activity strip: every day at the lowest step, or a flat zero baseline. The strip keeps its height.
-- Table: the table head, then the empty frame of the style, one muted sentence, and the add action.
+- Table: the table head, then the empty frame, one muted sentence, and the add action.
   Render them in place of DataTable. Its `noResults` text is for a search with no match.
 
 ## Rules
@@ -71,12 +71,12 @@ The list query returns no row: this is the first visit.
 - Totals: a `dl` with one `div` per figure. Each figure has `border-s ps-6`, and from 36rem `pe-6`.
   The padding on both sides gives the same space before and after each rule.
   A figure at the start of a line, also after a wrap, has no start rule: the wrapper clips it.
-  The `dl` moves to the start by the `ps-6` padding plus the 1 px rule. Density scales `--spacing`, so the margin follows it.
+  The `dl` moves to the start by the `ps-6` padding plus the 1 px rule. The theme scale changes `--spacing`, so the margin follows it.
   Under 36rem: one figure per line, the label at the start, the value at the end.
 
 ```tsx
 // The negative margin and overflow-hidden clip the start rule of the first figure on each line.
-// The margin is ps-6 plus the 1 px rule. It reads --spacing, so it follows the density.
+// The margin is ps-6 plus the 1 px rule. It reads --spacing, so it follows the theme scale.
 <div className="overflow-hidden">
 	<dl className="-ms-[calc(var(--spacing)*6+1px)] flex flex-wrap gap-y-3">
 		{totals.map((total) => (

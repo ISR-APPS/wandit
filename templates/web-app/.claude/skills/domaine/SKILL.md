@@ -49,7 +49,7 @@ Forbidden: "luxe", "prestige", "haut standing", "opportunité", exclamation mark
 - BRONZE: the #8A6D3F / #7E6338 register. Budget per page: micro-cap labels, ledger keys, the scrub rail, ONE footer rule, the wordmark's second word, hover underlines, focus rings. Never a bronze fill larger than a 3px bar, never gold — foil small-caps are GÉNÉRIQUE's, gold line-art is ORFÈVRE's.
 - Photo matte #E6E0D4 sits behind every aperture so a slow-loading image reads as a warm plate.
 
-FIXED TOKEN MAP — GROUND A→--background · INK→--foreground · BRONZE→--primary · GROUND A→--primary-foreground · GROUND B→--secondary · photo matte→--accent · ink at 55%→--muted · ink at 12%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, wash or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 - Gradients: NONE, anywhere. The 4% bronze photographic wash is flat and is the page's only overlay.
 - Every saturated color comes out of the photographs: rose sky, violet dusk, tungsten light.

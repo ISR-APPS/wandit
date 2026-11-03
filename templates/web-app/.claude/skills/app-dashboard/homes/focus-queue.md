@@ -63,8 +63,8 @@ Title   12 open, 3 late        [Main action] Title  [Action]
 The list query returns no row: this is the first visit.
 
 - Setup strip: under the PageHeader. The header line says "0 open".
-- Next up: the panel keeps its size, with the empty frame of the style and one muted sentence.
-- Queue: the tab "All 0", the table head, and the empty frame of the style.
+- Next up: the panel keeps its size, with the empty frame and one muted sentence.
+- Queue: the tab "All 0", the table head, and the empty frame.
 - Done per day: the empty frame of the chart file. The total shows 0 and "No earlier data".
 - Breakdown: the empty frame of the chart file.
 - Rows exist but none is open: Next up says that nothing is open. This is real data, not the first visit.

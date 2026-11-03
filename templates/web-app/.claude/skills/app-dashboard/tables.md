@@ -1,7 +1,7 @@
 # Tables: list pages, detail pages, and forms
 
 The example is the work orders of the factory in `data.md`. Copy its patterns, never its names.
-The code gives the logic. The style gives the look of the page header, the panels, the table, and the badges.
+The code gives the logic. The kit and the theme give the look of the page header, the panels, the table, and the badges.
 Each main entity gets one list page and one detail page (or a form page).
 The example below is complete and tested. For each entity, rename its files, keys, and columns.
 
@@ -56,15 +56,16 @@ The URL holds the state: `?q=&status=&sort=&page=`. The database filters, sorts,
 
 ### Add to: src/features/app-shell/lib/nav-items.ts
 
-Import `ClipboardListIcon` (Work orders) and `LayoutDashboardIcon` (the home) from `lucide-react`.
+Import one icon per page from `@phosphor-icons/react` (SKILL.md, Icons). The factory home watches its output.
+The home gets `FactoryIcon`, and the work orders page gets `ClipboardIcon`.
 Add these entries at the start of `NAV_ITEMS`. The home comes first, and Profile stays last.
 
 ```ts
-	{ to: "/app", labelKey: "overview.title", icon: LayoutDashboardIcon },
+	{ to: "/app", labelKey: "overview.title", icon: FactoryIcon },
 	{
 		to: "/app/work-orders",
 		labelKey: "workOrders.title",
-		icon: ClipboardListIcon,
+		icon: ClipboardIcon,
 	},
 ```
 
@@ -729,8 +730,8 @@ export function DeleteWorkOrderDialog({
 // The actions menu at the end of one work order row: open, edit, and delete.
 // The list page renders it in the last column. Edit and delete open their dialogs from here.
 // The dialogs sit outside the menu, so they stay open when the menu closes.
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { EllipsisIcon } from "lucide-react";
 import { useState } from "react";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
@@ -766,7 +767,7 @@ export function WorkOrderRowActions({ workOrder }: WorkOrderRowActionsProps) {
 						className="size-8"
 						aria-label={t("workOrders.actions")}
 					>
-						<EllipsisIcon />
+						<DotsThreeIcon />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
@@ -1037,7 +1038,6 @@ export function WorkOrdersPageError() {
 // An unknown id shows a not-found block with a link back to the list.
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeftIcon } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
@@ -1045,6 +1045,7 @@ import { formatRelativeTime } from "~/shared/lib/relative-time";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import { CaretLeftIcon } from "~/shared/ui/icons";
 import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
 import {
@@ -1084,7 +1085,7 @@ export function WorkOrderDetailPage({ id }: WorkOrderDetailPageProps) {
 			className="-ms-3 justify-self-start"
 		>
 			<Link to="/app/work-orders">
-				<ChevronLeftIcon className="rtl:rotate-180" />
+				<CaretLeftIcon className="rtl:rotate-180" />
 				{t("workOrders.title")}
 			</Link>
 		</Button>

@@ -17,7 +17,10 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { DAILY_CAP_TURN_ERROR_CODE } from "@wandit/contracts";
+import {
+	builderTurnStatusSchema,
+	DAILY_CAP_TURN_ERROR_CODE,
+} from "@wandit/contracts";
 import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
@@ -299,12 +302,19 @@ function MessagePartView({
 					/>
 					<div className="min-w-0">
 						<p>
-							{/* The daily cap names its reset time in the user's language. */}
+							{/* A limit stop shows a sentence in the user's language; the
+							server text is English. The daily cap names its reset time. */}
 							{part.data.code === DAILY_CAP_TURN_ERROR_CODE
 								? t("appBuilder.chat.errors.dailyCap")
-								: t("appBuilder.chat.turnError", {
-										message: part.data.message,
-									})}
+								: part.data.code ===
+										builderTurnStatusSchema.enum.stopped_no_credits
+									? t("appBuilder.chat.errors.noCredits")
+									: part.data.code ===
+											builderTurnStatusSchema.enum.stopped_project_cap
+										? t("appBuilder.chat.errors.projectCap")
+										: t("appBuilder.chat.turnError", {
+												message: part.data.message,
+											})}
 						</p>
 						{onRetry ? (
 							<Button

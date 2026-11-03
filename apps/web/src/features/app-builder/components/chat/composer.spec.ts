@@ -34,6 +34,12 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 					placeholder: "Ask Wandit…",
 					isPlanMode: false,
 					onPlanModeChange: vi.fn(),
+					// No model list: the menu hides, as while the list loads.
+					modelPick: {
+						models: undefined,
+						modelId: undefined,
+						setModelId: vi.fn(),
+					},
 					...props,
 				}),
 			),

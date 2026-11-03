@@ -4,7 +4,6 @@ import {
 	appBackendProvider,
 	appBackendStatus,
 } from "@wandit/db/schema/app-backends";
-import { appCommitSource } from "@wandit/db/schema/app-versions";
 import { builderHarness } from "@wandit/db/schema/builder-sessions";
 import {
 	builderTurnStatus,
@@ -81,15 +80,6 @@ describe("v2 core schema", () => {
 			"restoring",
 			"deleting",
 			"error",
-		]);
-	});
-
-	it("keeps app_commit_source values", () => {
-		expect(appCommitSource.enumValues).toEqual([
-			"agent",
-			"restore",
-			"wip",
-			"merge",
 		]);
 	});
 

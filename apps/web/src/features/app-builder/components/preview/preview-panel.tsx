@@ -5,11 +5,13 @@
  * app page loads, and while the project holds only the template; the error
  * and blocked states have their own alert. The page keeps it mounted across the views. The
  * Vite HMR WebSocket of the app inside then survives a view switch. It tells
- * the dev bridge of the app when the select mode starts or stops. It passes
- * each bridge message, also a page change, to `onBridgeMessage`.
+ * the dev bridge of the app when the select mode starts or stops, and posts
+ * the draft theme of the Thème sheet. It passes each bridge message, also a
+ * page change, to `onBridgeMessage`.
  */
 
 import type { PreviewBridgeMessage } from "@wandit/contracts";
+import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -63,6 +65,11 @@ export type PreviewPanelProps = {
 	bootContext: BootContext;
 	/** True while the user picks elements in the app. Only the web preview turns it on. */
 	isSelecting?: boolean;
+	/**
+	 * The draft theme of the Thème sheet, which the app shows in place of its theme.json.
+	 * Null tells the app to show its saved theme again. Only the web preview sets it.
+	 */
+	liveTheme?: AppThemeFile | null;
 	/** Gets each valid message of the dev bridge in the app: ready, a runtime error, a pick, Escape, or a page change. */
 	onBridgeMessage?: (message: PreviewBridgeMessage) => void;
 	/** Runs on each `load` of the iframe. usePreviewRuntimeErrors then shows the kept errors when no bridge said ready. */
@@ -84,6 +91,7 @@ export function PreviewPanel({
 	frameViewport,
 	bootContext,
 	isSelecting = false,
+	liveTheme = null,
 	onBridgeMessage,
 	onFrameLoad,
 }: PreviewPanelProps) {
@@ -113,6 +121,20 @@ export function PreviewPanel({
 		postSelectMode(isSelecting);
 	}, [isSelecting]);
 
+	// Tells the bridge in the app to show a draft theme, or the saved theme for null.
+	const postTheme = useEffectEvent((theme: AppThemeFile | null) => {
+		const frameWindow = frameRef.current?.contentWindow;
+		if (previewUrl === null || !frameWindow) return;
+		// The exact preview origin, never "*": no other page may get the message.
+		frameWindow.postMessage(
+			{ type: "wandit:theme", theme },
+			new URL(previewUrl).origin,
+		);
+	});
+	useEffect(() => {
+		postTheme(liveTheme);
+	}, [liveTheme]);
+
 	// The proxy error pages report a dead token or a stopped sandbox. The
 	// bridge in the app reports its start, errors, picks, and pages.
 	usePreviewMessages({
@@ -124,6 +146,10 @@ export function PreviewPanel({
 			// A page load resets the bridge, so it gets the select mode again.
 			if (message.type === "wandit:bridge-ready" && isSelecting) {
 				postSelectMode(true);
+			}
+			// A page load also drops the draft theme. WebPreview drops a stale draft, so a draft here is current.
+			if (message.type === "wandit:bridge-ready" && liveTheme !== null) {
+				postTheme(liveTheme);
 			}
 			onBridgeMessage?.(message);
 		},

@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
 	createAnthropicSseUsageParser,
+	messageFromAnthropicJson,
 	usageFromAnthropicJson,
 } from "./anthropic-sse-usage";
+
+// One SSE frame around a JSON `data:` line.
+function sseFrame(data: string): string {
+	return `data: ${data}\n\n`;
+}
 
 // A canned Anthropic stream in the documented format: message_start carries
 // input and cache counts, message_delta carries cumulative output.
@@ -78,6 +84,118 @@ describe("createAnthropicSseUsageParser", () => {
 		);
 
 		expect(parser.usage().outputTokens).toBe(9);
+	});
+
+	it("rebuilds thinking, text and tool_use blocks from a stream cut into 7-char chunks", () => {
+		const stream = [
+			'{"type":"message_start","message":{"id":"msg_2","model":"deepseek/deepseek-v4.1-flash","usage":{"input_tokens":5}}}',
+			'{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}',
+			'{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan"}}',
+			'{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" it"}}',
+			'{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"c2ln"}}',
+			'{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}',
+			'{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Reading"}}',
+			'{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"tu_1","name":"Read","input":{}}}',
+			'{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\\"file_path\\":"}}',
+			'{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"\\"a.ts\\"}"}}',
+			'{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}',
+			'{"type":"message_stop"}',
+		]
+			.map(sseFrame)
+			.join("");
+		const parser = createAnthropicSseUsageParser({ collectContent: true });
+		for (let start = 0; start < stream.length; start += 7) {
+			parser.feed(stream.slice(start, start + 7));
+		}
+
+		expect(parser.message()).toMatchObject({
+			content: [
+				{ type: "thinking", thinking: "Plan it" },
+				{ type: "text", text: "Reading" },
+				{
+					type: "tool_use",
+					id: "tu_1",
+					name: "Read",
+					input: { file_path: "a.ts" },
+				},
+			],
+			stopReason: "tool_use",
+			firstTokenAt: expect.any(Number),
+		});
+		// Content collection leaves the billed counts as they are.
+		expect(parser.usage().outputTokens).toBe(9);
+	});
+
+	it("keeps a cut tool input as raw text and records an in-stream error", () => {
+		const parser = createAnthropicSseUsageParser({ collectContent: true });
+		parser.feed(
+			[
+				'{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"Read","input":{}}}',
+				'{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"file_path\\":\\"a"}}',
+				'{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+			]
+				.map(sseFrame)
+				.join(""),
+		);
+
+		expect(parser.message()).toMatchObject({
+			content: [{ type: "tool_use", input: '{"file_path":"a' }],
+			streamError: "overloaded_error: Overloaded",
+		});
+	});
+
+	it("does not throw on a tool input nested 10,000 deep and keeps the usage", () => {
+		// z.json() recurses, so this depth throws a RangeError out of safeParse.
+		const deepJson = `${"[".repeat(10_000)}${"]".repeat(10_000)}`;
+		const parser = createAnthropicSseUsageParser({ collectContent: true });
+		parser.feed(
+			[
+				// A gateway can send the whole input in the block start.
+				`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"Write","input":${deepJson}}}`,
+				'{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_2","name":"Write","input":{}}}',
+				`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"${deepJson}"}}`,
+				'{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}',
+			]
+				.map(sseFrame)
+				.join(""),
+		);
+
+		expect(parser.message()?.content).toEqual([
+			{ type: "tool_use", id: "tu_2", name: "Write", input: deepJson },
+		]);
+		expect(parser.usage().outputTokens).toBe(9);
+		expect(
+			messageFromAnthropicJson({
+				content: [
+					{
+						type: "tool_use",
+						id: "tu_3",
+						name: "Write",
+						input: JSON.parse(deepJson),
+					},
+				],
+			}),
+		).toBeNull();
+	});
+});
+
+describe("messageFromAnthropicJson", () => {
+	it("reads the blocks of a JSON answer and drops a block type it does not know", () => {
+		const message = messageFromAnthropicJson({
+			id: "msg_3",
+			content: [
+				{ type: "text", text: "Found it" },
+				{ type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+				{ type: "tool_use", id: "tu_2", name: "Edit", input: { path: "a.ts" } },
+			],
+			stop_reason: "tool_use",
+		});
+
+		expect(message?.content).toEqual([
+			{ type: "text", text: "Found it" },
+			{ type: "tool_use", id: "tu_2", name: "Edit", input: { path: "a.ts" } },
+		]);
+		expect(message?.stopReason).toBe("tool_use");
 	});
 });
 

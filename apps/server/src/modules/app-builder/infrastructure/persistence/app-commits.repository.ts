@@ -47,7 +47,8 @@ export type NewAppCommit = {
 	sha: string;
 	parentSha: string | null;
 	message: string;
-	source: "agent" | "restore" | "wip" | "merge";
+	/** The `app_commit_source` value. "theme" is a save of the builder Thème sheet. */
+	source: AppCommitRow["source"];
 	restoredFromSha: string | null;
 	numstat: GitNumstatEntry[];
 	/** R2 object key of the stored patch, under `git/<projectId>/patches/`. */

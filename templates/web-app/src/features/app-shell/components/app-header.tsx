@@ -1,19 +1,30 @@
-// The bar at the top of the page column: the sidebar trigger, the name of the current page, and the language switcher.
-// AppShell renders it above every page behind login. The name comes from the active NAV_ITEMS entry.
-// The rounded top corners follow the page card of the inset shell; on other shells they do not show.
+// The bar at the top of the page column: the menu button, the name of the current page, the language switcher,
+// and the user menu when theme.json puts it here. AppShell renders it.
+// The header axis of theme.json gives the look through engine.css: [data-header] selects data-slot="app-header".
+// The name comes from the active NAV_ITEMS entry.
 import { useMatchRoute } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { LocaleSwitcher, useT } from "~/shared/i18n";
 import { Separator } from "~/shared/ui/separator";
 import { SidebarTrigger } from "~/shared/ui/sidebar";
 import { findActiveNavItem } from "../lib/nav-items";
 
-/** Sticky bar, 3rem high. It shows no label on a page that NAV_ITEMS does not list. */
-export function AppHeader() {
+type AppHeaderProps = {
+	/** The user menu at the end side (NavUser with placement "header"), or null when the sidebar holds it. */
+	userMenu: ReactNode;
+};
+
+/** h-14 high. It shows no label on a page that NAV_ITEMS does not list. */
+export function AppHeader({ userMenu }: AppHeaderProps) {
 	const { t } = useT();
 	const activeItem = findActiveNavItem(useMatchRoute());
 
 	return (
-		<header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4 md:rounded-t-xl lg:px-6">
+		// The top corners follow the inset page panel, so a sticky fill does not cover its rounded edge.
+		<header
+			data-slot="app-header"
+			className="flex h-14 shrink-0 items-center gap-2 px-4 md:rounded-t-(--shell-panel-radius) md:px-6"
+		>
 			<SidebarTrigger className="-ms-1" aria-label={t("shell.toggleSidebar")} />
 			<Separator
 				orientation="vertical"
@@ -24,9 +35,10 @@ export function AppHeader() {
 					{t(activeItem.labelKey)}
 				</span>
 			) : null}
-			{/* It renders nothing while the app has one language. */}
-			<div className="ms-auto">
+			<div className="ms-auto flex items-center gap-2">
+				{/* It renders nothing while the app has one language. */}
 				<LocaleSwitcher />
+				{userMenu}
 			</div>
 		</header>
 	);

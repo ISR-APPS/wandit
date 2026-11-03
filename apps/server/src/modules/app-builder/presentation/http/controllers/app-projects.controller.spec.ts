@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import type { AppProjectsService } from "../../../application/services/app-projects.service";
 import { MobileTemplateUnavailableError } from "../../../domain/errors/mobile-template-unavailable.error";
 import { RedisRateLimitGuard } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
@@ -17,6 +18,7 @@ import { AppProjectsController } from "./app-projects.controller";
 
 function setup() {
 	const appProjects = {
+		chatCost: vi.fn<AppProjectsService["chatCost"]>(),
 		create: vi.fn(async () => ({
 			chatId: "chat-1",
 			projectId: "project-1",

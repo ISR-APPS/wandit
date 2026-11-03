@@ -133,6 +133,18 @@ function bodyOf(
 				canAddMore: uploads.length < (question.maxFiles ?? DEFAULT_MAX_FILES),
 			};
 		case "single-choice":
+			// A theme question: the task dealt 3 theme cards and put their theme.json on the options.
+			if (question.options.some((option) => option.theme !== undefined)) {
+				return {
+					kind: "theme-pick",
+					options: question.options.map((option) => ({
+						id: option.id,
+						label: option.label,
+						theme: option.theme,
+					})),
+					selectedId: picked[0] ?? null,
+				};
+			}
 			// The agent offers design worlds: the task added their preview cards.
 			if (question.options.some((option) => option.card !== undefined)) {
 				return {
