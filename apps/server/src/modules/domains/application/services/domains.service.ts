@@ -225,7 +225,7 @@ export class DomainsService {
 			throw new ExternalDomainUnregisteredError(parsed.name);
 		}
 
-		const row = await this.domainsRepository.createExternalReplacingTerminal({
+		const row = await this.domainsRepository.createExternalReplacingReleased({
 			name: parsed.name,
 			projectId,
 			tld: parsed.tld,
@@ -235,9 +235,10 @@ export class DomainsService {
 		let customHostnameId: string | null = null;
 
 		try {
-			const hostname = await this.customHostnameService.createCustomHostname(
-				parsed.name,
-			);
+			const hostname =
+				await this.customHostnameService.findOrCreateCustomHostname(
+					parsed.name,
+				);
 			customHostnameId = hostname.id;
 			const wwwRecords = this.requiredRecords(
 				parsed.name,
@@ -260,6 +261,8 @@ export class DomainsService {
 				requiredRecords: wwwRecords,
 			};
 		} catch (error) {
+			// The code below deletes the row, so no row owns this hostname. This is
+			// also true for an adopted hostname. apex-zone.step.ts keeps one because its row stays.
 			if (customHostnameId) {
 				await this.bestEffortDeleteCustomHostname(customHostnameId, row.id);
 			}

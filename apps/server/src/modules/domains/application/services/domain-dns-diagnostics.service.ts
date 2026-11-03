@@ -1,3 +1,8 @@
+/**
+ * Checks the DNS records that a customer must add for an external domain.
+ * DomainsController calls getStatus for the route GET domains/:id/dns-status.
+ * Reads the required records from the `domains` row and queries public DNS with node:dns.
+ */
 import {
 	resolve4,
 	resolve6,
@@ -193,7 +198,11 @@ export class DomainDnsDiagnosticsService {
 	}
 
 	private isMissingDnsError(error: unknown): boolean {
-		return this.isDnsError(error, "ENOTFOUND");
+		// NXDOMAIN gives ENOTFOUND. NOERROR with no answer gives ENODATA.
+		// Some DNS hosts (Dynadot) answer NODATA for every absent name, so both codes mean "missing".
+		return (
+			this.isDnsError(error, "ENOTFOUND") || this.isDnsError(error, "ENODATA")
+		);
 	}
 
 	private isDnsError(error: unknown, code: string): boolean {

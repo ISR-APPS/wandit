@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	canExternalAttachReplace,
 	DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+	type DomainNameHolder,
 	DomainsRepository,
 } from "./domains.repository";
 
 const DOMAIN_ID = "22222222-2222-4222-8222-222222222222";
 const NONCE = "purchase:11111111-1111-4111-8111-111111111111";
 const USER_ID = "user_1";
+const OTHER_USER_ID = "user_2";
+const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 
 type QueryCall = [text: string, values: unknown[]];
 type SqlCondition = {
@@ -78,6 +82,53 @@ function selectBuilder(result: unknown[] = []) {
 
 	return builder;
 }
+
+describe("canExternalAttachReplace", () => {
+	const detachedConfiguring: DomainNameHolder = {
+		projectDeletedAt: null,
+		projectId: null,
+		source: "external",
+		status: "configuring",
+		userId: OTHER_USER_ID,
+	};
+
+	it.each<[string, boolean, Partial<DomainNameHolder>]>([
+		["external configuring detached, other user", true, {}],
+		[
+			"external configuring on a soft-deleted project",
+			true,
+			{
+				projectDeletedAt: new Date("2026-10-01T00:00:00.000Z"),
+				projectId: PROJECT_ID,
+			},
+		],
+		[
+			"external active detached, same user",
+			true,
+			{ status: "active", userId: USER_ID },
+		],
+		["external active detached, other user", false, { status: "active" }],
+		[
+			"external configuring on a live project, other user",
+			false,
+			{ projectId: PROJECT_ID },
+		],
+		[
+			"purchased active detached, same user",
+			false,
+			{ source: "purchased", status: "active", userId: USER_ID },
+		],
+		[
+			"failed on a live project, other user",
+			true,
+			{ projectId: PROJECT_ID, status: "failed" },
+		],
+	])("%s -> %s", (_label, expected, holder) => {
+		expect(
+			canExternalAttachReplace({ ...detachedConfiguring, ...holder }, USER_ID),
+		).toBe(expected);
+	});
+});
 
 describe("DomainsRepository Trigger configuration cursor", () => {
 	it("initializes atomically while merging DNS JSON and preserving updatedAt", async () => {

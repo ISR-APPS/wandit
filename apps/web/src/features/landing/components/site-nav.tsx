@@ -1,9 +1,10 @@
 /**
- * The fixed top bar of the landing page. pages/landing-page.tsx and
+ * The sticky top bar of the landing page. pages/landing-page.tsx and
  * pages/pricing-page.tsx render it. It is clear over the top of the ember
  * hero and the closing panel, solid ember when their content is under it,
  * and frosted paper in between.
- * It holds the section links, the language menu, and sign-in.
+ * It holds the section links, the language menu, and sign-in. The V2 strip
+ * above it scrolls away with the page, and the bar then moves to the window top.
  */
 
 import { Link, useLocation } from "@tanstack/react-router";
@@ -15,7 +16,7 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
 import { motion, useMotionValueEvent, useScroll } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { LocaleFlag } from "@/components/language-flags";
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
@@ -27,9 +28,10 @@ import { LANDING_NAV_LINK_IDS } from "../lib/constants";
 import { CLOSING_PANEL_ID, HERO_PANEL_ID, scrollToTop } from "../lib/scroll";
 import { useSectionNav } from "../lib/use-section-nav";
 import { KeycapButton, keycapClassName } from "./keycap-button";
+import { V2ComingSoonBanner } from "./v2-coming-soon-banner";
 
-// Vertical middle of the 64 px bar. The bar takes an ember look while
-// this line is over an ember panel.
+// 32 px below the header top: the middle of the 64 px row when the bar is
+// filled. The bar takes an ember look while this line is over an ember panel.
 const BAR_MIDDLE_PX = 32;
 
 // The sections the scroll spy watches. Pricing is a route, not a section.
@@ -44,13 +46,14 @@ type BarTone = "clear" | "ember" | "paper";
 /**
  * Picks the bar look from the two ember panels. The hero can be taller than
  * the viewport on mobile, so the bar measures the panels, not the scroll position.
+ * `barMiddlePx` is the middle line of the bar, in px from the viewport top.
  */
-function measureBarTone(): BarTone {
+function measureBarTone(barMiddlePx: number): BarTone {
 	for (const id of [HERO_PANEL_ID, CLOSING_PANEL_ID]) {
 		const panel = document.getElementById(id);
 		if (!panel) continue;
 		const { top, bottom } = panel.getBoundingClientRect();
-		if (top <= BAR_MIDDLE_PX && bottom >= BAR_MIDDLE_PX) {
+		if (top <= barMiddlePx && bottom >= barMiddlePx) {
 			// When the panel top is above the viewport, the panel content is under
 			// the bar. A clear bar then mixes that content with the logo and the buttons.
 			return top >= 0 ? "clear" : "ember";
@@ -89,7 +92,7 @@ function useActiveSection() {
 	return activeId;
 }
 
-/** Fixed landing bar. Signed out it opens the auth modal, signed in it links to the dashboard. */
+/** Sticky landing bar. Signed out it opens the auth modal, signed in it links to the dashboard. */
 export function SiteNav() {
 	const { t, locale } = useTranslation();
 	const nav = useDictionary().landing.nav;
@@ -100,12 +103,17 @@ export function SiteNav() {
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const isHome = pathname === "/";
 	const { scrollY } = useScroll();
+	const headerRef = useRef<HTMLElement>(null);
 	// The page opens at the top, over the hero. The panels are not in the DOM
 	// at the first render, so the first scroll event sets the real value.
 	const [barTone, setBarTone] = useState<BarTone>("clear");
 	const isOnPaper = barTone === "paper";
 
-	useMotionValueEvent(scrollY, "change", () => setBarTone(measureBarTone()));
+	// The bar is under the V2 strip at the page top, so its top is not always 0.
+	useMotionValueEvent(scrollY, "change", () => {
+		const barTop = headerRef.current?.getBoundingClientRect().top ?? 0;
+		setBarTone(measureBarTone(barTop + BAR_MIDDLE_PX));
+	});
 
 	// Spark is under 3:1 on ember, so the ring is white there.
 	const focusRing = isOnPaper
@@ -119,194 +127,204 @@ export function SiteNav() {
 	);
 
 	return (
-		<header
-			className={cn(
-				"fixed inset-x-0 top-0 z-40 border-b px-2 text-night transition-[background-color,border-color,padding] duration-300 motion-reduce:transition-[background-color,border-color] md:px-3",
-				// Clear, the bar sits inside the inset panel. The gap keeps the buttons
-				// off the top edge of the panel. A filled bar starts at the window top.
-				barTone === "clear" && "pt-4 md:pt-6",
-				isOnPaper
-					? "border-night/10 bg-paper/85 backdrop-blur-md"
-					: "border-transparent",
-			)}
-		>
-			{/* The ember fill is inside the header padding. Thus its edges align
-			    with the edges of the inset panel. */}
-			<div
-				className={cn(
-					"transition-[background-color,box-shadow] duration-300",
-					barTone === "ember" &&
-						"bg-ember shadow-[0_12px_24px_-16px_rgb(11_16_51/0.45)]",
-				)}
-			>
-				<div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:px-8 lg:grid lg:grid-cols-[1fr_auto_1fr]">
-					{/* On the home page the logo scrolls to the top. On the pricing page it goes home. */}
-					<Link
-						to="/"
-						onClick={(event) => {
-							if (!isHome) return;
-							event.preventDefault();
-							scrollToTop();
-						}}
-						aria-label={
-							isHome ? t("landing.nav.backToTop") : t("landing.nav.home")
-						}
+		<>
+			<V2ComingSoonBanner />
+			{/* The sticky wrapper has no height, so the bar still lies over the hero.
+			    It stays under the strip, then sticks to the window top. */}
+			<div className="sticky top-0 z-40 h-0">
+				<header
+					ref={headerRef}
+					className={cn(
+						"absolute inset-x-0 top-0 border-b px-2 text-night transition-[background-color,border-color,padding] duration-300 motion-reduce:transition-[background-color,border-color] md:px-3",
+						// Clear, the bar sits inside the inset panel. The gap keeps the buttons
+						// off the top edge of the panel. A filled bar starts at the window top.
+						barTone === "clear" && "pt-4 md:pt-6",
+						isOnPaper
+							? "border-night/10 bg-paper/85 backdrop-blur-md"
+							: "border-transparent",
+					)}
+				>
+					{/* The ember fill is inside the header padding. Thus its edges align
+					    with the edges of the inset panel. */}
+					<div
 						className={cn(
-							"group/logo flex min-h-11 items-center gap-2 justify-self-start rounded-xl outline-offset-4 focus-visible:outline-2",
-							focusRing,
+							"transition-[background-color,box-shadow] duration-300",
+							barTone === "ember" &&
+								"bg-ember shadow-[0_12px_24px_-16px_rgb(11_16_51/0.45)]",
 						)}
 					>
-						{/* The mark sits on an app-icon tile: Wandit makes apps. */}
-						<span
-							aria-hidden
-							className="grid size-8 place-items-center rounded-[10px] bg-night"
-						>
-							<Spark className="size-4.5 text-spark transition-transform duration-500 ease-out group-hover/logo:rotate-90 motion-reduce:transition-none" />
-						</span>
-						{/* The wordmark keeps the Latin brand face in every locale: index.css
-						    gives lang="en" the Latin face. Signed in on a phone, the dashboard
-						    link and the avatar need its width. */}
-						<span
-							lang="en"
-							className={cn(
-								"font-extrabold font-grotesk text-[1.375rem] leading-none tracking-[-0.045em]",
-								// 22 px extra bold is large text, so white passes 3:1 on ember.
-								!isOnPaper && "text-white",
-								session && "max-sm:hidden",
-							)}
-						>
-							wandit
-						</span>
-					</Link>
-
-					<nav className="hidden items-center gap-1 lg:flex">
-						{LANDING_NAV_LINK_IDS.map((id) => {
-							// Pricing is a page of its own. The other links are sections of the home page.
-							const isActive =
-								id === "pricing" ? pathname === "/pricing" : id === activeId;
-							const linkClass = cn(
-								quietControl,
-								"relative px-3.5 py-2 font-medium text-sm",
-								isActive && "text-night",
-							);
-							const label = (
-								<>
-									{/* The pill glides to the section the visitor reads now. */}
-									{isActive ? (
-										<motion.span
-											layoutId="site-nav-active"
-											aria-hidden
-											transition={{
-												type: "spring",
-												bounce: 0.2,
-												duration: 0.5,
-											}}
-											className={cn(
-												"absolute inset-0 rounded-full",
-												isOnPaper ? "bg-night/[0.07]" : "bg-white/25",
-											)}
-										/>
-									) : null}
-									<span className="relative">{nav.links[id]}</span>
-								</>
-							);
-							if (id === "pricing") {
-								return (
-									<Link key={id} to="/pricing" className={linkClass}>
-										{label}
-									</Link>
-								);
-							}
-							return (
-								<a
-									key={id}
-									// The full path keeps the link true on the pricing page and in a new tab.
-									href={`/#${id}`}
-									onClick={(event) => {
-										event.preventDefault();
-										navigateToSection(id);
-									}}
-									aria-current={isActive ? "location" : undefined}
-									className={linkClass}
-								>
-									{label}
-								</a>
-							);
-						})}
-					</nav>
-
-					<div className="flex items-center gap-1.5 justify-self-end sm:gap-2">
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<button
-									type="button"
-									aria-label={t("common.changeLanguage")}
-									className={cn(
-										"group/lang flex h-11 min-w-11 items-center justify-center gap-2 rounded-full outline-offset-2 ring-1 transition-[background-color,box-shadow] duration-300 focus-visible:outline-2 md:ps-2 md:pe-3 lg:h-10",
-										focusRing,
-										isOnPaper
-											? "ring-night/12 hover:bg-night/5"
-											: "ring-night/20 hover:bg-white/15",
-									)}
-								>
-									<LocaleFlag locale={locale} className="size-6 ring-0" />
-									<span className="hidden font-medium text-sm md:inline">
-										{localeMeta[locale].nativeLabel}
-									</span>
-									<ChevronDownIcon
-										aria-hidden
-										className="hidden size-3.5 opacity-70 transition-transform duration-200 group-data-[state=open]/lang:rotate-180 md:block"
-									/>
-								</button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								align="end"
-								sideOffset={10}
-								className="min-w-52 rounded-2xl p-1.5"
+						<div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:px-8 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+							{/* On the home page the logo scrolls to the top. On the pricing page it goes home. */}
+							<Link
+								to="/"
+								onClick={(event) => {
+									if (!isHome) return;
+									event.preventDefault();
+									scrollToTop();
+								}}
+								aria-label={
+									isHome ? t("landing.nav.backToTop") : t("landing.nav.home")
+								}
+								className={cn(
+									"group/logo flex min-h-11 items-center gap-2 justify-self-start rounded-xl outline-offset-4 focus-visible:outline-2",
+									focusRing,
+								)}
 							>
-								<LanguageSwitcherMenuItems />
-							</DropdownMenuContent>
-						</DropdownMenu>
+								{/* The mark sits on an app-icon tile: Wandit makes apps. */}
+								<span
+									aria-hidden
+									className="grid size-8 place-items-center rounded-[10px] bg-night"
+								>
+									<Spark className="size-4.5 text-spark transition-transform duration-500 ease-out group-hover/logo:rotate-90 motion-reduce:transition-none" />
+								</span>
+								{/* The wordmark keeps the Latin brand face in every locale: index.css
+								    gives lang="en" the Latin face. Signed in on a phone, the dashboard
+								    link and the avatar need its width. */}
+								<span
+									lang="en"
+									className={cn(
+										"font-extrabold font-grotesk text-[1.375rem] leading-none tracking-[-0.045em]",
+										// 22 px extra bold is large text, so white passes 3:1 on ember.
+										!isOnPaper && "text-white",
+										session && "max-sm:hidden",
+									)}
+								>
+									wandit
+								</span>
+							</Link>
 
-						{session ? (
-							<>
-								<Link
-									to="/dashboard"
-									className={cn(
-										keycapClassName("sm"),
-										"h-11 px-4 lg:h-10",
-										focusRing,
-									)}
-								>
-									{nav.dashboard}
-								</Link>
-								<UserMenu />
-							</>
-						) : (
-							<>
-								<button
-									type="button"
-									onClick={() => open()}
-									className={cn(
+							<nav className="hidden items-center gap-1 lg:flex">
+								{LANDING_NAV_LINK_IDS.map((id) => {
+									// Pricing is a page of its own. The other links are sections of the home page.
+									const isActive =
+										id === "pricing"
+											? pathname === "/pricing"
+											: id === activeId;
+									const linkClass = cn(
 										quietControl,
-										"hidden h-11 px-3.5 font-medium text-sm md:block lg:h-10",
-									)}
-								>
-									{nav.signIn}
-								</button>
-								<KeycapButton
-									type="button"
-									size="sm"
-									onClick={() => open()}
-									className={cn("h-11 px-4 lg:h-10", focusRing)}
-								>
-									{nav.getStarted}
-								</KeycapButton>
-							</>
-						)}
+										"relative px-3.5 py-2 font-medium text-sm",
+										isActive && "text-night",
+									);
+									const label = (
+										<>
+											{/* The pill glides to the section the visitor reads now. */}
+											{isActive ? (
+												<motion.span
+													layoutId="site-nav-active"
+													aria-hidden
+													transition={{
+														type: "spring",
+														bounce: 0.2,
+														duration: 0.5,
+													}}
+													className={cn(
+														"absolute inset-0 rounded-full",
+														isOnPaper ? "bg-night/[0.07]" : "bg-white/25",
+													)}
+												/>
+											) : null}
+											<span className="relative">{nav.links[id]}</span>
+										</>
+									);
+									if (id === "pricing") {
+										return (
+											<Link key={id} to="/pricing" className={linkClass}>
+												{label}
+											</Link>
+										);
+									}
+									return (
+										<a
+											key={id}
+											// The full path keeps the link true on the pricing page and in a new tab.
+											href={`/#${id}`}
+											onClick={(event) => {
+												event.preventDefault();
+												navigateToSection(id);
+											}}
+											aria-current={isActive ? "location" : undefined}
+											className={linkClass}
+										>
+											{label}
+										</a>
+									);
+								})}
+							</nav>
+
+							<div className="flex items-center gap-1.5 justify-self-end sm:gap-2">
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											aria-label={t("common.changeLanguage")}
+											className={cn(
+												"group/lang flex h-11 min-w-11 items-center justify-center gap-2 rounded-full outline-offset-2 ring-1 transition-[background-color,box-shadow] duration-300 focus-visible:outline-2 md:ps-2 md:pe-3 lg:h-10",
+												focusRing,
+												isOnPaper
+													? "ring-night/12 hover:bg-night/5"
+													: "ring-night/20 hover:bg-white/15",
+											)}
+										>
+											<LocaleFlag locale={locale} className="size-6 ring-0" />
+											<span className="hidden font-medium text-sm md:inline">
+												{localeMeta[locale].nativeLabel}
+											</span>
+											<ChevronDownIcon
+												aria-hidden
+												className="hidden size-3.5 opacity-70 transition-transform duration-200 group-data-[state=open]/lang:rotate-180 md:block"
+											/>
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent
+										align="end"
+										sideOffset={10}
+										className="min-w-52 rounded-2xl p-1.5"
+									>
+										<LanguageSwitcherMenuItems />
+									</DropdownMenuContent>
+								</DropdownMenu>
+
+								{session ? (
+									<>
+										<Link
+											to="/dashboard"
+											className={cn(
+												keycapClassName("sm"),
+												"h-11 px-4 lg:h-10",
+												focusRing,
+											)}
+										>
+											{nav.dashboard}
+										</Link>
+										<UserMenu />
+									</>
+								) : (
+									<>
+										<button
+											type="button"
+											onClick={() => open()}
+											className={cn(
+												quietControl,
+												"hidden h-11 px-3.5 font-medium text-sm md:block lg:h-10",
+											)}
+										>
+											{nav.signIn}
+										</button>
+										<KeycapButton
+											type="button"
+											size="sm"
+											onClick={() => open()}
+											className={cn("h-11 px-4 lg:h-10", focusRing)}
+										>
+											{nav.getStarted}
+										</KeycapButton>
+									</>
+								)}
+							</div>
+						</div>
 					</div>
-				</div>
+				</header>
 			</div>
-		</header>
+		</>
 	);
 }

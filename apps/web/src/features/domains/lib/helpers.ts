@@ -1,3 +1,8 @@
+/**
+ * Pure helpers for the domains feature: status checks, input clean-up, registrant mapping, DNS record display.
+ * The domain components and the domain queries call them. The feature barrel exports some of them.
+ * They call no API and keep no state.
+ */
 import type { Registrant } from "@wandit/contracts";
 
 import type {
@@ -180,4 +185,21 @@ export function dnsPurposeKey(record: RequiredDomainRecord) {
 	}
 
 	return "settings.domains.dnsPurposeGeneric" as const;
+}
+
+/**
+ * Gives the host a registrar form expects: "_cf-custom-hostname.www.example.com" becomes "_cf-custom-hostname.www".
+ * The apex becomes "@". It copies `relativeHost` from the server Name.com provider, which gives "" for the apex.
+ */
+export function relativeDnsHost(domainName: string, recordName: string) {
+	const name = recordName.trim().toLowerCase().replace(/\.$/, "");
+	const domain = domainName.toLowerCase();
+
+	if (name === "@" || name === domain) {
+		return "@";
+	}
+
+	return name.endsWith(`.${domain}`)
+		? name.slice(0, -(domain.length + 1))
+		: name;
 }

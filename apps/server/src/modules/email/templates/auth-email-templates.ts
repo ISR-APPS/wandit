@@ -17,19 +17,15 @@ export type ExternalDomainDelegationReminderEmailData = {
 	nameServers: readonly string[];
 };
 
-/** Data of the reminder that the subscription-renewal-reminders Trigger task sends. */
+/** Data of the expiry reminder that the subscription-renewal-reminders Trigger task sends for a manual plan. */
 export type SubscriptionRenewalReminderEmailData = {
-	/** Interval that the renewal charges ("renews"), or the interval of the plan that ends ("expires"). */
 	interval: BillingInterval;
-	/** "renews": Stripe charges the card on file. "expires": a manual plan ends unless the user renews it. */
-	kind: "expires" | "renews";
 	/** Display name of the recipient. User text. */
 	name: string;
 	/** Workspace name of an organization plan. Null for a personal plan. User text. */
 	organizationName: string | null;
-	/** subscriptions.current_period_end: the moment the plan renews or expires. */
+	/** subscriptions.current_period_end: the moment the plan expires. */
 	periodEnd: Date;
-	/** Plan that the renewal charges ("renews"), or the plan that ends ("expires"). */
 	plan: BillingPlanId;
 };
 
@@ -155,7 +151,7 @@ const RENEWAL_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
 });
 
 /**
- * Renewal or expiry notice about 3 days before the period end.
+ * Expiry notice of a manual plan (SlickPay, offline) about 3 days before the period end.
  * `billingUrl` is the absolute URL of the web billing page. It shows the active workspace.
  */
 export function subscriptionRenewalReminderEmail(
@@ -178,24 +174,11 @@ export function subscriptionRenewalReminderEmail(
 			? "the billing page"
 			: `the billing page of the ${organizationName} workspace`;
 	const date = RENEWAL_DATE_FORMAT.format(data.periodEnd);
-	// Product rule: Stripe renews and charges by itself. A manual plan (SlickPay, offline) only ends.
-	const copy =
-		data.kind === "renews"
-			? {
-					lines: [
-						`${owner} renews automatically on ${date}. We charge the card on file on that date.`,
-						`To change or cancel the plan, open ${billingPage} before that date.`,
-					],
-					subject: `Your Wandit ${planName} plan renews soon`,
-				}
-			: {
-					lines: [
-						`${owner} expires on ${date}. It does not renew automatically.`,
-						`To keep the plan, renew it on ${billingPage} before that date.`,
-					],
-					subject: `Your Wandit ${planName} plan expires soon`,
-				};
-	const lines = [name ? `Hi ${name},` : "Hi,", ...copy.lines];
+	const lines = [
+		name ? `Hi ${name},` : "Hi,",
+		`${owner} expires on ${date}. It does not renew automatically.`,
+		`To keep the plan, renew it on ${billingPage} before that date.`,
+	];
 	const footer = "You get this email because you bought this Wandit plan.";
 	const htmlLines = lines
 		.map(
@@ -205,7 +188,7 @@ export function subscriptionRenewalReminderEmail(
 		.join("\n");
 
 	return {
-		subject: copy.subject,
+		subject: `Your Wandit ${planName} plan expires soon`,
 		html: shell(
 			`
 ${htmlLines}

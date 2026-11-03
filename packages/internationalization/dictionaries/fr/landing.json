@@ -16,6 +16,11 @@
 		"backToTop": "Wandit — retour en haut",
 		"home": "Wandit — accueil"
 	},
+	"v2Banner": {
+		"title": "Wandit V2 arrive bientôt.",
+		"body": "Tu pourras créer des apps mobiles et web. Les abonnés y auront accès en priorité, avec des crédits en plus.",
+		"cta": "Voir les offres"
+	},
 	"hero": {
 		"leadStart": "Crée-moi une",
 		"platforms": {

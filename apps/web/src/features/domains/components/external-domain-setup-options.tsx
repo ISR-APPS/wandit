@@ -1,3 +1,8 @@
+/**
+ * Shows how to connect an external domain at its DNS provider.
+ * With a Wandit zone, it offers option A (nameservers) and option B (manual records).
+ * ExternalDomainConnectWizard and DomainListRow render it. It renders DnsRecordsTable for each group of records.
+ */
 import { AlertTriangle } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -31,6 +36,13 @@ export function ExternalDomainSetupOptions({
 	const { manualRecords, nameserverRecords } =
 		splitExternalDomainRecords(records);
 	const hasNameserverOption = nameserverRecords.length > 0;
+	// Registrars append the domain to the host. Users who paste the full name, or use "@", break the records.
+	// The NS table gets no hint: its "@" rows go on the registrar nameserver screen.
+	const hostHint = (
+		<p className="text-muted-foreground text-xs">
+			{t("settings.domains.externalDnsHostHint", { domain: name })}
+		</p>
+	);
 
 	if (!hasNameserverOption) {
 		return (
@@ -47,7 +59,9 @@ export function ExternalDomainSetupOptions({
 					</p>
 				</div>
 				<ExternalDomainRoutingNote name={name} />
+				{hostHint}
 				<DnsRecordsTable
+					domainName={name}
 					records={records}
 					diagnostics={diagnostics}
 					isRefreshing={isRefreshing}
@@ -98,6 +112,7 @@ export function ExternalDomainSetupOptions({
 					</div>
 				</div>
 				<DnsRecordsTable
+					domainName={name}
 					records={nameserverRecords}
 					diagnostics={diagnostics}
 					isRefreshing={isRefreshing}
@@ -118,7 +133,9 @@ export function ExternalDomainSetupOptions({
 						})}
 					</p>
 				</div>
+				{hostHint}
 				<DnsRecordsTable
+					domainName={name}
 					records={manualRecords}
 					diagnostics={diagnostics}
 					isRefreshing={isRefreshing}

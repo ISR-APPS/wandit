@@ -493,6 +493,8 @@ function invoice(input: {
 	newKey: string;
 	total?: number;
 	oldKey?: string;
+	/** Old-plan unused-time line of an anchor-reset invoice, in minor units. Default -1000. Stripe writes 0 near renewal. Ignored without anchorReset. */
+	oldLineMinor?: number;
 	reason: "subscription_create" | "subscription_cycle" | "subscription_update";
 	paidAt?: Date;
 	periodEnd?: Date;
@@ -526,7 +528,7 @@ function invoice(input: {
 			: [line(input.newKey, fullPriceMinor, false)];
 
 	if (input.oldKey && input.anchorReset) {
-		lines.push(line(input.oldKey, -1000, true));
+		lines.push(line(input.oldKey, input.oldLineMinor ?? -1000, true));
 	}
 	const paymentIntentId = input.fundingChargeId
 		? `pi_${input.fundingChargeId}`
@@ -1054,6 +1056,34 @@ describe("Subscription credit policy", () => {
 				(row) => row.stripeInvoiceId === "in_anchor_up_below",
 			)?.creditsDelta,
 		).toBe(50_000);
+	});
+
+	it("grants the anchor-reset allotment when Stripe writes the old-plan line at $0", async () => {
+		// A Stripe test-clock upgrade 60 s before renewal gave this invoice shape.
+		// A strict "< 0" check finds no old plan, throws, and dead-letters a paid invoice.
+		const context = setup(
+			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+		context.repository.seedApplication("pro_250_month");
+		context.creditRepository.seedPlan(4_000);
+		const paid = invoice({
+			anchorReset: true,
+			id: "in_anchor_up_zero",
+			newKey: "pro_500_month",
+			oldKey: "pro_250_month",
+			oldLineMinor: 0,
+			reason: "subscription_update",
+		});
+		addInvoice(context, paid);
+
+		await context.service.grantForPaidInvoice(paid);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(54_000);
+		expect(
+			context.creditRepository.rows.find(
+				(row) => row.idempotencyKey === "inv:in_anchor_up_zero:grant",
+			)?.meta,
+		).toMatchObject({ reason: "subscription_update_anchor_reset" });
 	});
 
 	it("replaces yearly slots with the new invoice as funding on an anchor-reset yearly upgrade", async () => {

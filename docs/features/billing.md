@@ -108,7 +108,7 @@ defined by valid plan/tier pairs.
   (`status not in ('canceled','incomplete_expired')`) subscription per owner.
 - `billing_webhook_events` — durable inbox with claim leases, attempt counts, failed-event retry, and terminal processed/skipped states.
 - `billing_checkout_attempts` — a UUID nonce is persisted before either subscription or top-up Checkout Session creation; guarded states are `created → session_attached → completed|expired`.
-- `billing_change_intents` — binds a preview, target price, fixed `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome.
+- `billing_change_intents` — binds a preview, target price, `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome. Stripe gets `proration_date` only when `anchor_reset` is false. An anchor reset (every upgrade) prorates at request time, because Stripe refuses both fields together.
 - `billing_invoice_applications` — invoice-scoped grant journal and monotonic cycle guard.
 - `subscription_refill_slots` — eleven charge/invoice-funded monthly refill slots for a paid yearly period.
 
@@ -136,7 +136,7 @@ Endpoints (all authed via global guard, `@CurrentUser`; response envelope idiom)
 | `POST /api/v1/billing/checkout` | persist attempt nonce, then create a nonce-idempotent subscription Checkout Session |
 | `POST /api/v1/billing/topup` | `{packId}` → Checkout Session URL (payment mode) |
 | `POST /api/v1/billing/portal` | restricted Billing Portal (payment method, invoices, cancel only) |
-| `POST /api/v1/billing/change/preview` | fixed-proration Stripe preview + one-time change intent |
+| `POST /api/v1/billing/change/preview` | Stripe preview (upgrades prorate at request time; downgrades use the fixed `proration_date`) + one-time change intent |
 | `POST /api/v1/billing/change` | consume `{intentId}`; return `applied|payment_required|failed` plus fresh subscription/balance |
 | `POST /api/v1/billing/cancel` · `/resume` | toggle `cancel_at_period_end` |
 | `POST /api/v1/billing/sync` | re-fetch the authenticated user's Stripe subscriptions and return the refreshed subscription view; safe no-op without a configured customer/provider |
@@ -158,7 +158,7 @@ Bootstrap gets `rawBody: true` (Nest native support on the Fastify adapter); the
 | `charge.dispute.closed` | on won/warning-closed/prevented, restore only excess cumulative clawback |
 | anything else | mark `skipped`, 200 |
 
-Renewal reminder emails do not come from `invoice.upcoming`. The `subscription-renewal-reminders` Trigger task runs every hour. It emails each `active` or `trialing` subscription that does not cancel at the period end. The email goes to the buyer (`subscriptions.user_id`, never a banned user), about 3 days before `current_period_end`. Stripe rows get "the plan renews and the card on file is charged". Manual rows (SlickPay and offline) get "the plan expires; renew it on the billing page". The column `subscriptions.renewal_reminder_period_end` keeps it to one email per period. Keep the Stripe dashboard setting "Send emails about upcoming renewals" off, or Stripe users get two emails.
+Renewal reminder emails do not come from `invoice.upcoming`. The `subscription-renewal-reminders` Trigger task runs every hour. It emails only manual plans (SlickPay and offline), because they never renew by themselves. It picks each `active` or `trialing` manual subscription that does not cancel at the period end. The email goes to the buyer (`subscriptions.user_id`, never a banned user), about 3 days before `current_period_end`: "the plan expires; renew it on the billing page". The column `subscriptions.renewal_reminder_period_end` keeps it to one email per period. Stripe sends the renewal email of Stripe plans: keep the Stripe dashboard setting "Send emails about upcoming renewals" on.
 
 Failed inbox events are retried by a scheduled Trigger.dev task with capped exponential backoff; `POST /api/v1/admin/webhooks/:id/replay` dispatches an idempotent on-demand Trigger task for one durable event. Yearly refills, metering reconciliation and recovery, affiliate approval and attribution retry, signup-grant recovery, and model-price refresh also run in Trigger.dev. These billing jobs do not depend on `QUEUE_ENABLED`, Redis, or `apps/worker`.
 

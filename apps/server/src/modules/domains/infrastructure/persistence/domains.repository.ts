@@ -747,7 +747,10 @@ export class DomainsRepository {
 				return existing;
 			}
 
-			await this.deleteTerminalNameOrThrow(tx, input.name);
+			// A purchase takes the name only from a failed or transferred-out row.
+			await this.deleteReplaceableNameOrThrow(tx, input.name, (holder) =>
+				isTerminalDomainStatus(holder.status),
+			);
 
 			return this.insertPurchased(tx, input);
 		});
@@ -757,11 +760,18 @@ export class DomainsRepository {
 		return this.insertExternal(this.db, input);
 	}
 
-	async createExternalReplacingTerminal(
+	/**
+	 * Inserts a `configuring` external row for the attach API. It first deletes
+	 * a row with the same name when `canExternalAttachReplace` allows it.
+	 * Else it throws DomainAlreadyExistsError.
+	 */
+	async createExternalReplacingReleased(
 		input: CreateExternalDomainInput,
 	): Promise<DomainRow> {
 		return this.db.transaction(async (tx) => {
-			await this.deleteTerminalNameOrThrow(tx, input.name);
+			await this.deleteReplaceableNameOrThrow(tx, input.name, (holder) =>
+				canExternalAttachReplace(holder, input.userId),
+			);
 
 			return this.insertExternal(tx, input);
 		});
@@ -986,21 +996,38 @@ export class DomainsRepository {
 		return this.updateById(id, { dns });
 	}
 
-	private async deleteTerminalNameOrThrow(
+	/**
+	 * Frees `name` for a new row in `tx`. Deletes the row that has the name when
+	 * `canReplace` allows it, else throws DomainAlreadyExistsError.
+	 */
+	private async deleteReplaceableNameOrThrow(
 		tx: DomainTransaction,
 		name: string,
+		canReplace: (holder: DomainNameHolder) => boolean,
 	): Promise<void> {
+		// A parallel call for the same name waits on this row lock. After our
+		// delete it finds no row, and its insert then fails on the unique name.
 		const [existing] = await tx
-			.select()
+			.select({
+				id: domains.id,
+				projectDeletedAt: projects.deletedAt,
+				projectId: domains.projectId,
+				source: domains.source,
+				status: domains.status,
+				userId: domains.userId,
+			})
 			.from(domains)
+			.leftJoin(projects, eq(projects.id, domains.projectId))
 			.where(eq(domains.name, name))
-			.limit(1);
+			.limit(1)
+			// Postgres cannot lock the nullable side of a left join, so lock only `domains`.
+			.for("update", { of: domains });
 
 		if (!existing) {
 			return;
 		}
 
-		if (!isTerminalDomainStatus(existing.status)) {
+		if (!canReplace(existing)) {
 			throw new DomainAlreadyExistsError(name);
 		}
 
@@ -1077,6 +1104,46 @@ export class DomainsRepository {
 
 export function isTerminalDomainStatus(status: DomainStatus) {
 	return status === "failed" || status === "transferred_out";
+}
+
+/** The row that has a name, as the replace rules read it. */
+export type DomainNameHolder = Pick<
+	DomainRow,
+	"projectId" | "source" | "status" | "userId"
+> & {
+	/** `deleted_at` of the row's project. Null for a live project or no project. */
+	projectDeletedAt: Date | null;
+};
+
+/**
+ * Tells if an external attach by `attachingUserId` may delete `holder` and take
+ * its name. The unique name index is global, so a kept row blocks all accounts.
+ */
+export function canExternalAttachReplace(
+	holder: DomainNameHolder,
+	attachingUserId: string,
+): boolean {
+	if (isTerminalDomainStatus(holder.status)) {
+		return true;
+	}
+
+	// A detach and a project soft-delete keep the row. Only such an orphan is free.
+	// A purchased row stays with its buyer.
+	const isOrphaned =
+		holder.projectId === null || holder.projectDeletedAt !== null;
+
+	if (holder.source !== "external" || !isOrphaned) {
+		return false;
+	}
+
+	// Never verified: nobody proved ownership, so any account may take the name.
+	if (holder.status === "configuring") {
+		return true;
+	}
+
+	// Verified: the owner's DNS can still point at us. Another account would get
+	// the hostname validated by that CNAME and serve its content on the name.
+	return holder.userId === attachingUserId;
 }
 
 function boundedRepositoryLimit(limit: number): number {

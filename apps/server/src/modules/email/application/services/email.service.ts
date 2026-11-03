@@ -95,7 +95,7 @@ export class EmailService {
 	}
 
 	/**
-	 * Sends the renewal or expiry notice of one subscription period. The link opens the web billing page.
+	 * Sends the expiry notice of one manual subscription period. The link opens the web billing page.
 	 * `idempotencyKey` makes a repeat send within 24 hours a no-op at Resend.
 	 */
 	async sendSubscriptionRenewalReminder(
@@ -109,7 +109,7 @@ export class EmailService {
 		await this.deliver(
 			input.to,
 			subscriptionRenewalReminderEmail(input, billingUrl),
-			`subscription renewal reminder (${input.kind}): ${billingUrl}`,
+			`subscription renewal reminder: ${billingUrl}`,
 			{ idempotencyKey: input.idempotencyKey },
 		);
 	}

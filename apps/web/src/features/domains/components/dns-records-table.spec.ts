@@ -58,6 +58,7 @@ describe("DnsRecordsTable", () => {
 		];
 		const html = renderToStaticMarkup(
 			createElement(DnsRecordsTable, {
+				domainName: "example.com",
 				records,
 				diagnostics,
 				onRefresh: vi.fn(),
@@ -78,6 +79,7 @@ describe("DnsRecordsTable", () => {
 	it("matches a diagnostic when its expected value has rotated", () => {
 		const html = renderToStaticMarkup(
 			createElement(DnsRecordsTable, {
+				domainName: "example.com",
 				records: [
 					{
 						name: "_validation",
@@ -113,6 +115,7 @@ describe("DnsRecordsTable", () => {
 		});
 		const html = renderToStaticMarkup(
 			createElement(DnsRecordsTable, {
+				domainName: "example.com",
 				records: [
 					nameserver("ada.ns.cloudflare.com"),
 					nameserver("bob.ns.cloudflare.com"),
@@ -145,6 +148,7 @@ describe("DnsRecordsTable", () => {
 
 	it("shows checking only while diagnostics are loading", () => {
 		const props = {
+			domainName: "example.com",
 			records: [
 				{
 					name: "www",

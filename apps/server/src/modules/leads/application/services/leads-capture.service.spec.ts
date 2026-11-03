@@ -120,6 +120,25 @@ describe("LeadsCaptureService", () => {
 		);
 	});
 
+	// A malformed dial code is dropped: rejecting the body would lose a real order.
+	it.each([
+		{ dialCode: "964", expected: "+9647701234567", phone: "07701234567" },
+		{ dialCode: "<b>", expected: "+213540773102", phone: "0540773102" },
+	])("normalizes the phone with page dial code $dialCode", async ({
+		dialCode,
+		expected,
+		phone,
+	}) => {
+		const { repository, service } = buildService();
+
+		await service.capture(FORM_ID, validBody({ dialCode, phone }), "1.2.3.4");
+
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
+			expect.objectContaining({ phone: expected }),
+			expect.any(Date),
+		);
+	});
+
 	it("stamps the active version SKU and ignores visitor-provided SKU data", async () => {
 		const { repository, service } = buildService();
 		repository.findActiveDeploymentSnapshot.mockResolvedValue({

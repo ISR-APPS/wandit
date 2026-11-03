@@ -1,3 +1,8 @@
+/**
+ * Cloudflare custom hostnames of the wandit.app SaaS zone: find, create, read,
+ * re-validate, and delete. DomainsService, the domain fulfillment steps, and
+ * the Trigger runtimes call it. It calls the Cloudflare REST API with fetch.
+ */
 import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 
@@ -17,8 +22,25 @@ const CLOUDFLARE_FETCH_TIMEOUT_MS = 10_000;
 export class CustomHostnameService {
 	private readonly logger = new Logger(CustomHostnameService.name);
 
-	createCustomHostname(host: string): Promise<CustomHostnameResult> {
+	/**
+	 * Returns the www custom hostname of `host`, and adopts one that exists.
+	 * Cloudflare rejects a duplicate POST, so a hostname left by a detach or a
+	 * deleted project would block every new attach of the name.
+	 */
+	async findOrCreateCustomHostname(
+		host: string,
+	): Promise<CustomHostnameResult> {
 		const hostname = canonicalDomainHost(host);
+		const existing = await this.findCustomHostnameByName(hostname);
+
+		if (existing?.status === "active") {
+			return existing;
+		}
+
+		// Cloudflare can time out the validation of an old hostname. The PATCH starts it again.
+		if (existing) {
+			return this.refreshCustomHostnameValidation(existing.id);
+		}
 
 		return this.requestCustomHostname("POST", "", {
 			hostname,

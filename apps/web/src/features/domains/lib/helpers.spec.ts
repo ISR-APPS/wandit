@@ -5,6 +5,7 @@ import {
 	dnsPurposeKey,
 	domainLiveUrl,
 	hasTransitionalDomains,
+	relativeDnsHost,
 	splitExternalDomainRecords,
 } from "./helpers";
 
@@ -71,6 +72,21 @@ describe("dnsPurposeKey", () => {
 		expect(dnsPurposeKey(ownershipRecord)).toBe(
 			"settings.domains.dnsPurposeOwnership",
 		);
+	});
+});
+
+describe("relativeDnsHost", () => {
+	it.each([
+		["_cf-custom-hostname.www.example.com", "_cf-custom-hostname.www"],
+		["WWW.Example.com.", "www"],
+		["example.com", "@"],
+		["@", "@"],
+		["www", "www"],
+		["_acme-challenge.www.example.com", "_acme-challenge.www"],
+		["xexample.com", "xexample.com"],
+		["other.net", "other.net"],
+	])("shows %s as %s under example.com", (recordName, host) => {
+		expect(relativeDnsHost("example.com", recordName)).toBe(host);
 	});
 });
 

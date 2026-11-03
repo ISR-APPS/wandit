@@ -41,6 +41,25 @@ describe("normalizeLeadPhone", () => {
 		expect(normalizeLeadPhone("0033612345678")).toBe("+33612345678");
 	});
 
+	// A national number takes the calling code of the page's market chip, not +213.
+	it.each([
+		{ dialCode: "964", expected: "+9647701234567", raw: "07701234567" },
+		{ dialCode: "964", expected: "+9647701234567", raw: "9647701234567" },
+		{ dialCode: "225", expected: "+2250701234567", raw: "0701234567" },
+		{ dialCode: "216", expected: "+21620123456", raw: "20 123 456" },
+		{ dialCode: "213", expected: "+213612345678", raw: "0612345678" },
+		{ dialCode: "213", expected: null, raw: "05407731" },
+		{ dialCode: "964", expected: null, raw: "07701234" },
+		{ dialCode: "964", expected: "+33612345678", raw: "+33612345678" },
+		{ dialCode: "999", expected: "+213540773102", raw: "0540773102" },
+	])("uses market dial code $dialCode for $raw", ({
+		dialCode,
+		expected,
+		raw,
+	}) => {
+		expect(normalizeLeadPhone(raw, dialCode)).toBe(expected);
+	});
+
 	it("rejects things that are not phone numbers", () => {
 		expect(normalizeLeadPhone("call me maybe")).toBeNull();
 		expect(normalizeLeadPhone("054077")).toBeNull();

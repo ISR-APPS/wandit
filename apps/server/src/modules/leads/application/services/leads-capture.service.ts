@@ -73,7 +73,7 @@ export class LeadsCaptureService {
 			return { ok: true };
 		}
 
-		const phone = normalizeLeadPhone(body.phone);
+		const phone = normalizeLeadPhone(body.phone, body.dialCode);
 		if (!phone) {
 			throw new BadRequestException("Invalid phone number");
 		}
@@ -130,7 +130,8 @@ export class LeadsCaptureService {
 					...(body.wilaya ? { wilaya: body.wilaya } : {}),
 				})
 				.catch((error) => {
-					const message = error instanceof Error ? error.message : String(error);
+					const message =
+						error instanceof Error ? error.message : String(error);
 					this.logger.warn(
 						`Lead push dispatch failed for lead ${lead.id}: ${message}`,
 					);
