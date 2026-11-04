@@ -19,6 +19,7 @@ import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { ScalesIcon } from "@phosphor-icons/react/Scales";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import type {
@@ -45,6 +46,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	sandbox: HardDrivesIcon,
 	mobile_build: DeviceMobileIcon,
 	mobile_preview: DeviceMobileIcon,
+	app_ai_gateway: SparkleIcon,
 	topup_adjust: ScalesIcon,
 };
 

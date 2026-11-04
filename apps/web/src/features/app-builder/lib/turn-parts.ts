@@ -62,6 +62,8 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 	["get_advisors", "databaseCheck"],
 	["deploy_function", "deploy"],
 	["set_secret", "secret"],
+	// `enable_ai` stores the gateway key and URL as two Edge Function secrets.
+	["enable_ai", "secret"],
 	["request_network_host", "network"],
 	["Skill", "guide"],
 	["Agent", "task"],

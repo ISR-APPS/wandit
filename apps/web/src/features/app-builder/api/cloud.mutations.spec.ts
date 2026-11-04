@@ -48,7 +48,7 @@ function sqlAnswer(kind: CloudSqlResponse["kind"]): CloudSqlResponse {
 	return { kind, rows: [], rowCount: 0, truncated: false };
 }
 
-/** An API failure as the server sends it: the envelope message is the text a toast shows. */
+/** An API failure as the server sends it. A code with no dictionary entry shows the envelope message. */
 function apiError(statusCode: number, code: string): ApiClientError {
 	return new ApiClientError(
 		{
@@ -201,7 +201,9 @@ describe("useRunSql", () => {
 			result.current.mutate({ query: "select nope", confirmWrite: false }),
 		);
 		await waitFor(() =>
-			expect(toastError).toHaveBeenCalledWith("The statement failed."),
+			expect(toastError).toHaveBeenCalledWith(
+				"Your app backend is asleep. Wake it up, then try again.",
+			),
 		);
 	});
 });
@@ -286,7 +288,7 @@ describe("useUploadObject and useDeleteObjects", () => {
 		});
 	});
 
-	it("shows the API message when the delete fails", async () => {
+	it("shows the mapped error text when the delete fails", async () => {
 		const toastError = vi.spyOn(toast, "error");
 		const remove = vi
 			.fn<typeof deleteObjects>()
@@ -299,7 +301,9 @@ describe("useUploadObject and useDeleteObjects", () => {
 		act(() => result.current.mutate(["users/a.txt"]));
 
 		await waitFor(() =>
-			expect(toastError).toHaveBeenCalledWith("The statement failed."),
+			expect(toastError).toHaveBeenCalledWith(
+				"Your app backend is asleep. Wake it up, then try again.",
+			),
 		);
 	});
 });

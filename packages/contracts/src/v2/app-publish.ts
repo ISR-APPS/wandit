@@ -99,6 +99,8 @@ export const secretScanRules = [
 	"anthropic_api_key",
 	"google_api_key",
 	"private_key",
+	// The per-project key of the app AI gateway (`APP_AI_KEY_PREFIX`).
+	"wandit_ai_api_key",
 ] as const;
 
 /** Why the anonymous RLS probe flagged a relation (WANDIT-190). */

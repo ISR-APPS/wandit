@@ -212,8 +212,7 @@
 		},
 		"ai": {
 			"title": "AI",
-			"description": "Give your app its own AI features, billed to your credits.",
-			"cta": "Add an AI feature"
+			"description": "Give your app its own AI features, billed to your credits."
 		},
 		"payments": {
 			"title": "Payments",
@@ -273,6 +272,43 @@
 			}
 		},
 		"signUpNote": "New users sign up with an email and a password. They get no confirmation email."
+	},
+	"ai": {
+		"gateway": "AI gateway",
+		"on": "On",
+		"off": "Off",
+		"howItWorks": "When your app needs AI, the agent turns on the gateway after you approve. A server function of your app then calls AI models. Each call uses your credits.",
+		"keySafety": "Wandit keeps the key in the secrets of your backend. The key never goes into the app code.",
+		"noCredits": "When your credits run out, the AI calls of your app stop until you add credits.",
+		"monthCredits": "Credits this month",
+		"monthRequests": "AI calls this month",
+		"keyUpdated": "Key updated {date}",
+		"models": "Models",
+		"modelsHint": "The agent picks one of these models for each AI feature.",
+		"defaultModel": "Default",
+		"actions": {
+			"enable": "Turn on",
+			"rotate": "Rotate key",
+			"disable": "Turn off"
+		},
+		"confirm": {
+			"cancel": "Cancel",
+			"enable": {
+				"title": "Turn on the AI gateway?",
+				"description": "Wandit makes a key for your app and sends it to your backend. Each AI call of your app uses your credits.",
+				"done": "The AI gateway is on."
+			},
+			"rotate": {
+				"title": "Rotate the key?",
+				"description": "Wandit makes a new key and sends it to your backend. The old key stops working at once.",
+				"done": "The new key is active."
+			},
+			"disable": {
+				"title": "Turn off the AI gateway?",
+				"description": "Wandit deletes the key. The AI features of your app stop working until you turn the gateway on again.",
+				"done": "The AI gateway is off."
+			}
+		}
 	},
 	"payments": {
 		"title": "Payments are coming soon",
@@ -530,6 +566,7 @@
 			"request_network_host": "Allow the app to reach {host}?",
 			"run_sql_write": "Change data in your database?",
 			"apply_destructive_migration": "Change your database structure? Some data can be lost.",
+			"enable_ai": "Let your app use AI? Each AI call uses your credits.",
 			"other": "Allow Wandit to run this action?"
 		},
 		"elapsed": "{seconds}s",
@@ -656,7 +693,8 @@
 				"supabase_service_role_jwt": "Supabase service role key",
 				"anthropic_api_key": "Anthropic API key",
 				"google_api_key": "Google API key",
-				"private_key": "private key"
+				"private_key": "private key",
+				"wandit_ai_api_key": "Wandit AI gateway key"
 			},
 			"phishing": "The public name \"{target}\" looks like a login, bank, or wallet page.",
 			"advisor": {

@@ -36,11 +36,12 @@ const SENSITIVE_HEADERS = [
 
 /**
  * Prefixes of live keys (docs/v2/research/security.md 6.3): Stripe secret
- * and restricted keys, Supabase secret keys, the service-role key, and
- * Stripe webhook secrets. A string that holds one is replaced whole.
+ * and restricted keys, Supabase secret keys, the service-role key, Stripe
+ * webhook secrets, and the app AI gateway key. A string that holds one is
+ * replaced whole.
  */
 const SECRET_STRING_PATTERN =
-	/sk_live_|rk_live_|sb_secret_|service_role|whsec_/;
+	/sk_live_|rk_live_|sb_secret_|service_role|whsec_|wnd_ai_/;
 
 /** Replacement text; the same marker Sentry's own filters use. */
 const FILTERED = "[Filtered]";

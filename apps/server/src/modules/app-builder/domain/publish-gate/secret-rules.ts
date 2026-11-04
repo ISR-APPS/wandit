@@ -90,6 +90,13 @@ const SECRET_RULES: readonly SecretRule[] = [
 		pattern: /\bsk-ant-[0-9A-Za-z_-]{20,}/g,
 		rule: "anthropic_api_key",
 	},
+	// The AI gateway key: the prefix, 32 hex digits of the project id, and
+	// 43 base64url characters (`APP_AI_KEY_PATTERN`).
+	{
+		keepPrefix: 7,
+		pattern: /\bwnd_ai_[0-9a-f]{32}_[A-Za-z0-9_-]{43}/g,
+		rule: "wandit_ai_api_key",
+	},
 	// A Google key is exactly 39 characters, so a 40th key character means
 	// another token.
 	{
