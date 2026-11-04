@@ -2,6 +2,7 @@
  * The workspace scope type of one request, and its personal constant.
  * WorkspaceContextGuard builds it from the header. Controllers read it with
  * @CurrentWorkspace(), and projectScopeFrom turns it into a ProjectScope.
+ * The MCP `list_projects` tool builds it from a workspace id with the same rule.
  */
 import { type WorkspaceRoleName, workspaceRoleNames } from "@wandit/contracts";
 
@@ -53,4 +54,42 @@ export function parseWorkspaceRoles(roleValue: string): WorkspaceRoleName[] {
 		.split(",")
 		.map((name) => name.trim())
 		.filter((name): name is WorkspaceRoleName => known.has(name));
+}
+
+/**
+ * The workspace scope of one membership row of `userId` (workspaces-sharing.md 3.1).
+ * WorkspaceContextGuard and the MCP `list_projects` tool call it, so both get the same scope.
+ */
+export function workspaceContextOfMembership(
+	membership: {
+		organizationId: string;
+		/** Set: a personal workspace and its owner. NULL: a team workspace. */
+		personalOwnerUserId: string | null;
+		/** Raw member.role value. It may be a comma-separated multi-role string. */
+		role: string;
+	},
+	userId: string,
+): WorkspaceContext {
+	// The own personal org id is the same scope as no header: the owner's
+	// projects keep organization_id NULL and the personal pool pays.
+	if (membership.personalOwnerUserId === userId) {
+		return PERSONAL_WORKSPACE_CONTEXT;
+	}
+	const roles = parseWorkspaceRoles(membership.role);
+	// Another user's personal workspace: that owner's personal pool pays.
+	if (membership.personalOwnerUserId !== null) {
+		return {
+			kind: "shared-personal",
+			organizationId: membership.organizationId,
+			ownerUserId: membership.personalOwnerUserId,
+			role: membership.role,
+			roles,
+		};
+	}
+	return {
+		kind: "org",
+		organizationId: membership.organizationId,
+		role: membership.role,
+		roles,
+	};
 }

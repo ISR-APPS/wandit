@@ -234,6 +234,23 @@ export class MeteringService {
 	}
 
 	/**
+	 * The project's billed `operation` events since `monthStartUtc`: credits
+	 * in cc and the call count. The AI panel of a V2 app reads it for
+	 * `app_ai_gateway`; the builder cap keeps `monthlySpendCredits`.
+	 */
+	async monthlyBilledUsage(
+		projectId: string,
+		operation: MeteredOperation,
+		monthStartUtc: Date,
+	): Promise<{ credits: number; requests: number }> {
+		return this.repository.monthlyBilledUsage(
+			projectId,
+			operation,
+			monthStartUtc,
+		);
+	}
+
+	/**
 	 * Median final charge of the project's recent `operation` events, in
 	 * cc. `turns.service.ts` create reads it to size the `agent_session`
 	 * hold; null when the project has no settled event yet.

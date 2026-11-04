@@ -81,7 +81,10 @@ export function useWorkspaceOrganizationQuery(organizationId: string) {
 	});
 }
 
-/** Pending email invitations of one workspace. Any member can list them. */
+/**
+ * Pending email invitations of one workspace. Enable it only for owners, admins, and editors.
+ * Better Auth 1.7 answers 403 to a viewer. It hides owner invitations from a caller who is not an owner.
+ */
 export function useWorkspaceInvitationsQuery(
 	organizationId: string,
 	options: { enabled?: boolean } = {},

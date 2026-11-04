@@ -54,6 +54,7 @@ import {
 	appPublishQuery,
 	LIVE_PUBLISH_STATUSES,
 } from "../../api/publish.queries";
+import { SHORT_SHA_LENGTH } from "../../lib/constants";
 import {
 	AndroidBuildCard,
 	type AndroidBuildCardProps,
@@ -72,8 +73,6 @@ import {
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
-// Seven characters name a commit, like `git log --oneline`.
-const SHORT_SHA_LENGTH = 7;
 
 /** Props of the top bar Publish button. WorkBar in top-bar.tsx passes them from the page. */
 export type PublishPopoverProps = {

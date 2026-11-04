@@ -20,6 +20,7 @@ import type {
 } from "../../infrastructure/persistence/project-secrets.repository";
 import {
 	decryptSecret,
+	encryptSecret,
 	parseSecretKeyRing,
 } from "../../infrastructure/secrets/secret-crypto";
 import {
@@ -46,12 +47,18 @@ function setup(options?: {
 	upsertId?: string | null;
 }) {
 	const secrets = {
+		deleteSystemSecret: vi.fn<ProjectSecretsRepository["deleteSystemSecret"]>(
+			async () => "row-1",
+		),
 		deleteUserSecret: vi.fn<ProjectSecretsRepository["deleteUserSecret"]>(
 			async () => options?.deleteOutcome ?? { id: "row-1", outcome: "deleted" },
 		),
 		findCipherByName: vi.fn<ProjectSecretsRepository["findCipherByName"]>(
 			async () => null,
 		),
+		insertSystemIfAbsent: vi.fn<
+			ProjectSecretsRepository["insertSystemIfAbsent"]
+		>(async () => "row-1"),
 		listSummaries: vi.fn<ProjectSecretsRepository["listSummaries"]>(
 			async () => [],
 		),
@@ -188,8 +195,12 @@ describe("ProjectSecretsService.set", () => {
 
 	it("answers 503 V2_ENV_MISSING when the encryption key is unset", async () => {
 		const secrets = {
+			deleteSystemSecret:
+				vi.fn<ProjectSecretsRepository["deleteSystemSecret"]>(),
 			deleteUserSecret: vi.fn<ProjectSecretsRepository["deleteUserSecret"]>(),
 			findCipherByName: vi.fn<ProjectSecretsRepository["findCipherByName"]>(),
+			insertSystemIfAbsent:
+				vi.fn<ProjectSecretsRepository["insertSystemIfAbsent"]>(),
 			listSummaries: vi.fn<ProjectSecretsRepository["listSummaries"]>(),
 			upsert: vi.fn<ProjectSecretsRepository["upsert"]>(),
 		};
@@ -209,6 +220,36 @@ describe("ProjectSecretsService.set", () => {
 			service.set("project-1", "NAME", "x", "user", ACTOR),
 		).rejects.toBeInstanceOf(ServiceUnavailableException);
 		expect(secrets.upsert).not.toHaveBeenCalled();
+	});
+});
+
+describe("ProjectSecretsService.setSystemIfAbsent", () => {
+	// A repeated enable of the AI gateway must keep the key the live app holds.
+	it("answers the stored value and writes no audit row when a system row exists", async () => {
+		const { audit, secrets, service } = setup();
+		const stored = encryptSecret(
+			parseSecretKeyRing(ENV_KEY),
+			{ name: "WANDIT_AI_API_KEY", projectId: "project-1" },
+			"stored-key",
+		);
+		secrets.insertSystemIfAbsent.mockResolvedValueOnce(null);
+		secrets.findCipherByName.mockResolvedValueOnce({
+			ciphertext: stored.ciphertext,
+			id: "row-1",
+			keyVersion: stored.keyVersion,
+			name: "WANDIT_AI_API_KEY",
+			projectId: "project-1",
+		});
+
+		await expect(
+			service.setSystemIfAbsent(
+				"project-1",
+				"WANDIT_AI_API_KEY",
+				"new-key",
+				ACTOR,
+			),
+		).resolves.toBe("stored-key");
+		expect(audit.insert).not.toHaveBeenCalled();
 	});
 });
 

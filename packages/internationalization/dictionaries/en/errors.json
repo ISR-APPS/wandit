@@ -86,9 +86,23 @@
 		"MOBILE_BUILD_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
 		"V2_ENV_MISSING": "This feature is not set up on the server yet. Try again later.",
 		"PROJECT_SECRET_SYSTEM": "This secret belongs to Wandit. You cannot change or delete it.",
+		"BACKEND_NOT_READY": "Your app has no running backend yet. Add the backend, or wait until it is ready, then try again.",
+		"BACKEND_PAUSED": "Your app backend is asleep. Wake it up, then try again.",
+		"UPSTREAM_UNAVAILABLE": "Your app backend did not answer. Try again in a moment.",
 		"PUBLISH_ACTIVE": "A publish of this app is already running. Wait for it to finish.",
 		"PUBLISH_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
 		"PUBLISH_ROLLBACK_INVALID": "This version cannot come back. Choose an earlier version.",
-		"PUBLISH_UNAVAILABLE": "Publishing is not available now. Try again later."
+		"PUBLISH_UNAVAILABLE": "Publishing is not available now. Try again later.",
+		"GITHUB_NOT_CONNECTED": "Connect GitHub first, then try again.",
+		"GITHUB_ALREADY_LINKED": "This project already has a GitHub repository.",
+		"GITHUB_INSTALLATION_NOT_YOURS": "Choose one of your GitHub accounts or organizations.",
+		"GITHUB_REPO_EXISTS": "A repository with this name already exists on GitHub. Choose a different name.",
+		"GITHUB_REPO_CREATE_FORBIDDEN": "GitHub does not let you create a repository in this account or organization.",
+		"GITHUB_REPO_NOT_IN_INSTALLATION": "The Wandit app cannot reach the new repository. On GitHub, give the app access to all repositories, then try again with a new name.",
+		"GITHUB_NOT_LINKED": "This project has no GitHub repository.",
+		"GITHUB_NOTHING_TO_UPDATE": "GitHub has no new changes for this project.",
+		"GITHUB_UPDATE_CHANGED": "GitHub changed again. Try the update again.",
+		"GITHUB_MERGE_FAILED": "Wandit could not merge the GitHub changes. Your code did not change.",
+		"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository can no longer open this project. Unlink it and link it again."
 	}
 }

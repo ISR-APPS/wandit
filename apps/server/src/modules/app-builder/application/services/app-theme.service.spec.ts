@@ -143,6 +143,7 @@ async function setup(state: ProjectState = {}) {
 		gitFiles,
 		{ putPatch: async () => undefined },
 		turns,
+		{ scheduleIfLinked: async () => undefined },
 	);
 	return { inserted, sandboxes, service, turnLock };
 }

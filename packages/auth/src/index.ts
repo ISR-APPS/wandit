@@ -1,12 +1,14 @@
 /**
  * Builds the Better Auth instances: createAuth for the web and native apps, createAdminAuth for the admin app.
  * The server AuthModule calls createAuth with its delivery and signup hooks.
+ * With V2_BUILDER_ENABLED, createAuth is also the OAuth provider of the MCP server (mcp-oauth-provider.ts).
  * Both instances write users, sessions, and accounts to Postgres through the Drizzle adapter.
  */
 import { expo } from "@better-auth/expo";
 import { isStaffRole } from "@wandit/contracts";
 import { and, createDb, eq, gt, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
+import * as oauthProviderSchema from "@wandit/db/schema/oauth-provider";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
 import {
@@ -19,14 +21,13 @@ import {
 	type BetterAuthRateLimitStorage,
 	betterAuth,
 	type GoogleOptions,
-	type RateLimit,
 	type SecondaryStorage,
 } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
 	APIError,
 	createAuthMiddleware,
-	getIp,
+	getIP,
 	getOAuthState,
 	getSessionFromCtx,
 } from "better-auth/api";
@@ -47,6 +48,11 @@ import {
 	assertTrustedAuthorizationUrl,
 	EXPO_AUTHORIZATION_PROXY_PATH,
 } from "./expo-authorization-proxy";
+import {
+	createMcpOAuthPlugins,
+	MCP_OAUTH_DISABLED_PATHS,
+	type OnMcpConsentChange,
+} from "./mcp-oauth-provider";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 import {
@@ -63,7 +69,8 @@ import {
 // The drizzle adapter resolves models by key on the object below — the
 // organization plugin needs `organization`, `member`, and `invitation` present
 // or every /api/auth/organization/* route fails with "model not found".
-const schema = { ...authSchema, ...orgSchema };
+// The OAuth provider plugins need `jwks` and the `oauth*` models the same way.
+const schema = { ...authSchema, ...orgSchema, ...oauthProviderSchema };
 const db = createDb();
 
 // The admin plugin is kept for its schema fields (role/banned/banExpires), but
@@ -173,10 +180,11 @@ export type EmailAuthDelivery = {
 
 export type CreateAuthOptions = {
 	/**
-	 * Server-owned secondary storage for distributed rate-limit counters.
+	 * Server-owned atomic counter (Redis INCR) for distributed rate limits.
+	 * The factory reads only `increment`. It never sets it as root secondaryStorage.
 	 * If it is absent, the factory keeps its existing database rate limiter.
 	 */
-	secondaryStorage?: SecondaryStorage;
+	secondaryStorage?: Pick<SecondaryStorage, "increment">;
 	onUserCreated?: OnUserCreated;
 	/**
 	 * Admission gate for workspace creation — wired to the
@@ -216,7 +224,7 @@ export type CreateAuthOptions = {
 	guardInviteEmail?: (data: { email: string }) => Promise<void>;
 	/**
 	 * Analytics: a user became a member. Invitation accepts do NOT fire the
-	 * plugin's afterAddMember hook (crud-invites.mjs:280), so this is wired to
+	 * plugin's afterAddMember hook (crud-invites.mjs:345), so this is wired to
 	 * BOTH afterAddMember and afterAcceptInvitation.
 	 */
 	onMemberJoined?: (data: {
@@ -228,6 +236,11 @@ export type CreateAuthOptions = {
 	 * row changed. On an error the hook undoes the change and rethrows, so a retry runs it again.
 	 */
 	onMembershipReduced?: (data: MembershipReduction) => Promise<void>;
+	/**
+	 * Audit of coding-agent grants: a consent accepted or revoked. Runs only
+	 * when the MCP OAuth provider is on (V2_BUILDER_ENABLED).
+	 */
+	onMcpConsentChange?: OnMcpConsentChange;
 };
 
 function createBaseAuthOptions() {
@@ -292,93 +305,20 @@ function createBaseAuthOptions() {
 
 const baseAuthOptions = createBaseAuthOptions();
 
-function parseRateLimit(value: unknown): RateLimit | null {
-	let parsed = value;
-
-	if (typeof value === "string") {
-		try {
-			parsed = JSON.parse(value);
-		} catch {
-			return null;
-		}
-	}
-
-	if (
-		typeof parsed !== "object" ||
-		parsed === null ||
-		!("key" in parsed) ||
-		typeof parsed.key !== "string" ||
-		!("count" in parsed) ||
-		typeof parsed.count !== "number" ||
-		!("lastRequest" in parsed) ||
-		typeof parsed.lastRequest !== "number"
-	) {
-		return null;
-	}
-
-	return parsed as RateLimit;
-}
-
 /**
- * Use the injected SecondaryStorage-shaped port only for rate limiting.
- * Better Auth 1.6.22 routes session-list and bulk-revocation operations to
- * root secondaryStorage without a database fallback, even when
- * storeSessionInDatabase is true.
+ * Adapts the injected counter to Better Auth rate-limit storage.
+ * One atomic increment per request, so concurrent requests cannot pass a stale read.
  */
 function createRateLimitStorage(
-	secondaryStorage: SecondaryStorage,
+	secondaryStorage: Pick<SecondaryStorage, "increment">,
 ): BetterAuthRateLimitStorage {
 	return {
 		async consume(key, rule) {
-			if (secondaryStorage.increment) {
-				const count = await secondaryStorage.increment(key, rule.window);
+			const count = await secondaryStorage.increment(key, rule.window);
 
-				return count <= rule.max
-					? { allowed: true, retryAfter: null }
-					: { allowed: false, retryAfter: rule.window };
-			}
-
-			// Compatibility path for a minimal get/set/delete port. The server's
-			// Redis implementation uses atomic increment instead.
-			const now = Date.now();
-			const current = parseRateLimit(await secondaryStorage.get(key));
-			const windowInMs = rule.window * 1_000;
-
-			if (!current || now - current.lastRequest > windowInMs) {
-				await secondaryStorage.set(
-					key,
-					JSON.stringify({ count: 1, key, lastRequest: now }),
-					rule.window,
-				);
-				return { allowed: true, retryAfter: null };
-			}
-
-			if (current.count >= rule.max) {
-				return {
-					allowed: false,
-					retryAfter: Math.max(
-						1,
-						Math.ceil((current.lastRequest + windowInMs - now) / 1_000),
-					),
-				};
-			}
-
-			await secondaryStorage.set(
-				key,
-				JSON.stringify({
-					...current,
-					count: current.count + 1,
-					lastRequest: now,
-				}),
-				rule.window,
-			);
-			return { allowed: true, retryAfter: null };
-		},
-		async get(key) {
-			return parseRateLimit(await secondaryStorage.get(key));
-		},
-		async set(key, value) {
-			await secondaryStorage.set(key, JSON.stringify(value));
+			return count <= rule.max
+				? { allowed: true, retryAfter: null }
+				: { allowed: false, retryAfter: rule.window };
 		},
 	};
 }
@@ -689,9 +629,8 @@ export function createAuth(options: CreateAuthOptions = {}) {
 						customStorage: createRateLimitStorage(options.secondaryStorage),
 						storage: "secondary-storage" as const,
 					},
-					// Keep durable auth records in Postgres. Do not set Better Auth's
-					// root secondaryStorage here; in 1.6.22 it also takes over session
-					// list and bulk-revocation reads without a database fallback.
+					// Keep durable auth records in Postgres. The injected port is only a
+					// rate-limit counter, so Better Auth gets no root secondaryStorage.
 					session: {
 						storeSessionInDatabase: true,
 						// `organization.create` updates the DB session but leaves
@@ -728,6 +667,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		disabledPaths: [
 			...baseAuthOptions.disabledPaths,
 			...EMAIL_OTP_DISABLED_PATHS,
+			...MCP_OAUTH_DISABLED_PATHS,
 		],
 		trustedOrigins: [
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
@@ -780,8 +720,8 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					});
 				}
 				// 3. Pin the expo authorization proxy to the Google URL this API
-				//    issues (see expo-authorization-proxy.ts): no open redirect, no
-				//    state-cookie fixation. Runs before the plugin's own handler.
+				//    issues (see expo-authorization-proxy.ts): no open redirect.
+				//    It does not check `state`. Runs before the plugin's own handler.
 				if (path === EXPO_AUTHORIZATION_PROXY_PATH) {
 					const query = ctx.query as { authorizationURL?: unknown } | undefined;
 					assertTrustedAuthorizationUrl(query?.authorizationURL, {
@@ -846,7 +786,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					await emailAuth.guardSend({
 						email,
 						ipAddress: ctx.request
-							? getIp(ctx.request, ctx.context.options)
+							? getIP(ctx.request, ctx.context.options)
 							: null,
 						kind: sendKind,
 					});
@@ -868,7 +808,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 							reduction: {
 								change: "left",
 								ipAddress: ctx.request
-									? getIp(ctx.request, ctx.context.options)
+									? getIP(ctx.request, ctx.context.options)
 									: null,
 								organizationId: left.data.organizationId,
 								userId: left.data.userId,
@@ -955,7 +895,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				// defaults to NO check for built-in opaque invitation ids.
 				requireEmailVerificationOnInvitation: true,
 				// "Unlimited seats" is the Business promise; the default (100) would
-				// hard-cap paid orgs at invitation-accept (crud-invites.mjs:275).
+				// hard-cap paid orgs at invitation-accept (crud-invites.mjs:279).
 				// 10k is an abuse bound, not a product limit.
 				membershipLimit: 10_000,
 				// Physical deletion is disabled: it is non-transactional upstream and
@@ -1152,6 +1092,11 @@ export function createAuth(options: CreateAuthOptions = {}) {
 							],
 						}),
 					]
+				: []),
+			// Railway production forces V2_BUILDER_ENABLED to false, so production
+			// has no OAuth endpoints until V2 ships (D29 rollout gate).
+			...(env.V2_BUILDER_ENABLED
+				? createMcpOAuthPlugins(options.onMcpConsentChange)
 				: []),
 		],
 	});

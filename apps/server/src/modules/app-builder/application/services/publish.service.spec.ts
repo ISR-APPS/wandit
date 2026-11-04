@@ -445,6 +445,30 @@ describe("PublishService.publishHead", () => {
 		expect(starter.start).not.toHaveBeenCalled();
 	});
 
+	// An MCP agent writes its own requestKey and can reuse it after a new version.
+	it.each([
+		["the earlier build of the key", "early"],
+		["the row of a parallel call with the same key", "parallel"],
+	] as const)("answers REQUEST_KEY_REUSED when %s has another commit than the head", async (_label, replayPath) => {
+		const { publish, service } = setup();
+		const otherVersionBuild = buildRow({
+			commitSha: "c".repeat(40),
+			status: "building",
+		});
+		if (replayPath === "early") {
+			publish.findByRequestKey.mockResolvedValue(otherVersionBuild);
+		} else {
+			publish.insertQueued.mockResolvedValueOnce({
+				kind: "request_exists",
+				row: otherVersionBuild,
+			});
+		}
+
+		await expect(
+			service.publishHead(SCOPE, PROJECT_ID, { requestKey: REQUEST_KEY }),
+		).rejects.toMatchObject({ response: { code: "REQUEST_KEY_REUSED" } });
+	});
+
 	it("answers the queued build when the run id write fails", async () => {
 		const { publish, service } = setup();
 		publish.setTriggerRunId.mockRejectedValue(new Error("db down"));

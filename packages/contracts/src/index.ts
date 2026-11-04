@@ -100,6 +100,8 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 app AI gateway contracts: the request, the key, the tool, and the panel.
+export * from "./v2/app-ai";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
 // The V2 app theme modules (v2/app-theme*.ts) are not exported here. Import them by subpath, for example
@@ -118,6 +120,8 @@ export * from "./v2/code";
 export * from "./v2/cost-caps";
 // V2 Appetize device-session routes and the Appetize and Expo answers.
 export * from "./v2/device-sessions";
+// V2 GitHub sync contracts: the API routes and the GitHub REST answers.
+export * from "./v2/github";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 harness host routes: the API starts and stops host-run turns there.
@@ -128,6 +132,8 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 remote MCP server: the OAuth scopes and the paths.
+export * from "./v2/mcp";
 // V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
 export * from "./v2/mobile-builds";
 // V2 app-builder preview token and sandbox wake contracts.

@@ -54,6 +54,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"mobile_build",
 	// Appetize device minutes (WANDIT-196): zero credits inside the plan allowance.
 	"mobile_preview",
+	// One AI call of a V2 app through the app AI gateway, billed by tokens.
+	"app_ai_gateway",
 	"topup_adjust",
 ]);
 

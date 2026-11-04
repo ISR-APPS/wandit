@@ -206,13 +206,15 @@ export class TurnsService {
 	}
 
 	/**
-	 * `POST /v2/projects/:id/turns`. Reserves a credit hold, then either
-	 * queues the turn behind an active one (`waiting` row, `queued: true`)
-	 * or takes the project lock and starts `builder-turn` right away. A
+	 * `POST /v2/projects/:id/turns`. Reserves a credit hold. Then it queues
+	 * the turn behind an active one (`waiting` row, `queued: true`).
+	 * Otherwise it takes the project lock and starts `builder-turn` at once. A
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project
 	 * whose last turn waits on an approval card answers 409
 	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
-	 * message also starts an `error` or missing backend row again.
+	 * message also starts an `error` or missing backend row again. With
+	 * `options.requestKey`, a retry answers the first turn before these gates.
+	 * A replay with another message answers 409 REQUEST_KEY_REUSED.
 	 */
 	async create(
 		scope: ProjectScope,
@@ -225,6 +227,12 @@ export class TurnsService {
 			ip?: string;
 			/** `Date.now()` ms when the HTTP request arrived; feeds `apiCreateMs` of the timing line. */
 			requestStartedAt?: number;
+			/**
+			 * Dedupe key of the row, unique per chat. The MCP `send_prompt` tool passes
+			 * `mcp:<clientId>:<userId>:<requestKey>`, so a retry returns the first turn before any gate.
+			 * Default: the new turn id.
+			 */
+			requestKey?: string;
 		} = {},
 	): Promise<CreateTurnResponse> {
 		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
@@ -246,6 +254,20 @@ export class TurnsService {
 			scope.actorUserId,
 			body.answers?.flatMap((answer) => answer.files),
 		);
+
+		// A retry of a keyed submit answers its first turn before the gates below. When the first turn
+		// waits on an approval card or hits a cap, a gate refuses the retry. The agent then loses its turn id.
+		// A replay takes no new credit hold. The late replay in `turns.create` covers two concurrent submits.
+		if (options.requestKey !== undefined) {
+			const replayed = await this.turns.findByRequestKey(
+				body.chatId,
+				options.requestKey,
+			);
+			if (replayed !== null && replayed.projectId === projectId) {
+				assertSameReplayedMessage(replayed, body.message);
+				return turnCreatedResponseOf(replayed, body.chatId, null);
+			}
+		}
 
 		// A paused approval card must be answered before a new turn starts;
 		// a paused question is answered by `answers` or by the message text.
@@ -393,14 +415,13 @@ export class TurnsService {
 				model,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
-				requestKey: turnId,
+				requestKey: options.requestKey ?? turnId,
 				sessionId: session.id,
 				spec,
 				status,
 				// `builder_turns.user_id` holds the actor (workspaces-sharing.md 4).
 				userId: scope.actorUserId,
 			});
-			rowCreated = true;
 			// Whole ms: the task payload schema takes an integer, and Fastify
 			// counts the request time with decimals.
 			const apiCreateMs =
@@ -422,8 +443,11 @@ export class TurnsService {
 						"builder_turn_create_replayed",
 					);
 				}
+				// `rowCreated` stays false: this call made no row, so a refusal here marks no row failed.
+				assertSameReplayedMessage(created.turn, body.message);
 				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
+			rowCreated = true;
 
 			if (options.existingMessageId === undefined) {
 				await this.chats.insertTurnUserMessage({
@@ -1064,6 +1088,27 @@ export class TurnsService {
 			projectId: turn.projectId,
 			targetId: turn.id,
 			targetType: "builder_turn",
+		});
+	}
+}
+
+/**
+ * Throws 409 REQUEST_KEY_REUSED when a replayed row holds another prompt than `message`.
+ * An MCP agent writes its own `requestKey` and can reuse one by mistake. The new prompt then must not drop silently.
+ */
+function assertSameReplayedMessage(
+	replayed: BuilderTurnRow,
+	message: string,
+): void {
+	// jsonb returns unknown. A spec that does not parse cannot prove the same prompt, so it also refuses.
+	const spec = builderTurnSpecSchema
+		.pick({ message: true })
+		.safeParse(replayed.spec);
+	if (!spec.success || spec.data.message !== message) {
+		throw new ConflictException({
+			code: "REQUEST_KEY_REUSED",
+			message:
+				"This requestKey belongs to another prompt. Send the new prompt with a new requestKey",
 		});
 	}
 }

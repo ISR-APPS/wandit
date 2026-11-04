@@ -4,7 +4,9 @@
  * only server code reads a value: `readValue` for `user` rows (the
  * `set_secret` tool of WANDIT-186, the backend push, the publish bindings)
  * and `readSystemValue` for the Supabase keys that the provisioning task
- * of WANDIT-183 stores.
+ * of WANDIT-183 stores. `AppAiKeys` (the `enable_ai` tool and the AI panel)
+ * calls `setSystemIfAbsent`, `set`, and `readSystemValue`;
+ * `AppAiKeysService.disable` calls `removeSystem`.
  * Encrypts through `secret-crypto.ts`, writes through
  * `ProjectSecretsRepository`, and records every write in `audit_events`.
  */
@@ -61,7 +63,12 @@ export class ProjectSecretsService {
 		@Inject(ProjectSecretsRepository)
 		private readonly secrets: Pick<
 			ProjectSecretsRepository,
-			"upsert" | "deleteUserSecret" | "listSummaries" | "findCipherByName"
+			| "upsert"
+			| "insertSystemIfAbsent"
+			| "deleteUserSecret"
+			| "deleteSystemSecret"
+			| "listSummaries"
+			| "findCipherByName"
 		>,
 		@Inject(ProjectsRepository)
 		private readonly projects: Pick<
@@ -146,6 +153,80 @@ export class ProjectSecretsService {
 			organizationId: projectOwnerColumns(actor.scope).organizationId,
 			projectId,
 			targetId: result.id,
+			targetType: "project_secret",
+		});
+	}
+
+	/**
+	 * Stores `value` as a `system` row unless one exists, and answers the
+	 * stored value. Two concurrent calls answer the same value. The AI
+	 * gateway key uses it, so a repeated enable keeps the key of a live app.
+	 * A `user` row with that name, from before the `WANDIT_` rule, is replaced; a `system` row stays.
+	 */
+	async setSystemIfAbsent(
+		projectId: string,
+		name: string,
+		value: string,
+		actor: SecretActor,
+	): Promise<string> {
+		await this.requireV2AppProject(actor.scope, projectId);
+		const encrypted = encryptSecret(this.keyRing(), { name, projectId }, value);
+		const owner = projectOwnerColumns(actor.scope);
+
+		const rowId = await this.secrets.insertSystemIfAbsent({
+			ciphertext: encrypted.ciphertext,
+			keyVersion: encrypted.keyVersion,
+			name,
+			organizationId: owner.organizationId,
+			projectId,
+			userId: owner.userId,
+		});
+		if (rowId !== null) {
+			await this.audit.insert({
+				action: "secret.set",
+				actorUserId: null,
+				ip: actor.ip,
+				metadata: { kind: "system", name },
+				organizationId: owner.organizationId,
+				projectId,
+				targetId: rowId,
+				targetType: "project_secret",
+			});
+			return value;
+		}
+
+		const stored = await this.readSystemValue(projectId, name);
+		if (stored === null) {
+			// Only a delete between the insert and this read removes the row.
+			throw new Error(`The system secret ${name} was deleted during the write`);
+		}
+		return stored;
+	}
+
+	/**
+	 * Deletes one `system` row and writes a `secret.deleted` audit row. No
+	 * `system` row of that name is no error: the call writes nothing.
+	 */
+	async removeSystem(
+		projectId: string,
+		name: string,
+		actor: SecretActor,
+	): Promise<void> {
+		await this.requireV2AppProject(actor.scope, projectId);
+
+		const rowId = await this.secrets.deleteSystemSecret(projectId, name);
+		if (rowId === null) {
+			return;
+		}
+
+		await this.audit.insert({
+			action: "secret.deleted",
+			actorUserId: actor.scope.actorUserId,
+			ip: actor.ip,
+			metadata: { kind: "system", name },
+			organizationId: projectOwnerColumns(actor.scope).organizationId,
+			projectId,
+			targetId: rowId,
 			targetType: "project_secret",
 		});
 	}

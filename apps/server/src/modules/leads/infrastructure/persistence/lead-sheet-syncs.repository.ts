@@ -48,6 +48,8 @@ export type LeadSheetAutoSyncCandidate = {
 };
 
 export type GoogleAccountRow = {
+	/** Local `account.id`. Better Auth `getAccessToken` selects the account by this id. */
+	id: string;
 	accessTokenExpiresAt: Date | null;
 	refreshToken: string | null;
 	scope: string | null;
@@ -102,6 +104,7 @@ export class LeadSheetSyncsRepository {
 	async findGoogleAccount(userId: string): Promise<GoogleAccountRow | null> {
 		const [row] = await this.db
 			.select({
+				id: account.id,
 				accessTokenExpiresAt: account.accessTokenExpiresAt,
 				refreshToken: account.refreshToken,
 				scope: account.scope,
@@ -124,6 +127,7 @@ export class LeadSheetSyncsRepository {
 
 		const rows = await this.db
 			.select({
+				id: account.id,
 				accessTokenExpiresAt: account.accessTokenExpiresAt,
 				refreshToken: account.refreshToken,
 				scope: account.scope,

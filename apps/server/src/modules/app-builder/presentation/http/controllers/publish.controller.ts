@@ -43,18 +43,11 @@ import {
 } from "../../../../projects";
 import { PublishService } from "../../../application/services/publish.service";
 import {
+	APP_PUBLISH_RATE_LIMIT,
 	RateLimit,
 	RedisRateLimitGuard,
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
-
-// 10 publishes per user per hour (WANDIT-181). Each publish wakes a sandbox
-// and runs a build, so the cap stops a script that publishes in a loop.
-const PUBLISH_LIMIT = 10;
-// Three times the user cap: three people behind one office IP still fit,
-// but the cap stops one person who uses many accounts.
-const PUBLISH_IP_LIMIT = 30;
-const PUBLISH_WINDOW_MS = 60 * 60_000;
 
 // 10 rollbacks or unpublishes per user in 10 minutes (ESTIMATE). Each one
 // uploads or deletes the user Worker, so the cap stops a script that flips
@@ -93,12 +86,7 @@ export class PublishController {
 
 	// 202: the build runs in the task. The popover polls the status.
 	@RequireProjectRole("editor")
-	@RateLimit({
-		ipLimit: PUBLISH_IP_LIMIT,
-		key: "app-publish",
-		limit: PUBLISH_LIMIT,
-		windowMs: PUBLISH_WINDOW_MS,
-	})
+	@RateLimit(APP_PUBLISH_RATE_LIMIT)
 	@Post()
 	@HttpCode(202)
 	publishHead(
@@ -141,12 +129,7 @@ export class PublishController {
 	// override cannot get around the publish cap. Product rule (WANDIT-190):
 	// only the project owner takes the risk of an open table.
 	@RequireProjectRole("owner")
-	@RateLimit({
-		ipLimit: PUBLISH_IP_LIMIT,
-		key: "app-publish",
-		limit: PUBLISH_LIMIT,
-		windowMs: PUBLISH_WINDOW_MS,
-	})
+	@RateLimit(APP_PUBLISH_RATE_LIMIT)
 	@Post("override")
 	@HttpCode(202)
 	overrideGate(

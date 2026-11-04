@@ -13,7 +13,7 @@ import {
 
 /**
  * Parses `member.role` or `invitation.role` from Better Auth. The value can be
- * a comma-separated list (better-auth 1.6). Unknown names are left out.
+ * a comma-separated list (better-auth 1.7). Unknown names are left out.
  */
 export function parseWorkspaceRoles(roleValue: string): WorkspaceRoleName[] {
 	return roleValue.split(",").flatMap((name) => {

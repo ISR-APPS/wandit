@@ -3,8 +3,11 @@ export { ProjectAccessService } from "./application/services/project-access.serv
 export { ProjectsService } from "./application/services/projects.service";
 export {
 	isProjectOwner,
+	type ProjectAccessFacts,
 	projectRoleAtLeast,
 	type ResolvedProjectAccess,
+	// The MCP spec runs the real role rule on its fake rows.
+	resolveProjectAccess,
 } from "./domain/project-access";
 export {
 	projectScopeFrom,

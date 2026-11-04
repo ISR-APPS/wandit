@@ -10,8 +10,10 @@
  * When the agent asks the user something, the request tray opens on top of
  * the composer. While the payer has no credits, the send locks and a
  * strip shows above the composer: the upgrade strip when the payer is the
- * active workspace, else a note to ask the owner. A project viewer gets a
- * note instead of the composer, no Stop, no Retry, and no card actions.
+ * active workspace, else a note to ask the owner. While GitHub has commits
+ * that the project did not pull, a GitHub strip with Update shows above the
+ * composer too. A project viewer gets a note instead of the composer, no
+ * Stop, no Retry, no GitHub strip, and no card actions.
  * A failed last reply gets a Retry button that sends its user message
  * again, except a stop on the daily AI limit, and while the payer has no
  * credits. The plan card's
@@ -21,8 +23,9 @@
  * reply shows only as the status line. Under the composer, a line shows the
  * full cost of the chat after its first turn. Rendered by
  * pages/app-builder-page.tsx, which owns the thread hook, the model pick,
- * the chat cost, and the details panel. Renders chat-message.tsx,
- * working-row.tsx, composer.tsx, chat-cost-line.tsx, and the request tray.
+ * the chat cost, the GitHub pull, and the details panel. Renders
+ * chat-message.tsx, working-row.tsx, composer.tsx, chat-cost-line.tsx,
+ * github-update-banner.tsx, and the request tray.
  */
 
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
@@ -55,6 +58,7 @@ import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { ChatCostLine } from "./chat-cost-line";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
+import { GithubUpdateBanner } from "./github-update-banner";
 import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
@@ -134,6 +138,17 @@ export type ChatPaneProps = {
 	isLoadingOlderMessages: boolean;
 	/** Loads the next older page. The list keeps the message the user reads in place. */
 	onLoadOlderMessages: () => void;
+	/**
+	 * The GitHub Update strip, from the page. Absent hides it. The page sets
+	 * it while the GitHub status of the project answers `updateAvailable`.
+	 * A viewer never sees it: `isReadOnly` hides it.
+	 */
+	githubUpdate?: {
+		/** True while the pull runs. The Update button stays off. */
+		isUpdating: boolean;
+		/** Starts the pull with the head of the last status answer. */
+		onUpdate: () => void;
+	};
 	className?: string;
 };
 
@@ -172,6 +187,7 @@ export function ChatPane({
 	hasOlderMessages,
 	isLoadingOlderMessages,
 	onLoadOlderMessages,
+	githubUpdate,
 	className,
 }: ChatPaneProps) {
 	const { t } = useTranslation();
@@ -413,6 +429,17 @@ export function ChatPane({
 				</div>
 			) : null}
 			<div className="shrink-0 px-4 pt-1 pb-4">
+				{/* Product rule: a pull needs the editor role (workspaces-sharing.md 2.2). */}
+				{githubUpdate && !isReadOnly ? (
+					<GithubUpdateBanner
+						// Update locks while a turn sends, while the chat loads, and while the pull runs.
+						// A pull costs no credits, so no credit lock. A waiting turn keeps Update on,
+						// and the API answers 409 BUILDER_TURN_WAITING.
+						isDisabled={isSending || !isReady || githubUpdate.isUpdating}
+						onUpdate={githubUpdate.onUpdate}
+						className="mb-2"
+					/>
+				) : null}
 				{/* The strip sits above the composer and does not wrap it. The banner
 				changes its root element when `active` flips, so a wrapped composer
 				remounts and loses its draft and files. */}

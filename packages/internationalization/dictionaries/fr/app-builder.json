@@ -212,8 +212,7 @@
 		},
 		"ai": {
 			"title": "IA",
-			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits.",
-			"cta": "Ajouter une fonction IA"
+			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits."
 		},
 		"payments": {
 			"title": "Paiements",
@@ -221,7 +220,7 @@
 		},
 		"integrations": {
 			"title": "Intégrations",
-			"description": "Google Sheets, WhatsApp, e-mail et les autres services que ton app utilise."
+			"description": "GitHub, et plus tard les autres services que ton app utilise."
 		},
 		"domains": {
 			"title": "Domaines",
@@ -274,6 +273,43 @@
 		},
 		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Ils ne reçoivent aucun e-mail de confirmation."
 	},
+	"ai": {
+		"gateway": "Passerelle IA",
+		"on": "Activée",
+		"off": "Désactivée",
+		"howItWorks": "Quand ton app a besoin d'IA, l'agent active la passerelle après ton accord. Une fonction serveur de ton app appelle alors les modèles d'IA. Chaque appel utilise tes crédits.",
+		"keySafety": "Wandit garde la clé dans les secrets de ton backend. La clé n'entre jamais dans le code de l'app.",
+		"noCredits": "Quand tes crédits sont épuisés, les appels IA de ton app s'arrêtent jusqu'à ce que tu ajoutes des crédits.",
+		"monthCredits": "Crédits ce mois-ci",
+		"monthRequests": "Appels IA ce mois-ci",
+		"keyUpdated": "Clé mise à jour le {date}",
+		"models": "Modèles",
+		"modelsHint": "L'agent choisit un de ces modèles pour chaque fonction IA.",
+		"defaultModel": "Par défaut",
+		"actions": {
+			"enable": "Activer",
+			"rotate": "Changer la clé",
+			"disable": "Désactiver"
+		},
+		"confirm": {
+			"cancel": "Annuler",
+			"enable": {
+				"title": "Activer la passerelle IA ?",
+				"description": "Wandit crée une clé pour ton app et l'envoie à ton backend. Chaque appel IA de ton app utilise tes crédits.",
+				"done": "La passerelle IA est activée."
+			},
+			"rotate": {
+				"title": "Changer la clé ?",
+				"description": "Wandit crée une nouvelle clé et l'envoie à ton backend. L'ancienne clé arrête de marcher tout de suite.",
+				"done": "La nouvelle clé est active."
+			},
+			"disable": {
+				"title": "Désactiver la passerelle IA ?",
+				"description": "Wandit supprime la clé. Les fonctions IA de ton app ne marchent plus jusqu'à ce que tu réactives la passerelle.",
+				"done": "La passerelle IA est désactivée."
+			}
+		}
+	},
 	"payments": {
 		"title": "Les paiements arrivent bientôt",
 		"body": "Bientôt, tu pourras encaisser des paiements dans tes apps web et tes SaaS, configurés depuis le chat.",
@@ -288,6 +324,51 @@
 		"freeTitle": "Adresse Wandit gratuite",
 		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app.",
 		"freeHost": "Domaine Wandit gratuit"
+	},
+	"github": {
+		"title": "GitHub",
+		"hint": "Garde le code de cette app dans un dépôt de ton compte GitHub.",
+		"notConfigured": "La synchronisation GitHub n’est pas configurée sur ce serveur.",
+		"connectHint": "Connecte ton compte GitHub pour créer un dépôt pour cette app.",
+		"connect": "Connecter GitHub",
+		"connectedAs": "Connecté en tant que {login}",
+		"owner": "Propriétaire",
+		"addOwner": "Ajouter un compte ou une organisation",
+		"noInstallations": "Installe l’app Wandit sur ton compte GitHub ou sur une organisation pour créer un dépôt.",
+		"repoName": "Nom du dépôt",
+		"repoNameInvalid": "Utilise seulement des lettres, des chiffres, des points, des tirets et des tirets bas, 100 caractères au plus.",
+		"private": "Dépôt privé",
+		"privateHelp": "Seuls toi et les personnes que tu ajoutes sur GitHub peuvent le voir.",
+		"create": "Créer le dépôt",
+		"lastSynced": "Dernière synchronisation : {sha}",
+		"neverSynced": "Pas encore synchronisé.",
+		"unlink": "Délier le dépôt",
+		"unlinkConfirmTitle": "Délier {repo} ?",
+		"unlinkConfirmBody": "Wandit arrête la synchronisation. Le dépôt et ses commits restent sur GitHub.",
+		"cancel": "Annuler",
+		"notes": {
+			"mainOnly": "Seule la branche main se synchronise, dans les deux sens.",
+			"githubWins": "Quand les deux côtés modifient les mêmes lignes, la version GitHub l’emporte.",
+			"workflows": "Quand l’agent modifie un fichier de .github/workflows, la synchronisation vers GitHub s’arrête."
+		},
+		"banner": {
+			"text": "Ce projet a de nouvelles modifications sur GitHub.",
+			"update": "Mettre à jour"
+		},
+		"connectedToast": "GitHub est connecté.",
+		"callbackErrors": {
+			"invalid_state": "La connexion GitHub a expiré. Réessaie.",
+			"access_denied": "Tu as refusé l’accès sur GitHub.",
+			"exchange_failed": "La connexion GitHub a échoué. Réessaie."
+		},
+		"syncErrors": {
+			"GITHUB_ACCESS_LOST": "L’app Wandit n’a plus accès à ce dépôt. Vérifie l’installation de l’app sur GitHub.",
+			"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau.",
+			"GITHUB_LINKER_NO_ACCESS": "La personne qui a lié ce dépôt ne peut plus y écrire.",
+			"GITHUB_PUSH_REJECTED": "GitHub a refusé le dernier envoi, par exemple à cause d’une règle de protection de branche.",
+			"GITHUB_WORKFLOW_CHANGED": "La synchronisation s’est arrêtée : l’agent a modifié un fichier de .github/workflows. Fais les modifications de workflow sur GitHub.",
+			"GITHUB_SYNC_FAILED": "La dernière synchronisation a échoué. Wandit réessaie bientôt."
+		}
 	},
 	"appStores": {
 		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
@@ -530,6 +611,7 @@
 			"request_network_host": "Autoriser l'app à joindre {host} ?",
 			"run_sql_write": "Modifier des données de ta base ?",
 			"apply_destructive_migration": "Modifier la structure de ta base ? Des données peuvent être perdues.",
+			"enable_ai": "Laisser ton app utiliser l'IA ? Chaque appel IA utilise tes crédits.",
 			"other": "Autoriser Wandit à faire cette action ?"
 		},
 		"elapsed": "{seconds} s",
@@ -656,7 +738,8 @@
 				"supabase_service_role_jwt": "clé service role Supabase",
 				"anthropic_api_key": "clé API Anthropic",
 				"google_api_key": "clé API Google",
-				"private_key": "clé privée"
+				"private_key": "clé privée",
+				"wandit_ai_api_key": "clé de la passerelle IA Wandit"
 			},
 			"phishing": "Le nom public « {target} » ressemble à une page de connexion, de banque ou de portefeuille.",
 			"advisor": {
@@ -729,7 +812,9 @@
 			"restore": "Restauration",
 			"wip": "Travail en cours",
 			"merge": "Fusion",
-			"theme": "Thème"
+			"theme": "Thème",
+			"github": "GitHub",
+			"mcp": "Agent de code"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

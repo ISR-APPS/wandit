@@ -24,8 +24,8 @@ import {
 } from "../../../domain/errors/workspace.errors";
 import {
 	PERSONAL_WORKSPACE_CONTEXT,
-	parseWorkspaceRoles,
 	type WorkspaceContext,
+	workspaceContextOfMembership,
 } from "../../../domain/workspace-context";
 import { WorkspaceMembersRepository } from "../../../infrastructure/persistence/members.repository";
 import {
@@ -103,28 +103,7 @@ export class WorkspaceContextGuard implements CanActivate {
 			throw new NotFoundException();
 		}
 
-		// The own personal org id is the same scope as no header: the owner's
-		// projects keep organization_id NULL and the personal pool pays.
-		if (membership.personalOwnerUserId === userId) {
-			return PERSONAL_WORKSPACE_CONTEXT;
-		}
-
-		if (membership.personalOwnerUserId !== null) {
-			return {
-				kind: "shared-personal",
-				organizationId: membership.organizationId,
-				ownerUserId: membership.personalOwnerUserId,
-				role: membership.role,
-				roles: parseWorkspaceRoles(membership.role),
-			};
-		}
-
-		return {
-			kind: "org",
-			organizationId: membership.organizationId,
-			role: membership.role,
-			roles: parseWorkspaceRoles(membership.role),
-		};
+		return workspaceContextOfMembership(membership, userId);
 	}
 
 	private enforceRouteRequirements(

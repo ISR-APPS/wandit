@@ -34,7 +34,7 @@ Deliberate differences from Lovable (keep them):
 - The `organizationsEnabled` toggle stops NEW collaboration (section 3.4). Access that
   exists stays.
 
-## 1. Data model (migration `0088_workspaces-sharing`)
+## 1. Data model (migration `0091_workspaces-sharing`)
 
 | Change | Notes |
 |---|---|
@@ -392,7 +392,7 @@ Project sharing (`packages/contracts/src/v2/sharing.ts`):
 
 The Trigger worker (`trigger.dev deploy`) and the harness host (`start:host`) deploy apart
 from the API. Two rules give the order:
-- The new worker and host read the new `payer_user_id` columns. Migration 0088 must run
+- The new worker and host read the new `payer_user_id` columns. Migration 0091 must run
   first. It runs as the Railway pre-deploy step of the API.
 - An old worker or host reads a member's hold with a payer check, fails, and runs the turn
   free. Old image and marketing runners fail member runs with `ownership_mismatch`. Only a
@@ -401,7 +401,7 @@ from the API. Two rules give the order:
 Order:
 1. Set `organizationsEnabled` to false (or keep it false). Then no new member or
    collaborator joins a personal workspace. Existing team members keep their access.
-2. Deploy the API. Its pre-deploy step runs migration 0088. The old worker and the old host
+2. Deploy the API. Its pre-deploy step runs migration 0091. The old worker and the old host
    ignore the new nullable columns.
 3. Deploy the Trigger worker and the harness host from the same commit.
 4. Set `organizationsEnabled` to true.

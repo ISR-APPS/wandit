@@ -38,7 +38,7 @@ export const workspaceRoleNameSchema = z.enum(workspaceRoleNames);
 export type WorkspaceRoleName = z.infer<typeof workspaceRoleNameSchema>;
 
 // A member's role value may be a comma-separated multi-role string
-// (better-auth 1.6.22); expose the raw value plus the parsed list.
+// (better-auth 1.7.16); expose the raw value plus the parsed list.
 export const workspaceSummarySchema = z.object({
 	id: z.string(),
 	name: z.string(),

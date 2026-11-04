@@ -53,6 +53,7 @@ import { WorkspaceContextGuard } from "./presentation/http/guards/workspace-cont
 		WorkspaceContextGuard,
 		WorkspaceMembersRepository,
 		// The signup hook in AuthModule creates the personal workspace with it.
+		// The MCP `list_workspaces` tool of AppBuilderModule reads the same list as the web.
 		WorkspacesService,
 	],
 	imports: [DatabaseModule, ProjectsModule],

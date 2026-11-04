@@ -45,26 +45,11 @@ import {
 import {
 	RateLimit,
 	RedisRateLimitGuard,
-	TURN_STREAM_BUCKET,
+	TURN_CANCEL_RATE_LIMIT,
+	TURN_CREATE_RATE_LIMIT,
+	TURN_STREAM_RATE_LIMIT,
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
-
-// 30 creates or cancels per user per 10 min — a human cannot click faster.
-const TURN_MUTATION_LIMIT = 30;
-const TURN_MUTATION_WINDOW_MS = 600_000;
-// 90 turn creates per IP per 10 min (WANDIT-181): three times the user cap.
-// Three people behind one office IP still fit, but the cap stops one person
-// who uses many accounts.
-const TURN_CREATE_IP_LIMIT = 90;
-
-// An open SSE slot stays taken until the stream closes or its window ends.
-// 16 min: Railway ends every HTTP response at 15 min, and the browser then
-// reopens the stream. So no live stream holds a slot for more than 15 min.
-// LIMIT: a slot that a killed API never released frees at most 16 min after
-// its window opened. A stream that outlives its window releases into the
-// next window, so the cap is soft there. Upgrade: one key per stream.
-const STREAM_SLOT_LIMIT = 5;
-const STREAM_SLOT_TTL_MS = 16 * 60_000;
 
 /**
  * True for a member of the project's workspace and for the project owner. Only they
@@ -88,12 +73,7 @@ export class TurnsController {
 	// `DefaultChatTransport` expects; a `waiting` turn streams as soon as
 	// promotion gives it a run. A prompt spends credits, so it needs an editor.
 	@RequireProjectRole("editor")
-	@RateLimit({
-		ipLimit: TURN_CREATE_IP_LIMIT,
-		key: "turn-create",
-		limit: TURN_MUTATION_LIMIT,
-		windowMs: TURN_MUTATION_WINDOW_MS,
-	})
+	@RateLimit(TURN_CREATE_RATE_LIMIT)
 	@Post()
 	@SkipResponseEnvelope()
 	async create(
@@ -149,12 +129,7 @@ export class TurnsController {
 	// Declared before `:turnId/stream` so "active" is not read as a turn id.
 	@RequireProjectRole("viewer")
 	@Get("active/stream")
-	@RateLimit({
-		key: TURN_STREAM_BUCKET,
-		limit: STREAM_SLOT_LIMIT,
-		mode: "open",
-		windowMs: STREAM_SLOT_TTL_MS,
-	})
+	@RateLimit(TURN_STREAM_RATE_LIMIT)
 	@SkipResponseEnvelope()
 	async activeStream(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -204,12 +179,7 @@ export class TurnsController {
 	// The browser reopens it after a cut and drops the chunks it already has.
 	@RequireProjectRole("viewer")
 	@Get(":turnId/stream")
-	@RateLimit({
-		key: TURN_STREAM_BUCKET,
-		limit: STREAM_SLOT_LIMIT,
-		mode: "open",
-		windowMs: STREAM_SLOT_TTL_MS,
-	})
+	@RateLimit(TURN_STREAM_RATE_LIMIT)
 	@SkipResponseEnvelope()
 	async stream(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -248,11 +218,7 @@ export class TurnsController {
 
 	// Idempotent: a terminal turn answers its current status (V1 shape).
 	@RequireProjectRole("editor")
-	@RateLimit({
-		key: "turn-cancel",
-		limit: TURN_MUTATION_LIMIT,
-		windowMs: TURN_MUTATION_WINDOW_MS,
-	})
+	@RateLimit(TURN_CANCEL_RATE_LIMIT)
 	@Post(":turnId/cancel")
 	@HttpCode(200)
 	cancel(

@@ -1,7 +1,7 @@
 /**
  * Starts the project sandbox outside a builder turn, with the egress inputs
- * of a turn and no LLM proxy token. `VersionsService.restore`,
- * `SandboxWakeService`, and the `publish-app` task call it. It reads the
+ * of a turn and no LLM proxy token. `VersionsService.restore` and
+ * `pullFromGithub`, `SandboxWakeService`, and the `publish-app` task call it. It reads the
  * projects row and the `app_backends` row, calls `getOrCreate`, and after a
  * boot writes the backend `.env` through `syncBackendEnvFile`.
  */

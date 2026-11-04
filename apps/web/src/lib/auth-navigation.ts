@@ -98,6 +98,15 @@ export function sanitizeAuthRedirectPath(
 	return next;
 }
 
+/**
+ * True for a path of the OAuth pages (/oauth/authorize, /oauth/consent). The API signs their query.
+ * The router re-serializes a search (repeated keys, long numbers), which breaks that signature.
+ * So a redirect to these pages must keep the raw URL and load the full page.
+ */
+export function isOAuthPagePath(path: string): boolean {
+	return path.startsWith("/oauth/");
+}
+
 export function buildAuthCallbackUrls(
 	origin: string,
 	destination: string,

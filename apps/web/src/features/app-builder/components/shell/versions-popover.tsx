@@ -43,13 +43,11 @@ import {
 	appVersionsQuery,
 	versionDiffQuery,
 } from "../../api/app-builder.queries";
+import { SHORT_SHA_LENGTH } from "../../lib/constants";
 import { parseUnifiedDiff } from "../../lib/unified-diff";
 import { DiffCard } from "../chat/diff-card";
 import { HISTORY_ACTION_CLASS } from "./android-build-card";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "./top-bar";
-
-// Seven characters name a commit, like `git log --oneline`.
-const SHORT_SHA_LENGTH = 7;
 
 // Diff and Restore: the ghost pill of the publish history. An open diff keeps the pressed tint through aria-expanded.
 const ROW_ACTION_CLASS = cn(

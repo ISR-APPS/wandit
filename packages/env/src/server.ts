@@ -13,6 +13,7 @@ import { config } from "dotenv";
 import { z } from "zod";
 import { codeStoragePrivateKeySchema } from "./code-storage-key";
 import { corsExtraOriginsSchema, httpOriginSchema } from "./cors-origins";
+import { githubAppPrivateKeySchema } from "./github-app-key";
 import { parseLlmProviderOverrides } from "./llm-routing";
 import { v2HarnessSchema } from "./v2-harness";
 
@@ -425,6 +426,26 @@ export const env = createEnv({
 		APPETIZE_IOS_PUBLIC_KEY: z.string().min(1).optional(),
 		APPETIZE_ANDROID_PUBLIC_KEY: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
+		// The Wandit GitHub App of the GitHub sync. The API and the `github-sync`
+		// Trigger task read them; a missing value answers 503 V2_ENV_MISSING.
+		// Numeric App ID: the `iss` claim of the App JWT.
+		GITHUB_APP_ID: z
+			.string()
+			.regex(/^\d+$/, "GITHUB_APP_ID must be the numeric App ID")
+			.optional(),
+		// App slug of the install URL `https://github.com/apps/<slug>/installations/new`.
+		GITHUB_APP_SLUG: z
+			.string()
+			.regex(/^[a-z0-9][a-z0-9-]*$/, "GITHUB_APP_SLUG must be the App URL slug")
+			.optional(),
+		// OAuth client id and secret of the App: the user connect and the token refresh.
+		GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
+		GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
+		// RSA PEM of the App; it signs the App JWT. `\n` escapes accepted, and a bad key stops the boot.
+		GITHUB_APP_PRIVATE_KEY: githubAppPrivateKeySchema.optional(),
+		// Webhook secret of the App. GitHub signs each delivery with it (`X-Hub-Signature-256`).
+		// Without it, the webhook route answers 503 and the status route reads GitHub once a minute.
+		GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

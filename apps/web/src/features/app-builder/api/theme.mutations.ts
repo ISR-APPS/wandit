@@ -1,6 +1,6 @@
 /**
  * The save mutation of the builder Thème sheet. It calls theme.services.ts.
- * Then it refreshes the theme, the version list, the project counts, and the Code view.
+ * Then it refreshes the theme, the version list, the project counts, the Code view, and the GitHub status.
  * Only the lazy Thème sheet (components/preview/theme-sheet.tsx) imports this file.
  * So the contracts look catalog stays out of the builder chunk.
  */
@@ -10,6 +10,7 @@ import type { PutAppThemeBody } from "@wandit/contracts/v2/app-theme";
 
 import { isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
+import { githubKeys } from "./github.queries";
 import { saveAppTheme } from "./theme.services";
 
 /**
@@ -33,6 +34,10 @@ export function useSaveAppTheme(projectId: string) {
 			// The commit rewrites src/styles/theme.json, so the Code view tree and the open file refetch.
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.code(projectId),
+			});
+			// The save moves the head. The GitHub Update sends the head of the status, so it refetches.
+			void queryClient.invalidateQueries({
+				queryKey: githubKeys.status(projectId),
 			});
 			// The mutation stays pending until the new file arrives. So Save cannot send the old head again.
 			await queryClient.invalidateQueries({

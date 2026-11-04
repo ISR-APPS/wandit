@@ -698,6 +698,7 @@ function makeWorld(over?: {
 			}),
 		},
 		putPatch: async () => {},
+		githubSync: { scheduleIfLinked: async () => {} },
 	};
 
 	const deps: BuilderTurnDeps = {
@@ -1947,6 +1948,23 @@ describe("runBuilderTurn", () => {
 				organizationId: null,
 				payerUserId: "owner_1",
 			},
+		]);
+	});
+
+	it("names the personal owner as payer when billing is off and a member sends the turn", async () => {
+		const world = makeWorld({
+			billingDisabled: true,
+			project: fakeProjectRow({ userId: "owner_1" }),
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// No hold names the payer, so the project row does. secretActor scopes the project with it.
+		expect(world.planSubjects).toEqual([
+			{ actorUserId: "user_1", organizationId: null, payerUserId: "owner_1" },
 		]);
 	});
 
@@ -4719,5 +4737,13 @@ describe("restoreNoteOf", () => {
 		// A note names the picked version a1b2c3d, never the copy-forward commit f9e8d7c.
 		expect(note?.includes("a1b2c3d") ?? false).toBe(hasNote);
 		expect(note?.includes("f9e8d7c") ?? false).toBe(false);
+	});
+
+	it("a GitHub Update after the last agent turn gives the GitHub note", () => {
+		const note = restoreNoteOf(
+			{ ...restore, restoredFromSha: null, source: "github" },
+			new Date("2026-10-04T09:00:00.000Z"),
+		);
+		expect(note).toMatch(/GitHub/);
 	});
 });

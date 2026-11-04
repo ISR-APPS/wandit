@@ -38,6 +38,10 @@ import {
 	type GitStore,
 } from "../../domain/ports/git-store";
 import {
+	GITHUB_SYNC_SCHEDULER,
+	type GithubSyncScheduler,
+} from "../../domain/ports/github-sync-scheduler";
+import {
 	SANDBOX_PROVIDER,
 	type SandboxProvider,
 	type SandboxReader,
@@ -96,6 +100,9 @@ export class AppThemeService {
 		private readonly objects: Pick<VersionsObjectStore, "putPatch">,
 		@Inject(BuilderTurnsRepository)
 		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
+		// `commitTurn` schedules the GitHub push of a linked project after the theme commit.
+		@Inject(GITHUB_SYNC_SCHEDULER)
+		private readonly githubSync: GithubSyncScheduler,
 	) {}
 
 	/**
@@ -210,6 +217,7 @@ export class AppThemeService {
 					sandbox,
 					{
 						appCommits: this.appCommits,
+						githubSync: this.githubSync,
 						gitStore: this.gitStore,
 						putPatch: this.objects.putPatch,
 					},

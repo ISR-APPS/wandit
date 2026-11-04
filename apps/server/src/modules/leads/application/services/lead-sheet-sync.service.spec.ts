@@ -50,6 +50,7 @@ const SYNC_ROW = { ...SHEET, syncedByUserId: USER_ID };
 
 function connectedAccount(overrides: Record<string, unknown> = {}) {
 	return {
+		id: "google-account-1",
 		accessTokenExpiresAt: null,
 		refreshToken: "refresh-1",
 		scope: `openid,email,${GOOGLE_SHEETS_SCOPE}`,
@@ -230,7 +231,7 @@ describe("LeadSheetSyncService", () => {
 			);
 			expect(syncsRepository.findGoogleAccount).toHaveBeenCalledWith(USER_ID);
 			expect(auth.api.getAccessToken).toHaveBeenCalledWith({
-				body: { providerId: "google", userId: USER_ID },
+				body: { accountId: "google-account-1", userId: USER_ID },
 			});
 			expect(leadsRepository.listForProjectSync).toHaveBeenCalledWith(
 				ORG_SCOPE,

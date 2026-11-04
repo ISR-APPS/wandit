@@ -90,6 +90,11 @@ function severityOf(
 	if (rule === "google_api_key") {
 		return "warn";
 	}
+	// The AI gateway key lives only in the Edge Function secrets. A copy in
+	// any build file is a leak that spends the payer's credits.
+	if (rule === "wandit_ai_api_key") {
+		return "block";
+	}
 	// A server module runs only in the user Worker, and no visitor can
 	// download it. The key is still in the source, so the popover lists it.
 	if (path.startsWith("server/")) {

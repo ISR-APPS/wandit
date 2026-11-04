@@ -205,10 +205,13 @@ describe("DevUserSeedService", () => {
 		vi.stubEnv("NODE_ENV", "development");
 		const auth = createMemoryAuth();
 		const { internalAdapter } = await auth.$context;
-		const devUser = await internalAdapter.createUser({
-			email: DEV_USER.email,
-			name: DEV_USER.name,
-		});
+		const devUser = await internalAdapter.createUser(
+			{
+				email: DEV_USER.email,
+				name: DEV_USER.name,
+			},
+			{ method: "email-password" },
+		);
 		const seedPlan = subscriptionRow({
 			cancelAtPeriodEnd: false,
 			currentPeriodEnd: new Date("2027-10-03T00:00:00.000Z"),
@@ -243,10 +246,13 @@ describe("DevUserSeedService", () => {
 		vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 		const auth = createMemoryAuth();
 		const { internalAdapter } = await auth.$context;
-		const devUser = await internalAdapter.createUser({
-			email: DEV_USER.email,
-			name: DEV_USER.name,
-		});
+		const devUser = await internalAdapter.createUser(
+			{
+				email: DEV_USER.email,
+				name: DEV_USER.name,
+			},
+			{ method: "email-password" },
+		);
 		const proPlan = subscriptionRow({
 			cancelAtPeriodEnd: false,
 			currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
@@ -273,10 +279,13 @@ describe("DevUserSeedService", () => {
 		vi.stubEnv("NODE_ENV", "development");
 		const auth = createMemoryAuth();
 		const { internalAdapter } = await auth.$context;
-		await internalAdapter.createUser({
-			email: DEV_USER.email,
-			name: DEV_USER.name,
-		});
+		await internalAdapter.createUser(
+			{
+				email: DEV_USER.email,
+				name: DEV_USER.name,
+			},
+			{ method: "email-password" },
+		);
 
 		await new DevUserSeedService(
 			auth,

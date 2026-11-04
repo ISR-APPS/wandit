@@ -1,12 +1,11 @@
 /**
  * Application service behind the V2 web app publish routes (WANDIT-178).
- * `publish.controller.ts` calls it. `publish`, `rollback`, and the owner
- * "Publish anyway" write a `queued` `app_builds` row and start the
- * `publish-app` Trigger task; `unpublish` takes the app down at once. It
- * refuses a suspended project and a phishing slug (WANDIT-181). It calls the
- * publish repository, the V1 deployments repository, the KV pointer writer,
- * the W4P client, the commits repository, the credits balance, the task
- * starter, and the audit trail.
+ * `publish.controller.ts` and the MCP tools in `mcp-tools.ts` call it.
+ * `publish`, `rollback`, and the owner "Publish anyway" write a `queued` `app_builds` row
+ * and start the `publish-app` Trigger task. `unpublish` takes the app down at once.
+ * It refuses a suspended project and a phishing slug (WANDIT-181).
+ * It calls the publish and V1 deployments repositories, the KV pointer writer, and the W4P client.
+ * It also calls the commits repository, the credits balance, the task starter, and the audit trail.
  */
 import {
 	ConflictException,
@@ -144,8 +143,10 @@ export class PublishService {
 	}
 
 	/**
-	 * `POST .../publish`. Writes a `queued` row for the saved head of `main`
-	 * and starts the task. A retried request key answers its first build.
+	 * `POST .../publish` and the MCP `publish_app` tool. Writes a `queued` row for the saved head
+	 * of `main` and starts the task. A retried request key answers its first build. A key whose
+	 * build has another commit than the head answers 409 REQUEST_KEY_REUSED. The web sends a uuid.
+	 * The MCP tool sends `mcp:<clientId>:<userId>:<requestKey>`.
 	 */
 	async publishHead(
 		scope: ProjectScope,
@@ -158,6 +159,11 @@ export class PublishService {
 			body.requestKey,
 		);
 		if (existing) {
+			// An MCP agent writes its own key. A reuse after a new version must not answer the old build.
+			const headSha = (await this.appCommits.findBranch(projectId))?.headSha;
+			if (existing.commitSha !== headSha) {
+				throw requestKeyReusedError();
+			}
 			return toApiBuild(existing);
 		}
 		await this.assertPublishable(projectId);
@@ -172,12 +178,17 @@ export class PublishService {
 				message: "Save a version of the app before you publish it",
 			});
 		}
-		return this.queue(scope, projectId, {
+		const build = await this.queue(scope, projectId, {
 			commitSha,
 			gateOverride: false,
 			requestKey: body.requestKey,
 			sourceBuildId: null,
 		});
+		// A parallel call with the same key wrote its row first. That row can hold another commit.
+		if (build.commitSha !== commitSha) {
+			throw requestKeyReusedError();
+		}
+		return build;
 	}
 
 	/**
@@ -625,6 +636,14 @@ function activePublishError(): ConflictException {
 	return new ConflictException({
 		code: "PUBLISH_ACTIVE",
 		message: "A publish of this app is running",
+	});
+}
+
+function requestKeyReusedError(): ConflictException {
+	return new ConflictException({
+		code: "REQUEST_KEY_REUSED",
+		message:
+			"This requestKey belongs to a publish of another version. Publish with a new requestKey",
 	});
 }
 

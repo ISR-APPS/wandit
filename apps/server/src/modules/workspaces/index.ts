@@ -13,6 +13,7 @@ export {
 export {
 	parseWorkspaceRoles,
 	type WorkspaceContext,
+	workspaceContextOfMembership,
 } from "./domain/workspace-context";
 export { InviteLinksRepository } from "./infrastructure/persistence/invite-links.repository";
 export { WorkspaceMembersRepository } from "./infrastructure/persistence/members.repository";

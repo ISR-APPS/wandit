@@ -28,6 +28,7 @@ import {
 	invalidateSessionCache,
 	refreshSession,
 } from "@/features/auth/lib/session";
+import { isOAuthPagePath } from "@/lib/auth-navigation";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
 import {
@@ -255,7 +256,13 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		}
 
 		playCompletion();
-		await navigate({ href: next ?? "/dashboard", replace: true });
+		const destination = next ?? "/dashboard";
+		// A router navigation re-serializes the query and breaks the signature of an OAuth page.
+		await navigate({
+			href: destination,
+			replace: true,
+			reloadDocument: isOAuthPagePath(destination),
+		});
 	}
 
 	async function answerCurrentQuestion(

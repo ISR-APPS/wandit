@@ -8,6 +8,7 @@ import { SecretScanGate } from "./secret-scanner";
 const awsKey = `AKIA${"Q7".repeat(8)}`;
 const stripeSecretKey = `sk_live_${"Ab3".repeat(8)}`;
 const googleKey = `AIza${"Lm8".repeat(11)}Np`;
+const appAiKey = `wnd_ai_${"0a1b".repeat(8)}_${"Pq9".repeat(14)}x`;
 const pemBody = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC".repeat(2);
 // The random base64 of an image can hold the shape of an AWS key.
 const pngDataUrl = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ/${awsKey}/AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==`;
@@ -181,6 +182,31 @@ describe("SecretScanGate", () => {
 				rule: "stripe_live_secret_key",
 				sample: "sk_live_…3Ab3",
 				severity: "warn",
+			},
+		]);
+	});
+
+	// The gateway key spends the payer's credits, so a server module blocks too.
+	it("blocks the AI gateway key in a client asset and in a server module", async () => {
+		const findings = await scan([
+			textFile("client/assets/index-BX7a9kQz.js", `const k="${appAiKey}";`),
+			textFile("server/index.js", `const k="${appAiKey}";`),
+		]);
+
+		expect(findings).toEqual([
+			{
+				kind: "secret",
+				path: "client/assets/index-BX7a9kQz.js",
+				rule: "wandit_ai_api_key",
+				sample: "wnd_ai_…Pq9x",
+				severity: "block",
+			},
+			{
+				kind: "secret",
+				path: "server/index.js",
+				rule: "wandit_ai_api_key",
+				sample: "wnd_ai_…Pq9x",
+				severity: "block",
 			},
 		]);
 	});

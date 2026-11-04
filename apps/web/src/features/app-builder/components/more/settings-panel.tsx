@@ -61,7 +61,9 @@ import { costCapToDraft, toCostCapsBody } from "../../lib/helpers";
 import { OwnershipSection } from "./ownership-section";
 import {
 	PANEL_CARD_CLASS,
+	PANEL_CARD_ROW_CLASS,
 	PANEL_CARD_TITLE_CLASS,
+	PANEL_FIELD_LABEL_CLASS,
 	PANEL_HINT_CLASS,
 	PANEL_INPUT_CLASS,
 	PANEL_PRIMARY_BUTTON_CLASS,
@@ -75,13 +77,6 @@ export type SettingsPanelProps = {
 	/** Opens the Secrets panel of the Backend group. undefined while the Backend group is hidden, so the link does not show. */
 	onOpenSecrets: (() => void) | undefined;
 };
-
-/** Label above a field of a card. */
-const FIELD_LABEL_CLASS =
-	"font-grotesk font-medium text-[13px] text-night/70 dark:text-foreground/70";
-
-/** Hairline above each row of a card. */
-const CARD_ROW_CLASS = "border-night/[0.07] border-t dark:border-white/[0.07]";
 
 /** Pill frame of a cap field with its credits addon. The read-only project URL has its own tinted frame. */
 const INPUT_GROUP_CLASS =
@@ -191,7 +186,7 @@ function ProjectSection({
 			</h2>
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<Field className="gap-2">
-					<FieldLabel htmlFor={nameId} className={FIELD_LABEL_CLASS}>
+					<FieldLabel htmlFor={nameId} className={PANEL_FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.name")}
 					</FieldLabel>
 					{/* The key resets the draft when another project loads or a save changes the name. */}
@@ -229,7 +224,10 @@ function ProjectSection({
 					/>
 				</Field>
 				<Field className="gap-2">
-					<FieldLabel htmlFor={projectUrlId} className={FIELD_LABEL_CLASS}>
+					<FieldLabel
+						htmlFor={projectUrlId}
+						className={PANEL_FIELD_LABEL_CLASS}
+					>
 						{t("appBuilder.settings.projectUrl")}
 					</FieldLabel>
 					{/* The project URL is the builder link, not the published domain. A URL reads left to right in every locale. */}
@@ -251,7 +249,7 @@ function ProjectSection({
 					</InputGroup>
 				</Field>
 			</div>
-			<dl className={cn(CARD_ROW_CLASS, "mt-5 flex flex-col gap-4 pt-4")}>
+			<dl className={cn(PANEL_CARD_ROW_CLASS, "mt-5 flex flex-col gap-4 pt-4")}>
 				<div className="flex flex-wrap items-center justify-between gap-4">
 					<dt>
 						<p className="font-grotesk font-medium text-[14px] text-night dark:text-foreground">
@@ -363,7 +361,7 @@ function SpendingLimitsForm({
 		>
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<Field className="gap-2">
-					<FieldLabel htmlFor={perTurnId} className={FIELD_LABEL_CLASS}>
+					<FieldLabel htmlFor={perTurnId} className={PANEL_FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.perTurnLimit")}
 					</FieldLabel>
 					<InputGroup className={INPUT_GROUP_CLASS}>
@@ -391,7 +389,7 @@ function SpendingLimitsForm({
 					</FieldDescription>
 				</Field>
 				<Field className="gap-2">
-					<FieldLabel htmlFor={monthlyId} className={FIELD_LABEL_CLASS}>
+					<FieldLabel htmlFor={monthlyId} className={PANEL_FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.monthlyLimit")}
 					</FieldLabel>
 					<InputGroup className={INPUT_GROUP_CLASS}>

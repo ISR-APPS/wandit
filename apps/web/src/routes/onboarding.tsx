@@ -1,7 +1,15 @@
+/**
+ * Route of the post-signup onboarding at /onboarding. The `_auth` gate sends a new user here with `next`.
+ * It sends a signed-out user to the sign-in, and a user who completed onboarding to `next`.
+ * It renders OnboardingPage, which goes to `next` after the last answer.
+ */
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { getSession } from "@/features/auth/lib/session";
 import OnboardingPage from "@/features/onboarding/pages/onboarding-page";
-import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
+import {
+	isOAuthPagePath,
+	sanitizeAuthRedirectPath,
+} from "@/lib/auth-navigation";
 import { pageTitle } from "@/lib/i18n";
 
 type OnboardingSearch = {
@@ -36,7 +44,12 @@ export const Route = createFileRoute("/onboarding")({
 		}
 
 		if (session.user.onboardingCompletedAt && !search.replay) {
-			throw redirect({ href: search.next ?? "/dashboard" });
+			const destination = search.next ?? "/dashboard";
+			// A router redirect re-serializes the query and breaks the signature of an OAuth page.
+			throw redirect({
+				href: destination,
+				reloadDocument: isOAuthPagePath(destination),
+			});
 		}
 
 		return { session };

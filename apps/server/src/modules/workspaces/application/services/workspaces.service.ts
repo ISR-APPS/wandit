@@ -18,12 +18,12 @@ import {
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { WorkspaceMembersRepository } from "../../infrastructure/persistence/members.repository";
 
-/** Longest personal workspace name. Migration 0088 uses the same rule. */
+/** Longest personal workspace name. Migration 0091 uses the same rule. */
 const PERSONAL_WORKSPACE_NAME_MAX = 50;
 
 const PERSONAL_WORKSPACE_NAME_SUFFIX = "'s workspace";
 
-/** 8 random bytes give 16 hex characters, the same length as migration 0088. */
+/** 8 random bytes give 16 hex characters, the same length as migration 0091. */
 const PERSONAL_WORKSPACE_SLUG_RANDOM_BYTES = 8;
 
 /** One insert, plus one retry with a new slug when the first slug is taken. */
@@ -172,7 +172,7 @@ function personalWorkspaceName(userName: string, email: string): string {
 	const wordMax =
 		PERSONAL_WORKSPACE_NAME_MAX - PERSONAL_WORKSPACE_NAME_SUFFIX.length;
 
-	// Array.from counts code points, like the SQL left() of migration 0088.
+	// Array.from counts code points, like the SQL left() of migration 0091.
 	return `${Array.from(word).slice(0, wordMax).join("")}${PERSONAL_WORKSPACE_NAME_SUFFIX}`;
 }
 

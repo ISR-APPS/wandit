@@ -40,6 +40,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D26 | App design recipe picked by the host | default | 2026-10-04 |
 | D27 | Plan Mode | default | 2026-10-05 |
 | D28 | App theme owned by the host (D26 change) | default | 2026-10-26 |
+| D29 | External coding agents through a remote MCP server | confirmed | 2026-11-04 |
 
 ## D1. Sandbox vendor
 
@@ -380,9 +381,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: With A, the agent wrote capital labels and ink bands from prose. The schema of B cannot express them. The user picks one of 3 cards in the first `ask_user` call, or edits each field in the builder. The agent calls `set_theme` for the user's words. The host restores a file that a turn changed. Older projects keep D26.
 
+## D29. External coding agents through a remote MCP server
+
+- Question: How does a user work on a V2 project from an external coding agent (Claude Code, Codex, Cursor)?
+- Options: A. A remote MCP server on the API with OAuth, whole-account grants, and read, edit, prompt, and publish tools. B. Per-project grants. C. Prompt-only tools, as Lovable does. D. Personal access tokens.
+- Default: A, on Better Auth 1.7.16 (`jwt`, `mcp`, `cimd` plugins). Direct edits are commits with source `mcp`. Approvals stay in the web app.
+- Final choice: A.
+- Status: confirmed
+- Date: 2026-11-04
+- Decided by: Zack ("the most secure option", "the way Lovable does it", all four tool groups).
+- Issues that change: none filed yet.
+- Notes: The Better Auth 1.6 `mcp` plugin can skip consent and stores plain-text tokens. Rules: `docs/features/coding-agents-mcp.md`.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D29.
+1. Take the next number. The next number is D30.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

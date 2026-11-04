@@ -15,6 +15,8 @@
  * Every edit control reads `project.access.role`, never the workspace header
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
+ * It reads the GitHub status and owns the pull: the chat shows an Update
+ * strip, and a pull reloads the preview.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -43,6 +45,8 @@ import {
 	turnEstimateQuery,
 } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
+import { usePullFromGithub } from "../api/github.mutations";
+import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
@@ -145,6 +149,16 @@ export default function AppBuilderPage({
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the reload button of the preview bar bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
+	// The GitHub link of the project. The chat strip offers Update while GitHub has commits to pull.
+	const { data: githubStatus } = useQuery({
+		...projectGithubStatusQuery(projectId),
+		enabled: project !== null,
+	});
+	// The pull writes the merged tree into the sandbox worktree, like a
+	// restore. The reload mints a new token and shows it.
+	const githubPull = usePullFromGithub(projectId, () =>
+		setReloadKey((key) => key + 1),
+	);
 	// The elements picked in the preview for the next turn, with their project.
 	// A project switch in place keeps this page, so picks of another project read as none.
 	const [picked, setPicked] = useState<{
@@ -314,6 +328,14 @@ export default function AppBuilderPage({
 			hasOlderMessages={thread.hasOlderMessages}
 			isLoadingOlderMessages={thread.isLoadingOlderMessages}
 			onLoadOlderMessages={thread.loadOlderMessages}
+			githubUpdate={
+				githubStatus?.link?.updateAvailable
+					? {
+							isUpdating: githubPull.isPending,
+							onUpdate: () => githubPull.mutate(githubStatus.headSha),
+						}
+					: undefined
+			}
 			className="h-full"
 		/>
 	);
