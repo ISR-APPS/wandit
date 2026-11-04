@@ -624,6 +624,13 @@
       "when": 1793727427117,
       "tag": "0088_app-ai-gateway-operation",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793824663628,
+      "tag": "0089_mcp-oauth-provider",
+      "breakpoints": true
     }
   ]
 }
