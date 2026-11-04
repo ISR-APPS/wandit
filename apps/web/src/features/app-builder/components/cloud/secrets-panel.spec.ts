@@ -38,7 +38,7 @@ const STRIPE_KEY: ProjectSecretSummary = {
 };
 
 const NAME_INVALID =
-	"Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer. Names that start with SUPABASE_ are reserved.";
+	"Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer. Names that start with SUPABASE_ or WANDIT_ are reserved.";
 
 // The cache holds the list and nothing is stale or retried, so the panel
 // never calls the API. A save goes to the `putSecret` fake; no case
@@ -168,6 +168,8 @@ describe("SecretsPanel", () => {
 		{ typed: "1abc", shown: "1ABC" },
 		// Security: the name of a Supabase key that provisioning stores.
 		{ typed: "supabase_service_role_key", shown: "SUPABASE_SERVICE_ROLE_KEY" },
+		// Security: a user row with this name would shadow the app AI gateway key.
+		{ typed: "wandit_ai_api_key", shown: "WANDIT_AI_API_KEY" },
 	])("refuses the name $shown", ({ typed, shown }) => {
 		renderPanel([]);
 

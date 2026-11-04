@@ -18,6 +18,7 @@ import {
 import { isCloudPanel } from "../../lib/helpers";
 import { CloudPanelContent } from "../cloud/cloud-panel-content";
 import type { LogsFilter } from "../cloud/logs-panel";
+import { AiPanel } from "./ai-panel";
 import { AppStoresPanel } from "./app-stores-panel";
 import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
@@ -33,7 +34,7 @@ export type MoreViewProps = {
 	project: AppProject;
 	/** Open panel, already resolved by resolvePanel in the page for the kind and the Cloud gate. */
 	panel: ProjectPanel;
-	/** True while the More view is on screen. The view stays mounted, so every Cloud query waits for it. */
+	/** True while the More view is on screen. The view stays mounted, so every Cloud query and the AI status wait for it. */
 	isActive: boolean;
 	/** True when the nav shows the Backend group. The page reads it from useCloudTabEnabled. */
 	showBackendGroup: boolean;
@@ -41,11 +42,10 @@ export type MoreViewProps = {
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
-type EmptyMorePanel = Extract<MorePanel, "analytics" | "ai" | "security">;
+type EmptyMorePanel = Extract<MorePanel, "analytics" | "security">;
 
 const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	analytics: "appBuilder.panels.analytics.cta",
-	ai: "appBuilder.panels.ai.cta",
 	security: "appBuilder.panels.security.cta",
 };
 
@@ -71,7 +71,6 @@ export function MoreView({
 	function renderMorePanel(morePanel: MorePanel): ReactNode {
 		switch (morePanel) {
 			case "analytics":
-			case "ai":
 			case "security":
 				return (
 					<EmptyPanel
@@ -79,6 +78,8 @@ export function MoreView({
 						ctaLabel={t(EMPTY_PANEL_CTA[morePanel])}
 					/>
 				);
+			case "ai":
+				return <AiPanel projectId={project.id} isActive={isActive} />;
 			case "signIn":
 				return <SignInPanel projectId={project.id} />;
 			case "payments":
