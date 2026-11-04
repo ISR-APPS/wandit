@@ -20,6 +20,8 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { AppAiGatewayService } from "./application/services/app-ai-gateway.service";
+import { AppAiKeysService } from "./application/services/app-ai-keys.service";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
 import { AuditEventsService } from "./application/services/audit-events.service";
@@ -116,6 +118,8 @@ import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-p
 import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
+import { AppAiController } from "./presentation/http/controllers/app-ai.controller";
+import { AppAiGatewayController } from "./presentation/http/controllers/app-ai-gateway.controller";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { ChatHistoryController } from "./presentation/http/controllers/chat-history.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
@@ -176,6 +180,8 @@ export function createCloudSupabaseClient(
 
 @Module({
 	controllers: [
+		AppAiController,
+		AppAiGatewayController,
 		AppProjectsController,
 		ChatHistoryController,
 		CloudController,
@@ -215,6 +221,8 @@ export function createCloudSupabaseClient(
 		WorkspacesModule,
 	],
 	providers: [
+		AppAiGatewayService,
+		AppAiKeysService,
 		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,

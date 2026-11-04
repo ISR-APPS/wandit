@@ -83,7 +83,8 @@ async function bootstrap() {
 	// Fastify accepts 1 MiB of JSON by default, and every route keeps that limit
 	// except feedback: its screenshot data URL alone can reach 2.6 MB. The V2
 	// LLM proxy routes get 4 MiB too: a builder prompt with cache_control
-	// blocks can exceed 1 MiB. The V1 AI chat stream gets 4 MiB too. The web
+	// blocks can exceed 1 MiB. The app AI gateway route gets 4 MiB too: an app
+	// sends images as data URLs. The V1 AI chat stream gets 4 MiB too. The web
 	// and native apps send the full chat history with each message, and long
 	// chats pass 1 MiB. Nest registers the controller routes in
 	// `app.init()`, which `app.listen()` calls below, so this hook is in place
@@ -96,6 +97,7 @@ async function bootstrap() {
 			route.url === feedbackRoutes.create ||
 			route.url === appBuilderRoutes.llmProxyMessages ||
 			route.url === appBuilderRoutes.llmProxyCountTokens ||
+			route.url === appBuilderRoutes.appAiChatCompletions ||
 			// Fastify reports the route pattern, so the constant gets the param name.
 			route.url === aiChatRoutes.stream(":chatId");
 

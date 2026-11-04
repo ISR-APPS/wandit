@@ -514,7 +514,8 @@ missing, out-of-scope, or V1 project, like the turn routes.
   a `user` row and answers 204. A `user` write over a `system` row
   answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
   upsert, so no read races the write. A name that starts with `SUPABASE_`
-  answers 400 (`userSecretNameSchema`): the Supabase keys use these names.
+  or `WANDIT_` answers 400 (`userSecretNameSchema`): the Supabase keys and
+  the app AI gateway key use these names.
 - `DELETE /:name` removes a `user` row and answers 204. A `system` row
   answers 409; a missing row answers 404.
 
@@ -534,7 +535,7 @@ Every set and delete writes one `audit_events` row (`secret.set`,
 name in `metadata`; never the value. The API request log carries no
 body. The Sentry `beforeSend` (`scrubEvent`) masks the `value` field of
 a captured body and replaces every string that holds `sk_live_`,
-`rk_live_`, `sb_secret_`, `service_role`, or `whsec_`.
+`rk_live_`, `sb_secret_`, `service_role`, `whsec_`, or `wnd_ai_`.
 
 ## Cloud tab API (WANDIT-187)
 
@@ -1218,7 +1219,7 @@ port.
 
 ## Backend tools (WANDIT-186)
 
-Seven host tools act on the hidden Supabase project of the app. They live
+Eight host tools act on the hidden Supabase project of the app. They live
 in `application/host-tools/backend/` and run in the `builder-turn` task.
 They call the interactive `SupabaseManagementClient`: a full rate-limit
 bucket answers `rate_limited` with `retryAfterSeconds` at once. A
@@ -1226,8 +1227,8 @@ bucket answers `rate_limited` with `retryAfterSeconds` at once. A
 retry once, and the unique sha stops a second run. The schemas and
 `backendToolNames` live in
 `packages/contracts/src/v2/backend-tools.ts`. The worker needs
-`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` also
-needs `APP_SECRETS_ENCRYPTION_KEY`.
+`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` and
+`enable_ai` also need `APP_SECRETS_ENCRYPTION_KEY`.
 
 - No tool creates or wakes a backend. `resolveActiveBackend` answers
   `backend_paused` for a paused row and `backend_not_ready` for every other
@@ -1254,6 +1255,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
+| `enable_ai` | user-approval | Mints the app AI gateway key when it is absent and pushes `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`. See App AI gateway. | `secret.synced` (`name`, `source`) |
 
 Migration ledger: `wandit.migrations (name primary key, sha256 unique,
 applied_at)`, created on the first call. `apply_migration` sends the ledger
@@ -1359,9 +1361,10 @@ repository is the durable copy.
 `POST /api/v2/llm/v1/messages` and `POST /api/v2/llm/v1/messages/count_tokens`
 forward Anthropic Messages API traffic to the configured upstream. The
 sandbox holds only a run token; the real provider key never leaves the API.
-An OpenAI-compatible inbound route for OpenCode can reuse
-`LlmProxyService` unchanged — the token check, caps, and usage-row code
-live there, not in the controller.
+The token check, caps, and usage-row code live in `LlmProxyService`, not in
+the controller. The service reads the Anthropic Messages format and the run
+token only. The OpenAI-compatible route of the apps has its own service (see
+App AI gateway).
 
 Check order, per request:
 
@@ -1472,6 +1475,147 @@ anchor the settle uses), `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
 `https://cloud.langfuse.com`, the EU region). Logs carry ids, tokens
 counts, micros, and status — never a body, a token, or a provider key.
 Langfuse gets the bodies; logs still never do.
+
+## App AI gateway
+
+A V2 app can call AI models. The Supabase Edge Function of the app sends an
+OpenAI chat completions request to the API. The API checks the request,
+forwards it to the Vercel AI Gateway, streams the answer back, and bills the
+payer of the project (metering operation `app_ai_gateway`). The builder agent
+turns the feature on with the host tool `enable_ai`. The user sees the usage
+in the AI panel of the More view. The shared names and schemas are in
+`packages/contracts/src/v2/app-ai.ts`.
+
+### Key
+
+- Format: `wnd_ai_`, the project id as 32 hex digits without dashes, `_`,
+  and 32 random bytes as 43 base64url characters (`APP_AI_KEY_PATTERN`).
+  256 random bits stop a brute force. `domain/app-ai-key.ts` mints, parses,
+  and compares the key.
+- The key is one `system` row of `project_secrets` with the name
+  `WANDIT_AI_API_KEY`, encrypted like every secret. No other table holds it.
+  The gateway is on while the row exists.
+- `userSecretNameSchema` refuses the `WANDIT_` prefix, so a `user` row never
+  takes the name.
+- Enable inserts the row only when it is absent. Two concurrent enables then
+  agree on one key. A repeated enable keeps the key, so a running app never
+  breaks. Rotate replaces the row. Turn off deletes the row.
+- Each enable and rotate pushes `WANDIT_AI_API_KEY` and
+  `WANDIT_AI_GATEWAY_URL` to the Edge Function secrets in one
+  `bulkCreateSecrets` call. Then it writes one `secret.synced` audit row. The
+  URL is `/api/v2/ai/v1` on `V2_LLM_PROXY_PUBLIC_URL`, or on
+  `BETTER_AUTH_URL` when that is unset.
+- Enable and rotate need an `active` backend. The check runs before the mint,
+  so a paused or missing backend never gets a new key. When the push fails
+  after a rotate, the app keeps the old key, and the gateway refuses it. A
+  later enable pushes the stored key.
+- The key never goes to the sandbox env, the sandbox `.env`, the Worker
+  bindings, a tool answer, a log line, an audit value, or an HTTP answer.
+  The publish secret scan blocks it (rule `wandit_ai_api_key`, also in
+  `server/`). The Sentry scrubber replaces each string that holds `wnd_ai_`.
+- The pause sweep (`deleteAllForProject`) deletes the row with the backend.
+  A later `enable_ai` mints a new key.
+
+### Request flow
+
+`POST /api/v2/ai/v1/chat/completions` is `@Public()`: no session guard runs.
+No CORS rule allows it, because a browser never calls it. The body cap is
+4 MiB (`main.ts`), for images as data URLs. `AppAiGatewayService`
+(`application/services/app-ai-gateway.service.ts`) runs these steps:
+
+1. **Auth.** It parses the key, reads the `system` row of that project, and
+   compares the SHA-256 digests with `timingSafeEqual`. A bad format answers
+   401 before a database read. An unknown, deleted, or V1 project, or no row,
+   gets the same 401 `invalid_api_key`. No step writes a row before this.
+2. **Project.** A suspended project answers 403 `project_suspended`.
+3. **Body.** `appAiChatCompletionRequestSchema` keeps only the allowed
+   fields. It drops `models`, `providerOptions`, and `service_tier`: they
+   change the billed model or the price. A bad body answers 400
+   `invalid_request` with the issue paths, never the values. A content part
+   must be text or `image_url` (detail `auto`, `low`, or `high`): a file or
+   audio part bills a cost that the reserve cannot estimate. A model outside
+   `APP_AI_MODELS` answers 400 `model_not_allowed`. No model means
+   `APP_AI_DEFAULT_MODEL`.
+4. **Rate limit.** Redis fixed window `builder:rate:app-ai:<projectId>`
+   (`rateLimitKey` and the `RateLimitStore` of `RedisRateLimitGuard`), 60
+   requests per 60 s (ESTIMATE). Over: 429 `rate_limited` with `retry-after`. A Redis
+   error answers 503 `gateway_unavailable`: a money path fails closed.
+5. **Price and key.** `ModelPricingService.quoteTokenUsage` prices the
+   estimate: body bytes / 4 input tokens, plus 5,000 tokens for each image
+   part (ESTIMATE), plus the output cap. An unpriced model or no
+   `AI_GATEWAY_API_KEY` answers 503 `gateway_unavailable`.
+6. **Reserve.** `MeteringService.reserve("app_ai_gateway", ...)` for the
+   payer of the project, with the key `app-ai:<requestId>`, at least 1
+   centi-credit. No credits or the member credit limit answers 402
+   `insufficient_credits`. `GENERATION_BILLING_MODE=off` skips the reserve
+   and the settle.
+7. **Forward.** The upstream body is the parsed object. `model` is set,
+   `max_tokens` is clamped to `APP_AI_MAX_OUTPUT_TOKENS`, and a stream gets
+   `stream_options.include_usage: true`. Without it, a stream carries no
+   usage. Only our `authorization` and `content-type` go upstream, never an
+   inbound header. The timeout is 300 s.
+8. **Upstream error.** The reserve is refunded. 400, 404, 413, and 422 keep
+   their status as `invalid_request`, with the upstream message (at most 500
+   characters). 429 is `rate_limited`. 401, 402, and 403 (our account) are
+   503 `gateway_unavailable`. A 5xx or a network error is 502
+   `upstream_error`. Both go to Sentry.
+9. **Answer.** A JSON answer is buffered, and its `usage` is parsed. A
+   stream relays each chunk at once and parses `usage` from the SSE frames.
+   The last usage wins. When the client disconnects, the API stops the
+   writes. It still reads the upstream to its end, so the call is billed.
+   The controller closes a socket that is still open after 300 s, so a
+   client that stops reading cannot keep the hold open.
+10. **Settle.** With usage, `MeteringService.settle` bills the tokens.
+    `prompt_tokens` includes the cached tokens, and `cached_tokens` is the
+    cache read part, so no token is billed twice. Zero tokens: refund. A 2xx
+    answer without usage settles the reserved credits and goes to Sentry. A
+    settle error is logged and reported. The stranded-hold sweep refunds the
+    hold after 40 min, so that call is free.
+11. **Log.** One `app-ai.request` line: request id, project id, model,
+    status, token counts, credits, and latency. Never a body, a key, or a
+    header value.
+
+Each error body has the OpenAI shape `{ error: { message, type, code } }`,
+with `code` from `appAiErrorCodes`. The message is short English for the
+developer of the app.
+
+Accepted ceilings (`LIMIT:` marks in the service and in
+`domain/app-ai-request.ts`): each call takes the payer
+lock twice (reserve and settle). The reserve stacking floor and the rate
+limit bound the overdraft of concurrent calls. An image data URL counts
+twice: its bytes count, and its image part adds 5,000 tokens. A lost settle (a DB
+error, or an API restart during the call) becomes a free call. A client
+that stops reading can make the upstream timeout end the drain, and the call
+then costs its full hold.
+
+### Tool and panel
+
+- `enable_ai` (`application/host-tools/backend/enable-ai.host-tool.ts`)
+  needs `user-approval`: the user agrees that the app spends credits. It
+  mints the key when it is absent, pushes both secrets, and answers
+  `enabled` with `defaultModel` and `models`. It never answers the key. Its
+  description teaches the agent the Edge Function rules, so old projects
+  learn them too. New projects also get the `## AI features` section of
+  the template `CLAUDE.md`.
+- `AppAiKeys` and `AppAiKeysService` (`application/services/app-ai-keys.service.ts`)
+  hold the mint, rotate, push, and turn-off code. The tool and the panel
+  routes both use them.
+- The panel routes live under `/api/v2/projects/:projectId/ai`, behind
+  `V2BuilderEnabledGuard` and the workspace `project:update` permission. A
+  foreign, V1, or deleted project answers 404.
+  - `GET /` answers `AppAiStatus`: `enabled`, `keyUpdatedAt`, and the
+    `monthCredits` (centi-credits) and `monthRequests` of the billed
+    `app_ai_gateway` events since the UTC month start.
+  - `PUT /key` turns the gateway on and keeps a live key. `POST /key/rotate`
+    makes a new key. Both push and answer the status. No active backend
+    answers 409 `BACKEND_NOT_READY` or `BACKEND_PAUSED`, like the Cloud tab.
+  - `DELETE /key` deletes the row and answers 204, also when no row exists.
+  - The three writes share one limit: 10 per user per 10 minutes.
+
+Env: `AI_GATEWAY_API_KEY` (the upstream key, API only),
+`V2_LLM_PROXY_PUBLIC_URL` (the host of `WANDIT_AI_GATEWAY_URL`; unset →
+`BETTER_AUTH_URL`), `REDIS_URL`, `GENERATION_BILLING_MODE`,
+`APP_SECRETS_ENCRYPTION_KEY`, and `SUPABASE_PLATFORM_TOKEN` (the push).
 
 ## Preview
 

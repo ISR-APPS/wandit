@@ -212,8 +212,7 @@
 		},
 		"ai": {
 			"title": "IA",
-			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits.",
-			"cta": "Ajouter une fonction IA"
+			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits."
 		},
 		"payments": {
 			"title": "Paiements",
@@ -273,6 +272,43 @@
 			}
 		},
 		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Ils ne reçoivent aucun e-mail de confirmation."
+	},
+	"ai": {
+		"gateway": "Passerelle IA",
+		"on": "Activée",
+		"off": "Désactivée",
+		"howItWorks": "Quand ton app a besoin d'IA, l'agent active la passerelle après ton accord. Une fonction serveur de ton app appelle alors les modèles d'IA. Chaque appel utilise tes crédits.",
+		"keySafety": "Wandit garde la clé dans les secrets de ton backend. La clé n'entre jamais dans le code de l'app.",
+		"noCredits": "Quand tes crédits sont épuisés, les appels IA de ton app s'arrêtent jusqu'à ce que tu ajoutes des crédits.",
+		"monthCredits": "Crédits ce mois-ci",
+		"monthRequests": "Appels IA ce mois-ci",
+		"keyUpdated": "Clé mise à jour le {date}",
+		"models": "Modèles",
+		"modelsHint": "L'agent choisit un de ces modèles pour chaque fonction IA.",
+		"defaultModel": "Par défaut",
+		"actions": {
+			"enable": "Activer",
+			"rotate": "Changer la clé",
+			"disable": "Désactiver"
+		},
+		"confirm": {
+			"cancel": "Annuler",
+			"enable": {
+				"title": "Activer la passerelle IA ?",
+				"description": "Wandit crée une clé pour ton app et l'envoie à ton backend. Chaque appel IA de ton app utilise tes crédits.",
+				"done": "La passerelle IA est activée."
+			},
+			"rotate": {
+				"title": "Changer la clé ?",
+				"description": "Wandit crée une nouvelle clé et l'envoie à ton backend. L'ancienne clé arrête de marcher tout de suite.",
+				"done": "La nouvelle clé est active."
+			},
+			"disable": {
+				"title": "Désactiver la passerelle IA ?",
+				"description": "Wandit supprime la clé. Les fonctions IA de ton app ne marchent plus jusqu'à ce que tu réactives la passerelle.",
+				"done": "La passerelle IA est désactivée."
+			}
+		}
 	},
 	"payments": {
 		"title": "Les paiements arrivent bientôt",
@@ -530,6 +566,7 @@
 			"request_network_host": "Autoriser l'app à joindre {host} ?",
 			"run_sql_write": "Modifier des données de ta base ?",
 			"apply_destructive_migration": "Modifier la structure de ta base ? Des données peuvent être perdues.",
+			"enable_ai": "Laisser ton app utiliser l'IA ? Chaque appel IA utilise tes crédits.",
 			"other": "Autoriser Wandit à faire cette action ?"
 		},
 		"elapsed": "{seconds} s",
@@ -656,7 +693,8 @@
 				"supabase_service_role_jwt": "clé service role Supabase",
 				"anthropic_api_key": "clé API Anthropic",
 				"google_api_key": "clé API Google",
-				"private_key": "clé privée"
+				"private_key": "clé privée",
+				"wandit_ai_api_key": "clé de la passerelle IA Wandit"
 			},
 			"phishing": "Le nom public « {target} » ressemble à une page de connexion, de banque ou de portefeuille.",
 			"advisor": {

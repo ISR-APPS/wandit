@@ -1,6 +1,7 @@
 /**
  * Read and write of the `project_secrets` rows of one project (WANDIT-185).
- * Callers: `ProjectSecretsService` (set, remove, list, read), the rotation,
+ * Callers: `ProjectSecretsService` (set, remove, list, read, and the AI
+ * gateway key through `insertSystemIfAbsent` and `deleteSystemSecret`), the rotation,
  * `BackendSecretsService.markSynced` (WANDIT-186), and the project delete
  * and the pause sweep (`deleteAllForProject`, WANDIT-184). Every method
  * moves ciphertext only; the crypto lives in `secret-crypto.ts`.
@@ -105,6 +106,67 @@ export class ProjectSecretsRepository {
 			.returning({ id: projectSecrets.id });
 
 		return row?.id ?? null;
+	}
+
+	/**
+	 * Inserts a `system` row, and answers its id. An existing `system` row
+	 * stays as it is and answers null. One statement, so two concurrent
+	 * calls keep one value. `ProjectSecretsService.setSystemIfAbsent` calls it.
+	 */
+	async insertSystemIfAbsent(
+		input: Omit<ProjectSecretUpsertInput, "kind" | "createdBy">,
+	): Promise<string | null> {
+		const [row] = await this.db
+			.insert(projectSecrets)
+			.values({
+				ciphertext: input.ciphertext,
+				createdBy: null,
+				keyVersion: input.keyVersion,
+				kind: "system",
+				name: input.name,
+				organizationId: input.organizationId,
+				projectId: input.projectId,
+				userId: input.userId,
+			})
+			.onConflictDoUpdate({
+				target: [projectSecrets.projectId, projectSecrets.name],
+				set: {
+					ciphertext: input.ciphertext,
+					keyVersion: input.keyVersion,
+					kind: "system",
+					updatedAt: new Date(),
+					syncedToBackendAt: null,
+				},
+				// Security: a `user` row from before a reserved-name rule holds a
+				// value the user chose. It is no platform key, so the system row
+				// replaces it. A `system` row is the live key and stays.
+				setWhere: eq(projectSecrets.kind, "user"),
+			})
+			.returning({ id: projectSecrets.id });
+
+		return row?.id ?? null;
+	}
+
+	/**
+	 * Deletes one `system` row and answers its id, or null when no `system`
+	 * row has that name. A `user` row of that name stays.
+	 */
+	async deleteSystemSecret(
+		projectId: string,
+		name: string,
+	): Promise<string | null> {
+		const [deleted] = await this.db
+			.delete(projectSecrets)
+			.where(
+				and(
+					eq(projectSecrets.projectId, projectId),
+					eq(projectSecrets.name, name),
+					eq(projectSecrets.kind, "system"),
+				),
+			)
+			.returning({ id: projectSecrets.id });
+
+		return deleted?.id ?? null;
 	}
 
 	/**

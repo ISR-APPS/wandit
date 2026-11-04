@@ -48,6 +48,7 @@
 		"sandbox": "وقت الصندوق الرملي",
 		"mobile_build": "بناء التطبيق",
 		"mobile_preview": "المعاينة على جهاز",
+		"app_ai_gateway": "استدعاء ذكاء اصطناعي من التطبيق",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

@@ -50,6 +50,18 @@ export const appBuilderRoutes = {
 	llmProxyMessages: "/api/v2/llm/v1/messages",
 	// POST Anthropic token counting behind the same proxy checks.
 	llmProxyCountTokens: "/api/v2/llm/v1/messages/count_tokens",
+	// Base path of the app AI gateway; an app's Edge Function gets it as
+	// WANDIT_AI_GATEWAY_URL and appends `/chat/completions`.
+	appAiBase: "/api/v2/ai/v1",
+	// POST OpenAI chat completions of a V2 app, behind its gateway key.
+	appAiChatCompletions: "/api/v2/ai/v1/chat/completions",
+	// GET the AI gateway state and the month usage of a project.
+	appAi: (projectId: string) => `/api/v2/projects/${projectId}/ai`,
+	// PUT turns the gateway on (keeps a live key); DELETE turns it off.
+	appAiKey: (projectId: string) => `/api/v2/projects/${projectId}/ai/key`,
+	// POST replaces the gateway key and pushes it to the backend.
+	appAiKeyRotate: (projectId: string) =>
+		`/api/v2/projects/${projectId}/ai/key/rotate`,
 	// GET the file tree of the running sandbox for the Code view.
 	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
 	// GET one file of the running sandbox; the caller adds `?path=<path>`.

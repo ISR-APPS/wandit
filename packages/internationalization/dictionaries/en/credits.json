@@ -48,6 +48,7 @@
 		"sandbox": "Sandbox time",
 		"mobile_build": "App build",
 		"mobile_preview": "Device preview",
+		"app_ai_gateway": "App AI call",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {
