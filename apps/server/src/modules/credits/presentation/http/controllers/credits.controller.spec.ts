@@ -1,7 +1,10 @@
 import type { AuthUser } from "@wandit/auth";
-import { creditActivityResponseSchema } from "@wandit/contracts";
+import {
+	creditActivityResponseSchema,
+	type WorkspaceRoleName,
+} from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
-
+import { WorkspacePermissionDeniedError } from "../../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import type {
 	MembershipWithOrganization,
@@ -21,7 +24,11 @@ import { CreditsController } from "./credits.controller";
 
 const USER = { id: "user_1" } as AuthUser;
 
-function membership(id: string, name: string): MembershipWithOrganization {
+function membership(
+	id: string,
+	name: string,
+	personalOwnerUserId: string | null = null,
+): MembershipWithOrganization {
 	return {
 		member: {} as MembershipWithOrganization["member"],
 		organization: {
@@ -29,8 +36,20 @@ function membership(id: string, name: string): MembershipWithOrganization {
 			id,
 			logo: null,
 			name,
+			personalOwnerUserId,
 			slug: id,
 		},
+	};
+}
+
+// The personal workspace of "user_2", seen by USER with these roles.
+function sharedPersonal(roles: WorkspaceRoleName[]): WorkspaceContext {
+	return {
+		kind: "shared-personal",
+		organizationId: "personal_org_2",
+		ownerUserId: "user_2",
+		role: roles.join(","),
+		roles,
 	};
 }
 
@@ -178,6 +197,31 @@ describe("CreditsController.listBalances", () => {
 		);
 	});
 
+	it("skips the own personal org and maps another user's personal org to that owner's pool", async () => {
+		const { controller } = setup({
+			balances: {
+				user_1: { balance: 100, settledBalance: 100 },
+				user_2: { balance: 900, settledBalance: 900 },
+			},
+			memberships: [
+				membership("personal_org_1", "Me", "user_1"),
+				membership("personal_org_2", "Sam", "user_2"),
+			],
+		});
+
+		expect(await controller.listBalances(USER)).toEqual({
+			items: [
+				{ balance: 1, name: null, settledBalance: 1, workspaceId: "personal" },
+				{
+					balance: 9,
+					name: "Sam",
+					settledBalance: 9,
+					workspaceId: "personal_org_2",
+				},
+			],
+		});
+	});
+
 	it("returns only the personal pool when the user has no memberships", async () => {
 		const { controller, creditsService } = setup({
 			balances: { user_1: { balance: 700, settledBalance: 700 } },
@@ -292,6 +336,34 @@ describe("CreditsController.listActivity", () => {
 				page: 1,
 				pageSize: 20,
 			},
+		);
+	});
+
+	it("refuses the owner's pool history to a member of a shared personal workspace", async () => {
+		const { controller, creditsService } = setup({});
+
+		await expect(
+			controller.listActivity(
+				{ page: 1, pageSize: 10 },
+				USER,
+				sharedPersonal(["member"]),
+			),
+		).rejects.toBeInstanceOf(WorkspacePermissionDeniedError);
+		expect(creditsService.listActivity).not.toHaveBeenCalled();
+	});
+
+	it("gives an admin of a shared personal workspace the owner's pool history", async () => {
+		const { controller, creditsService } = setup({});
+
+		await controller.listActivity(
+			{ page: 1, pageSize: 10 },
+			USER,
+			sharedPersonal(["admin"]),
+		);
+
+		expect(creditsService.listActivity).toHaveBeenCalledWith(
+			userOwner("user_2"),
+			{ page: 1, pageSize: 10 },
 		);
 	});
 

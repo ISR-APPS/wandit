@@ -163,6 +163,17 @@ export type TurnEstimate = z.infer<typeof turnEstimateSchema>;
  */
 export const turnEstimateResponseSchema = z.object({
 	estimate: turnEstimateSchema.nullable(),
+	// The pool that pays for this project's turns, which can differ from the
+	// header pool (workspaces-sharing.md 4). The composer reads it to lock
+	// and to sell credits. Optional: older servers omit it.
+	payer: z
+		.object({
+			// True when the caller's own pool pays.
+			isActor: z.boolean(),
+			// True when the payer pool has no credits for a new turn.
+			outOfCredits: z.boolean(),
+		})
+		.optional(),
 });
 
 /** TypeScript estimate answer. */

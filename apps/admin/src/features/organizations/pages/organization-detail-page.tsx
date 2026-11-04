@@ -1,6 +1,7 @@
 /**
  * The organization detail page: balance, members, ledger, and staff grant actions.
  * The route /organizations/$organizationId renders it. It reads useOrganizationQuery.
+ * A personal workspace hides the org grants, because the owner's personal pool pays for it.
  */
 import { Link } from "@tanstack/react-router";
 import {
@@ -128,7 +129,11 @@ export function OrganizationDetailPage({
 	if (!detail) {
 		return null;
 	}
+	// Optional in the contract: an older API omits it, and the page then shows a team workspace.
+	const isPersonal = detail.isPersonal === true;
+	// A personal workspace pays from the owner's personal pool, so the API refuses org grants and plans.
 	const canGrantCredits =
+		!isPersonal &&
 		hasGrantPermission &&
 		canGrantCreditsToTarget(
 			session?.user.role,
@@ -151,11 +156,12 @@ export function OrganizationDetailPage({
 		<DetailContainer>
 			<DetailHeader
 				detail={detail}
+				isPersonal={isPersonal}
 				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setGrantOpen(true)}
 				onGrantOffline={() => setOfflineGrantOpen(true)}
 			/>
-			<BalanceMetrics detail={detail} />
+			<BalanceMetrics detail={detail} isPersonal={isPersonal} />
 
 			<div className="grid gap-6 xl:grid-cols-2">
 				{detail.subscription ? (
@@ -174,6 +180,8 @@ export function OrganizationDetailPage({
 				organizationId={detail.id}
 				members={detail.members}
 				defaultMemberMonthlyCreditLimit={detail.defaultMemberMonthlyCreditLimit}
+				isPersonal={isPersonal}
+				personalOwnerUserId={detail.personalOwnerUserId ?? null}
 			/>
 
 			<UserCreditLedger entries={detail.creditLedger} />
@@ -185,7 +193,7 @@ export function OrganizationDetailPage({
 					onOpenChange={setGrantOpen}
 				/>
 			) : null}
-			{canManageBilling ? (
+			{canManageBilling && !isPersonal ? (
 				<GrantManualSubscriptionDialog
 					open={offlineGrantOpen}
 					onOpenChange={setOfflineGrantOpen}
@@ -201,11 +209,14 @@ export function OrganizationDetailPage({
 
 function DetailHeader({
 	detail,
+	isPersonal,
 	canGrantCredits,
 	onGrantCredits,
 	onGrantOffline,
 }: {
 	detail: OrganizationDetail;
+	/** True for a user's personal workspace: no org grants, and a short reason replaces them. */
+	isPersonal: boolean;
 	/** credits:grant, minus a support grant to an org where it is a member (the API rejects it). */
 	canGrantCredits: boolean;
 	onGrantCredits: () => void;
@@ -230,10 +241,17 @@ function DetailHeader({
 						>
 							{detail.plan}
 						</Badge>
+						{isPersonal ? <Badge variant="secondary">Personal</Badge> : null}
 					</div>
 					<p className="mt-1 text-muted-foreground text-sm">
 						{detail.slug} · created {formatAdminDate(detail.createdAt)}
 					</p>
+					{isPersonal ? (
+						<p className="mt-1 text-muted-foreground text-sm">
+							The owner's personal pool pays for this workspace. Grant credits
+							or a plan on the owner's user page.
+						</p>
+					) : null}
 				</div>
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
@@ -243,7 +261,7 @@ function DetailHeader({
 						All organizations
 					</Link>
 				</Button>
-				{canManageBilling && !detail.subscription ? (
+				{canManageBilling && !detail.subscription && !isPersonal ? (
 					<Button
 						type="button"
 						variant="outline"
@@ -265,7 +283,14 @@ function DetailHeader({
 	);
 }
 
-function BalanceMetrics({ detail }: { detail: OrganizationDetail }) {
+function BalanceMetrics({
+	detail,
+	isPersonal,
+}: {
+	detail: OrganizationDetail;
+	/** True for a user's personal workspace. The API then sends the owner's personal pool as the balance. */
+	isPersonal: boolean;
+}) {
 	const { balance } = detail;
 	// settledBalance = raw balance plus in-flight reserve holds added back —
 	// the exact number the user's header pill shows, and what the server now
@@ -298,7 +323,9 @@ function BalanceMetrics({ detail }: { detail: OrganizationDetail }) {
 			<Card className="shadow-none">
 				<CardContent className="py-4">
 					<p className="text-muted-foreground text-xs">
-						Pool balance — what the user sees
+						{isPersonal
+							? "Owner's personal pool — what the owner sees"
+							: "Pool balance — what the user sees"}
 					</p>
 					<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
 						{formatCreditBalance(balance.settledBalance)}

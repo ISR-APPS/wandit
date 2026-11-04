@@ -1,8 +1,11 @@
 // TanStack Query mutations wrapping projects.services.ts: create-with-prompt
 // (caller navigates to /p/$projectId), rename (updates list + detail caches),
-// delete (optimistic removal from the grid with rollback).
+// delete (optimistic removal from the grid with rollback). Rename and delete
+// also refresh "Shared with me" of features/project-sharing.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { sharingKeys } from "@/features/project-sharing";
 
 import type { CreateProjectBody, Project } from "./dto";
 import { projectKeys } from "./projects.queries";
@@ -38,6 +41,10 @@ export function useRenameProject() {
 				old?.map((p) => (p.id === project.id ? project : p)),
 			);
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+			// The renamed project can be a card of "Shared with me".
+			void queryClient.invalidateQueries({
+				queryKey: sharingKeys.sharedProjects(),
+			});
 		},
 	});
 }
@@ -115,6 +122,10 @@ export function useDeleteProject() {
 		},
 		onSettled: () => {
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+			// The deleted project can be a card of "Shared with me".
+			void queryClient.invalidateQueries({
+				queryKey: sharingKeys.sharedProjects(),
+			});
 		},
 	});
 }

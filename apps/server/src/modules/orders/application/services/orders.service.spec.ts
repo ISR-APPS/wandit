@@ -12,7 +12,10 @@ import {
 	PremiumDomainBlockedError,
 } from "../../../domains/domain/errors/domain.errors";
 import type { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	OrderInvariantViolationError,
 	OrderNotFoundError,
@@ -41,7 +44,7 @@ const user = {
 	id: userId,
 } as AuthUser;
 
-const scope: ProjectScope = { kind: "personal", userId };
+const scope: ProjectScope = projectScopeFrom(undefined, userId);
 
 const registrant = {
 	firstName: "Zack",

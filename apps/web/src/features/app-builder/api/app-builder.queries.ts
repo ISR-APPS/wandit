@@ -96,11 +96,17 @@ export const appProjectQuery = (projectId: string) =>
 		queryFn: () => getAppProject(projectId),
 	});
 
-/** The cost of the next turn, before send. A turn end changes it, so use-builder-chat.ts marks it stale. */
+/**
+ * The cost of the next turn and the payer state, before send. A turn end and a
+ * 402 change it, so use-builder-chat.ts marks it stale.
+ */
 export const turnEstimateQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.turnEstimate(projectId),
 		queryFn: () => getTurnEstimate(projectId),
+		// The payer state locks the composer. Another person can add credits to
+		// the paying pool, so a focus refetch lifts the lock (the app default is false).
+		refetchOnWindowFocus: true,
 	});
 
 /**

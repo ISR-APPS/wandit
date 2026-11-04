@@ -2,11 +2,19 @@
 	"switcher": {
 		"label": "مساحة العمل",
 		"personal": "شخصي",
-		"personalDescription": "مشاريعك الخاصة",
-		"create": "إنشاء مساحة عمل للفريق",
-		"roleOwner": "المالك",
-		"roleAdmin": "مشرف",
-		"roleMember": "عضو"
+		"create": "إنشاء مساحة عمل للفريق"
+	},
+	"roles": {
+		"owner": "المالك",
+		"admin": "مشرف",
+		"member": "محرّر",
+		"viewer": "مشاهد"
+	},
+	"projectRoles": {
+		"owner": "المالك",
+		"admin": "مشرف",
+		"editor": "يمكنه التعديل",
+		"viewer": "يمكنه العرض"
 	},
 	"create": {
 		"title": "اختر اسمًا لمساحة العمل",
@@ -23,38 +31,85 @@
 		},
 		"retryCheckout": "إعادة محاولة الدفع"
 	},
-	"members": {
-		"title": "الأعضاء",
-		"description": "الأشخاص الذين يمكنهم الوصول إلى مساحة العمل هذه.",
-		"invite": "دعوة زميل",
-		"inviteEmailLabel": "البريد الإلكتروني",
-		"inviteEmailPlaceholder": "zameel@sharika.com",
-		"inviteRoleLabel": "الدور",
-		"inviteSubmit": "إرسال الدعوة",
-		"inviteSending": "جارٍ الإرسال…",
-		"inviteSent": "تم إرسال الدعوة",
-		"inviteFailed": "فشل إرسال الدعوة. حاول مرة أخرى.",
-		"inviteLinkCopy": "نسخ رابط الدعوة",
-		"inviteLinkCopied": "تم نسخ رابط الدعوة",
-		"pendingTitle": "دعوات معلّقة",
-		"cancelInvite": "إلغاء الدعوة",
-		"resendInvite": "إعادة الإرسال",
-		"removeMember": "إزالة من مساحة العمل",
-		"removeConfirmTitle": "إزالة {name}؟",
-		"removeConfirmBody": "سيفقد هذا الشخص فورًا الوصول إلى كل مشاريع هذه المساحة.",
-		"leave": "مغادرة مساحة العمل",
-		"leaveConfirmTitle": "مغادرة مساحة العمل هذه؟",
-		"leaveConfirmBody": "ستفقد الوصول إلى مشاريعها حتى تتم دعوتك مجددًا.",
-		"lastOwnerBlocked": "أنت المالك الوحيد. انقل الملكية قبل المغادرة.",
-		"changeRole": "تغيير الدور",
-		"you": "أنت",
-		"memberCount": {
-			"zero": "لا أعضاء",
-			"one": "عضو واحد",
-			"two": "عضوان",
-			"few": "{count} أعضاء",
-			"many": "{count} عضوًا",
-			"other": "{count} عضو"
+	"people": {
+		"title": "الأشخاص",
+		"description": "الأشخاص الذين يمكنهم فتح مشاريع مساحة العمل هذه.",
+		"loadFailed": "تعذّر تحميل هذه القائمة. أعد تحميل الصفحة للمحاولة مجددًا.",
+		"cancel": "إلغاء",
+		"linkCopied": "تم نسخ الرابط",
+		"copyFailed": "منع المتصفح النسخ. حدّد الرابط وانسخه بنفسك.",
+		"rename": {
+			"label": "اسم مساحة العمل",
+			"save": "حفظ الاسم",
+			"saving": "جارٍ الحفظ…",
+			"saved": "تمت إعادة تسمية مساحة العمل"
+		},
+		"invite": {
+			"title": "دعوة عبر البريد الإلكتروني",
+			"description": "افصل بين العناوين بفواصل أو مسافات أو أسطر جديدة.",
+			"emailsLabel": "عناوين البريد الإلكتروني",
+			"emailsPlaceholder": "zameel@sharika.com, musammim@sharika.com",
+			"roleLabel": "الدور",
+			"submit": "إرسال الدعوات",
+			"sending": "جارٍ الإرسال…",
+			"sent": {
+				"zero": "لم تُرسل أي دعوة",
+				"one": "تم إرسال دعوة واحدة",
+				"two": "تم إرسال دعوتين",
+				"few": "تم إرسال {count} دعوات",
+				"many": "تم إرسال {count} دعوة",
+				"other": "تم إرسال {count} دعوة"
+			},
+			"failed": "لم تُرسل هذه الدعوات: {emails}. {reason}",
+			"invalidEmails": "هذه ليست عناوين بريد إلكتروني: {emails}",
+			"tooMany": "أرسل {max} دعوة أو أقل في كل مرة.",
+			"alreadyMember": "هذا الشخص عضو بالفعل.",
+			"alreadyInvited": "لدى هذا الشخص دعوة معلّقة بالفعل."
+		},
+		"links": {
+			"title": "روابط الدعوة",
+			"description": "يمكن لأي شخص لديه رابط الانضمام بدور الرابط. يتوقف الرابط عن العمل بعد 5 أيام.",
+			"url": "رابط الدعوة لدور {role}",
+			"copy": "نسخ الرابط",
+			"create": "إنشاء رابط",
+			"replace": "رابط جديد",
+			"revoke": "حذف الرابط",
+			"created": "رابط الدعوة جاهز",
+			"revoked": "تم حذف رابط الدعوة",
+			"expires": "ينتهي في {date}",
+			"expired": "منتهي الصلاحية. أنشئ رابطًا جديدًا.",
+			"none": "لا يوجد رابط نشط"
+		},
+		"members": {
+			"title": "الأعضاء",
+			"you": "أنت",
+			"roleLabel": "دور {name}",
+			"roleChanged": "تم تغيير الدور",
+			"remove": "إزالة من مساحة العمل",
+			"removeConfirmTitle": "إزالة {name}؟",
+			"removeConfirmBody": "سيفقد هذا الشخص فورًا الوصول إلى كل مشاريع هذه المساحة.",
+			"removeConfirm": "إزالة",
+			"removed": "تمت إزالة {name}"
+		},
+		"pending": {
+			"title": "دعوات معلّقة",
+			"expires": "تنتهي في {date}",
+			"copy": "نسخ رابط الدعوة",
+			"cancel": "إلغاء الدعوة",
+			"canceled": "تم إلغاء الدعوة"
+		},
+		"collaborators": {
+			"title": "المتعاونون",
+			"description": "أشخاص من خارج مساحة العمل هذه يمكنهم فتح بعض مشاريعها.",
+			"empty": "لا يوجد متعاونون بعد. شارك مشروعًا لإضافة متعاون.",
+			"project": "{project} · {role}"
+		},
+		"leave": {
+			"button": "مغادرة مساحة العمل",
+			"confirmTitle": "مغادرة مساحة العمل هذه؟",
+			"confirmBody": "ستفقد الوصول إلى مشاريعها حتى تتم دعوتك مجددًا.",
+			"confirm": "مغادرة",
+			"lastOwnerBlocked": "أنت المالك الوحيد. اجعل عضوًا آخر مالكًا قبل المغادرة."
 		}
 	},
 	"limits": {
@@ -67,7 +122,9 @@
 		"save": "حفظ الحدود",
 		"saving": "جارٍ الحفظ…",
 		"saved": "تم حفظ الحدود",
-		"saveFailed": "فشل حفظ الحدود. حاول مرة أخرى."
+		"saveFailed": "فشل حفظ الحدود. حاول مرة أخرى.",
+		"loadFailed": "تعذّر تحميل الحدود. أعد تحميل الصفحة للمحاولة مجددًا.",
+		"collaborator": "متعاون"
 	},
 	"invite": {
 		"title": "دعوة إلى مساحة عمل",
@@ -81,13 +138,25 @@
 		"signInFirst": "سجّل الدخول لقبول هذه الدعوة.",
 		"pendingBanner": {
 			"zero": "لا دعوات معلّقة",
-			"one": "لديك دعوة مساحة عمل معلّقة",
-			"two": "لديك دعوتا مساحة عمل معلّقتان",
-			"few": "لديك {count} دعوات مساحة عمل معلّقة",
-			"many": "لديك {count} دعوة مساحة عمل معلّقة",
-			"other": "لديك {count} دعوة مساحة عمل معلّقة"
+			"one": "لديك دعوة معلّقة",
+			"two": "لديك دعوتان معلّقتان",
+			"few": "لديك {count} دعوات معلّقة",
+			"many": "لديك {count} دعوة معلّقة",
+			"other": "لديك {count} دعوة معلّقة"
 		},
+		"pendingWorkspace": "مساحة العمل {workspace} · {role}",
+		"pendingProject": "المشروع {project} في {workspace} · {role}",
 		"pendingBannerCta": "عرض"
+	},
+	"join": {
+		"title": "الانضمام عبر رابط دعوة",
+		"workspaceInvite": "يدعوك {inviter} للانضمام إلى مساحة العمل {workspace} بدور {role}.",
+		"projectInvite": "يدعوك {inviter} إلى المشروع {project} بدور {role}.",
+		"join": "انضمام",
+		"joining": "جارٍ الانضمام…",
+		"invalid": "رابط الدعوة هذا غير صالح. اطلب رابطًا جديدًا.",
+		"expired": "انتهت صلاحية رابط الدعوة هذا. اطلب رابطًا جديدًا من {inviter}.",
+		"signInFirst": "سجّل الدخول للانضمام."
 	},
 	"billing": {
 		"ownerOnlyTitle": "الفوترة يديرها مالك مساحة العمل",

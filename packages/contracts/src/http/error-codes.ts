@@ -22,6 +22,12 @@ export const apiErrorCodes = [
 	"MEMBER_CREDIT_LIMIT_REACHED",
 	"WORKSPACE_PERMISSION_DENIED",
 	"WORKSPACE_NOT_SUPPORTED",
+	// 409 of POST /api/v2/projects/:id/move. The details carry the reason (`projectMoveBlockedDetailsSchema`).
+	"PROJECT_MOVE_BLOCKED",
+	// A workspace or project invite link token that is unknown, revoked, or expired.
+	"INVITE_LINK_INVALID",
+	// A project invitation that is not pending, is expired, or is for another email.
+	"PROJECT_INVITATION_INVALID",
 	"EMAIL_AUTH_DISABLED",
 	"EMAIL_DOMAIN_BLOCKED",
 	"EMAIL_SEND_RATE_LIMITED",
@@ -83,16 +89,35 @@ export const apiErrorCodes = [
 export const apiErrorCodeSchema = z.enum(apiErrorCodes);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 
+/**
+ * The pool that refused the charge (workspaces-sharing.md 4). The web opens
+ * the plan picker only when this pool is the caller's active workspace and
+ * the caller can manage its billing; else it shows the "pool empty" notice.
+ */
+export const creditPayerSchema = z.object({
+	// `user`: a personal pool. `org`: a team workspace pool.
+	kind: z.enum(["user", "org"]),
+	// True when the pool belongs to the caller. False in another user's
+	// personal workspace and in every team workspace pool.
+	isActor: z.boolean(),
+	// The team workspace id when `kind` is `org`; null for a personal pool.
+	organizationId: z.string().nullable(),
+});
+
+export type CreditPayer = z.infer<typeof creditPayerSchema>;
+
 // Decimal credits: the smallest charge is 0.01 and balances can be fractional
 // (or negative after accepted overage), so both fields carry decimals.
 // availableCredits is the SETTLED balance — the same number the header pill
 // shows — so the paywall never prints a hold-dipped negative the user has
 // never seen. heldCredits is the slice temporarily reserved by running
 // generations (optional: older servers omit it).
+// payer is optional for the same reason; see `creditPayerSchema`.
 export const paymentRequiredDetailsSchema = z.object({
 	requiredCredits: z.number().positive(),
 	availableCredits: z.number(),
 	heldCredits: z.number().nonnegative().optional(),
+	payer: creditPayerSchema.optional(),
 });
 
 export type PaymentRequiredDetails = z.infer<

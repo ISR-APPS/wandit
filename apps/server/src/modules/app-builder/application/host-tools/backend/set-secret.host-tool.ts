@@ -13,7 +13,7 @@ import {
 	setSecretToolInputSchema,
 } from "@wandit/contracts";
 import { type Tool, tool } from "ai";
-
+import { systemProjectScope } from "../../../../projects/domain/project-scope";
 import type { HostToolContext } from "../../../domain/ports/host-tools";
 import { BackendSecretsService } from "../../services/backend-secrets.service";
 import type { SecretActor } from "../../services/project-secrets.service";
@@ -87,17 +87,17 @@ export function createSetSecretTool(
 
 // The turn's actor in the turn's workspace: `ProjectSecretsService.set`
 // checks the project against this scope. A task has no client IP.
+// The payer of a personal project is its owner: `projects.user_id`.
 function secretActor(context: HostToolContext): SecretActor {
 	return {
 		ip: null,
-		scope:
-			context.organizationId === null
-				? { kind: "personal", userId: context.actorUserId }
-				: {
-						actorIsLimitExempt: context.subject.actorIsLimitExempt ?? false,
-						kind: "org",
-						organizationId: context.organizationId,
-						userId: context.actorUserId,
-					},
+		scope: systemProjectScope(
+			{
+				organizationId: context.organizationId,
+				userId: context.subject.payerUserId ?? context.actorUserId,
+			},
+			context.actorUserId,
+			context.subject.actorIsLimitExempt ?? false,
+		),
 	};
 }

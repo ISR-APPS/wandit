@@ -15,9 +15,11 @@ import type { LlmProxyModelSum } from "../../../app-builder/infrastructure/persi
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
 	type CreditOwner,
+	creditPayerOf,
 	type MeteringSubject,
 	ownerFromIds,
 	subjectPayer,
+	subjectPayerUserId,
 } from "../../../credits/domain/credit-owner";
 import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
@@ -206,6 +208,17 @@ export class MeteringService {
 		}
 
 		return event;
+	}
+
+	/**
+	 * The event of `idempotencyKey` with no payer check. A background run that
+	 * gets no payer in its payload (builder turn, mobile build, host recovery)
+	 * reads its hold here and takes the payer from the row.
+	 */
+	async findByIdempotencyKeyAnyPayer(
+		idempotencyKey: string,
+	): Promise<AiUsageEvent | null> {
+		return this.repository.findEventByIdempotencyKey(idempotencyKey);
 	}
 
 	/**
@@ -595,6 +608,7 @@ export class MeteringService {
 					operation,
 					organizationId,
 					parentEventId: estimate.parentEventId ?? null,
+					payerUserId: subjectPayerUserId(subject),
 					projectId: estimate.projectId ?? null,
 					provider: estimate.provider ?? null,
 					pricingSnapshot: this.reservationPricingSnapshot(
@@ -621,7 +635,7 @@ export class MeteringService {
 	}
 
 	/**
-	 * Calendar-month member limit inside an org workspace. Runs under the org
+	 * Calendar-month member limit of the paying workspace. Runs under the pool
 	 * balance lock (already held by the reserve debit in this transaction);
 	 * the spend sum excludes the current event, which is inserted after.
 	 */
@@ -641,27 +655,47 @@ export class MeteringService {
 				breach.limit,
 				breach.spent,
 				requiredCredits,
+				creditPayerOf(subjectPayer(subject), subject.actorUserId),
 			);
 		}
 	}
 
 	/**
 	 * Shared limit arithmetic for the hard reserve gate and the soft
-	 * settlement re-check. `sumMemberSpendThisMonth` already counts the
-	 * current event at COALESCE(final, reserved), so `spent + delta` is the
-	 * exact post-adjustment month total.
+	 * settlement re-check. The spend sums already count the current event at
+	 * COALESCE(final, reserved), so `spent + delta` is the exact
+	 * post-adjustment month total. A team pool reads the limit rows of its
+	 * org. A personal pool reads the limit rows of the owner's personal
+	 * workspace (workspaces-sharing.md 4).
 	 */
 	private async resolveMemberLimitBreach(
 		subject: MeteringSubject,
 		requiredCredits: number,
 		transaction: MeteringTransaction,
 	): Promise<{ limit: number; spent: number } | null> {
-		if (!subject.organizationId) {
+		const payer = subjectPayer(subject);
+
+		// Product rule: the personal owner spends the own pool with no limit.
+		// The owner can have no limit row, and is exempt from the default.
+		if (payer.type === "user" && payer.userId === subject.actorUserId) {
+			return null;
+		}
+
+		const organizationId =
+			payer.type === "org"
+				? payer.organizationId
+				: await this.organizationLimits.findPersonalOrganizationId(
+						payer.userId,
+						transaction,
+					);
+
+		// A user with no personal workspace has no limit rows to apply.
+		if (organizationId === null) {
 			return null;
 		}
 
 		const resolved = await this.organizationLimits.resolveMemberLimit(
-			subject.organizationId,
+			organizationId,
 			subject.actorUserId,
 			subject.actorIsLimitExempt === true,
 			transaction,
@@ -671,25 +705,41 @@ export class MeteringService {
 			return null;
 		}
 
-		const spent = await this.organizationLimits.sumMemberSpendThisMonth(
-			subject.organizationId,
-			subject.actorUserId,
-			new Date(),
-			transaction,
-		);
+		const now = new Date();
+		const spent =
+			payer.type === "org"
+				? await this.organizationLimits.sumMemberSpendThisMonth(
+						payer.organizationId,
+						subject.actorUserId,
+						now,
+						transaction,
+					)
+				: await this.organizationLimits.sumPersonalPoolMemberSpendThisMonth(
+						payer.userId,
+						subject.actorUserId,
+						now,
+						transaction,
+					);
 
 		return spent + requiredCredits > resolved.limitCredits
 			? { limit: resolved.limitCredits, spent }
 			: null;
 	}
 
-	/** The pool that pays for an event: its org when set, else its actor. */
+	/**
+	 * The pool that pays for an event: its org when set, else
+	 * `payer_user_id` when another user's personal pool pays, else its actor.
+	 */
 	private eventPayer(event: AiUsageEvent): CreditOwner {
-		return ownerFromIds(event.userId, event.organizationId);
+		return ownerFromIds(
+			event.payerUserId ?? event.userId,
+			event.organizationId,
+		);
 	}
 
+	/** A personal key stays the raw user id, the same as before payer_user_id. */
 	private eventPayerKey(event: AiUsageEvent): string {
-		return event.organizationId ? `org:${event.organizationId}` : event.userId;
+		return this.payerKey(this.eventPayer(event));
 	}
 
 	private payerKey(owner: CreditOwner): string {
@@ -1387,6 +1437,7 @@ export class MeteringService {
 					idempotencyKey: usage.idempotencyKey,
 					operation,
 					organizationId: subject.organizationId ?? null,
+					payerUserId: subjectPayerUserId(subject),
 					pricingSnapshot: {
 						operation,
 						rateUsdMicrosPerUnit: usage.evidence.rateUsdMicrosPerUnit ?? null,
@@ -2565,11 +2616,7 @@ export class MeteringService {
 			// at the next reserve, where the month sum already counts this event.
 			// The exemption decision is the reserve-time one (durable term).
 			const breach = await this.resolveMemberLimitBreach(
-				{
-					actorIsLimitExempt,
-					actorUserId: event.userId,
-					organizationId: event.organizationId,
-				},
+				meteringSubjectOfEvent(event),
 				delta,
 				transaction,
 			);
@@ -2735,21 +2782,24 @@ export class MeteringService {
 		};
 	}
 
+	/** Low-credit emails of a personal pool. They go to the payer, not the actor. */
 	private async enqueueCreditThresholds(
 		event: AiUsageEvent,
 		transaction: MeteringTransaction,
 	): Promise<void> {
-		if (event.organizationId !== null) {
+		const payer = this.eventPayer(event);
+
+		if (payer.type === "org") {
 			return;
 		}
 
 		const netConsumedCentiCredits = await this.credits.netConsumedCentiCredits(
-			event.userId,
+			payer.userId,
 			transaction,
 		);
 
 		await this.lifecycleEvents.enqueueCreditThresholds(
-			event.userId,
+			payer.userId,
 			netConsumedCentiCredits,
 			transaction,
 		);
@@ -4370,6 +4420,20 @@ function settlementReplayFinalCredits(
 	const attempted = isRecord(sanityCeiling) ? sanityCeiling.attempted : null;
 
 	return Number.isSafeInteger(attempted) ? attempted : storedFinalCredits;
+}
+
+/**
+ * The subject that reserved `event`: its actor, its pool, and the reserve-time
+ * limit exemption. The builder-turn runtime rebuilds its payer from its hold
+ * with it, never from the task payload (workspaces-sharing.md 4).
+ */
+export function meteringSubjectOfEvent(event: AiUsageEvent): MeteringSubject {
+	return {
+		actorIsLimitExempt: snapshotActorIsLimitExempt(event.pricingSnapshot),
+		actorUserId: event.userId,
+		organizationId: event.organizationId,
+		payerUserId: event.payerUserId,
+	};
 }
 
 /** Reserve-time limit exemption, from the reservation or a carried marker. */

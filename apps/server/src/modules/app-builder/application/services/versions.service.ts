@@ -295,7 +295,7 @@ export class VersionsService {
 					source: "wip",
 					summary: "Before restore",
 					turnId: null,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				});
 
 				// After the save, HEAD is the stored head. Only a code.storage main
@@ -318,7 +318,7 @@ export class VersionsService {
 					source: "restore",
 					summary: `Restore to ${sha.slice(0, 7)}`,
 					turnId: null,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				});
 			} catch (error) {
 				if (error instanceof VersionConflictError) {
@@ -355,7 +355,7 @@ export class VersionsService {
 
 			await this.audit.record({
 				action: "version.restore",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				ip,
 				metadata: { restoredFromSha: sha },
 				organizationId: project.organizationId,

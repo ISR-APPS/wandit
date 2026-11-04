@@ -46,11 +46,19 @@ export function CreditsChip({ className }: { className?: string }) {
 		activeWorkspaceId,
 		actorCanManageBilling,
 		isPersonal,
+		isSharedPersonal,
 		switchWorkspace,
 	} = useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const balanceQuery = useCreditBalanceQuery();
-	const activityQuery = useCreditActivityQuery({ page: 1, pageSize: 3 });
+	// Same rule as the API: the activity of another user's personal pool shows that
+	// user's own spend, so only an admin of that workspace reads it.
+	const canReadActivity =
+		!isSharedPersonal || (activeWorkspace?.roles.includes("admin") ?? false);
+	const activityQuery = useCreditActivityQuery(
+		{ page: 1, pageSize: 3 },
+		{ enabled: canReadActivity },
+	);
 	const balancesQuery = useWorkspaceCreditBalancesQuery();
 	const settingsQuery = usePublicSettingsQuery();
 	const plansQuery = useBillingPlansQuery();
@@ -196,15 +204,19 @@ export function CreditsChip({ className }: { className?: string }) {
 						</span>
 					</DropdownMenuItem>
 				) : null}
-				<DropdownMenuLabel className="mt-1.5">
-					{t("credits.recentActivity")}
-				</DropdownMenuLabel>
-				<ActivityList
-					items={activityQuery.data?.items ?? []}
-					isPending={activityQuery.isPending}
-					isError={activityQuery.isError}
-					compact
-				/>
+				{canReadActivity ? (
+					<>
+						<DropdownMenuLabel className="mt-1.5">
+							{t("credits.recentActivity")}
+						</DropdownMenuLabel>
+						<ActivityList
+							items={activityQuery.data?.items ?? []}
+							isPending={activityQuery.isPending}
+							isError={activityQuery.isError}
+							compact
+						/>
+					</>
+				) : null}
 				{settingsQuery.isSuccess ? (
 					<>
 						<DropdownMenuSeparator />

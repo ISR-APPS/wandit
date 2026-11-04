@@ -24,11 +24,16 @@ import { getErrorMessage } from "@wandit/observability/error";
 import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import {
+	subjectPayer,
+	subjectPayerUserId,
+} from "../../../credits/domain/credit-owner";
+import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import {
 	APPETIZE_DEVICES,
+	DEVICE_MINUTES_PER_PLAN,
 	DEVICE_SESSION_LOCK_TTL_MS,
 	DEVICE_SESSION_TIME_LIMIT_SECONDS,
 	deviceMinutesLeft,
@@ -56,6 +61,17 @@ const EXPO_GO_LAUNCH_PARAMS = {
 	EXKernelDisableNuxDefaultsKey: true,
 } as const;
 
+/** 402 `DEVICE_MINUTES_EXHAUSTED`: the payer has no device minute left this month. */
+function minutesExhausted(): HttpException {
+	return new HttpException(
+		{
+			code: "DEVICE_MINUTES_EXHAUSTED",
+			message: "No device minutes are left this month",
+		},
+		HttpStatus.PAYMENT_REQUIRED,
+	);
+}
+
 /** Application service behind the two device-session routes. */
 @Injectable()
 export class DeviceSessionsService {
@@ -72,7 +88,7 @@ export class DeviceSessionsService {
 		@Inject(DeviceSessionsRepository)
 		private readonly sessions: Pick<
 			DeviceSessionsRepository,
-			"insertOpen" | "findStartedBy" | "end" | "usedMinutesSince"
+			"insertOpenWithinAllowance" | "findStartedBy" | "end" | "usedMinutesSince"
 		>,
 		@Inject(DEVICE_SESSION_LOCK)
 		private readonly lock: DeviceSessionLock,
@@ -120,32 +136,28 @@ export class DeviceSessionsService {
 		);
 
 		// Product rule: each plan gets a number of device minutes per month.
-		// LIMIT: two members of one org can start at the last minute together
-		// and pass the allowance by one session. Upgrade: a lock per payer.
+		// The plan and the allowance belong to the payer, the owner of the pool.
+		// This read only fails fast; the insert checks again under the payer lock.
+		// LIMIT: an open session counts only its elapsed minutes, so parallel
+		// sessions of one pool can each run to the time limit. Upgrade: count an
+		// open session at the full time limit.
 		const now = new Date();
-		const plan = await resolveBillingPlan(
-			this.subscriptions,
-			meteringSubjectFrom(scope),
-		);
+		const subject = meteringSubjectFrom(scope);
+		const payer = subjectPayer(subject);
+		const plan = await resolveBillingPlan(this.subscriptions, subject);
 		const usedMinutes = await this.sessions.usedMinutesSince(
-			{ userId: scope.userId, organizationId: project.organizationId },
+			payer,
 			monthStartUtc(now),
 			now,
 		);
 		if (deviceMinutesLeft(plan, usedMinutes) <= 0) {
-			throw new HttpException(
-				{
-					code: "DEVICE_MINUTES_EXHAUSTED",
-					message: "No device minutes are left this month",
-				},
-				HttpStatus.PAYMENT_REQUIRED,
-			);
+			throw minutesExhausted();
 		}
 
 		const deviceSessionId = randomUUID();
 		// Appetize bills each device minute, so one user runs one device at a time.
 		const locked = await this.lock.acquire(
-			scope.userId,
+			scope.actorUserId,
 			deviceSessionId,
 			DEVICE_SESSION_LOCK_TTL_MS,
 		);
@@ -170,13 +182,25 @@ export class DeviceSessionsService {
 					message: "The app server is not ready yet",
 				});
 			}
-			await this.sessions.insertOpen({
-				id: deviceSessionId,
-				organizationId: project.organizationId,
-				platform,
-				projectId: pid,
-				userId: scope.userId,
-			});
+			const inserted = await this.sessions.insertOpenWithinAllowance(
+				{
+					id: deviceSessionId,
+					organizationId: project.organizationId,
+					// The minutes runtime bills this pool, and the allowance counts it.
+					payerUserId: subjectPayerUserId(subject),
+					platform,
+					projectId: pid,
+					// The actor: end and the per-person lock read this column.
+					userId: scope.actorUserId,
+				},
+				payer,
+				DEVICE_MINUTES_PER_PLAN[plan],
+				monthStartUtc(now),
+			);
+			// Another member of the pool took the last minute after the first read.
+			if (inserted === null) {
+				throw minutesExhausted();
+			}
 			return {
 				deviceSessionId,
 				...APPETIZE_DEVICES[platform],
@@ -188,7 +212,7 @@ export class DeviceSessionsService {
 		} catch (error) {
 			// No row exists, so the lock must not block the user until it expires.
 			await this.lock
-				.release(scope.userId, deviceSessionId)
+				.release(scope.actorUserId, deviceSessionId)
 				.catch((releaseError: unknown) => {
 					this.logger.error("device-session.lock-release-failed", {
 						deviceSessionId,
@@ -212,7 +236,7 @@ export class DeviceSessionsService {
 	): Promise<{ ended: true }> {
 		const row = await this.sessions.findStartedBy(
 			deviceSessionId,
-			scope.userId,
+			scope.actorUserId,
 			projectId.toLowerCase(),
 		);
 		if (row === null) {
@@ -230,7 +254,7 @@ export class DeviceSessionsService {
 			}
 			throw error;
 		}
-		await this.lock.release(scope.userId, row.id);
+		await this.lock.release(scope.actorUserId, row.id);
 		return { ended: true };
 	}
 }

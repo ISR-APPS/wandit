@@ -12,7 +12,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";
 import type { SandboxExecResult } from "../../domain/ports/sandbox-provider";
 import {
@@ -42,7 +45,7 @@ const WIP_SHA = "e".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {

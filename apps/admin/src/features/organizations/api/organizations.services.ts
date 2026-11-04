@@ -1,3 +1,8 @@
+/**
+ * HTTP calls of the admin organizations feature.
+ * The queries and mutations files call these functions.
+ * They send requests to the `adminRoutes` organization routes through the api-client helpers.
+ */
 import { adminRoutes } from "@wandit/contracts";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
@@ -10,6 +15,7 @@ import type {
 	SetOrganizationMemberRoleInput,
 } from "./organizations.dto";
 
+/** An empty q goes as undefined, so the server applies no search. kind selects team or personal workspaces. */
 export function listOrganizations(
 	params: ListOrganizationsParams,
 ): Promise<AdminListOrganizationsResponse> {
@@ -18,6 +24,7 @@ export function listOrganizations(
 		pageSize: params.pageSize,
 		q: params.q || undefined,
 		sort: params.sort,
+		kind: params.kind,
 	});
 }
 

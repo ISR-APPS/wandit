@@ -162,7 +162,7 @@ export class SitesService {
 			requestedSlug: body.slug,
 			versionId: version.id,
 		});
-		this.analyticsService.capture(scope.userId, "site_published", {
+		this.analyticsService.capture(scope.actorUserId, "site_published", {
 			projectId: project.id,
 		});
 

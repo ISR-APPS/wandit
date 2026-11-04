@@ -12,6 +12,7 @@ import type {
 	AdminSetMemberRoleInput,
 	AdminWorkspaceRole,
 	adminListOrganizationsSorts,
+	WorkspaceKind,
 } from "@wandit/contracts";
 
 export type {
@@ -24,6 +25,7 @@ export type {
 	AdminOrganizationSummary,
 	AdminSetMemberRoleInput,
 	AdminWorkspaceRole,
+	WorkspaceKind,
 };
 
 export type AdminListOrganizationsSort =
@@ -39,6 +41,8 @@ export type ListOrganizationsParams = {
 	pageSize: number;
 	q?: string;
 	sort: AdminListOrganizationsSort;
+	/** `team` by default. `personal` lists the one personal workspace that each user has. */
+	kind: WorkspaceKind;
 };
 
 export type GrantOrganizationCreditsInput = AdminGrantCreditsInput & {

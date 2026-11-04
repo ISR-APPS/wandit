@@ -6,7 +6,10 @@ import {
 import { listProjectSecretsResponseSchema } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import type { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
 import type {
@@ -27,12 +30,13 @@ import {
 const KEY_V1 = Buffer.alloc(32, 1).toString("base64");
 const KEY_V2 = Buffer.alloc(32, 2).toString("base64");
 const ENV_KEY = `v1:${KEY_V1},v2:${KEY_V2}`;
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const ORG_SCOPE: ProjectScope = {
 	actorIsLimitExempt: false,
+	actorRoles: ["member"],
 	kind: "org",
 	organizationId: "org-1",
-	userId: "member-1",
+	actorUserId: "member-1",
 };
 const ACTOR: SecretActor = { ip: "203.0.113.9", scope: SCOPE };
 

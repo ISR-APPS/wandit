@@ -38,6 +38,11 @@ import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
 import { getErrorMessage } from "@wandit/observability/error";
 
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	creditPayerOf,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { harnessModelMultiplier } from "../../../metering/domain/harness-price-table";
@@ -49,6 +54,7 @@ import { assertWanditHostedAttachments } from "../../../projects/application/ser
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
+	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
@@ -192,6 +198,9 @@ export class TurnsService {
 		/** Starts a failed or missing backend again when a new message arrives. */
 		@Inject(BackendsService)
 		private readonly backends: Pick<BackendsService, "provisionBackend">,
+		/** The payer pool balance of the estimate answer. */
+		@Inject(CreditsService)
+		private readonly credits: Pick<CreditsService, "getSettledBalance">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -229,11 +238,12 @@ export class TurnsService {
 			throw new NotFoundException();
 		}
 
-		assertWanditHostedAttachments(scope.userId, body.attachments);
+		// Uploads live under the uploader's namespace: the actor, not the owner.
+		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
 		// Security check: an answer file reaches the sandbox copy, so it
 		// passes the same owner check as an attachment.
 		assertWanditHostedAttachments(
-			scope.userId,
+			scope.actorUserId,
 			body.answers?.flatMap((answer) => answer.files),
 		);
 
@@ -279,10 +289,11 @@ export class TurnsService {
 
 		// A runaway client holding many open turns would drain the pool;
 		// three reserved sessions per actor is the hard stop.
+		// LIMIT: the cap counts per actor, so N editors of one pool run 3N turns. Upgrade: a cap per payer.
 		if (
 			(await this.metering.countReservedByActor(
 				"agent_session",
-				scope.userId,
+				scope.actorUserId,
 			)) >= MAX_ACTIVE_TURNS_PER_ACTOR
 		) {
 			throw new HttpException(
@@ -386,7 +397,8 @@ export class TurnsService {
 				sessionId: session.id,
 				spec,
 				status,
-				userId: scope.userId,
+				// `builder_turns.user_id` holds the actor (workspaces-sharing.md 4).
+				userId: scope.actorUserId,
 			});
 			rowCreated = true;
 			// Whole ms: the task payload schema takes an integer, and Fastify
@@ -430,8 +442,8 @@ export class TurnsService {
 					.provisionBackend(projectId, {
 						// The turn route reads no country; null picks the default region.
 						countryCode: null,
-						organizationId: scope.kind === "org" ? scope.organizationId : null,
-						userId: scope.userId,
+						// The payer's plan decides the backend slot: the project owner columns.
+						...projectOwnerColumns(scope),
 					})
 					.catch((error: unknown) => {
 						// A plan without a free backend slot is a product rule, not a
@@ -455,7 +467,7 @@ export class TurnsService {
 			if (!acquired) {
 				await this.recordTurnAudit(
 					"turn.start",
-					scope.userId,
+					scope.actorUserId,
 					created.turn,
 					options.ip ?? null,
 					{ queued: true },
@@ -479,7 +491,7 @@ export class TurnsService {
 			}
 
 			const handle = await this.starter.start({
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				apiCreateMs,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
@@ -487,7 +499,7 @@ export class TurnsService {
 			});
 			await this.recordTurnAudit(
 				"turn.start",
-				scope.userId,
+				scope.actorUserId,
 				created.turn,
 				options.ip ?? null,
 				{ queued: false },
@@ -551,7 +563,7 @@ export class TurnsService {
 				"canceled",
 			);
 			if (moved) {
-				await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+				await this.recordTurnAudit("turn.cancel", scope.actorUserId, turn, ip, {
 					fromStatus: turn.status,
 				});
 				if (
@@ -596,7 +608,7 @@ export class TurnsService {
 		// writes it before the remote cancel can throw. A retry finds
 		// `cancelling` and writes no second row. `turn.end` holds the outcome.
 		if (turn.status !== "cancelling") {
-			await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+			await this.recordTurnAudit("turn.cancel", scope.actorUserId, turn, ip, {
 				fromStatus: turn.status,
 			});
 		}
@@ -663,7 +675,8 @@ export class TurnsService {
 	 * `GET /v2/projects/:id/turns/estimate`. The hold that the next turn on
 	 * the deploy default model reserves: the same `estimateTurn` that
 	 * `create` runs, with no write. 404 for a project that is out of scope
-	 * or not V2.
+	 * or not V2. `payer` names the pool the turn spends, which can be
+	 * another user's pool (workspaces-sharing.md 4), so the composer locks on it.
 	 */
 	async estimate(
 		scope: ProjectScope,
@@ -680,7 +693,16 @@ export class TurnsService {
 			this.v2Env.V2_DEFAULT_MODEL ?? null,
 			caps?.perTurnCapCredits ?? null,
 		);
-		return { estimate: wholeCreditEstimateOf(estimate) };
+		const payer = subjectPayer(meteringSubjectFrom(scope));
+		const balance = await this.credits.getSettledBalance(payer);
+		return {
+			estimate: wholeCreditEstimateOf(estimate),
+			payer: {
+				isActor: creditPayerOf(payer, scope.actorUserId).isActor,
+				// The reserve admission refuses at a settled balance of 0 or less.
+				outOfCredits: balance.settledBalance <= 0,
+			},
+		};
 	}
 
 	/** The project's currently active turn (for `turns/active/stream`). */
@@ -772,10 +794,10 @@ export class TurnsService {
 				chatId,
 				harness,
 				model,
-				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
 				templateVersion: null,
-				userId: scope.userId,
+				// Owner columns: the session belongs to the project, not to the sender.
+				...projectOwnerColumns(scope),
 			});
 		} catch (error) {
 			if (!isUniqueViolation(error)) {

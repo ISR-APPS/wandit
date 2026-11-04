@@ -41,6 +41,8 @@ export type LeadSheetAutoSyncCandidate = {
 	organizationId: string | null;
 	projectId: string;
 	projectName: string;
+	/** `projects.user_id`: the owner of a personal project. The sweep scope reads it. */
+	projectUserId: string;
 	syncedByUserId: string;
 	syncedLeadCount: number;
 };
@@ -185,6 +187,7 @@ export class LeadSheetSyncsRepository {
 				organizationId: projects.organizationId,
 				projectId: projects.id,
 				projectName: projects.name,
+				projectUserId: projects.userId,
 				syncedByUserId: leadSheetSyncs.syncedByUserId,
 				syncedLeadCount: leadSheetSyncs.syncedLeadCount,
 			})

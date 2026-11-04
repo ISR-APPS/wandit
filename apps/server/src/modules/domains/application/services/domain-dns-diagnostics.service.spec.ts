@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	DomainRow,
 	DomainsRepository,
@@ -16,7 +19,7 @@ const dnsMocks = vi.hoisted(() => ({
 
 vi.mock("node:dns/promises", () => dnsMocks);
 
-const scope: ProjectScope = { kind: "personal", userId: "user_1" };
+const scope: ProjectScope = projectScopeFrom(undefined, "user_1");
 
 describe("DomainDnsDiagnosticsService", () => {
 	afterEach(() => {

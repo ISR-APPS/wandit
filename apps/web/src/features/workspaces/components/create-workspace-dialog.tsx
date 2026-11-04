@@ -26,7 +26,6 @@ import {
 	SelectValue,
 } from "@wandit/ui/components/select";
 import { useMemo, useState } from "react";
-import { authClient } from "@/features/auth/lib/auth-client";
 import {
 	formatPlanPrice,
 	useBillingModal,
@@ -35,8 +34,10 @@ import {
 import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
+import { createWorkspace } from "@/features/workspaces/api/workspace-members.services";
 import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { isApiClientError } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 
 function slugify(name: string): string {
@@ -48,10 +49,13 @@ function slugify(name: string): string {
 		.replace(/(^-|-$)+/g, "")
 		.slice(0, 40);
 	const suffix = Math.random().toString(36).slice(2, 6);
+	// The server refuses a user slug with the `personal-` prefix of personal workspaces (workspaces-sharing.md 1).
+	const safeBase = `${base}-`.startsWith("personal-") ? `team-${base}` : base;
 
-	return base ? `${base}-${suffix}` : `workspace-${suffix}`;
+	return safeBase ? `${safeBase}-${suffix}` : `workspace-${suffix}`;
 }
 
+/** The team workspace dialog of the switcher, the pricing page, and the plan picker. It ends in the Business checkout. */
 export function CreateWorkspaceDialog({
 	open,
 	onOpenChange,
@@ -104,33 +108,18 @@ export function CreateWorkspaceDialog({
 
 		try {
 			if (!createdOrgId) {
-				const created = await authClient.organization.create({
+				const organizationId = await createWorkspace({
 					name: trimmed,
 					slug: slugify(trimmed),
 				});
 
-				if (created.error || !created.data) {
-					// Better Auth reports a refused allowUserToCreateOrganization
-					// callback (the organizationsEnabled kill switch) with its own
-					// plugin code; ORGANIZATIONS_DISABLED covers our Nest guards.
-					const code = created.error?.code;
-
-					setError(
-						code === "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION" ||
-							code === "ORGANIZATIONS_DISABLED"
-							? t("workspaces.create.errors.disabled")
-							: t("workspaces.create.errors.failed"),
-					);
-					return;
-				}
-
-				setCreatedOrgId(created.data.id);
+				setCreatedOrgId(organizationId);
 				await queryClient.invalidateQueries({
 					queryKey: workspacesKeys.list(),
 				});
 				// From here every request — including the checkout below — acts as
 				// the new org workspace.
-				switchWorkspace(created.data.id);
+				switchWorkspace(organizationId);
 			}
 
 			// Visitors in Algeria pick Card, SlickPay, or Cash / transfer in the plan picker, not in a direct Stripe checkout.
@@ -159,8 +148,18 @@ export function CreateWorkspaceDialog({
 				// copy so the user retries checkout instead of re-creating.
 				setError(t("workspaces.create.errors.checkoutFailed"));
 			}
-		} catch {
-			setError(t("workspaces.create.errors.failed"));
+		} catch (error) {
+			// Better Auth reports a refused allowUserToCreateOrganization
+			// callback (the organizationsEnabled kill switch) with its own
+			// plugin code; ORGANIZATIONS_DISABLED covers our Nest guards.
+			const code = isApiClientError(error) ? error.code : null;
+
+			setError(
+				code === "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION" ||
+					code === "ORGANIZATIONS_DISABLED"
+					? t("workspaces.create.errors.disabled")
+					: t("workspaces.create.errors.failed"),
+			);
 		} finally {
 			setCreating(false);
 		}

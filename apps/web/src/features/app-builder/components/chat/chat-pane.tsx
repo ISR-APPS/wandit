@@ -8,10 +8,13 @@
  * shows a refused send or a lost stream. It has a Reconnect button when
  * `onReconnect` is set.
  * When the agent asks the user something, the request tray opens on top of
- * the composer. While the payer has no credits, the send locks and an
- * upgrade strip shows above the composer. A failed last reply gets a Retry
- * button that sends its user message again, except a stop on the daily AI
- * limit, and while the payer has no credits. The plan card's
+ * the composer. While the payer has no credits, the send locks and a
+ * strip shows above the composer: the upgrade strip when the payer is the
+ * active workspace, else a note to ask the owner. A project viewer gets a
+ * note instead of the composer, no Stop, no Retry, and no card actions.
+ * A failed last reply gets a Retry button that sends its user message
+ * again, except a stop on the daily AI limit, and while the payer has no
+ * credits. The plan card's
  * "Build this plan" sends a build turn. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
@@ -65,6 +68,16 @@ export type ChatPaneProps = {
 	turnEstimateCredits: number | null;
 	/** Elements picked in the preview for the next turn. The composer shows them as chips. */
 	targets: PreviewTarget[];
+	/** True for a project viewer, from `project.access.role` in the page. The pane then sends nothing. */
+	isReadOnly: boolean;
+	/**
+	 * True when the pool that pays for this project has no credits, from the
+	 * `payer` field of the turn estimate. Undefined when an older API sends no
+	 * payer: the pane then reads the pool of the active workspace, as before.
+	 */
+	payerOutOfCredits: boolean | undefined;
+	/** True when the paying pool is the active workspace pool. Only then the upgrade strip can sell the credits that unlock the send. */
+	isPayerActiveWorkspace: boolean;
 	/** Removes the target at this index of `targets`. */
 	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs. Locks the composer and shows the status line. */
@@ -132,6 +145,9 @@ export function ChatPane({
 	messages,
 	turnEstimateCredits,
 	targets,
+	isReadOnly,
+	payerOutOfCredits,
+	isPayerActiveWorkspace,
 	onRemoveTarget,
 	isSending,
 	phase,
@@ -170,14 +186,15 @@ export function ChatPane({
 	const liveMessage =
 		messages.find((message) => message.id === liveMessageId) ?? null;
 	const lastMessageId = messages.at(-1)?.id;
-	// The balance of the active workspace, the same pool that a turn bills.
-	// The query refreshes at the end of each turn and on window focus, so the
-	// lock lifts by itself after a top-up.
-	const { outOfCredits } = useOutOfCredits();
-	// False while a turn runs, the chat is not ready, or the payer has no
-	// credits: a send then only gets a 402. The composer and the plan card
-	// button lock on it.
-	const canSend = !isSending && isReady && !outOfCredits;
+	// The balance of the active workspace. An older API sends no payer state,
+	// and then this pool counts, as before sharing.
+	const { outOfCredits: isActivePoolEmpty } = useOutOfCredits();
+	// A shared project can bill another pool than the active workspace (workspaces-sharing.md 4).
+	const outOfCredits = payerOutOfCredits ?? isActivePoolEmpty;
+	// False for a viewer, while a turn runs, the chat is not ready, or the
+	// payer has no credits: a send then only gets a 403 or a 402. The
+	// composer and the plan card button lock on it.
+	const canSend = !isReadOnly && !isSending && isReady && !outOfCredits;
 	// Retry is a send too, so it locks on the same rule.
 	const retryInput = canSend ? retryInputOf(messages) : null;
 
@@ -256,7 +273,8 @@ export function ChatPane({
 							onChange={(next) => onChangeDeveloperView(next === "developer")}
 						/>
 					) : null}
-					{isSending ? (
+					{/* A cancel needs the editor role, like a send. */}
+					{isSending && !isReadOnly ? (
 						<Button
 							variant="outline"
 							size="sm"
@@ -329,9 +347,11 @@ export function ChatPane({
 									: undefined
 							}
 							// One active turn per project. The card stays clickable while a
-							// turn runs, so the pane drops a second send.
+							// turn runs, so the pane drops a second send. A viewer cannot send.
 							onDecideApproval={(approvalId, approved) => {
-								if (!isSending) onDecideApproval(approvalId, approved);
+								if (!isSending && !isReadOnly) {
+									onDecideApproval(approvalId, approved);
+								}
 							}}
 							// The approved plan builds now. The user bubble shows the sentence.
 							onBuildPlan={
@@ -396,54 +416,68 @@ export function ChatPane({
 				{/* The strip sits above the composer and does not wrap it. The banner
 				changes its root element when `active` flips, so a wrapped composer
 				remounts and loses its draft and files. */}
-				{outOfCredits ? (
+				{isReadOnly || !outOfCredits ? null : isPayerActiveWorkspace ? (
 					<OutOfCreditsBanner active className="mb-2">
 						{null}
 					</OutOfCreditsBanner>
-				) : null}
-				<Composer
-					turnEstimateCredits={turnEstimateCredits}
-					targets={targets}
-					onRemoveTarget={onRemoveTarget}
-					// The composer also locks while the chat id and the history load,
-					// and while the payer has no credits. A send without the id drops
-					// the turn; a send before the history puts the reply above it.
-					isSending={!canSend}
-					onSend={(input) => {
-						// A plain message after the skip X also answers the skipped
-						// round, so the paused agent hears it.
-						const answers = tray.dismissedAnswersFor(input.text);
-						return answers === null
-							? onSend(input)
-							: onAnswerQuestions({
-									message: input.text,
-									answers,
-									files: input.files,
-								});
-					}}
-					onDraftChange={setDraft}
-					placeholder={placeholder}
-					isPlanMode={isPlanMode}
-					onPlanModeChange={onPlanModeChange}
-					modelPick={modelPick}
-					submitOverride={tray.submit}
-					topSlot={
-						<MotionConfig reducedMotion="user">
-							<AnimatePresence initial={false}>
-								{tray.state !== null ? (
-									<TrayReveal key={tray.roundKey}>
-										<RequestTray
-											state={tray.state}
-											onDelegate={tray.delegate}
-											onDismiss={tray.dismiss}
-											bodyCallbacks={tray.bodyCallbacks}
-										/>
-									</TrayReveal>
-								) : null}
-							</AnimatePresence>
-						</MotionConfig>
-					}
-				/>
+				) : (
+					// Credits bought here go to the active workspace, which does not pay for this project.
+					<p
+						role="status"
+						className="mb-2 rounded-[1.25rem] bg-primary/10 px-4 py-2 text-xs"
+					>
+						{t("sharing.credits.payerEmpty")}
+					</p>
+				)}
+				{isReadOnly ? (
+					<p className="rounded-[1.25rem] border border-night/[0.1] px-4 py-3 font-sans text-[13px] text-night/60 dark:border-white/[0.1] dark:text-foreground/60">
+						{t("sharing.readOnly.composer")}
+					</p>
+				) : (
+					<Composer
+						turnEstimateCredits={turnEstimateCredits}
+						targets={targets}
+						onRemoveTarget={onRemoveTarget}
+						// The composer also locks while the chat id and the history load,
+						// and while the payer has no credits. A send without the id drops
+						// the turn; a send before the history puts the reply above it.
+						isSending={!canSend}
+						onSend={(input) => {
+							// A plain message after the skip X also answers the skipped
+							// round, so the paused agent hears it.
+							const answers = tray.dismissedAnswersFor(input.text);
+							return answers === null
+								? onSend(input)
+								: onAnswerQuestions({
+										message: input.text,
+										answers,
+										files: input.files,
+									});
+						}}
+						onDraftChange={setDraft}
+						placeholder={placeholder}
+						isPlanMode={isPlanMode}
+						onPlanModeChange={onPlanModeChange}
+						modelPick={modelPick}
+						submitOverride={tray.submit}
+						topSlot={
+							<MotionConfig reducedMotion="user">
+								<AnimatePresence initial={false}>
+									{tray.state !== null ? (
+										<TrayReveal key={tray.roundKey}>
+											<RequestTray
+												state={tray.state}
+												onDelegate={tray.delegate}
+												onDismiss={tray.dismiss}
+												bodyCallbacks={tray.bodyCallbacks}
+											/>
+										</TrayReveal>
+									) : null}
+								</AnimatePresence>
+							</MotionConfig>
+						}
+					/>
+				)}
 				{/* A chat with no turn has no cost to compare yet. */}
 				{chatCost !== undefined && chatCost.turnCount > 0 ? (
 					<div className="mt-1.5 flex px-3">

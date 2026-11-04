@@ -223,7 +223,7 @@ export class AppThemeService {
 						source: "theme",
 						summary: `Theme: ${file.name}`,
 						turnId: null,
-						userId: scope.userId,
+						userId: scope.actorUserId,
 					},
 				);
 				return { headSha: result.sha, theme: file };

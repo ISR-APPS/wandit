@@ -90,7 +90,7 @@ export class ProjectSecretsService {
 		const encrypted = encryptSecret(this.keyRing(), { name, projectId }, value);
 		const owner = projectOwnerColumns(actor.scope);
 		// A system row has no human author: the task, not the member, wrote it.
-		const actorUserId = kind === "user" ? actor.scope.userId : null;
+		const actorUserId = kind === "user" ? actor.scope.actorUserId : null;
 
 		const rowId = await this.secrets.upsert({
 			ciphertext: encrypted.ciphertext,
@@ -140,7 +140,7 @@ export class ProjectSecretsService {
 
 		await this.audit.insert({
 			action: "secret.deleted",
-			actorUserId: actor.scope.userId,
+			actorUserId: actor.scope.actorUserId,
 			ip: actor.ip,
 			metadata: { name },
 			organizationId: projectOwnerColumns(actor.scope).organizationId,

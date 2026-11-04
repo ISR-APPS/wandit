@@ -1,3 +1,9 @@
+/**
+ * Runs one queued marketing asset: claims the row, calls the model, stores the
+ * document, and settles or refunds its credit hold. The task
+ * `generate-marketing-asset.task.ts` calls it with real dependencies.
+ * It reaches metering and storage only through those dependencies.
+ */
 import {
 	type AiErrorContext,
 	captureAiError,
@@ -18,6 +24,10 @@ import {
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
 import type { MeteredTokenUsage } from "../../../metering/domain/model-pricing";
+import {
+	meteringSubjectFrom,
+	systemProjectScope,
+} from "../../../projects/domain/project-scope";
 import type {
 	MarketingAssetBilling,
 	MarketingAssetReservation,
@@ -258,21 +268,6 @@ export function parseMarketingAssetPayload(
  * and refund. There is deliberately no path from generating back to the
  * model.
  */
-/**
- * The metering subject for this run: the queue-time ACTING member (who may
- * differ from the project creator in an org workspace) paying from the
- * project's owner entity — the org pool when org-owned. The durable row's
- * userId is the project creator and must never be used as the actor.
- */
-function payloadSubject(payload: MarketingAssetPayload): MeteringSubject {
-	return {
-		actorUserId: payload.userId,
-		...(payload.organizationId
-			? { organizationId: payload.organizationId }
-			: {}),
-	};
-}
-
 export async function runMarketingAssetGeneration(
 	payload: MarketingAssetPayload,
 	input: {
@@ -284,25 +279,35 @@ export async function runMarketingAssetGeneration(
 	const { dependencies } = input;
 	const loaded = await dependencies.loadAsset(payload.assetId);
 
-	// Owner-entity assert: org assets require the same org (the acting member
-	// may differ from the project creator); personal assets keep strict user
-	// equality.
+	// Owner-entity assert: the durable row must match the queue-time payload
+	// on the project and the org. The actor may differ from the project owner
+	// in both kinds of workspace; the payer comes from the row.
 	if (
 		!loaded ||
 		loaded.projectId !== payload.projectId ||
-		loaded.organizationId !== (payload.organizationId ?? null) ||
-		(loaded.organizationId === null && loaded.userId !== payload.userId)
+		loaded.organizationId !== (payload.organizationId ?? null)
 	) {
 		// The payload is retained precisely so deleted/mismatched handoffs can
 		// settle a prior reservation without trusting it for model inputs.
-		await dependencies.refund(payloadSubject(payload), payload.assetId);
+		// The row is not trusted, so the actor's own pool (or the payload org)
+		// stands in for the refund.
+		await dependencies.refund(
+			{
+				actorUserId: payload.userId,
+				organizationId: payload.organizationId ?? null,
+			},
+			payload.assetId,
+		);
 
 		return { reason: "ownership_mismatch", status: "failed" };
 	}
 
-	// The ownership assert above guarantees the payload and the durable row
-	// agree on the paying entity; the payload adds the true acting member.
-	const subject = payloadSubject(payload);
+	// The payload names the true acting member; the row names the pool: the
+	// org, or `projects.user_id`. The payload has no role, so no exemption.
+	// The row's userId is the project owner and is never the actor.
+	const subject = meteringSubjectFrom(
+		systemProjectScope(loaded, payload.userId, false),
+	);
 
 	if (loaded.status === "succeeded") {
 		const reservation = await dependencies.reserve(

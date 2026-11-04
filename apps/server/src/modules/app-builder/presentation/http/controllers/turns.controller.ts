@@ -1,8 +1,9 @@
 /**
  * HTTP routes for V2 builder turns: create, estimate, stream, cancel.
  * `V2BuilderEnabledGuard` gates the whole controller; `RedisRateLimitGuard`
- * reads the per-route `@RateLimit` metadata. Scope and engine checks live
- * in `TurnsService`; this file only parses and delegates.
+ * reads the per-route `@RateLimit` metadata. The global ProjectAccessGuard
+ * checks the project role. Scope and engine checks live in `TurnsService`;
+ * this file only parses and delegates.
  */
 import {
 	Body,
@@ -30,12 +31,12 @@ import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { TurnStreamRelayService } from "../../../application/services/turn-stream-relay.service";
 import {
 	TurnsService,
@@ -65,6 +66,14 @@ const TURN_CREATE_IP_LIMIT = 90;
 const STREAM_SLOT_LIMIT = 5;
 const STREAM_SLOT_TTL_MS = 16 * 60_000;
 
+/**
+ * True for a member of the project's workspace and for the project owner. Only they
+ * read the payer pool (workspaces-sharing.md 4, Views). A direct grant alone does not.
+ */
+function canReadPayerBalance(access: ResolvedProjectAccess): boolean {
+	return access.workspaceRoles.length > 0 || access.role === "owner";
+}
+
 @Controller("v2/projects/:projectId/turns")
 @UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 export class TurnsController {
@@ -77,8 +86,8 @@ export class TurnsController {
 
 	// The POST answers with the browser stream of the new turn, as
 	// `DefaultChatTransport` expects; a `waiting` turn streams as soon as
-	// promotion gives it a run.
-	@RequireWorkspacePermission("project", "update")
+	// promotion gives it a run. A prompt spends credits, so it needs an editor.
+	@RequireProjectRole("editor")
 	@RateLimit({
 		ipLimit: TURN_CREATE_IP_LIMIT,
 		key: "turn-create",
@@ -93,14 +102,14 @@ export class TurnsController {
 		@Body(new ZodValidationPipe(createTurnRequestSchema))
 		body: CreateTurnRequest,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
 		// Every error before this line keeps the normal JSON error envelope
 		// (404, 409, 402, 403); the reply is hijacked only below.
 		const created = await this.turns.create(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			{
@@ -110,6 +119,7 @@ export class TurnsController {
 			},
 		);
 		await this.relay.relay({
+			canReadPayerBalance: canReadPayerBalance(access),
 			first: created,
 			onDone: () => this.turns.handleTurnEnded(projectId, created.turnId),
 			// The turn-create guard takes a count slot, not an open-stream slot.
@@ -121,19 +131,23 @@ export class TurnsController {
 		});
 	}
 
-	// A read like the stream routes: the service checks the scope, so no
-	// permission decorator. Declared before `:turnId/stream`.
+	// A read like the stream routes. Declared before `:turnId/stream`.
+	@RequireProjectRole("viewer")
 	@Get("estimate")
 	estimate(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<TurnEstimateResponse> {
-		return this.turns.estimate(projectScopeFrom(workspace, user.id), projectId);
+		return this.turns.estimate(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
 	}
 
 	// Declared before `:turnId/stream` so "active" is not read as a turn id.
+	@RequireProjectRole("viewer")
 	@Get("active/stream")
 	@RateLimit({
 		key: TURN_STREAM_BUCKET,
@@ -146,11 +160,11 @@ export class TurnsController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
-		const scope = projectScopeFrom(workspace, user.id);
+		const scope = projectScopeFromAccess(access, user.id);
 		try {
 			const turn = await this.turns.findActiveTurn(scope, projectId);
 
@@ -163,6 +177,7 @@ export class TurnsController {
 			}
 
 			await this.relay.relay({
+				canReadPayerBalance: canReadPayerBalance(access),
 				// The first frame gives the browser the turn id after a reload,
 				// so Stop can post the cancel. A row whose chat was deleted has
 				// no frame.
@@ -187,6 +202,7 @@ export class TurnsController {
 
 	// Replays the whole `ui` stream from the start; no Last-Event-ID (D20).
 	// The browser reopens it after a cut and drops the chunks it already has.
+	@RequireProjectRole("viewer")
 	@Get(":turnId/stream")
 	@RateLimit({
 		key: TURN_STREAM_BUCKET,
@@ -201,18 +217,19 @@ export class TurnsController {
 		@Param("turnId", new ZodValidationPipe(uuidSchema))
 		turnId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
 		try {
 			const turn = await this.turns.assertStreamAccess(
-				projectScopeFrom(workspace, user.id),
+				projectScopeFromAccess(access, user.id),
 				projectId,
 				turnId,
 			);
 
 			await this.relay.relay({
+				canReadPayerBalance: canReadPayerBalance(access),
 				onDone: () => this.turns.handleTurnEnded(turn.projectId, turn.id),
 				reply,
 				request,
@@ -230,7 +247,7 @@ export class TurnsController {
 	}
 
 	// Idempotent: a terminal turn answers its current status (V1 shape).
-	@RequireWorkspacePermission("project", "update")
+	@RequireProjectRole("editor")
 	@RateLimit({
 		key: "turn-cancel",
 		limit: TURN_MUTATION_LIMIT,
@@ -244,11 +261,11 @@ export class TurnsController {
 		@Param("turnId", new ZodValidationPipe(uuidSchema))
 		turnId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<CancelTurnResponse> {
 		return this.turns.cancel(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			turnId,
 			readClientIp(request),

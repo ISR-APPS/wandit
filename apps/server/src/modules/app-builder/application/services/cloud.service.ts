@@ -319,8 +319,9 @@ export class CloudService {
 		const project = await this.requireProject(scope, projectId);
 		const row = await this.provisioning.provisionBackend(projectId, {
 			countryCode,
+			// Owner columns of the project row: the payer's plan decides the slot.
 			organizationId: project.organizationId,
-			userId: scope.userId,
+			userId: project.userId,
 		});
 		if (row === null) {
 			throw new ServiceUnavailableException({
@@ -476,7 +477,7 @@ select (select count(*)::float8 from ${qualifiedTable(table)}) as total, coalesc
 		if (kind === "write") {
 			await this.auditEvents.insert({
 				action: "cloud.sql_write",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				metadata: {
 					queryHash: createHash("sha256").update(body.query).digest("hex"),
 					rowCount: rows.length,
@@ -662,7 +663,7 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		// user data.
 		await this.auditEvents.insert({
 			action: "cloud.objects_deleted",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			metadata: { bucket, deleted, requested: body.paths.length },
 			organizationId: organizationIdOf(scope),
 			projectId,

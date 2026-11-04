@@ -86,7 +86,7 @@ export function MoreView({
 			case "payments":
 				return <PaymentsPanel />;
 			case "domains":
-				return <DomainsPanel projectId={project.id} />;
+				return <DomainsPanel projectId={project.id} access={project.access} />;
 			case "appStores":
 				return <AppStoresPanel projectId={project.id} />;
 			case "settings":

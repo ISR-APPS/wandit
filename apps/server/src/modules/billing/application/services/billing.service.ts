@@ -57,7 +57,10 @@ import {
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
 import { SubscriptionsDisabledError } from "../../../settings/domain/errors/subscriptions-disabled.error";
-import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
+import {
+	WorkspaceNotSupportedError,
+	WorkspacePermissionDeniedError,
+} from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
@@ -129,12 +132,18 @@ export class BillingService {
 	 * Personal scope (no workspace / omitted) is byte-identical to pre-teams.
 	 * Org scope additionally enforces the organizationsEnabled kill switch —
 	 * only for admissions; webhooks always honor paid org money regardless.
+	 * Another user's personal workspace answers 403: billing is owner-only.
 	 */
 	private async resolveBillingScope(
 		user: Pick<AuthUser, "id">,
 		workspace: WorkspaceContext | undefined,
 		options: { admission: boolean },
 	): Promise<{ organizationId: string | null; owner: CreditOwner }> {
+		// The owner's personal pool pays there; only the owner manages it, from personal scope.
+		if (workspace?.kind === "shared-personal") {
+			throw new WorkspacePermissionDeniedError();
+		}
+
 		if (workspace?.kind !== "org") {
 			return { organizationId: null, owner: userOwner(user.id) };
 		}

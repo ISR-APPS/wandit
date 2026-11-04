@@ -2,7 +2,7 @@ import { db } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
-
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import {
 	PAGE_ATTEMPT_MAX_RUNTIME_MS,
 	PAGE_ATTEMPT_STALE_GENERATING_MS,
@@ -29,7 +29,7 @@ function repositoryWithVersions(
 }
 
 const ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
-const VERSION_SCOPE = { kind: "personal", userId: "user_1" } as const;
+const VERSION_SCOPE = projectScopeFrom(undefined, "user_1");
 
 function normalizeSql(value: string): string {
 	return value.replaceAll(/\s+/g, " ").trim();

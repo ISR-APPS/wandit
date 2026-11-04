@@ -16,6 +16,8 @@ import { fileRefSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 // Shared id/date validators.
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
+// The caller's role on the project and the workspace that holds it.
+import { projectAccessSchema } from "./shared/project-access";
 // The engine enum lives next to primitives: V1 and V2 schemas both read it.
 import { projectEngineSchema } from "./shared/project-engine";
 // The target platform enum lives there too, for the same reason.
@@ -68,6 +70,9 @@ export const projectSchema = z.object({
 	// Publishing setting: hide the "Made with Wandit" badge on the published
 	// page. Anyone may store it; publish honours it only for entitled owners.
 	hideWanditBadge: z.boolean(),
+	// The caller's role and the project's workspace (workspaces-sharing.md 5).
+	// Absent from an older API: the web then gives full access, as before.
+	access: projectAccessSchema.optional(),
 });
 
 // TypeScript project type.

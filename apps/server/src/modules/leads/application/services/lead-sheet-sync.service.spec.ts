@@ -7,7 +7,10 @@ import {
 import type { Auth } from "@wandit/auth";
 import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	GoogleSheetsApiError,
 	type GoogleSheetsClient,
@@ -29,12 +32,13 @@ import {
 } from "./lead-sheet-sync.service";
 
 const USER_ID = "user-1";
-const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, USER_ID);
 const ORG_SCOPE: ProjectScope = {
 	actorIsLimitExempt: false,
+	actorRoles: ["member"],
 	kind: "org",
 	organizationId: "org-1",
-	userId: USER_ID,
+	actorUserId: USER_ID,
 };
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const DB_NOW = new Date("2026-07-25T14:10:00.000Z");

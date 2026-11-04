@@ -88,7 +88,7 @@ export class LeadSheetSyncService {
 
 		// The Google Sheets identity is the ACTING member's, never the org's.
 		const [account, sync] = await Promise.all([
-			this.syncsRepository.findGoogleAccount(scope.userId),
+			this.syncsRepository.findGoogleAccount(scope.actorUserId),
 			this.syncsRepository.findByProject(projectId),
 		]);
 
@@ -129,14 +129,16 @@ export class LeadSheetSyncService {
 		lockMode: "try" | "wait",
 		expected?: { lastSyncedAt: Date | null },
 	): Promise<LeadSheetSyncRow> {
-		const account = await this.syncsRepository.findGoogleAccount(scope.userId);
+		const account = await this.syncsRepository.findGoogleAccount(
+			scope.actorUserId,
+		);
 		if (!isSheetsConnected(account)) {
 			throw new ConflictException(
 				"Google Sheets access is not connected for this account",
 			);
 		}
 
-		const accessToken = await this.mintAccessToken(scope.userId);
+		const accessToken = await this.mintAccessToken(scope.actorUserId);
 		const title = `Wandit Leads — ${project.name}`;
 
 		return this.syncsRepository.withProjectSyncLock(
@@ -150,7 +152,7 @@ export class LeadSheetSyncService {
 				if (
 					expected !== undefined &&
 					(sync === null ||
-						sync.syncedByUserId !== scope.userId ||
+						sync.syncedByUserId !== scope.actorUserId ||
 						(sync.lastSyncedAt?.getTime() ?? null) !==
 							(expected.lastSyncedAt?.getTime() ?? null))
 				) {
@@ -161,7 +163,7 @@ export class LeadSheetSyncService {
 					expected !== undefined &&
 					!(await this.syncsRepository.isSyncActorAuthorized(
 						project.id,
-						scope.userId,
+						scope.actorUserId,
 					))
 				) {
 					throw new LeadSheetSyncStaleError();
@@ -173,7 +175,7 @@ export class LeadSheetSyncService {
 							accessToken,
 							project.id,
 							title,
-							scope.userId,
+							scope.actorUserId,
 						);
 					}
 
@@ -203,7 +205,7 @@ export class LeadSheetSyncService {
 							accessToken,
 							project.id,
 							title,
-							scope.userId,
+							scope.actorUserId,
 						);
 						syncedLeadCount = await this.rewriteSpreadsheet(
 							accessToken,
@@ -220,7 +222,7 @@ export class LeadSheetSyncService {
 					project.id,
 					{
 						lastSyncedAt,
-						syncedByUserId: scope.userId,
+						syncedByUserId: scope.actorUserId,
 						syncedLeadCount,
 					},
 				);

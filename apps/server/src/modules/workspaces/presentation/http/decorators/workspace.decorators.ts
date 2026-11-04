@@ -1,3 +1,7 @@
+/**
+ * Route decorators of workspace scope: @CurrentWorkspace and the scope and role gates.
+ * Controllers put them on routes. WorkspaceContextGuard reads the metadata and enforces it.
+ */
 import {
 	createParamDecorator,
 	type ExecutionContext,
@@ -37,8 +41,9 @@ export type WorkspacePermissionRequirement = {
 export const WORKSPACE_PERMISSION_KEY = Symbol("WORKSPACE_PERMISSION_KEY");
 
 /**
- * Role-gate a route WHEN the request is org-scoped. Personal scope bypasses
- * role checks entirely (a user is omnipotent in their own workspace).
+ * Role-gate a route WHEN the request is org-scoped or shared-personal. Personal
+ * scope bypasses role checks entirely (a user is omnipotent in their own
+ * workspace). Shared-personal always denies `billing` and `limits`.
  * Enforced by WorkspaceContextGuard against the shared role matrix.
  */
 export const RequireWorkspacePermission = (
@@ -50,20 +55,14 @@ export const RequireWorkspacePermission = (
 		resource,
 	} satisfies WorkspacePermissionRequirement);
 
-export const ORG_WORKSPACE_REQUIRED_KEY = Symbol("ORG_WORKSPACE_REQUIRED_KEY");
-
-/** Routes that only make sense inside an org workspace (e.g. member limits). */
-export const RequireOrgWorkspace = () =>
-	SetMetadata(ORG_WORKSPACE_REQUIRED_KEY, true);
-
 export const PERSONAL_WORKSPACE_ONLY_KEY = Symbol(
 	"PERSONAL_WORKSPACE_ONLY_KEY",
 );
 
 /**
  * Routes that predate workspaces and stay personal-only (legacy generation
- * endpoints): an org workspace header is rejected with a typed 400 rather
- * than silently debiting the member's personal pool.
+ * endpoints): a team or shared-personal workspace header is rejected with a
+ * typed 400 rather than silently debiting the member's personal pool.
  */
 export const PersonalWorkspaceOnly = () =>
 	SetMetadata(PERSONAL_WORKSPACE_ONLY_KEY, true);

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import {
 	canExternalAttachReplace,
 	DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
@@ -71,12 +73,14 @@ function selectBuilder(result: unknown[] = []) {
 	const builder = {
 		from: vi.fn(),
 		innerJoin: vi.fn(),
+		leftJoin: vi.fn(),
 		limit: vi.fn(async () => result),
 		orderBy: vi.fn(),
 		where: vi.fn(),
 	};
 	builder.from.mockReturnValue(builder);
 	builder.innerJoin.mockReturnValue(builder);
+	builder.leftJoin.mockReturnValue(builder);
 	builder.orderBy.mockReturnValue(builder);
 	builder.where.mockReturnValue(builder);
 
@@ -127,6 +131,49 @@ describe("canExternalAttachReplace", () => {
 		expect(
 			canExternalAttachReplace({ ...detachedConfiguring, ...holder }, USER_ID),
 		).toBe(expected);
+	});
+});
+
+describe("DomainsRepository.getByIdForScope", () => {
+	it.each<{
+		name: string;
+		params: string[];
+		sql: string;
+		workspace: WorkspaceContext | undefined;
+	}>([
+		{
+			name: "the personal owner also reaches own purchases outside a project",
+			params: [DOMAIN_ID, USER_ID],
+			sql: '("domains"."id" = $1 and ("projects"."id" IS NOT NULL or "domains"."user_id" = $2))',
+			workspace: undefined,
+		},
+		{
+			name: "a shared-personal admin reaches a domain only through a project of the scope",
+			params: [DOMAIN_ID],
+			sql: '("domains"."id" = $1 and "projects"."id" IS NOT NULL)',
+			workspace: {
+				kind: "shared-personal",
+				organizationId: "personal_org_2",
+				ownerUserId: OTHER_USER_ID,
+				role: "admin",
+				roles: ["admin"],
+			},
+		},
+	])("$name", async ({ params, sql, workspace }) => {
+		const builder = selectBuilder([{ domains: { id: DOMAIN_ID } }]);
+		const repository = new DomainsRepository(
+			// SAFETY: getByIdForScope calls only select(); the builder answers its whole chain.
+			{ select: vi.fn(() => builder) } as never,
+		);
+
+		await repository.getByIdForScope(
+			DOMAIN_ID,
+			projectScopeFrom(workspace, USER_ID),
+		);
+
+		const condition = compileCondition(builder.where.mock.calls[0]?.[0]);
+		expect(condition.sql).toBe(sql);
+		expect(condition.params).toEqual(params);
 	});
 });
 

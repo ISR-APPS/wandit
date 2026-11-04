@@ -83,6 +83,8 @@ export * from "./product-events";
 export * from "./project-cost-caps";
 // Encrypted per-project V2 secret values.
 export * from "./project-secrets";
+// Project grants, project invitations, and workspace and project invite links.
+export * from "./project-sharing";
 // Project tables.
 export * from "./projects";
 export * from "./push-tokens";

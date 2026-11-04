@@ -1,3 +1,7 @@
+/**
+ * The root Nest module: every feature module, the global exception filter, and the response envelope.
+ * main.ts boots it. Global guards run in module registration order, so the order matters.
+ */
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
@@ -36,6 +40,7 @@ import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
 import { ProductEventsModule } from "./modules/product-events/product-events.module";
 import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
+import { ProjectSharingModule } from "./modules/project-sharing/project-sharing.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { PushNotificationsModule } from "./modules/push-notifications/push-notifications.module";
 import { SitesModule } from "./modules/sites/sites.module";
@@ -67,8 +72,8 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
 		// request.user, and Nest runs global guards in registration order.
 		WorkspacesModule,
-		// The V2 app builder mounts its routes only when the env switch is on.
-		...(env.V2_BUILDER_ENABLED ? [AppBuilderModule] : []),
+		// The V2 app builder and project sharing mount their routes only when the env switch is on.
+		...(env.V2_BUILDER_ENABLED ? [AppBuilderModule, ProjectSharingModule] : []),
 		AdminModule,
 		AiChatModule,
 		HealthModule,

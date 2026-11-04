@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	ConnectorGenerationAttemptRow,
 	ConnectorGenerationsRepository,
@@ -9,7 +12,7 @@ import type { ConnectorGenerationRecoveryService } from "./connector-generation-
 import { ConnectorGenerationsService } from "./connector-generations.service";
 
 const ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 
 const BASE_ROW: ConnectorGenerationAttemptRow = {
 	args: { prompt: "a product shot" },
@@ -25,6 +28,7 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 	id: ATTEMPT_ID,
 	media: null,
 	organizationId: null,
+	payerUserId: null,
 	sentryEventId: null,
 	status: "failed",
 	toolName: "generate_video",

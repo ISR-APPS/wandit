@@ -1,3 +1,8 @@
+/**
+ * Builds the MCP connector tools of a V1 chat for one user and wraps each call:
+ * auth, write acknowledgements, and the queue of background media generations
+ * with their credit holds. AiChatService calls `resolveToolsForUser`.
+ */
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -27,7 +32,10 @@ import {
 } from "../../../ai-errors/domain";
 import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import {
+	type MeteringSubject,
+	subjectPayerUserId,
+} from "../../../credits/domain/credit-owner";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import {
 	type LifecycleEventName,
@@ -2383,6 +2391,7 @@ export class McpChatToolsService {
 			chatId,
 			connectorSlug,
 			organizationId: subject.organizationId ?? null,
+			payerUserId: subjectPayerUserId(subject),
 			requestKey,
 			toolName,
 			userId: subject.actorUserId,

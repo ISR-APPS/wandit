@@ -215,7 +215,7 @@ export class PagesService {
 				...(scope.kind === "org" && scope.actorIsLimitExempt
 					? { actorIsLimitExempt: true }
 					: {}),
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				// A fresh nonce per retry — the attempt-scoped global idempotency
 				// key would otherwise resolve this queue to the original dead run.
 				idempotencyNonce: crypto.randomUUID(),
@@ -232,7 +232,7 @@ export class PagesService {
 				await this.pagesRepository.markAttemptFailed(
 					attemptId,
 					"The background page builder rejected this retry. Please try again.",
-					scope.userId,
+					scope.actorUserId,
 				);
 
 				throw new BadGatewayException(
@@ -304,7 +304,7 @@ export class PagesService {
 							error: `The build machine stopped before finishing (run ${run.status.toLowerCase()}).`,
 							status: "failed",
 						},
-				scope.userId,
+				scope.actorUserId,
 			);
 		} catch (error) {
 			// Unknown run state — never settle a row that might still be building.

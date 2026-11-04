@@ -2,8 +2,8 @@
  * `POST /api/v2/projects/:projectId/device-sessions` and
  * `POST .../device-sessions/:deviceSessionId/end`: the Appetize device
  * preview of a V2 mobile project (WANDIT-196). The global AuthGuard requires
- * a session; `V2BuilderEnabledGuard` gates the routes and
- * `RedisRateLimitGuard` reads `@RateLimit`. `DeviceSessionsService` holds
+ * a session; the global ProjectAccessGuard checks the project role;
+ * `V2BuilderEnabledGuard` gates the routes and `RedisRateLimitGuard` reads `@RateLimit`. `DeviceSessionsService` holds
  * the project, minute, and lock checks.
  */
 import {
@@ -27,12 +27,12 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { DeviceSessionsService } from "../../../application/services/device-sessions.service";
 import {
 	RateLimit,
@@ -53,9 +53,9 @@ export class DeviceSessionsController {
 		>,
 	) {}
 
-	// Device minutes cost money, so an org member needs the right of a turn.
+	// Device minutes cost money, so a start needs the role of a turn.
 	// 10 starts per user per minute: one start takes seconds; a retry loop stops here.
-	@RequireWorkspacePermission("project", "update")
+	@RequireProjectRole("editor")
 	@RateLimit({ key: "device-session-start", limit: 10, windowMs: 60_000 })
 	@Post()
 	start(
@@ -64,16 +64,17 @@ export class DeviceSessionsController {
 		@Body(new ZodValidationPipe(startDeviceSessionRequestSchema))
 		body: StartDeviceSessionRequest,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<StartDeviceSessionResponse> {
 		return this.deviceSessions.start(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body.platform,
 		);
 	}
 
-	// Ending an own session is always allowed: it only stops the minutes.
+	// Design 2.2 puts device sessions under editor. The minutes task bills a session that a downgraded caller cannot end.
+	@RequireProjectRole("editor")
 	@RateLimit({ key: "device-session-end", limit: 30, windowMs: 60_000 })
 	@Post(":deviceSessionId/end")
 	@HttpCode(200)
@@ -85,10 +86,10 @@ export class DeviceSessionsController {
 		@Body(new ZodValidationPipe(endDeviceSessionRequestSchema))
 		body: EndDeviceSessionRequest,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<{ ended: true }> {
 		return this.deviceSessions.end(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			deviceSessionId,
 			body.appetizeSessionToken,

@@ -1,96 +1,81 @@
 /**
- * /invite/$invitationId — accept or decline a workspace invitation
+ * /invite/$invitationId — accept or decline a workspace email invitation
  * (teams-workspaces.md §9). Unauthenticated visitors are asked to sign in
- * first; "already a member" renders as success-with-notice (§1.4).
+ * first. A user who is already a member sees a notice, not an error.
+ * The Better Auth calls live in `../api` (workspace-members.services.ts).
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { useAuthModal, useSession } from "@/features/auth";
-import { authClient } from "@/features/auth/lib/auth-client";
-import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
+import {
+	useAcceptWorkspaceInvitationMutation,
+	useRejectWorkspaceInvitationMutation,
+} from "@/features/workspaces/api/workspaces.mutations";
+import { useWorkspaceInvitationQuery } from "@/features/workspaces/api/workspaces.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 
+// The success text stays on screen this long before the dashboard opens.
+const ACCEPTED_REDIRECT_DELAY_MS = 1_200;
+
+/** The `/invite/$invitationId` route renders it, outside the `_auth` session gate. */
 export default function InvitePage({ invitationId }: { invitationId: string }) {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const { data: session, isPending: sessionPending } = useSession();
 	const { open: openAuthModal } = useAuthModal();
-	const { switchWorkspace } = useWorkspace();
+	const { switchWorkspace, workspaces } = useWorkspace();
 	const [outcome, setOutcome] = useState<"accepted" | "alreadyMember" | null>(
 		null,
 	);
-
-	const invitationQuery = useQuery({
-		queryKey: ["workspace-invitation", invitationId],
+	const invitationQuery = useWorkspaceInvitationQuery(invitationId, {
 		enabled: Boolean(session),
-		retry: false,
-		queryFn: async () => {
-			const result = await authClient.organization.getInvitation({
-				query: { id: invitationId },
-			});
-
-			if (result.error || !result.data) {
-				throw new Error(result.error?.message ?? "invalid invitation");
-			}
-
-			return result.data;
-		},
 	});
+	const accept = useAcceptWorkspaceInvitationMutation();
+	const reject = useRejectWorkspaceInvitationMutation();
+	const organizationId = invitationQuery.data?.organizationId;
+	const workspaceName = invitationQuery.data?.organizationName ?? "";
 
-	const accept = useMutation({
-		mutationFn: async () => {
-			const result = await authClient.organization.acceptInvitation({
-				invitationId,
-			});
+	const finish = (state: "accepted" | "alreadyMember") => {
+		setOutcome(state);
 
-			if (result.error) {
-				// The unique-membership backstop surfaces as "already a member" —
-				// treat it as a success with a notice (§1.4).
-				if (/already/i.test(result.error.message ?? "")) {
-					return "alreadyMember" as const;
+		if (organizationId) {
+			switchWorkspace(organizationId);
+		}
+
+		window.setTimeout(() => {
+			void navigate({ to: "/dashboard" });
+		}, ACCEPTED_REDIRECT_DELAY_MS);
+	};
+
+	const acceptInvitation = () => {
+		accept.mutate(invitationId, {
+			onSuccess: () => finish("accepted"),
+			onError: (error) => {
+				// A user who joined by link can still hold this invitation; the unique member row refuses it.
+				if (workspaces.some((entry) => entry.id === organizationId)) {
+					finish("alreadyMember");
+					return;
 				}
 
-				throw new Error(result.error.message ?? "accept failed");
-			}
+				toast.error(getApiErrorMessage(error));
+			},
+		});
+	};
 
-			return "accepted" as const;
-		},
-		onSuccess: (state) => {
-			setOutcome(state);
-			void queryClient.invalidateQueries({
-				queryKey: workspacesKeys.userInvitations(),
-			});
-			const organizationId = invitationQuery.data?.organizationId;
-
-			if (organizationId) {
-				switchWorkspace(organizationId);
-			}
-
-			window.setTimeout(() => {
+	const rejectInvitation = () => {
+		reject.mutate(invitationId, {
+			onSuccess: () => {
 				void navigate({ to: "/dashboard" });
-			}, 1_200);
-		},
-	});
-
-	const reject = useMutation({
-		mutationFn: async () => {
-			await authClient.organization.rejectInvitation({ invitationId });
-		},
-		onSuccess: () => {
-			void queryClient.invalidateQueries({
-				queryKey: workspacesKeys.userInvitations(),
-			});
-			void navigate({ to: "/dashboard" });
-		},
-	});
-
-	const workspaceName = invitationQuery.data?.organizationName ?? "";
+			},
+			onError: (error) => toast.error(getApiErrorMessage(error)),
+		});
+	};
 
 	return (
 		<main className="flex min-h-svh items-center justify-center px-4">
@@ -142,7 +127,7 @@ export default function InvitePage({ invitationId }: { invitationId: string }) {
 							<Button
 								type="button"
 								disabled={accept.isPending}
-								onClick={() => accept.mutate()}
+								onClick={acceptInvitation}
 							>
 								{accept.isPending
 									? t("workspaces.invite.accepting")
@@ -152,7 +137,7 @@ export default function InvitePage({ invitationId }: { invitationId: string }) {
 								type="button"
 								variant="outline"
 								disabled={reject.isPending}
-								onClick={() => reject.mutate()}
+								onClick={rejectInvitation}
 							>
 								{t("workspaces.invite.reject")}
 							</Button>

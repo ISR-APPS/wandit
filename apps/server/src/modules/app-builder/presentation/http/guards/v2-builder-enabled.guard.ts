@@ -3,6 +3,7 @@
  * Route controllers opt in with `@UseGuards(V2BuilderEnabledGuard)`; the
  * guard reads `product_settings` through ProductSettingsService and asks
  * PostHog for the per-user flag `v2-builder` through AnalyticsService.
+ * It runs after the global ProjectAccessGuard and reads the access it resolved.
  */
 import {
 	type CanActivate,
@@ -13,7 +14,7 @@ import {
 } from "@nestjs/common";
 
 import { AnalyticsService } from "../../../../../infrastructure/analytics/analytics.service";
-import type { MaybeAuthenticatedRequest } from "../../../../auth";
+import type { MaybeProjectAccessRequest } from "../../../../projects";
 import { ProductSettingsService } from "../../../../settings";
 import { V2BuilderDisabledError } from "../../../domain/errors/v2-builder-disabled.error";
 
@@ -31,7 +32,10 @@ type FlagCacheEntry = {
 	expiresAt: number;
 };
 
-/** Denies with 403 `V2_BUILDER_DISABLED` unless the setting and the flag pass. */
+/**
+ * Denies with 403 `V2_BUILDER_DISABLED` unless the setting passes, and then
+ * the flag or a resolved project access passes.
+ */
 @Injectable()
 export class V2BuilderEnabledGuard implements CanActivate {
 	private readonly logger = new Logger(V2BuilderEnabledGuard.name);
@@ -53,7 +57,14 @@ export class V2BuilderEnabledGuard implements CanActivate {
 
 		const request = context
 			.switchToHttp()
-			.getRequest<MaybeAuthenticatedRequest>();
+			.getRequest<MaybeProjectAccessRequest>();
+
+		// An invited collaborator opens a shared project without the rollout
+		// flag (design 3.3). The product setting above still closes V2 for all.
+		if (request.projectAccess) {
+			return true;
+		}
+
 		// The global AuthGuard runs first on these routes. A missing user here
 		// means a wiring bug. The safe answer is closed.
 		const userId = request.user?.id;

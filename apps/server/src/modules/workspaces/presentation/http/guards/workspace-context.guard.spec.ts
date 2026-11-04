@@ -11,16 +11,20 @@ import {
 } from "../../../domain/errors/workspace.errors";
 import type { WorkspaceMembersRepository } from "../../../infrastructure/persistence/members.repository";
 import {
-	ORG_WORKSPACE_REQUIRED_KEY,
 	PERSONAL_WORKSPACE_ONLY_KEY,
 	WORKSPACE_PERMISSION_KEY,
+	type WorkspacePermissionRequirement,
 } from "../decorators/workspace.decorators";
 import { WorkspaceContextGuard } from "./workspace-context.guard";
 
 const ORG_ID = "org_1";
+const CALLER_ID = "user_1";
+const OTHER_USER_ID = "user_2";
 
 type GuardSetup = {
 	memberRole?: string | null;
+	// Owner of the org in the header: the caller, another user, or null for a team org.
+	personalOwnerUserId?: string | null;
 	metadata?: Map<symbol, unknown>;
 	header?: string;
 	user?: { id: string } | undefined;
@@ -30,7 +34,7 @@ type GuardSetup = {
 function buildContext(setup: GuardSetup) {
 	const request: Record<string, unknown> = {
 		headers: setup.header ? { [WORKSPACE_HEADER]: setup.header } : {},
-		user: "user" in setup ? setup.user : { id: "user_1" },
+		user: "user" in setup ? setup.user : { id: CALLER_ID },
 	};
 
 	const context = {
@@ -46,25 +50,35 @@ function buildContext(setup: GuardSetup) {
 		}),
 	} as unknown as Reflector;
 
-	const members = {
-		findMember: vi.fn(async () =>
+	const members: Pick<WorkspaceMembersRepository, "findMembership"> = {
+		findMembership: async () =>
 			setup.memberRole == null
 				? null
 				: {
-						createdAt: new Date(),
-						id: "member_1",
 						organizationId: ORG_ID,
+						personalOwnerUserId: setup.personalOwnerUserId ?? null,
 						role: setup.memberRole,
-						userId: "user_1",
 					},
-		),
-	} as unknown as WorkspaceMembersRepository;
+	};
 
 	return {
-		guard: new WorkspaceContextGuard(members, reflector),
+		// SAFETY: the guard calls only findMembership on the repository.
+		guard: new WorkspaceContextGuard(
+			members as WorkspaceMembersRepository,
+			reflector,
+		),
 		context,
 		request,
 	};
+}
+
+function permission(
+	resource: WorkspacePermissionRequirement["resource"],
+	action: string,
+): Map<symbol, unknown> {
+	return new Map<symbol, unknown>([
+		[WORKSPACE_PERMISSION_KEY, { actions: [action], resource }],
+	]);
 }
 
 describe("WorkspaceContextGuard", () => {
@@ -93,19 +107,49 @@ describe("WorkspaceContextGuard", () => {
 		expect(request.workspace).toEqual({ kind: "personal" });
 	});
 
-	it("attaches org scope with parsed roles for members", async () => {
+	it.each([
+		{
+			name: "the caller's own personal org",
+			personalOwnerUserId: CALLER_ID,
+			memberRole: "owner",
+			expected: { kind: "personal" },
+		},
+		{
+			name: "another user's personal org",
+			personalOwnerUserId: OTHER_USER_ID,
+			memberRole: "member",
+			expected: {
+				kind: "shared-personal",
+				organizationId: ORG_ID,
+				ownerUserId: OTHER_USER_ID,
+				role: "member",
+				roles: ["member"],
+			},
+		},
+		{
+			name: "a team org",
+			personalOwnerUserId: null,
+			memberRole: "admin,member",
+			expected: {
+				kind: "org",
+				organizationId: ORG_ID,
+				role: "admin,member",
+				roles: ["admin", "member"],
+			},
+		},
+	])("maps the header of $name", async ({
+		personalOwnerUserId,
+		memberRole,
+		expected,
+	}) => {
 		const { guard, context, request } = buildContext({
 			header: ORG_ID,
-			memberRole: "admin,member",
+			memberRole,
+			personalOwnerUserId,
 		});
 
 		await expect(guard.canActivate(context)).resolves.toBe(true);
-		expect(request.workspace).toEqual({
-			kind: "org",
-			organizationId: ORG_ID,
-			role: "admin,member",
-			roles: ["admin", "member"],
-		});
+		expect(request.workspace).toEqual(expected);
 	});
 
 	it("hides foreign orgs behind 404, never 403", async () => {
@@ -119,119 +163,145 @@ describe("WorkspaceContextGuard", () => {
 		);
 	});
 
-	it("enforces workspace permissions for org members", async () => {
+	it.each([
+		// Money is owner-only in a team workspace.
+		{
+			owner: null,
+			role: "owner",
+			resource: "billing",
+			action: "manage",
+			allowed: true,
+		},
+		{
+			owner: null,
+			role: "admin",
+			resource: "billing",
+			action: "manage",
+			allowed: false,
+		},
+		{
+			owner: null,
+			role: "member",
+			resource: "billing",
+			action: "manage",
+			allowed: false,
+		},
+		{
+			owner: null,
+			role: "admin",
+			resource: "limits",
+			action: "manage",
+			allowed: true,
+		},
+		{
+			owner: null,
+			role: "admin",
+			resource: "domain",
+			action: "manage",
+			allowed: true,
+		},
+		{
+			owner: null,
+			role: "member",
+			resource: "project",
+			action: "update",
+			allowed: true,
+		},
+		{
+			owner: null,
+			role: "member",
+			resource: "project",
+			action: "delete",
+			allowed: false,
+		},
+		{
+			owner: null,
+			role: "viewer",
+			resource: "project",
+			action: "update",
+			allowed: false,
+		},
+		// The owner's personal pool pays in a shared personal workspace: no role manages its money.
+		{
+			owner: OTHER_USER_ID,
+			role: "owner",
+			resource: "billing",
+			action: "manage",
+			allowed: false,
+		},
+		{
+			owner: OTHER_USER_ID,
+			role: "admin",
+			resource: "limits",
+			action: "manage",
+			allowed: false,
+		},
+		{
+			owner: OTHER_USER_ID,
+			role: "member",
+			resource: "project",
+			action: "update",
+			allowed: true,
+		},
+		{
+			owner: OTHER_USER_ID,
+			role: "viewer",
+			resource: "project",
+			action: "update",
+			allowed: false,
+		},
+	] as const)("role $role in an org owned by $owner: $resource:$action allowed=$allowed", async ({
+		owner,
+		role,
+		resource,
+		action,
+		allowed,
+	}) => {
 		const { guard, context } = buildContext({
 			header: ORG_ID,
-			memberRole: "member",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "billing" }],
-			]),
+			memberRole: role,
+			metadata: permission(resource, action),
+			personalOwnerUserId: owner,
 		});
 
-		await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
-			WorkspacePermissionDeniedError,
-		);
-	});
-
-	it("grants owner the billing permission", async () => {
-		const { guard, context } = buildContext({
-			header: ORG_ID,
-			memberRole: "owner",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "billing" }],
-			]),
-		});
-
-		await expect(guard.canActivate(context)).resolves.toBe(true);
-	});
-
-	it("denies ADMIN the billing permission — money is owner-only", async () => {
-		const { guard, context } = buildContext({
-			header: ORG_ID,
-			memberRole: "admin",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "billing" }],
-			]),
-		});
-
-		await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
-			WorkspacePermissionDeniedError,
-		);
-	});
-
-	it("grants admin the non-money permissions (limits, domains)", async () => {
-		const limits = buildContext({
-			header: ORG_ID,
-			memberRole: "admin",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "limits" }],
-			]),
-		});
-		await expect(limits.guard.canActivate(limits.context)).resolves.toBe(true);
-
-		const domains = buildContext({
-			header: ORG_ID,
-			memberRole: "admin",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "domain" }],
-			]),
-		});
-		await expect(domains.guard.canActivate(domains.context)).resolves.toBe(
-			true,
-		);
+		if (allowed) {
+			await expect(guard.canActivate(context)).resolves.toBe(true);
+		} else {
+			await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+				WorkspacePermissionDeniedError,
+			);
+		}
 	});
 
 	it("bypasses role checks entirely in personal scope", async () => {
 		const { guard, context } = buildContext({
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["manage"], resource: "billing" }],
-			]),
+			metadata: permission("billing", "manage"),
 		});
 
 		await expect(guard.canActivate(context)).resolves.toBe(true);
 	});
 
-	it("rejects org scope on personal-only (legacy) routes", async () => {
+	it.each([
+		{ owner: null, allowed: false },
+		{ owner: OTHER_USER_ID, allowed: false },
+		{ owner: CALLER_ID, allowed: true },
+	])("personal-only route in a workspace whose personal owner is $owner: allowed=$allowed", async ({
+		owner,
+		allowed,
+	}) => {
 		const { guard, context } = buildContext({
 			header: ORG_ID,
 			memberRole: "owner",
 			metadata: new Map<symbol, unknown>([[PERSONAL_WORKSPACE_ONLY_KEY, true]]),
+			personalOwnerUserId: owner,
 		});
 
-		await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
-			WorkspaceNotSupportedError,
-		);
-	});
-
-	it("rejects personal scope on org-only routes", async () => {
-		const { guard, context } = buildContext({
-			metadata: new Map<symbol, unknown>([[ORG_WORKSPACE_REQUIRED_KEY, true]]),
-		});
-
-		await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
-			WorkspaceNotSupportedError,
-		);
-	});
-
-	it("member role passes project update but not project delete", async () => {
-		const passes = buildContext({
-			header: ORG_ID,
-			memberRole: "member",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["update"], resource: "project" }],
-			]),
-		});
-		await expect(passes.guard.canActivate(passes.context)).resolves.toBe(true);
-
-		const denied = buildContext({
-			header: ORG_ID,
-			memberRole: "member",
-			metadata: new Map<symbol, unknown>([
-				[WORKSPACE_PERMISSION_KEY, { actions: ["delete"], resource: "project" }],
-			]),
-		});
-		await expect(denied.guard.canActivate(denied.context)).rejects.toBeInstanceOf(
-			WorkspacePermissionDeniedError,
-		);
+		if (allowed) {
+			await expect(guard.canActivate(context)).resolves.toBe(true);
+		} else {
+			await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+				WorkspaceNotSupportedError,
+			);
+		}
 	});
 });

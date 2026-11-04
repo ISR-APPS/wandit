@@ -32,7 +32,10 @@ import {
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
 import { findPhishingTerm } from "../../../app-builder/domain/publish-gate/phishing-rules";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectOwnerColumns,
+} from "../../../projects/domain/project-scope";
 import {
 	mergeRequiredDomainRecords,
 	validationRequiredDomainRecords,
@@ -229,8 +232,9 @@ export class DomainsService {
 			name: parsed.name,
 			projectId,
 			tld: parsed.tld,
-			// Provenance: the acting member is recorded as the attacher.
-			userId: scope.userId,
+			// Org: the acting member is recorded as the attacher (provenance).
+			// Personal: the workspace owner owns the domain, like the project.
+			userId: projectOwnerColumns(scope).userId,
 		});
 		let customHostnameId: string | null = null;
 

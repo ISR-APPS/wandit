@@ -13,7 +13,6 @@
  */
 // FIRST import on purpose: raises the process-wide fetch idle timeouts
 // before any AI/storage SDK can issue a request.
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import "./undici-timeouts";
 
 import { logger, metadata, task } from "@trigger.dev/sdk";
@@ -56,6 +55,10 @@ import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastru
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
 import { TaggedBuildError } from "../modules/pages/domain/build-failure";
+import {
+	meteringSubjectFrom,
+	systemProjectScope,
+} from "../modules/projects/domain/project-scope";
 import { appendProjectBrandAsset } from "./generate-page-brand";
 import {
 	classifyPageTaskFailure,
@@ -154,14 +157,17 @@ export const generatePageTask = task({
 			}
 
 			// The PROJECT's owner entity pays for page builds. The recorded actor
-			// is the queueing member when the payload carries one (org builds),
-			// falling back to the project creator for pre-teams payloads.
-			const { attempt, organizationId, userId } = loaded;
-			const subject: MeteringSubject = {
-				actorUserId: payload.actorUserId ?? userId,
-				organizationId,
-				...(payload.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
-			};
+			// is the queueing member when the payload carries one, falling back
+			// to the project creator for pre-teams payloads. A member of another
+			// user's personal workspace spends the owner's pool (`projects.user_id`).
+			const { attempt, userId } = loaded;
+			const subject = meteringSubjectFrom(
+				systemProjectScope(
+					loaded,
+					payload.actorUserId ?? userId,
+					payload.actorIsLimitExempt === true,
+				),
+			);
 
 			if (attempt.status === "succeeded") {
 				logger.info(

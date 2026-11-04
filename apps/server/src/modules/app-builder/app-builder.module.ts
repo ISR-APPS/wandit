@@ -126,6 +126,7 @@ import { PreviewTokenController } from "./presentation/http/controllers/preview-
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
 import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
+import { SharedProjectsController } from "./presentation/http/controllers/shared-projects.controller";
 import { ThemeController } from "./presentation/http/controllers/theme.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
@@ -183,6 +184,7 @@ export function createCloudSupabaseClient(
 		ProjectSecretsController,
 		PublishController,
 		SandboxController,
+		SharedProjectsController,
 		ThemeController,
 		TurnsController,
 		V2HealthController,

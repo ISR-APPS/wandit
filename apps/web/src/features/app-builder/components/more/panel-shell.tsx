@@ -53,6 +53,14 @@ export function PanelShell({ panel, children }: PanelShellProps) {
 export const PANEL_CARD_CLASS =
 	"rounded-[20px] border border-night/[0.08] bg-white dark:border-white/[0.08] dark:bg-white/[0.03]";
 
+/** Title of a card on PANEL_CARD_CLASS. The Settings cards use it. */
+export const PANEL_CARD_TITLE_CLASS =
+	"font-grotesk font-semibold text-[15px] text-night dark:text-foreground";
+
+/** Grey hint line under a card title or a field, 13 px. */
+export const PANEL_HINT_CLASS =
+	"font-sans text-[13px] text-night/55 dark:text-foreground/55";
+
 /** Pill text field of the panels, for the kit Input. The focus ring is a soft ember halo. */
 export const PANEL_INPUT_CLASS =
 	"h-10 rounded-full border-night/[0.12] bg-white px-4 shadow-none placeholder:text-night/40 focus-visible:border-primary/50 focus-visible:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.04] dark:placeholder:text-foreground/40";

@@ -2,11 +2,19 @@
 	"switcher": {
 		"label": "Workspace",
 		"personal": "Personal",
-		"personalDescription": "Your private projects",
-		"create": "Create a team workspace",
-		"roleOwner": "Owner",
-		"roleAdmin": "Admin",
-		"roleMember": "Member"
+		"create": "Create a team workspace"
+	},
+	"roles": {
+		"owner": "Owner",
+		"admin": "Admin",
+		"member": "Editor",
+		"viewer": "Viewer"
+	},
+	"projectRoles": {
+		"owner": "Owner",
+		"admin": "Admin",
+		"editor": "Can edit",
+		"viewer": "Can view"
 	},
 	"create": {
 		"title": "Name your workspace",
@@ -23,34 +31,81 @@
 		},
 		"retryCheckout": "Retry checkout"
 	},
-	"members": {
-		"title": "Members",
-		"description": "People with access to this workspace.",
-		"invite": "Invite a teammate",
-		"inviteEmailLabel": "Email address",
-		"inviteEmailPlaceholder": "teammate@company.com",
-		"inviteRoleLabel": "Role",
-		"inviteSubmit": "Send invite",
-		"inviteSending": "Sending…",
-		"inviteSent": "Invitation sent",
-		"inviteFailed": "Sending the invitation failed. Please try again.",
-		"inviteLinkCopy": "Copy invite link",
-		"inviteLinkCopied": "Invite link copied",
-		"pendingTitle": "Pending invitations",
-		"cancelInvite": "Cancel invitation",
-		"resendInvite": "Re-send",
-		"removeMember": "Remove from workspace",
-		"removeConfirmTitle": "Remove {name}?",
-		"removeConfirmBody": "They lose access to every project in this workspace immediately.",
-		"leave": "Leave workspace",
-		"leaveConfirmTitle": "Leave this workspace?",
-		"leaveConfirmBody": "You lose access to its projects until someone invites you again.",
-		"lastOwnerBlocked": "You are the only owner. Transfer ownership before leaving.",
-		"changeRole": "Change role",
-		"you": "You",
-		"memberCount": {
-			"one": "{count} member",
-			"other": "{count} members"
+	"people": {
+		"title": "People",
+		"description": "The people who can open the projects of this workspace.",
+		"loadFailed": "This list could not load. Reload the page to try again.",
+		"cancel": "Cancel",
+		"linkCopied": "Link copied",
+		"copyFailed": "The browser blocked the copy. Select the link and copy it yourself.",
+		"rename": {
+			"label": "Workspace name",
+			"save": "Save name",
+			"saving": "Saving…",
+			"saved": "Workspace renamed"
+		},
+		"invite": {
+			"title": "Invite by email",
+			"description": "Separate several addresses with commas, spaces, or new lines.",
+			"emailsLabel": "Email addresses",
+			"emailsPlaceholder": "teammate@company.com, designer@company.com",
+			"roleLabel": "Role",
+			"submit": "Send invitations",
+			"sending": "Sending…",
+			"sent": {
+				"one": "{count} invitation sent",
+				"other": "{count} invitations sent"
+			},
+			"failed": "These invitations were not sent: {emails}. {reason}",
+			"invalidEmails": "These are not email addresses: {emails}",
+			"tooMany": "Send {max} invitations or fewer at a time.",
+			"alreadyMember": "This person is already a member.",
+			"alreadyInvited": "This person already has a pending invitation."
+		},
+		"links": {
+			"title": "Invite links",
+			"description": "Anyone with a link can join with its role. A link stops working after 5 days.",
+			"url": "Invite link for {role}",
+			"copy": "Copy link",
+			"create": "Create link",
+			"replace": "New link",
+			"revoke": "Delete link",
+			"created": "Invite link ready",
+			"revoked": "Invite link deleted",
+			"expires": "Expires {date}",
+			"expired": "Expired. Create a new link.",
+			"none": "No active link"
+		},
+		"members": {
+			"title": "Members",
+			"you": "You",
+			"roleLabel": "Role of {name}",
+			"roleChanged": "Role changed",
+			"remove": "Remove from workspace",
+			"removeConfirmTitle": "Remove {name}?",
+			"removeConfirmBody": "They lose access to every project in this workspace immediately.",
+			"removeConfirm": "Remove",
+			"removed": "{name} was removed"
+		},
+		"pending": {
+			"title": "Pending invitations",
+			"expires": "Expires {date}",
+			"copy": "Copy invitation link",
+			"cancel": "Cancel invitation",
+			"canceled": "Invitation canceled"
+		},
+		"collaborators": {
+			"title": "Collaborators",
+			"description": "People outside this workspace who can open some of its projects.",
+			"empty": "No collaborators yet. Share a project to add one.",
+			"project": "{project} · {role}"
+		},
+		"leave": {
+			"button": "Leave workspace",
+			"confirmTitle": "Leave this workspace?",
+			"confirmBody": "You lose access to its projects until someone invites you again.",
+			"confirm": "Leave",
+			"lastOwnerBlocked": "You are the only owner. Make another member an owner before you leave."
 		}
 	},
 	"limits": {
@@ -63,7 +118,9 @@
 		"save": "Save limits",
 		"saving": "Saving…",
 		"saved": "Limits saved",
-		"saveFailed": "Saving the limits failed. Please try again."
+		"saveFailed": "Saving the limits failed. Please try again.",
+		"loadFailed": "The limits could not load. Reload the page to try again.",
+		"collaborator": "Collaborator"
 	},
 	"invite": {
 		"title": "Workspace invitation",
@@ -76,10 +133,22 @@
 		"invalid": "This invitation is invalid or has expired.",
 		"signInFirst": "Sign in to accept this invitation.",
 		"pendingBanner": {
-			"one": "You have {count} pending workspace invitation",
-			"other": "You have {count} pending workspace invitations"
+			"one": "You have {count} pending invitation",
+			"other": "You have {count} pending invitations"
 		},
+		"pendingWorkspace": "Workspace {workspace} · {role}",
+		"pendingProject": "Project {project} in {workspace} · {role}",
 		"pendingBannerCta": "View"
+	},
+	"join": {
+		"title": "Join with an invite link",
+		"workspaceInvite": "{inviter} invites you to join the workspace {workspace} as {role}.",
+		"projectInvite": "{inviter} invites you to the project {project} as {role}.",
+		"join": "Join",
+		"joining": "Joining…",
+		"invalid": "This invite link is not valid. Ask for a new link.",
+		"expired": "This invite link has expired. Ask {inviter} for a new link.",
+		"signInFirst": "Sign in to join."
 	},
 	"billing": {
 		"ownerOnlyTitle": "Billing is managed by the workspace owner",

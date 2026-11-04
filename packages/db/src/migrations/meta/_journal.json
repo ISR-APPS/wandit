@@ -617,6 +617,13 @@
       "when": 1793051815555,
       "tag": "0087_app-commit-source-theme",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793788352288,
+      "tag": "0088_workspaces-sharing",
+      "breakpoints": true
     }
   ]
 }

@@ -12,7 +12,10 @@ import { join } from "node:path";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { SandboxReader } from "../../domain/ports/sandbox-provider";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
 import { CodeService } from "./code.service";
@@ -21,7 +24,7 @@ import { CodeService } from "./code.service";
 // coreutils flags, so this spec runs on Linux only. CI runs on ubuntu-latest.
 const IS_LINUX = process.platform === "linux";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",

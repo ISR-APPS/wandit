@@ -1,7 +1,8 @@
 /**
  * HTTP routes for V2 app projects: create, get, and the cost of one chat.
  * `V2BuilderEnabledGuard` gates the whole controller, and
- * `RedisRateLimitGuard` reads the `@RateLimit` on create. Platform,
+ * `RedisRateLimitGuard` reads the `@RateLimit` on create. Create reads the
+ * workspace header; the `:projectId` routes use the global ProjectAccessGuard. Platform,
  * attachment, credits, and engine checks live in `AppProjectsService`; this
  * file parses and delegates.
  */
@@ -29,7 +30,13 @@ import type { FastifyRequest } from "fastify";
 import { readRequestCountryCode } from "../../../../../infrastructure/http/request-country-code";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import {
+	CurrentProjectAccess,
+	projectScopeFrom,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
@@ -83,21 +90,23 @@ export class AppProjectsController {
 		});
 	}
 
+	@RequireProjectRole("viewer")
 	@Get(":projectId")
 	get(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppProject> {
 		return this.appProjects.get(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
 
-	// A read like the turn estimate: the service checks the scope and the
-	// chat, so no permission decorator. A foreign chat id answers 404.
+	// A read like the turn estimate. The service checks the chat: a foreign
+	// chat id answers 404.
+	@RequireProjectRole("viewer")
 	@Get(":projectId/chats/:chatId/cost")
 	chatCost(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -105,10 +114,10 @@ export class AppProjectsController {
 		@Param("chatId", new ZodValidationPipe(uuidSchema))
 		chatId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ChatCostResponse> {
 		return this.appProjects.chatCost(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			chatId,
 		);

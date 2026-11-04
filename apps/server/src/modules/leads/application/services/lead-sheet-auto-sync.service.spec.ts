@@ -20,6 +20,7 @@ const PERSONAL_CANDIDATE: LeadSheetAutoSyncCandidate = {
 	organizationId: null,
 	projectId: "project-personal",
 	projectName: "Personal shop",
+	projectUserId: "user-personal",
 	syncedByUserId: "user-personal",
 	syncedLeadCount: 2,
 };
@@ -28,6 +29,7 @@ const ORG_CANDIDATE: LeadSheetAutoSyncCandidate = {
 	organizationId: "org-1",
 	projectId: "project-org",
 	projectName: "Organization shop",
+	projectUserId: "user-org-creator",
 	syncedByUserId: "user-org-member",
 	syncedLeadCount: 0,
 };
@@ -97,7 +99,13 @@ describe("LeadSheetAutoSyncService", () => {
 		]);
 		expect(syncService.syncProject).toHaveBeenNthCalledWith(
 			1,
-			{ kind: "personal", userId: "user-personal" },
+			{
+				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-personal",
+				kind: "personal",
+				ownerUserId: "user-personal",
+			},
 			{ id: "project-personal", name: "Personal shop" },
 			"try",
 			{ lastSyncedAt: PERSONAL_CANDIDATE.lastSyncedAt },
@@ -106,9 +114,10 @@ describe("LeadSheetAutoSyncService", () => {
 			2,
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-org-member",
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-org-member",
 			},
 			{ id: "project-org", name: "Organization shop" },
 			"try",
@@ -336,9 +345,10 @@ describe("LeadSheetAutoSyncService", () => {
 			2,
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-org-member",
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-org-member",
 			},
 			{ id: "project-org", name: "Organization shop" },
 			"try",
@@ -438,7 +448,13 @@ describe("LeadSheetAutoSyncService", () => {
 		});
 		expect(syncService.syncProject).toHaveBeenCalledOnce();
 		expect(syncService.syncProject).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user-personal" },
+			{
+				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-personal",
+				kind: "personal",
+				ownerUserId: "user-personal",
+			},
 			{ id: "project-personal", name: "Personal shop" },
 			"try",
 			{ lastSyncedAt: PERSONAL_CANDIDATE.lastSyncedAt },

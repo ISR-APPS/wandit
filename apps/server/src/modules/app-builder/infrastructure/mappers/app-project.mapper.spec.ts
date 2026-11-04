@@ -7,6 +7,7 @@ import { mapAppProjectRow } from "./app-project.mapper";
 // spec must not import from another spec file.
 function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 	return {
+		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
 		engine: "v2_app",
