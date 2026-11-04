@@ -265,8 +265,10 @@ function isGoogleFontStylesheetHref(href: string): boolean {
 	}
 }
 
+// Not `z.url()`: zod 4.6 drops tabs and newlines before a refine runs, so this check would not see them.
+// `isGoogleFontStylesheetHref` parses the URL itself.
 const googleFontStylesheetHrefSchema = z
-	.url()
+	.string()
 	.refine(
 		isGoogleFontStylesheetHref,
 		"font stylesheet href must use fonts.googleapis.com",

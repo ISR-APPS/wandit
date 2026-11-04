@@ -333,7 +333,9 @@ const mcpFileWriteSchema = z.strictObject({
 	path: mcpPathSchema,
 	content: z
 		.string()
-		.refine((content) => content.isWellFormed(), "content must be UTF-8 text")
+		// A `u` regex reads a valid surrogate pair as one code point, so `\p{Cs}` finds only a lone surrogate.
+		// Not `String.isWellFormed()`: the edge and preview-proxy apps compile @wandit/contracts with lib es2022.
+		.refine((content) => !/\p{Cs}/u.test(content), "content must be UTF-8 text")
 		.refine(
 			(content) => !content.includes("\0"),
 			"content must not hold a NUL byte",
