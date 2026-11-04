@@ -126,6 +126,8 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 remote MCP server: the OAuth scopes and the paths.
+export * from "./v2/mcp";
 // V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
 export * from "./v2/mobile-builds";
 // V2 app-builder preview token and sandbox wake contracts.

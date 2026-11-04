@@ -1,3 +1,8 @@
+/**
+ * The project chat hook of the native app: history, streaming sends, errors, and billing state.
+ * The chat screen calls `useAiChat`. It calls the AI SDK `useChat` with a stream
+ * transport to the API, and sends the Better Auth session cookie by hand.
+ */
 import { useChat } from "@ai-sdk/react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import {
@@ -435,8 +440,8 @@ function buildStreamUrl(chatId: string) {
 	return `${getServerUrl().replace(/\/$/, "")}${aiChatRoutes.stream(chatId)}`;
 }
 
-function createStreamHeaders() {
-	const cookie = authClient.getCookie();
+async function createStreamHeaders() {
+	const cookie = await authClient.getCookie();
 	return {
 		Accept: "text/event-stream",
 		...(cookie ? { Cookie: cookie } : {}),

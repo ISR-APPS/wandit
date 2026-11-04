@@ -130,13 +130,13 @@ export class LeadSheetSyncService {
 		expected?: { lastSyncedAt: Date | null },
 	): Promise<LeadSheetSyncRow> {
 		const account = await this.syncsRepository.findGoogleAccount(scope.userId);
-		if (!isSheetsConnected(account)) {
+		if (!account || !isSheetsConnected(account)) {
 			throw new ConflictException(
 				"Google Sheets access is not connected for this account",
 			);
 		}
 
-		const accessToken = await this.mintAccessToken(scope.userId);
+		const accessToken = await this.mintAccessToken(scope.userId, account.id);
 		const title = `Wandit Leads — ${project.name}`;
 
 		return this.syncsRepository.withProjectSyncLock(
@@ -376,10 +376,14 @@ export class LeadSheetSyncService {
 		return project;
 	}
 
-	private async mintAccessToken(userId: string): Promise<string> {
+	/** `accountId` is the local `account.id` of the Google row that `isSheetsConnected` checked. */
+	private async mintAccessToken(
+		userId: string,
+		accountId: string,
+	): Promise<string> {
 		try {
 			const tokens = await this.auth.api.getAccessToken({
-				body: { providerId: "google", userId },
+				body: { accountId, userId },
 			});
 
 			if (!tokens.accessToken) {

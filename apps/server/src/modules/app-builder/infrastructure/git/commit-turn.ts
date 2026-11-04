@@ -5,7 +5,8 @@
  * the sandbox through `SandboxHandle.exec`, stores the patch and numstat in
  * R2, pushes to code.storage, writes the `app_commits` row, and moves the
  * `main` head compare-and-swap. The task calls it through
- * `commitTurnUnlessClean`, which skips a turn with no change.
+ * `commitTurnUnlessClean`, which skips a turn with no change. The MCP
+ * `apply_changes` tool calls it for the paths that the agent changed.
  */
 import { type GitNumstatEntry, parseNumstat } from "../../domain/git-numstat";
 import type { GitStore } from "../../domain/ports/git-store";
@@ -80,22 +81,25 @@ export type CommitTurnInput = {
 	turnId: string | null;
 	/**
 	 * Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore,
-	 * `theme-<uuid>` on a theme save.
+	 * `theme-<uuid>` on a theme save, `mcp-<uuid>` on an `apply_changes` call.
 	 */
 	messageId: string;
-	source: "agent" | "wip" | "restore" | "theme";
+	/** The `app_commit_source` value. "mcp" is a direct file edit of an external coding agent. */
+	source: "agent" | "wip" | "restore" | "theme" | "mcp";
 	summary: string;
 	restoredFromSha?: string;
 	/**
 	 * Worktree paths that the commit holds. Without it, the commit holds every change (`git add -A`).
 	 * The theme save names only src/styles/theme.json, so the files of a failed turn stay uncommitted.
+	 * Each path is a file name, never a glob or a pathspec magic word.
 	 */
 	paths?: string[];
 };
 
 /**
  * One sandbox `exec` failure. The message carries the command line and the
- * stderr text with any credential redacted.
+ * stderr text. For `git add` and `git commit`, it carries only the step name
+ * in place of the command line. Each credential in the text shows as `***`.
  */
 export class CommitTurnError extends Error {
 	constructor(message: string) {
@@ -127,12 +131,21 @@ export async function commitTurn(
 	deps: CommitTurnDeps,
 	input: CommitTurnInput,
 ): Promise<CommitTurnResult> {
-	const exec = (args: string[]) => mustRunGit(sandbox, args, CommitTurnError);
+	const exec = (args: string[], label?: string) =>
+		mustRunGit(sandbox, args, CommitTurnError, { label });
 	// A pathspec after `--` makes `git commit` take only these paths and leave
-	// the rest of the index out of the commit.
+	// the rest of the index out of the commit. `--literal-pathspecs` reads each
+	// path as a file name: an MCP path such as `src/*` must not add other files.
 	const pathspec = input.paths === undefined ? [] : ["--", ...input.paths];
+	const literal = input.paths === undefined ? [] : ["--literal-pathspecs"];
 
-	await exec(input.paths === undefined ? ["add", "-A"] : ["add", ...pathspec]);
+	// Security: the fixed labels keep the paths and the summary out of logs and Sentry. MCP agents send both.
+	await exec(
+		input.paths === undefined
+			? ["add", "-A"]
+			: [...literal, "add", ...pathspec],
+		"git add",
+	);
 
 	// A retried turn must not add a second commit for the same message. The
 	// Wandit-Message trailer on HEAD means the commit already exists.
@@ -161,17 +174,21 @@ export async function commitTurn(
 		}
 		// `--no-verify` skips the pre-commit and commit-msg hooks a second way,
 		// next to the `core.hooksPath` flag of `mustRunGit` (WANDIT-282).
-		await exec([
-			"-c",
-			"user.name=wandit",
-			"-c",
-			"user.email=builder@wandit.dev",
-			"commit",
-			"--no-verify",
-			"--allow-empty",
-			...trailers,
-			...pathspec,
-		]);
+		await exec(
+			[
+				"-c",
+				"user.name=wandit",
+				"-c",
+				"user.email=builder@wandit.dev",
+				...literal,
+				"commit",
+				"--no-verify",
+				"--allow-empty",
+				...trailers,
+				...pathspec,
+			],
+			"git commit",
+		);
 	}
 
 	// `tag -f` is idempotent: a retry points the tag at the same commit.

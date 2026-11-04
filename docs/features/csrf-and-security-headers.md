@@ -29,6 +29,17 @@ Confirmed targets were `POST /api/v1/push-tokens` (leak lead PII to an attacker 
 
 `packages/auth/src/expo-authorization-proxy.ts` now pins the target inside the Better Auth `before` hook: host `accounts.google.com`, `client_id` = `GOOGLE_CLIENT_ID`, `redirect_uri` = `${BETTER_AUTH_URL}/api/auth/callback/google`. Anything else gets `400 UNTRUSTED_AUTHORIZATION_URL`. The native client always sends the exact URL that `POST /api/auth/sign-in/social` returned, so nothing legitimate changes.
 
+The pin does not check `state`, so it does not stop state fixation. Before Better Auth 1.7.16, the plugin signed any `state` with the auth secret (GHSA-4wq4-2ppv-q3hg). With that signature, an attacker can forge a session cookie cache value or an email verification link. 1.7.16 signs only a `state` that Better Auth issued. Signatures from before the upgrade stay valid until the secret rotates.
+
+### Rotate the auth secret after the 1.7.16 deploy
+
+Do these steps once in production and once in staging, after 1.7.16 runs on the API. If you rotate while 1.6.22 runs, the endpoint also signs with the new secret.
+
+1. Make a new secret with `openssl rand -base64 32`. Use a different value in each environment.
+2. Set `BETTER_AUTH_SECRETS=1:<new secret>` on the Railway `server` service and in the Trigger.dev environment variables at the same time. The Trigger worker loads `@wandit/auth` for the Google Sheets sync. If only one side has the variable, the other side cannot decrypt new Google tokens.
+3. Do not change `BETTER_AUTH_SECRET`. Better Auth keeps it as `legacySecret` to decrypt the old Google tokens. `token-crypto.ts`, the affiliate and UTM token codecs, and the email IP hash also read it.
+4. Better Auth now signs and verifies with the new secret only. All users must sign in again. Old email links stop working.
+
 `CORS_ORIGIN` and `ADMIN_ORIGIN` are now normalized to bare origins at env validation time: a trailing slash or upper-case host would otherwise block every write from the app (CORS, Better Auth and the guard all compare the raw string with the browser's `Origin`).
 
 ## Security headers

@@ -63,8 +63,8 @@ export type WorkspacePermissionRequest = {
 /**
  * Server-side permission check for a member row's role value.
  *
- * `member.role` is a comma-separated multi-role string in better-auth 1.6.22
- * (organization.mjs parseRoles) — NEVER compare it with string equality. A
+ * `member.role` is a comma-separated multi-role string in better-auth 1.7.16
+ * (organization/roles.mjs parseRoleList) — NEVER compare it with string equality. A
  * request passes if ANY of the member's roles grants ALL requested actions,
  * matching the plugin's own hasPermission semantics.
  */

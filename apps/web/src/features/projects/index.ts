@@ -44,6 +44,8 @@ export {
 } from "./api/projects.queries";
 // Shared composer used both to create a project and to send chat messages.
 export { PromptBox } from "./components/prompt-box";
+// Frame of the account pages. The /coding-agents page renders inside it.
+export { DashboardShell } from "./components/shell/dashboard-shell";
 // One-shot flag the workspace consumes to auto-start the first AI reply
 // after project creation (see lib/chat-autostart.ts for the full flow).
 export { chatAutostart } from "./lib/chat-autostart";

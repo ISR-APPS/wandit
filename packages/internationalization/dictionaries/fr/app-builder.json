@@ -729,7 +729,8 @@
 			"restore": "Restauration",
 			"wip": "Travail en cours",
 			"merge": "Fusion",
-			"theme": "Thème"
+			"theme": "Thème",
+			"mcp": "Agent de code"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

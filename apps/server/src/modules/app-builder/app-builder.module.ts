@@ -19,6 +19,7 @@ import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
+import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
 import { AuditEventsService } from "./application/services/audit-events.service";
@@ -31,6 +32,7 @@ import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { McpChangesService } from "./application/services/mcp-changes.service";
 import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
@@ -82,6 +84,7 @@ import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
+import { McpAccessRepository } from "./infrastructure/persistence/mcp-access.repository";
 import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
@@ -120,6 +123,8 @@ import { CodeController } from "./presentation/http/controllers/code.controller"
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
+import { McpController } from "./presentation/http/controllers/mcp.controller";
+import { McpTools } from "./presentation/http/controllers/mcp-tools";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { ModelsController } from "./presentation/http/controllers/models.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
@@ -130,6 +135,7 @@ import { ThemeController } from "./presentation/http/controllers/theme.controlle
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
+import { McpTokenGuard } from "./presentation/http/guards/mcp-token.guard";
 import {
 	RATE_LIMIT_STORE,
 	RedisRateLimitGuard,
@@ -177,6 +183,8 @@ export function createCloudSupabaseClient(
 		CostCapsController,
 		DeviceSessionsController,
 		LlmProxyController,
+		// The remote MCP server: it mounts only with V2, as the feature doc asks.
+		McpController,
 		MobileBuildsController,
 		ModelsController,
 		PreviewTokenController,
@@ -203,6 +211,8 @@ export function createCloudSupabaseClient(
 		SettingsModule,
 		// DeploymentsRepository: the publish shares the V1 promote and unpublish writes.
 		SitesModule,
+		// The MCP `list_workspaces` tool reads WorkspacesService. The module is global, so the import only names the dependency.
+		WorkspacesModule,
 	],
 	providers: [
 		AppBackendsRepository,
@@ -222,6 +232,10 @@ export function createCloudSupabaseClient(
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
+		McpAccessRepository,
+		McpChangesService,
+		McpTokenGuard,
+		McpTools,
 		MobileBuildsRepository,
 		MobileBuildsService,
 		PreviewProxyClient,

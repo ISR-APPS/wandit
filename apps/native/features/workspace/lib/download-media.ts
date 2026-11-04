@@ -1,3 +1,8 @@
+/**
+ * Downloads a chat or hub media file with the session cookie, then opens the OS share sheet.
+ * Chat media, chat markdown images, and the hub asset and marketing views call it.
+ * It calls expo-file-system, expo-sharing, and the Better Auth Expo client for the cookie.
+ */
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
@@ -37,7 +42,7 @@ export async function downloadAndShareMedia({
 		const directory = new Directory(Paths.cache, "chat-media");
 		directory.create({ idempotent: true, intermediates: true });
 		const target = new File(directory, filename);
-		const cookie = authClient.getCookie();
+		const cookie = await authClient.getCookie();
 		file = await File.downloadFileAsync(url, target, {
 			headers: cookie ? { Cookie: cookie } : undefined,
 			idempotent: true,
