@@ -20,12 +20,19 @@ import {
 	aiChatRoutes,
 	appBuilderRoutes,
 	feedbackRoutes,
+	mcpRoutes,
 } from "@wandit/contracts";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
+import { errorCodes } from "fastify";
 
 import { AppModule } from "./app.module";
+import {
+	isOAuthFormBodyPath,
+	OAUTH_FORM_BODY_LIMIT_BYTES,
+	oauthMetadataCorsOptions,
+} from "./modules/auth";
 import { publicLeadCaptureCorsOptions } from "./modules/leads/presentation/http/public-leads-cors";
 
 // Runs once when the API process starts.
@@ -97,10 +104,27 @@ async function bootstrap() {
 		if (methods.includes("POST") && isLargeBodyRoute) {
 			route.bodyLimit = 4 * 1024 * 1024;
 		}
+		// MCP `apply_changes` sends up to 2 MiB of file text. JSON escaping and the
+		// JSON-RPC envelope add to it, so the route gets 3 MiB.
+		if (methods.includes("POST") && route.url === mcpRoutes.endpoint) {
+			route.bodyLimit = 3 * 1024 * 1024;
+		}
 	});
 	// All API routes start with `/api`, for example `/api/v1/chats/...`.
+	// RFC 9728 and RFC 8414 fix the OAuth metadata paths at the origin root.
 	app.setGlobalPrefix("api", {
-		exclude: [{ path: "/", method: RequestMethod.GET }],
+		exclude: [
+			{ path: "/", method: RequestMethod.GET },
+			{ path: mcpRoutes.protectedResourceMetadata, method: RequestMethod.GET },
+			{
+				path: mcpRoutes.protectedResourceMetadataRoot,
+				method: RequestMethod.GET,
+			},
+			{
+				path: mcpRoutes.authorizationServerMetadata,
+				method: RequestMethod.GET,
+			},
+		],
 	});
 	// Allow the web app to call this API with cookies. `Last-Event-ID` is needed
 	// so the SSE chat stream can reconnect and resume.
@@ -135,13 +159,16 @@ async function bootstrap() {
 		maxAge: 86400,
 	};
 	// Published pages may live on any merchant origin. Fastify's delegator sees
-	// both the POST and its OPTIONS preflight; every other URL receives the
-	// application/admin policy above unchanged.
+	// both the POST and its OPTIONS preflight. A browser MCP client on any origin
+	// reads the OAuth metadata. Every other URL receives the application/admin
+	// policy above unchanged.
 	app.enableCors({
 		delegator(request, callback) {
 			callback(
 				null,
-				publicLeadCaptureCorsOptions(request.url) ?? applicationCorsOptions,
+				publicLeadCaptureCorsOptions(request.url) ??
+					oauthMetadataCorsOptions(request.url) ??
+					applicationCorsOptions,
 			);
 		},
 	});
@@ -169,14 +196,31 @@ async function bootstrap() {
 
 	// `app.init()` is where Nest registers its default body parsers and routes.
 	// Nest adds an application/x-www-form-urlencoded parser that nothing here
-	// needs: every client sends JSON (or multipart for uploads, text/plain for
-	// the lead beacon). The only thing that speaks urlencoded to this API is a
-	// cross-site <form> forging a write, so drop the parser and let Fastify
-	// answer 415 before any handler runs — independent of the Origin guard.
+	// needs. Every client sends JSON, multipart for uploads, or text/plain for
+	// the lead beacon. From a browser page, only a cross-site <form> that forges
+	// a write sends urlencoded. So drop the parser: Fastify then answers 415
+	// before any handler runs. This protection does not depend on the Origin guard.
 	await app.init();
 	const fastify = adapter.getInstance();
 	if (fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
 		fastify.removeContentTypeParser("application/x-www-form-urlencoded");
+	}
+	// OAuth clients must POST the token, revoke, and introspect forms as
+	// urlencoded (RFC 6749). Only those exact paths get the body, as a string
+	// that the Better Auth forwarder passes on unchanged. Any other path still
+	// gets 415 (or 413 above the 16 KiB limit), and no handler runs.
+	if (env.V2_BUILDER_ENABLED) {
+		fastify.addContentTypeParser(
+			"application/x-www-form-urlencoded",
+			{ bodyLimit: OAUTH_FORM_BODY_LIMIT_BYTES, parseAs: "string" },
+			(request, body, done) => {
+				if (isOAuthFormBodyPath(request.url)) {
+					done(null, body);
+					return;
+				}
+				done(new errorCodes.FST_ERR_CTP_INVALID_MEDIA_TYPE(), undefined);
+			},
+		);
 	}
 
 	// Start listening after all setup is ready.

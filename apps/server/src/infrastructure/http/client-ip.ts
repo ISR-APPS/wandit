@@ -6,7 +6,7 @@
  * choose the value by sending its own header.
  */
 import { env } from "@wandit/env/server";
-import { getIp } from "better-auth/api";
+import { getIP } from "better-auth/api";
 import type { FastifyRequest } from "fastify";
 
 // The same list as `createBaseAuthOptions` in packages/auth, so the sign-in
@@ -26,7 +26,7 @@ export function readTrustedClientIp(
 ): string | null {
 	const forwarded = request.headers["x-forwarded-for"];
 	const value = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
-	return getIp(
+	return getIP(
 		new Headers(value === undefined ? {} : { "x-forwarded-for": value }),
 		{ advanced: { ipAddress: { trustedProxies } } },
 	);

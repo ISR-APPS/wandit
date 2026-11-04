@@ -29,6 +29,7 @@ import { SandboxWakeService } from "../../../application/services/sandbox-wake.s
 import {
 	RateLimit,
 	RedisRateLimitGuard,
+	SANDBOX_WAKE_RATE_LIMIT,
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
@@ -45,7 +46,7 @@ export class SandboxController {
 	// right of a turn. It charges no credits, so a small bucket bounds the
 	// cost: 6 wakes per user per 10 minutes.
 	@RequireWorkspacePermission("project", "update")
-	@RateLimit({ key: "sandbox-wake", limit: 6, windowMs: 10 * 60_000 })
+	@RateLimit(SANDBOX_WAKE_RATE_LIMIT)
 	@Post("wake")
 	@HttpCode(HttpStatus.ACCEPTED)
 	wake(

@@ -86,7 +86,7 @@ File: `packages/auth/src/index.ts`.
 | `emailOTP` | `storeOTP: "hashed"`, `otpLength: 6`, `expiresIn: 600 s`, `allowedAttempts: 3`, sign-in type only | 734-750 |
 | `captcha` | Cloudflare Turnstile on the two send endpoints, only when `TURNSTILE_SECRET_KEY` is set | 755-766 |
 
-**Expo plugin details.** `packages/auth/src/expo-authorization-proxy.ts:18-68` guards `GET /api/auth/expo-authorization-proxy`. The proxy may only redirect to `accounts.google.com` with our `client_id` and our `redirect_uri`. This closes an open redirect and a state-fixation hole in the plugin.
+**Expo plugin details.** `packages/auth/src/expo-authorization-proxy.ts:18-68` guards `GET /api/auth/expo-authorization-proxy`. The proxy may only redirect to `accounts.google.com` with our `client_id` and our `redirect_uri`. This closes an open redirect. It does not check `state`, so it does not stop state fixation.
 
 **Email canonical form.** `packages/auth/src/email-canonical.ts:24-37`: trim, lowercase, drop one `+suffix`, and for gmail drop dots and normalize the domain. One inbox = one user row.
 

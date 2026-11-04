@@ -1,3 +1,8 @@
+/**
+ * This module serves the personal and team workspaces of a user and the member limits.
+ * `AppModule` imports it after `AuthModule`. It registers `WorkspaceContextGuard` as a global guard.
+ * Other modules read members, limits, and the workspace list through its exports.
+ */
 import { Global, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
@@ -24,6 +29,8 @@ import { WorkspaceContextGuard } from "./presentation/http/guards/workspace-cont
 		OrganizationLimitsRepository,
 		WorkspaceContextGuard,
 		WorkspaceMembersRepository,
+		// The MCP `list_workspaces` tool of AppBuilderModule reads the same list as the web.
+		WorkspacesService,
 	],
 	imports: [DatabaseModule],
 	providers: [

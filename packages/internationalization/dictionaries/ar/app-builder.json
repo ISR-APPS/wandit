@@ -873,7 +873,8 @@
 			"wip": "عمل قيد التقدم",
 			"merge": "دمج",
 			"theme": "السمة",
-			"github": "GitHub"
+			"github": "GitHub",
+			"mcp": "وكيل برمجة"
 		},
 		"diff": "الفرق",
 		"numstat": "+{added} −{removed}",

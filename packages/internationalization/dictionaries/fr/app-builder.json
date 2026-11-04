@@ -813,7 +813,8 @@
 			"wip": "Travail en cours",
 			"merge": "Fusion",
 			"theme": "Thème",
-			"github": "GitHub"
+			"github": "GitHub",
+			"mcp": "Agent de code"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

@@ -683,4 +683,47 @@ describe("AdminUsersService.setBanned", () => {
 		expect(adminRepository.setUserBanned).not.toHaveBeenCalled();
 		expect(adminRepository.deleteUserSessions).not.toHaveBeenCalled();
 	});
+
+	// After a ban, an unban must not give an agent that a thief connected its access back.
+	it.each([
+		{ banned: true, expectedCalls: [["target-1"]] },
+		{ banned: false, expectedCalls: [] },
+	])("banned $banned deletes the OAuth grants $expectedCalls", async ({
+		banned,
+		expectedCalls,
+	}) => {
+		const deleteUserOAuthGrants =
+			vi.fn<AdminRepository["deleteUserOAuthGrants"]>();
+		const adminRepository: Pick<
+			AdminRepository,
+			| "deleteUserOAuthGrants"
+			| "deleteUserSessions"
+			| "findUserAccess"
+			| "readTransaction"
+			| "setUserBanned"
+		> = {
+			deleteUserOAuthGrants,
+			deleteUserSessions: vi.fn(),
+			findUserAccess: vi
+				.fn<AdminRepository["findUserAccess"]>()
+				.mockResolvedValue({ id: "target-1", role: "user" }),
+			// The detail read after the change has its own specs. This fake skips it.
+			readTransaction: vi.fn(),
+			setUserBanned: vi.fn(),
+		};
+		const service = new AdminUsersService(
+			// SAFETY: setBanned calls only these five methods. The fake readTransaction runs no detail read.
+			adminRepository as AdminRepository,
+			// SAFETY: setBanned never reads organizations.
+			{} as AdminOrganizationsRepository,
+			// SAFETY: setBanned never reads credits.
+			{} as CreditsService,
+			// SAFETY: only the skipped detail read uses view grants.
+			{} as AdminViewGrantsRepository,
+		);
+
+		await service.setBanned("admin-1", "target-1", { banned });
+
+		expect(deleteUserOAuthGrants.mock.calls).toEqual(expectedCalls);
+	});
 });

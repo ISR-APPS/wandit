@@ -70,6 +70,8 @@ export * from "./mcp-connectors";
 export * from "./mobile-builds";
 // Monthly cost input tables.
 export * from "./monthly-costs";
+// Better Auth OAuth provider tables of the remote MCP server (D29).
+export * from "./oauth-provider";
 // User onboarding questionnaire answers.
 export * from "./onboarding";
 // Payment order tables.
