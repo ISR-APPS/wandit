@@ -1,8 +1,7 @@
 /**
  * Zod schemas for values that enter the app builder from the URL and from
- * localStorage. The route file parses
- * `?view=&panel=&device=&viewport=&file=` with them. The
- * resizable split parses its stored layout.
+ * localStorage. The route file parses `?view=&panel=&device=&viewport=&file=`
+ * with them. The resizable split parses its stored layout.
  * A value the schema does not know becomes undefined. A bad link or a
  * corrupt stored value still opens the workspace on its defaults.
  */
@@ -24,7 +23,8 @@ const FILE_PATH_MAX_LENGTH = 512;
  * validateSearch of routes/_auth/app.$projectId.tsx parses the URL with it.
  * An unknown value becomes undefined, so an old `?view=cloud` or
  * `?viewport=tablet` link opens the default. `panel` holds a More panel id
- * or a Cloud panel id. `device` is the mobile preview target.
+ * or a Cloud panel id. `device` is the mobile preview target. The GitHub
+ * return params are not here: `useGithubReturnToast` in the root reads them on every page.
  */
 export const appBuilderSearchSchema = z.object({
 	view: z.enum(BUILDER_VIEWS).optional().catch(undefined),

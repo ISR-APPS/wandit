@@ -1,8 +1,8 @@
 /**
  * Action names of the V2 audit trail (WANDIT-181). `AuditEventsService` in
  * the app-builder module writes one `audit_events` row per action. The turn
- * API and task, the publish API and task, the restore route, and the admin
- * suspend routes call it.
+ * API and task, the publish API and task, the restore route, the admin
+ * suspend routes, and the project GitHub routes call it.
  */
 
 /** Every action that `AuditEventsService` records. Add a name here before a new call site. */
@@ -18,6 +18,9 @@ export const auditActions = [
 	"version.restore",
 	"project.suspend",
 	"project.unsuspend",
+	"github.link",
+	"github.unlink",
+	"github.pull",
 ] as const;
 
 /** One value of `auditActions`. */

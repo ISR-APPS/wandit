@@ -228,7 +228,7 @@
 		},
 		"integrations": {
 			"title": "التكاملات",
-			"description": "Google Sheets وWhatsApp والبريد والخدمات الأخرى التي يتواصل معها تطبيقك."
+			"description": "GitHub، ولاحقًا الخدمات الأخرى التي يتواصل معها تطبيقك."
 		},
 		"domains": {
 			"title": "النطاقات",
@@ -336,6 +336,51 @@
 		"freeTitle": "عنوان Wandit مجاني",
 		"freeAfterPublish": "تحصل عليه عند نشر التطبيق.",
 		"freeHost": "نطاق Wandit مجاني"
+	},
+	"github": {
+		"title": "GitHub",
+		"hint": "احتفظ بكود هذا التطبيق في مستودع على حسابك في GitHub.",
+		"notConfigured": "مزامنة GitHub غير مُعدّة على هذا الخادم.",
+		"connectHint": "اربط حسابك في GitHub لإنشاء مستودع لهذا التطبيق.",
+		"connect": "ربط GitHub",
+		"connectedAs": "متصل باسم {login}",
+		"owner": "المالك",
+		"addOwner": "إضافة حساب أو مؤسسة",
+		"noInstallations": "ثبّت تطبيق Wandit على حسابك في GitHub أو على مؤسسة لإنشاء مستودع.",
+		"repoName": "اسم المستودع",
+		"repoNameInvalid": "استخدم الحروف اللاتينية والأرقام والنقاط والشرطات والشرطات السفلية فقط، بحد أقصى 100 حرف.",
+		"private": "مستودع خاص",
+		"privateHelp": "لا يراه إلا أنت والأشخاص الذين تضيفهم على GitHub.",
+		"create": "إنشاء المستودع",
+		"lastSynced": "آخر مزامنة: {sha}",
+		"neverSynced": "لم تتم المزامنة بعد.",
+		"unlink": "إلغاء ربط المستودع",
+		"unlinkConfirmTitle": "إلغاء ربط {repo}؟",
+		"unlinkConfirmBody": "يوقف Wandit المزامنة. يبقى المستودع وعمليات الإيداع فيه على GitHub.",
+		"cancel": "إلغاء",
+		"notes": {
+			"mainOnly": "يُزامَن الفرع main فقط، في الاتجاهين.",
+			"githubWins": "عندما يغيّر الطرفان الأسطر نفسها، تُعتمد نسخة GitHub.",
+			"workflows": "عندما يغيّر الوكيل ملفًا في ‎.github/workflows‎، تتوقف المزامنة إلى GitHub."
+		},
+		"banner": {
+			"text": "يحتوي هذا المشروع على تغييرات جديدة على GitHub.",
+			"update": "تحديث"
+		},
+		"connectedToast": "تم ربط GitHub.",
+		"callbackErrors": {
+			"invalid_state": "انتهت صلاحية ربط GitHub. حاول مرة أخرى.",
+			"access_denied": "رفضت منح الوصول على GitHub.",
+			"exchange_failed": "فشل ربط GitHub. حاول مرة أخرى."
+		},
+		"syncErrors": {
+			"GITHUB_ACCESS_LOST": "لم يعد تطبيق Wandit يصل إلى هذا المستودع. تحقق من تثبيت التطبيق على GitHub.",
+			"GITHUB_LINK_OWNER_LEFT": "غادر الشخص الذي ربط هذا المستودع مساحة العمل. ألغِ الربط، ثم اربطه مرة أخرى.",
+			"GITHUB_LINKER_NO_ACCESS": "لم يعد بإمكان الشخص الذي ربط هذا المستودع الكتابة فيه.",
+			"GITHUB_PUSH_REJECTED": "رفض GitHub آخر إرسال، مثلًا بسبب قاعدة لحماية الفرع.",
+			"GITHUB_WORKFLOW_CHANGED": "توقفت المزامنة: غيّر الوكيل ملفًا في ‎.github/workflows‎. أجرِ تغييرات سير العمل على GitHub.",
+			"GITHUB_SYNC_FAILED": "فشلت آخر مزامنة. سيحاول Wandit مرة أخرى قريبًا."
+		}
 	},
 	"appStores": {
 		"androidHelp": "عمليات بناء Android لتطبيقك. ابدأ بناءً جديدًا من النشر.",
@@ -827,7 +872,8 @@
 			"restore": "استعادة",
 			"wip": "عمل قيد التقدم",
 			"merge": "دمج",
-			"theme": "السمة"
+			"theme": "السمة",
+			"github": "GitHub"
 		},
 		"diff": "الفرق",
 		"numstat": "+{added} −{removed}",

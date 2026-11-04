@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -92,14 +86,5 @@ describe("MoreNav", () => {
 		expect(screen.queryByRole("group", { name: "Backend" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Database" })).toBeNull();
 		expect(screen.getByRole("button", { name: "Sign-in" })).toBeTruthy();
-	});
-
-	it("shows Integrations as a disabled Soon item that selects nothing", () => {
-		const { onSelect } = renderNav();
-		const integrations = screen.getByRole("button", { name: /^Integrations/ });
-		expect(within(integrations).getByText("Soon")).toBeTruthy();
-		expect(integrations).toHaveProperty("disabled", true);
-		fireEvent.click(integrations);
-		expect(onSelect).not.toHaveBeenCalled();
 	});
 });

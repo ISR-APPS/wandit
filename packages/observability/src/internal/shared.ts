@@ -37,11 +37,12 @@ const SENSITIVE_HEADERS = [
 /**
  * Prefixes of live keys (docs/v2/research/security.md 6.3): Stripe secret
  * and restricted keys, Supabase secret keys, the service-role key, Stripe
- * webhook secrets, and the app AI gateway key. A string that holds one is
- * replaced whole.
+ * webhook secrets, the app AI gateway key, and GitHub tokens (`ghs_`
+ * installation, `ghu_` user, `ghr_` refresh, `gho_` OAuth, `ghp_` personal).
+ * A string that holds one is replaced whole.
  */
 const SECRET_STRING_PATTERN =
-	/sk_live_|rk_live_|sb_secret_|service_role|whsec_|wnd_ai_/;
+	/sk_live_|rk_live_|sb_secret_|service_role|whsec_|wnd_ai_|\bgh[opsur]_[A-Za-z0-9_]+/;
 
 /** Replacement text; the same marker Sentry's own filters use. */
 const FILTERED = "[Filtered]";

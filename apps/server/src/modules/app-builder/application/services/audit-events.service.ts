@@ -1,8 +1,8 @@
 /**
  * Writes one `audit_events` row per V2 action (WANDIT-181) and masks every
  * key of the secret scanner rules in the metadata first. The turn API, the
- * turn task, the publish API and task, the restore route, and the admin
- * suspend routes call it. It calls `AuditEventsRepository`.
+ * turn task, the publish API and task, the restore route, the project GitHub
+ * routes, and the admin suspend routes call it. It calls `AuditEventsRepository`.
  */
 import type { AuditAction } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";

@@ -14,4 +14,5 @@ export {
 	useBuilderModelPick,
 } from "./lib/use-builder-model-pick";
 export { useCreateAppProjectWithPrompt } from "./lib/use-create-app-project";
+export { useGithubReturnToast } from "./lib/use-github-return-toast";
 export { useV2BuilderEnabled } from "./lib/use-v2-builder-enabled";

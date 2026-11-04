@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { GitStore } from "../../domain/ports/git-store";
+import type { GithubSyncScheduler } from "../../domain/ports/github-sync-scheduler";
 import type {
 	SandboxExecResult,
 	SandboxHandle,
@@ -98,15 +99,29 @@ function fixture(options?: {
 		})),
 	};
 
+	const githubSync: GithubSyncScheduler = {
+		scheduleIfLinked: vi.fn(async () => undefined),
+	};
+
 	const deps: CommitTurnDeps = {
 		gitStore,
 		appCommits,
 		putPatch: vi.fn(async (key: string, body: string | Uint8Array) => {
 			puts.set(key, body);
 		}),
+		githubSync,
 	};
 
-	return { appCommits, deps, headWrites, inserted, provider, puts, gitStore };
+	return {
+		appCommits,
+		deps,
+		githubSync,
+		headWrites,
+		inserted,
+		provider,
+		puts,
+		gitStore,
+	};
 }
 
 async function fixtureSandbox(
@@ -246,8 +261,16 @@ describe("commitTurnUnlessClean", () => {
 
 describe("commitTurn", () => {
 	it("runs the git commands in order and writes row, patches, and head", async () => {
-		const { appCommits, deps, gitStore, headWrites, inserted, provider, puts } =
-			fixture();
+		const {
+			appCommits,
+			deps,
+			githubSync,
+			gitStore,
+			headWrites,
+			inserted,
+			provider,
+			puts,
+		} = fixture();
 		scriptCommit(provider);
 		const sandbox = await fixtureSandbox(provider);
 
@@ -264,8 +287,13 @@ describe("commitTurn", () => {
 		expect(execs[3]).toBe(`${SAFE} tag -f msg/msg-1`);
 		expect(execs[4]).toBe(`${SAFE} rev-parse HEAD`);
 		expect(execs[5]).toBe("git rev-parse HEAD~1");
-		expect(execs[6]).toBe(`${SAFE} show --numstat --format= HEAD`);
-		expect(execs[7]).toBe(`${SAFE} show --format= HEAD`);
+		// A GitHub merge commit stores its diff against the first parent.
+		expect(execs[6]).toBe(
+			`${SAFE} show --diff-merges=first-parent --numstat --format= HEAD`,
+		);
+		expect(execs[7]).toBe(
+			`${SAFE} show --diff-merges=first-parent --format= HEAD`,
+		);
 		// The push carries the JWT: no hook or credential helper may run.
 		expect(execs[8]).toBe(
 			`${SAFE} push --no-verify https://t:${JWT}@org.code.storage/wandit/p-1.git HEAD:main`,
@@ -310,6 +338,11 @@ describe("commitTurn", () => {
 				userId: "user-1",
 			},
 		]);
+		// The GitHub push of a linked project follows the moved head.
+		expect(githubSync.scheduleIfLinked).toHaveBeenCalledWith(
+			"p-1",
+			`push:${SHA}`,
+		);
 	});
 
 	it("does not commit twice when the message trailer is on HEAD", async () => {
@@ -433,7 +466,7 @@ describe("commitTurn", () => {
 	});
 
 	it("throws VersionConflictError when the stored head is not an ancestor", async () => {
-		const { appCommits, deps, provider } = fixture({
+		const { appCommits, deps, githubSync, provider } = fixture({
 			storedHead: STORED_HEAD,
 			upsertResults: [false],
 		});
@@ -446,6 +479,8 @@ describe("commitTurn", () => {
 			VersionConflictError,
 		);
 		expect(appCommits.upsertBranchHead).toHaveBeenCalledTimes(1);
+		// A lost head is not the project head: no GitHub push for it.
+		expect(githubSync.scheduleIfLinked).not.toHaveBeenCalled();
 	});
 
 	it("throws VersionConflictError when the recovery CAS also loses", async () => {

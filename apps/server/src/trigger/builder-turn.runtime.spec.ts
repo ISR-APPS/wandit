@@ -690,6 +690,7 @@ function makeWorld(over?: {
 			}),
 		},
 		putPatch: async () => {},
+		githubSync: { scheduleIfLinked: async () => {} },
 	};
 
 	const deps: BuilderTurnDeps = {
@@ -4695,5 +4696,13 @@ describe("restoreNoteOf", () => {
 		// A note names the picked version a1b2c3d, never the copy-forward commit f9e8d7c.
 		expect(note?.includes("a1b2c3d") ?? false).toBe(hasNote);
 		expect(note?.includes("f9e8d7c") ?? false).toBe(false);
+	});
+
+	it("a GitHub Update after the last agent turn gives the GitHub note", () => {
+		const note = restoreNoteOf(
+			{ ...restore, restoredFromSha: null, source: "github" },
+			new Date("2026-10-04T09:00:00.000Z"),
+		);
+		expect(note).toMatch(/GitHub/);
 	});
 });

@@ -83,4 +83,15 @@ export const appBuilderRoutes = {
 	// PUT sets or replaces one secret value; DELETE removes it.
 	secret: (projectId: string, name: string) =>
 		`/api/v2/projects/${projectId}/secrets/${name}`,
+	// GET the GitHub connection of the user and the App installations; DELETE disconnects.
+	githubAccount: "/api/v2/github/account",
+	// POST answers the GitHub URL that starts a connect or an App install.
+	githubAuthorize: "/api/v2/github/authorize",
+	// GET GitHub redirects here after the connect; public, answers a 302 to the builder.
+	githubCallback: "/api/v2/github/callback",
+	// GET the GitHub link and sync state; POST creates and links a repo; DELETE unlinks.
+	github: (projectId: string) => `/api/v2/projects/${projectId}/github`,
+	// POST merges the GitHub commits into the project as one "github" commit.
+	githubPull: (projectId: string) =>
+		`/api/v2/projects/${projectId}/github/pull`,
 } as const;
