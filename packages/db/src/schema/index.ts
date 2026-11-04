@@ -50,6 +50,8 @@ export * from "./domains";
 export * from "./feedback";
 // Shared durable generation lifecycle enum.
 export * from "./generation-status";
+// V2 GitHub sync: user connections and project repo links.
+export * from "./github";
 // Standalone image generation attempt tables (chat's generate_image tool).
 export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.

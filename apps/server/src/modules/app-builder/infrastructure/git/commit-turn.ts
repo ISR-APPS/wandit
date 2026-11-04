@@ -1,14 +1,17 @@
 /**
  * `commitTurn`: the one-commit-per-turn write (WANDIT-171).
  * The builder-turn task and the restore flow call it after a turn's file
- * changes; the theme save calls it for theme.json only. It runs git inside
- * the sandbox through `SandboxHandle.exec`, stores the patch and numstat in
- * R2, pushes to code.storage, writes the `app_commits` row, and moves the
- * `main` head compare-and-swap. The task calls it through
- * `commitTurnUnlessClean`, which skips a turn with no change.
+ * changes; the theme save calls it for theme.json only; the GitHub Update
+ * calls it for its merge commit. It runs git inside the sandbox through
+ * `SandboxHandle.exec`. It stores the patch and numstat in R2, pushes to
+ * code.storage, writes the `app_commits` row, and moves the `main` head
+ * compare-and-swap. Then it schedules the GitHub sync through
+ * `GithubSyncScheduler`. The task calls it through `commitTurnUnlessClean`,
+ * which skips a turn with no change.
  */
 import { type GitNumstatEntry, parseNumstat } from "../../domain/git-numstat";
 import type { GitStore } from "../../domain/ports/git-store";
+import type { GithubSyncScheduler } from "../../domain/ports/github-sync-scheduler";
 import type {
 	SandboxExecResult,
 	SandboxHandle,
@@ -60,30 +63,39 @@ export type PutPatch = (
 	body: string | Uint8Array,
 ) => Promise<void>;
 
-/** Dependencies `commitTurn` needs; the task and the service pass them. */
+/**
+ * Dependencies `commitTurn` needs. The builder-turn deps, `VersionsService`,
+ * and `AppThemeService` build them.
+ */
 export type CommitTurnDeps = {
 	gitStore: GitStore;
 	appCommits: CommitTurnStore;
 	putPatch: PutPatch;
+	/** Queues the GitHub push after the head moves. It does nothing for a project without a link. */
+	githubSync: GithubSyncScheduler;
 };
 
-/** One commit input. The task fills the turn fields. A restore and a theme save set them to null. */
+/**
+ * One commit input. The task fills the turn fields. A restore, a theme save,
+ * and a GitHub Update set them to null.
+ */
 export type CommitTurnInput = {
 	projectId: string;
 	/** The user whose action made the commit: the turn author, the restorer, or the user who saved the theme. */
 	userId: string;
 	/** Org workspace of the project, or null on a personal project. */
 	organizationId: string | null;
-	/** The chat whose turn produced the commit; null on a restore and on a theme save. */
+	/** The chat whose turn produced the commit; null on a restore, a theme save, and a GitHub Update. */
 	chatId: string | null;
-	/** The `builder_turns` row; null on a restore and on a theme save, which are not turns. */
+	/** The `builder_turns` row; null on a restore, a theme save, and a GitHub Update, which are not turns. */
 	turnId: string | null;
 	/**
 	 * Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore,
-	 * `theme-<uuid>` on a theme save.
+	 * `theme-<uuid>` on a theme save, `github-<uuid>` or `pre-github-<uuid>` on a GitHub Update.
 	 */
 	messageId: string;
-	source: "agent" | "wip" | "restore" | "theme";
+	/** "github" is the merge commit of a GitHub Update; the sandbox then has MERGE_HEAD set. */
+	source: "agent" | "wip" | "restore" | "theme" | "github";
 	summary: string;
 	restoredFromSha?: string;
 	/**
@@ -117,7 +129,8 @@ export function versionNumstatKey(projectId: string, sha: string): string {
 /**
  * Commits the sandbox worktree as one version and pushes it to
  * code.storage. Write order per WANDIT-171: patch files to R2, push to the
- * remote, the `app_commits` row, then the `main` head CAS. The
+ * remote, the `app_commits` row, the `main` head CAS, then the GitHub sync
+ * schedule. The
  * `msg/<messageId>` tag is the idempotency key: a retried call does not
  * add a second commit for the same message. With `input.paths`, the commit
  * holds only those paths, also when other files are staged.
@@ -185,10 +198,24 @@ export async function commitTurn(
 	});
 	const parentSha = parent.exitCode === 0 ? parent.stdout.trim() : null;
 
-	const numstatOutput = await exec(["show", "--numstat", "--format=", "HEAD"]);
+	// A merge commit of a GitHub Update prints a combined diff, which is empty
+	// for a clean merge. The first-parent diff shows what the merge changed.
+	// Other commits have one parent, so the flag changes nothing for them.
+	const numstatOutput = await exec([
+		"show",
+		"--diff-merges=first-parent",
+		"--numstat",
+		"--format=",
+		"HEAD",
+	]);
 	const numstat = parseNumstat(numstatOutput.stdout);
 
-	const patchOutput = await exec(["show", "--format=", "HEAD"]);
+	const patchOutput = await exec([
+		"show",
+		"--diff-merges=first-parent",
+		"--format=",
+		"HEAD",
+	]);
 	// The cap counts bytes, not UTF-16 units, so a patch full of multibyte
 	// characters still stays under 1 MiB. A cut tail character is lost.
 	const patch = Buffer.from(patchOutput.stdout, "utf8").subarray(
@@ -252,6 +279,8 @@ export async function commitTurn(
 	if (!swapped) {
 		await recoverPushedHead(sandbox, deps, input, sha);
 	}
+	// Only after the head moved: the sync run reads `app_branches(main)`.
+	await deps.githubSync.scheduleIfLinked(input.projectId, `push:${sha}`);
 
 	return { sha, parentSha, numstat, patchKey, commit };
 }

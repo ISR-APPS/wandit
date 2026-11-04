@@ -27,6 +27,8 @@ import { ChatHistoryService } from "./application/services/chat-history.service"
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
 import { DeviceSessionsService } from "./application/services/device-sessions.service";
+import { GithubAccountService } from "./application/services/github-account.service";
+import { GithubProjectService } from "./application/services/github-project.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -51,6 +53,7 @@ import {
 	GIT_STORE,
 	REPO_RESTORER,
 } from "./domain/ports/git-store";
+import { GITHUB_SYNC_SCHEDULER } from "./domain/ports/github-sync-scheduler";
 import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
@@ -69,6 +72,7 @@ import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
+import { GithubAppClient } from "./infrastructure/github/github-app.client";
 import { createTurnTaskStarter } from "./infrastructure/host/routing-turn-task-starter";
 import {
 	LangfuseExporter,
@@ -81,9 +85,11 @@ import { AuditEventsRepository } from "./infrastructure/persistence/audit-events
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
+import { GithubConnectionsRepository } from "./infrastructure/persistence/github-connections.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
 import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
+import { ProjectGithubLinksRepository } from "./infrastructure/persistence/project-github-links.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
 import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
@@ -107,6 +113,7 @@ import {
 	type SupabaseRateLimiter,
 } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerGithubSyncScheduler } from "./infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
@@ -119,6 +126,9 @@ import { CloudController } from "./presentation/http/controllers/cloud.controlle
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
+import { GithubController } from "./presentation/http/controllers/github.controller";
+import { GithubCallbackController } from "./presentation/http/controllers/github-callback.controller";
+import { GithubWebhookController } from "./presentation/http/controllers/github-webhook.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { ModelsController } from "./presentation/http/controllers/models.controller";
@@ -176,6 +186,9 @@ export function createCloudSupabaseClient(
 		CodeController,
 		CostCapsController,
 		DeviceSessionsController,
+		GithubCallbackController,
+		GithubController,
+		GithubWebhookController,
 		LlmProxyController,
 		MobileBuildsController,
 		ModelsController,
@@ -219,6 +232,10 @@ export function createCloudSupabaseClient(
 		CodeService,
 		DeviceSessionsRepository,
 		DeviceSessionsService,
+		GithubAccountService,
+		GithubAppClient,
+		GithubConnectionsRepository,
+		GithubProjectService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
@@ -227,6 +244,7 @@ export function createCloudSupabaseClient(
 		PreviewProxyClient,
 		PreviewTokenService,
 		ProjectCostCapsRepository,
+		ProjectGithubLinksRepository,
 		ProjectSecretsRepository,
 		ProjectSecretsService,
 		PublishService,
@@ -260,6 +278,13 @@ export function createCloudSupabaseClient(
 			inject: [V2_ENV],
 		},
 		{ provide: GIT_STORE, useClass: CodeStorageGitStore },
+		// A plain class: the Trigger tasks build the same scheduler by hand.
+		{
+			provide: GITHUB_SYNC_SCHEDULER,
+			useFactory: (links: ProjectGithubLinksRepository) =>
+				new TriggerGithubSyncScheduler(links, Sentry.logger),
+			inject: [ProjectGithubLinksRepository],
+		},
 		// The same code.storage store reads one committed file for the theme GET.
 		{ provide: GIT_FILE_READER, useExisting: GIT_STORE },
 		// Null without both Langfuse keys: the LLM proxy then traces nothing.

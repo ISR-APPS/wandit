@@ -1,7 +1,7 @@
 /**
  * "Soon" state of a More panel that Wandit cannot set up yet: Analytics, AI,
  * and Security. The panel icon on the night tile, a title, a hint, and the
- * planned action as a disabled pill with a "Soon" chip, like the nav row.
+ * planned action as a disabled pill with a "Soon" chip.
  * Rendered by components/more/more-view.tsx inside PanelShell.
  */
 

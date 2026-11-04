@@ -86,6 +86,16 @@
 		"PUBLISH_ACTIVE": "A publish of this app is already running. Wait for it to finish.",
 		"PUBLISH_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
 		"PUBLISH_ROLLBACK_INVALID": "This version cannot come back. Choose an earlier version.",
-		"PUBLISH_UNAVAILABLE": "Publishing is not available now. Try again later."
+		"PUBLISH_UNAVAILABLE": "Publishing is not available now. Try again later.",
+		"GITHUB_NOT_CONNECTED": "Connect GitHub first, then try again.",
+		"GITHUB_ALREADY_LINKED": "This project already has a GitHub repository.",
+		"GITHUB_INSTALLATION_NOT_YOURS": "Choose one of your GitHub accounts or organizations.",
+		"GITHUB_REPO_EXISTS": "A repository with this name already exists on GitHub. Choose a different name.",
+		"GITHUB_REPO_CREATE_FORBIDDEN": "GitHub does not let you create a repository in this account or organization.",
+		"GITHUB_REPO_NOT_IN_INSTALLATION": "The Wandit app cannot reach the new repository. On GitHub, give the app access to all repositories, then try again with a new name.",
+		"GITHUB_NOT_LINKED": "This project has no GitHub repository.",
+		"GITHUB_NOTHING_TO_UPDATE": "GitHub has no new changes for this project.",
+		"GITHUB_UPDATE_CHANGED": "GitHub changed again. Try the update again.",
+		"GITHUB_MERGE_FAILED": "Wandit could not merge the GitHub changes. Your code did not change."
 	}
 }
