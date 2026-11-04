@@ -23,9 +23,10 @@ import { organization } from "./organizations";
 import { projects } from "./projects";
 
 /**
- * What made the commit: an agent turn, a restore, a work-in-progress snapshot, or a merge.
- * "theme" is a save of the builder Thème sheet.
- * "mcp" is a direct file edit of an external coding agent through the MCP server.
+ * What made the commit: an agent turn, a restore, a work-in-progress
+ * snapshot, a merge, a theme save of the builder Thème sheet, an Update
+ * from the linked GitHub repo, or a direct file edit of an external coding
+ * agent through the MCP server ("mcp").
  */
 export const appCommitSource = pgEnum("app_commit_source", [
 	"agent",
@@ -33,6 +34,7 @@ export const appCommitSource = pgEnum("app_commit_source", [
 	"wip",
 	"merge",
 	"theme",
+	"github",
 	"mcp",
 ]);
 

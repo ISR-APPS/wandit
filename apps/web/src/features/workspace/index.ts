@@ -17,7 +17,7 @@ export {
 	LEAD_STATUS_ORDER,
 	WORKSPACE_TABS,
 } from "./lib/constants";
-export { downloadTextFile, isWorkspaceTab } from "./lib/helpers";
+export { downloadTextFile, isWorkspaceTab, slugify } from "./lib/helpers";
 export {
 	getLeadDateRange,
 	type LeadDateFilter,

@@ -76,7 +76,11 @@ describe("scrubEvent", () => {
 				values: [{ mechanism: { type: "generic" }, value: "whsec_123 bad" }],
 			},
 			extra: {
-				keys: ["rk_live_1", "safe"],
+				keys: [
+					"rk_live_1",
+					"safe",
+					"push https://x-access-token:ghs_16C7e42F292c6912E7710c838347Ae178B4a@github.com/o/r.git failed",
+				],
 				nested: { role: "service_role token", url: "sb_secret_x" },
 			},
 			message: "plain message",
@@ -86,7 +90,7 @@ describe("scrubEvent", () => {
 
 		expect(event.breadcrumbs[0]?.message).toBe("[Filtered]");
 		expect(event.exception.values[0]?.value).toBe("[Filtered]");
-		expect(event.extra.keys).toEqual(["[Filtered]", "safe"]);
+		expect(event.extra.keys).toEqual(["[Filtered]", "safe", "[Filtered]"]);
 		expect(event.extra.nested).toEqual({
 			role: "[Filtered]",
 			url: "[Filtered]",

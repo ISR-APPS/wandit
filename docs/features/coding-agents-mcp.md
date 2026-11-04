@@ -107,7 +107,7 @@ File content in a project can carry text that steers the external agent. The ser
 ## Known limits
 
 - The guard checks the ban on every call, so a ban stops the agent at once. The ban also deletes the grants, so an unban does not bring them back.
-- The tables come from migration `0089_mcp-oauth-provider.sql`. Run `db:migrate` before an API with V2 on boots.
+- The tables come from migration `0090_mcp-oauth-provider.sql`. Run `db:migrate` before an API with V2 on boots.
 - `V2_BUILDER_ENABLED` must stay false in the Trigger.dev production environment. The Trigger worker loads `@wandit/auth`, and the Railway production rule does not apply there.
 - Reads and writes need a running sandbox. The agent calls `wake_sandbox` first.
 - The `feat/github-sync` work (uncommitted in its own worktree) edits the same shared files: audit actions, routes, the commit-source enum, migration numbers, `commitTurn`. The second branch to merge rebases and renumbers its migration.

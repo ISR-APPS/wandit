@@ -63,11 +63,6 @@ describe("resolvePanel", () => {
 		expect(resolvePanel("mobile", undefined, false)).toBe("analytics");
 	});
 
-	it("falls back for Integrations, which the nav shows as Soon", () => {
-		expect(resolvePanel("web", "integrations", true)).toBe("database");
-		expect(resolvePanel("web", "integrations", false)).toBe("analytics");
-	});
-
 	it("falls back for a panel the kind does not have", () => {
 		expect(resolvePanel("mobile", "domains", false)).toBe("analytics");
 		expect(resolvePanel("web", "appStores", true)).toBe("database");

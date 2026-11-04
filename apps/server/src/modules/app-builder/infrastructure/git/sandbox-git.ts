@@ -1,8 +1,8 @@
 /**
- * Shared sandbox git exec helper for the versions flow (WANDIT-171).
+ * Shared sandbox git exec helpers for the versions flow (WANDIT-171).
  * `commitTurn`, `CodeStorageRepoRestorer`, `VersionsService`, `CodeService`,
- * and the mobile build workspace run git through `exec`. Each one needs the
- * same exit-code check, credential masking, and hook-off flags (WANDIT-282).
+ * the mobile build workspace, and the `github-sync` task run git through `exec`.
+ * Each one needs the same exit-code check, credential masking, and hook-off flags (WANDIT-282).
  */
 import type {
 	SandboxExecResult,
@@ -58,4 +58,22 @@ export async function mustRunGit<E extends Error>(
 		);
 	}
 	return result;
+}
+
+/**
+ * Runs `git <SAFE_GIT_CONFIG_ARGS> <args>` like `mustRunGit`, but a non-zero
+ * exit is a result, not an error: for example `merge-base --is-ancestor`.
+ * `secret` becomes `***` in stderr. The GitHub Update and the `github-sync` task call it.
+ */
+export async function runGit(
+	sandbox: Pick<SandboxHandle, "exec" | "workspaceDir">,
+	args: string[],
+	secret?: string,
+): Promise<SandboxExecResult> {
+	const result = await sandbox.exec("git", [...SAFE_GIT_CONFIG_ARGS, ...args], {
+		cwd: sandbox.workspaceDir,
+	});
+	return secret === undefined
+		? result
+		: { ...result, stderr: result.stderr.replaceAll(secret, "***") };
 }

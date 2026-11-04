@@ -1601,7 +1601,7 @@ export async function runBuilderTurn(
 		const modeSwitch =
 			resumeState !== null && switchesMode(resumeState, spec.mode);
 		// The session row is saved at the end of each agent turn, so its
-		// `updatedAt` tells whether the agent ran after a restore.
+		// `updatedAt` tells whether the agent ran after a restore or an Update.
 		const restoreNote = restoreNoteOf(
 			await deps.versions.findLatest(projectId),
 			sessionRow?.updatedAt ?? null,
@@ -2988,21 +2988,24 @@ async function wakeBackend(
 }
 
 /**
- * The note for the agent when the newest version is a restore that the
- * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
- * the chat's session row, or null when the chat has none.
+ * The note for the agent when the newest version is a restore or a GitHub
+ * Update that the agent did not see yet, else null. `sessionSavedAt` is the
+ * `updatedAt` of the chat's session row, or null when the chat has none.
  */
 export function restoreNoteOf(
 	latest: LatestAppCommit | null,
 	sessionSavedAt: Date | null,
 ): string | null {
-	if (latest?.source !== "restore") {
+	if (latest?.source !== "restore" && latest?.source !== "github") {
 		return null;
 	}
-	// A restore holds the turn lock, so it never overlaps a turn. A session
-	// saved after the restore commit already ran on the restored code.
+	// A restore and an Update hold the turn lock, so they never overlap a turn.
+	// A session saved after the commit already ran on the new code.
 	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
 		return null;
+	}
+	if (latest.source === "github") {
+		return "The code was updated from GitHub. Read the files again before you edit.";
 	}
 	// The version the user picked, not the new commit that copies it forward.
 	const version = latest.restoredFromSha ?? latest.sha;

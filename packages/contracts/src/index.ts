@@ -118,6 +118,8 @@ export * from "./v2/code";
 export * from "./v2/cost-caps";
 // V2 Appetize device-session routes and the Appetize and Expo answers.
 export * from "./v2/device-sessions";
+// V2 GitHub sync contracts: the API routes and the GitHub REST answers.
+export * from "./v2/github";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 harness host routes: the API starts and stops host-run turns there.

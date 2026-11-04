@@ -89,6 +89,16 @@
 		"PUBLISH_ACTIVE": "يجري نشر هذا التطبيق الآن. انتظر حتى ينتهي.",
 		"PUBLISH_NO_VERSION": "لا يحتوي تطبيقك على إصدار محفوظ بعد. ابنِه في المحادثة أولًا.",
 		"PUBLISH_ROLLBACK_INVALID": "لا يمكن استرجاع هذا الإصدار. اختر إصدارًا سابقًا.",
-		"PUBLISH_UNAVAILABLE": "النشر غير متاح الآن. أعد المحاولة لاحقًا."
+		"PUBLISH_UNAVAILABLE": "النشر غير متاح الآن. أعد المحاولة لاحقًا.",
+		"GITHUB_NOT_CONNECTED": "اربط GitHub أولاً، ثم أعد المحاولة.",
+		"GITHUB_ALREADY_LINKED": "هذا المشروع مرتبط بمستودع GitHub بالفعل.",
+		"GITHUB_INSTALLATION_NOT_YOURS": "اختر أحد حساباتك أو مؤسساتك على GitHub.",
+		"GITHUB_REPO_EXISTS": "يوجد مستودع بهذا الاسم على GitHub بالفعل. اختر اسمًا آخر.",
+		"GITHUB_REPO_CREATE_FORBIDDEN": "لا يسمح لك GitHub بإنشاء مستودع في هذا الحساب أو هذه المؤسسة.",
+		"GITHUB_REPO_NOT_IN_INSTALLATION": "لا يصل تطبيق Wandit إلى المستودع الجديد. على GitHub، امنح التطبيق الوصول إلى كل المستودعات، ثم أعد المحاولة باسم جديد.",
+		"GITHUB_NOT_LINKED": "لا يملك هذا المشروع مستودع GitHub.",
+		"GITHUB_NOTHING_TO_UPDATE": "لا توجد تغييرات جديدة على GitHub لهذا المشروع.",
+		"GITHUB_UPDATE_CHANGED": "تغيّر GitHub مرة أخرى. أعد محاولة التحديث.",
+		"GITHUB_MERGE_FAILED": "تعذّر على Wandit دمج تغييرات GitHub. لم يتغيّر الكود."
 	}
 }

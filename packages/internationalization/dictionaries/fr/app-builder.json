@@ -220,7 +220,7 @@
 		},
 		"integrations": {
 			"title": "Intégrations",
-			"description": "Google Sheets, WhatsApp, e-mail et les autres services que ton app utilise."
+			"description": "GitHub, et plus tard les autres services que ton app utilise."
 		},
 		"domains": {
 			"title": "Domaines",
@@ -324,6 +324,51 @@
 		"freeTitle": "Adresse Wandit gratuite",
 		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app.",
 		"freeHost": "Domaine Wandit gratuit"
+	},
+	"github": {
+		"title": "GitHub",
+		"hint": "Garde le code de cette app dans un dépôt de ton compte GitHub.",
+		"notConfigured": "La synchronisation GitHub n’est pas configurée sur ce serveur.",
+		"connectHint": "Connecte ton compte GitHub pour créer un dépôt pour cette app.",
+		"connect": "Connecter GitHub",
+		"connectedAs": "Connecté en tant que {login}",
+		"owner": "Propriétaire",
+		"addOwner": "Ajouter un compte ou une organisation",
+		"noInstallations": "Installe l’app Wandit sur ton compte GitHub ou sur une organisation pour créer un dépôt.",
+		"repoName": "Nom du dépôt",
+		"repoNameInvalid": "Utilise seulement des lettres, des chiffres, des points, des tirets et des tirets bas, 100 caractères au plus.",
+		"private": "Dépôt privé",
+		"privateHelp": "Seuls toi et les personnes que tu ajoutes sur GitHub peuvent le voir.",
+		"create": "Créer le dépôt",
+		"lastSynced": "Dernière synchronisation : {sha}",
+		"neverSynced": "Pas encore synchronisé.",
+		"unlink": "Délier le dépôt",
+		"unlinkConfirmTitle": "Délier {repo} ?",
+		"unlinkConfirmBody": "Wandit arrête la synchronisation. Le dépôt et ses commits restent sur GitHub.",
+		"cancel": "Annuler",
+		"notes": {
+			"mainOnly": "Seule la branche main se synchronise, dans les deux sens.",
+			"githubWins": "Quand les deux côtés modifient les mêmes lignes, la version GitHub l’emporte.",
+			"workflows": "Quand l’agent modifie un fichier de .github/workflows, la synchronisation vers GitHub s’arrête."
+		},
+		"banner": {
+			"text": "Ce projet a de nouvelles modifications sur GitHub.",
+			"update": "Mettre à jour"
+		},
+		"connectedToast": "GitHub est connecté.",
+		"callbackErrors": {
+			"invalid_state": "La connexion GitHub a expiré. Réessaie.",
+			"access_denied": "Tu as refusé l’accès sur GitHub.",
+			"exchange_failed": "La connexion GitHub a échoué. Réessaie."
+		},
+		"syncErrors": {
+			"GITHUB_ACCESS_LOST": "L’app Wandit n’a plus accès à ce dépôt. Vérifie l’installation de l’app sur GitHub.",
+			"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt a quitté l’espace de travail. Délie-le, puis lie-le à nouveau.",
+			"GITHUB_LINKER_NO_ACCESS": "La personne qui a lié ce dépôt ne peut plus y écrire.",
+			"GITHUB_PUSH_REJECTED": "GitHub a refusé le dernier envoi, par exemple à cause d’une règle de protection de branche.",
+			"GITHUB_WORKFLOW_CHANGED": "La synchronisation s’est arrêtée : l’agent a modifié un fichier de .github/workflows. Fais les modifications de workflow sur GitHub.",
+			"GITHUB_SYNC_FAILED": "La dernière synchronisation a échoué. Wandit réessaie bientôt."
+		}
 	},
 	"appStores": {
 		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
@@ -768,6 +813,7 @@
 			"wip": "Travail en cours",
 			"merge": "Fusion",
 			"theme": "Thème",
+			"github": "GitHub",
 			"mcp": "Agent de code"
 		},
 		"diff": "Diff",

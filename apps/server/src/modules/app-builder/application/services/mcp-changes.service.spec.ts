@@ -130,6 +130,7 @@ async function setup(state: ProjectState = {}) {
 		{ putPatch: async () => undefined },
 		turns,
 		starter,
+		{ scheduleIfLinked: async () => undefined },
 	);
 	return { inserted, sandboxes, service, turnLock };
 }

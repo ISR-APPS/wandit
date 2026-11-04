@@ -21,6 +21,10 @@ import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { isWritableCodePath } from "../../domain/code-tree";
 import { GIT_STORE, type GitStore } from "../../domain/ports/git-store";
 import {
+	GITHUB_SYNC_SCHEDULER,
+	type GithubSyncScheduler,
+} from "../../domain/ports/github-sync-scheduler";
+import {
 	SANDBOX_PROVIDER,
 	type SandboxProvider,
 	type SandboxReader,
@@ -94,6 +98,9 @@ export class McpChangesService {
 		>,
 		@Inject(TURN_TASK_STARTER)
 		starter: TurnTaskStarter,
+		// `commitTurn` schedules the GitHub push of a linked project after the MCP commit.
+		@Inject(GITHUB_SYNC_SCHEDULER)
+		private readonly githubSync: GithubSyncScheduler,
 	) {
 		this.promoter = new TurnPromoter(turns, turnLock, starter);
 	}
@@ -234,6 +241,7 @@ export class McpChangesService {
 						appCommits: this.appCommits,
 						gitStore: this.gitStore,
 						putPatch: this.objects.putPatch,
+						githubSync: this.githubSync,
 					},
 					{
 						chatId: null,

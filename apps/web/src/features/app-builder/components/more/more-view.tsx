@@ -11,8 +11,8 @@ import { type ReactNode, useState } from "react";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import {
-	type EnabledMorePanel,
 	MORE_PANEL_META,
+	type MorePanel,
 	type ProjectPanel,
 } from "../../lib/constants";
 import { isCloudPanel } from "../../lib/helpers";
@@ -22,6 +22,7 @@ import { AiPanel } from "./ai-panel";
 import { AppStoresPanel } from "./app-stores-panel";
 import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
+import { IntegrationsPanel } from "./integrations-panel";
 import { MoreNav } from "./more-nav";
 import { PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
@@ -41,7 +42,7 @@ export type MoreViewProps = {
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
-type EmptyMorePanel = Extract<EnabledMorePanel, "analytics" | "security">;
+type EmptyMorePanel = Extract<MorePanel, "analytics" | "security">;
 
 const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	analytics: "appBuilder.panels.analytics.cta",
@@ -67,7 +68,7 @@ export function MoreView({
 		onSelectPanel(next);
 	}
 
-	function renderMorePanel(morePanel: EnabledMorePanel): ReactNode {
+	function renderMorePanel(morePanel: MorePanel): ReactNode {
 		switch (morePanel) {
 			case "analytics":
 			case "security":
@@ -83,6 +84,8 @@ export function MoreView({
 				return <SignInPanel projectId={project.id} />;
 			case "payments":
 				return <PaymentsPanel />;
+			case "integrations":
+				return <IntegrationsPanel project={project} isActive={isActive} />;
 			case "domains":
 				return <DomainsPanel projectId={project.id} />;
 			case "appStores":
