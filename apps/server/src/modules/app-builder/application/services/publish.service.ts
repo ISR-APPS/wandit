@@ -37,10 +37,14 @@ import { getErrorMessage } from "@wandit/observability/error";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import { CreditsService } from "../../../credits/application/services/credits.service";
-import { subjectPayer } from "../../../credits/domain/credit-owner";
+import {
+	creditPayerOf,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { ProjectDomainHook } from "../../../domains/domain/ports/project-domain-hook.port";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
+import { isProjectOwner } from "../../../projects";
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
@@ -237,7 +241,7 @@ export class PublishService {
 		});
 		await this.audit.record({
 			action: "publish.rollback",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { deploymentId: target.id, sourceBuildId: source.id },
 			organizationId: projectOwnerColumns(scope).organizationId,
@@ -251,8 +255,8 @@ export class PublishService {
 	/**
 	 * `POST .../publish/override` ("Publish anyway", WANDIT-190). Builds the
 	 * commit of the newest `blocked` attempt again; the task then lets its
-	 * overridable findings pass. Only the project creator may do it, and only
-	 * when no finding is a secret, a phishing name, or an ERROR lint.
+	 * overridable findings pass. Only the project owner (design 2.2) may do it,
+	 * and only when no finding is a secret, a phishing name, or an ERROR lint.
 	 */
 	async overrideGate(
 		scope: ProjectScope,
@@ -269,9 +273,9 @@ export class PublishService {
 			return toApiBuild(existing);
 		}
 		const project = await this.publish.findProject(projectId);
-		// Product rule (WANDIT-190): only the owner takes the risk of an
-		// open table. In an org workspace the owner is the creator.
-		if (project === null || project.userId !== scope.userId) {
+		// Product rule (WANDIT-190): only the owner takes the risk of an open
+		// table. The route guard checks it too; this keeps the service safe alone.
+		if (project === null || !actorOwnsProject(scope, project)) {
 			throw new ForbiddenException({
 				code: "PUBLISH_OVERRIDE_FORBIDDEN",
 				message: "Only the owner of the app can publish it anyway",
@@ -299,7 +303,7 @@ export class PublishService {
 		// it must stay on record even when the start below fails.
 		await this.audit.record({
 			action: "publish.gate_override",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: {
 				blockedBuildId: blocked.id,
@@ -351,7 +355,7 @@ export class PublishService {
 			await this.deployments.unpublishActive(projectId);
 			await this.audit.record({
 				action: "publish.unpublish",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				ip,
 				metadata: { slug: live.slug },
 				organizationId: projectOwnerColumns(scope).organizationId,
@@ -395,7 +399,9 @@ export class PublishService {
 			throw activePublishError();
 		}
 		const insert = await this.publish.insertQueued({
-			...projectOwnerColumns(scope),
+			// `app_builds.user_id` holds the actor who asked for the publish.
+			organizationId: projectOwnerColumns(scope).organizationId,
+			userId: scope.actorUserId,
 			...input,
 			projectId,
 		});
@@ -520,14 +526,14 @@ export class PublishService {
 	// Product rule of WANDIT-178: a publish costs no credits, but a payer
 	// with a negative settled balance cannot publish.
 	private async assertBalanceNotNegative(scope: ProjectScope): Promise<void> {
-		const balance = await this.credits.getSettledBalance(
-			subjectPayer(meteringSubjectFrom(scope)),
-		);
+		const payer = subjectPayer(meteringSubjectFrom(scope));
+		const balance = await this.credits.getSettledBalance(payer);
 		if (balance.settledBalance < 0) {
 			throw new InsufficientCreditsError(
 				0,
 				balance.balance,
 				balance.settledBalance,
+				creditPayerOf(payer, scope.actorUserId),
 			);
 		}
 	}
@@ -564,7 +570,7 @@ export class PublishService {
 				latest !== null &&
 				latest.status === "blocked" &&
 				project !== null &&
-				project.userId === scope.userId &&
+				actorOwnsProject(scope, project) &&
 				project.suspendedReasonCode === null &&
 				isOverridable(parseGateFindings(latest)),
 			history: history.map(toApiDeployment),
@@ -573,6 +579,20 @@ export class PublishService {
 			suspension: toApiSuspension(project),
 		};
 	}
+}
+
+// True when the actor holds the project role `owner`. The scope comes from
+// the resolved project access, so `actorRoles` are the roles in its workspace.
+function actorOwnsProject(
+	scope: ProjectScope,
+	project: Pick<PublishProjectRow, "organizationId" | "userId">,
+): boolean {
+	return isProjectOwner({
+		actorUserId: scope.actorUserId,
+		projectOrganizationId: project.organizationId,
+		projectUserId: project.userId,
+		workspaceRoles: scope.actorRoles,
+	});
 }
 
 // True when a blocked attempt can go live anyway: it has a `block` finding,

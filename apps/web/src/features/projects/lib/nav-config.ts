@@ -10,6 +10,7 @@ import { HandshakeIcon } from "@phosphor-icons/react/Handshake";
 import { ImagesSquareIcon } from "@phosphor-icons/react/ImagesSquare";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
 import { TrayIcon } from "@phosphor-icons/react/Tray";
+import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 
 import type { TranslationKey } from "@/lib/i18n";
 
@@ -27,7 +28,8 @@ export type NavRoutePath =
 	| "/leads"
 	| "/assets"
 	| "/academy"
-	| "/affiliates";
+	| "/affiliates"
+	| "/workspace/people";
 
 export type NavItem = NavItemBase &
 	(
@@ -67,6 +69,13 @@ export const NAV_GROUPS: NavGroup[] = [
 				titleKey: "projects.nav.assets",
 				to: "/assets",
 				icon: ImagesSquareIcon,
+			},
+			// AppSidebar hides it while the collaboration toggle hides People (useCollaborationGates).
+			{
+				type: "route",
+				titleKey: "workspaces.people.title",
+				to: "/workspace/people",
+				icon: UsersThreeIcon,
 			},
 			{
 				type: "soon",

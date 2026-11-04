@@ -7,7 +7,10 @@ import type {
 import { leadsQuerySchema, workspaceLeadsQuerySchema } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	InvalidLeadCursorError,
 	type LeadRow,
@@ -17,7 +20,7 @@ import {
 import { LeadsService } from "./leads.service";
 
 const USER_ID = "user-1";
-const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, USER_ID);
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const LEAD_ID = "22222222-2222-4222-8222-222222222222";
 

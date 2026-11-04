@@ -15,7 +15,10 @@ import {
 } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { SandboxProvider } from "../../domain/ports/sandbox-provider";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
@@ -32,7 +35,7 @@ const RUN_ID = "11111111-2222-4333-8444-555555555555";
 // spec forbids a real vendor hostname outside `infrastructure/sandbox/`.
 const PREVIEW_HOST = "x-5173.preview-host.test";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",

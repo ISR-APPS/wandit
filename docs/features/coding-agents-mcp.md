@@ -58,16 +58,16 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 
 ## Project access
 
-- A tool takes a `projectId`. The server loads the project owner columns, then proves access again on every call: a personal project needs `userId` = the token user; a team project needs a fresh membership row (`WorkspaceMembersRepository.findMember`). It then builds the `ProjectScope` with `projectScopeFrom`.
-- Role gates are the web gates: reads need membership; `apply_changes`, `wake_sandbox`, `send_prompt`, and `cancel_turn` need `project:update`; `publish_app` needs `publish:manage`.
+- A tool takes a `projectId`. On every call the server proves the project role of the token user with `ProjectAccessService.resolve`, the rule of `ProjectAccessGuard` (workspaces-sharing.md 3.3). It then builds the `ProjectScope` with `projectScopeFromAccess`, so the pool of the project pays.
+- Role gates are the web gates (workspaces-sharing.md 2.2): the read tools and `wake_sandbox` need `viewer`; `apply_changes`, `send_prompt`, `cancel_turn`, and `publish_app` need `editor`. A role that is too low gives 403.
 - A missing project, a project out of scope, a V1 project, and a deleted project give the same "Project not found" error.
 
 ## Tools v1
 
 | Tool | Scope | Reuses | Rule |
 |---|---|---|---|
-| `list_workspaces` | projects:read | `WorkspacesService.listForUser` | Personal plus teams, with the role. |
-| `list_projects` | projects:read | `ProjectsRepository.listForScope` | V2 projects only: id, name, platform, updated at, builder link. |
+| `list_workspaces` | projects:read | `WorkspacesService.listForUser` | The same list as `GET /v1/workspaces`, with the roles. |
+| `list_projects` | projects:read | `ProjectsService.list`, `ProjectsService.listShared` | V2 projects only: id, name, platform, updated at, builder link. A workspace id gives the web list of that workspace, with Restricted projects hidden. `shared` gives the projects shared directly with the user. |
 | `get_project` | projects:read | `AppProjectsService.get`, `PublishService.status` | Sandbox state, head sha, publish state, live URL, builder link `<web>/app/<id>`. No preview token. |
 | `list_files` | projects:read | `CodeService.snapshot` | Needs a running sandbox. Paged. |
 | `read_file` | projects:read | `CodeService.file` | Same path guard. Paged by offset, so one answer fits the 25k-token output cap of Claude Code. |

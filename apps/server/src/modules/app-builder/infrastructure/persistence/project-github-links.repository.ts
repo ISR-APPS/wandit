@@ -11,7 +11,6 @@ import {
 } from "@wandit/contracts";
 import { and, eq, isNull, lt, or } from "@wandit/db";
 import { projectGithubLinks } from "@wandit/db/schema/github";
-import { member } from "@wandit/db/schema/organizations";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -30,10 +29,8 @@ export type ProjectGithubLinkRow = {
 	/** Link row id. Every sync write after a read filters by it. */
 	id: string;
 	projectId: string;
-	/** The Wandit user who linked the repo. */
+	/** The Wandit user who linked the repo. The sync and the pull check that this user can still open the project. */
 	userId: string;
-	/** Org workspace of the project, or null on a personal project. */
-	organizationId: string | null;
 	/** GitHub App installation id that reaches the repo. */
 	installationId: number;
 	/** GitHub repo id; installation tokens are limited to it. */
@@ -49,8 +46,6 @@ export type ProjectGithubLinkRow = {
 	/** GitHub head that the worker copied to the code.storage branch `github/main`. */
 	mirroredSha: string | null;
 	lastError: GithubSyncErrorCode | null;
-	/** True on a personal project, else true while the linker is still a member of the org. */
-	linkerIsMember: boolean;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -85,25 +80,13 @@ export class ProjectGithubLinksRepository {
 	 */
 	async findByProject(projectId: string): Promise<ProjectGithubLinkRow | null> {
 		const [row] = await this.db
-			.select({
-				link: projectGithubLinks,
-				memberId: member.id,
-			})
+			.select({ link: projectGithubLinks })
 			.from(projectGithubLinks)
 			.innerJoin(
 				projects,
 				and(
 					eq(projects.id, projectGithubLinks.projectId),
 					isNull(projects.deletedAt),
-				),
-			)
-			// Security: an org removes a member; their repo must stop getting the org's code.
-			// `member` is unique on (organization, user), so the join adds at most one row.
-			.leftJoin(
-				member,
-				and(
-					eq(member.organizationId, projectGithubLinks.organizationId),
-					eq(member.userId, projectGithubLinks.userId),
 				),
 			)
 			.where(eq(projectGithubLinks.projectId, projectId))
@@ -119,9 +102,7 @@ export class ProjectGithubLinksRepository {
 			installationId: link.installationId,
 			lastError: storedErrorSchema.parse(link.lastError),
 			lastSyncedSha: link.lastSyncedSha,
-			linkerIsMember: link.organizationId === null || row.memberId !== null,
 			mirroredSha: link.mirroredSha,
-			organizationId: link.organizationId,
 			projectId: link.projectId,
 			remoteHeadSha: link.remoteHeadSha,
 			repoId: link.repoId,

@@ -1,0 +1,115 @@
+{
+	"roles": {
+		"owner": "Propriétaire",
+		"admin": "Admin",
+		"editor": "Peut modifier",
+		"viewer": "Peut voir"
+	},
+	"workspaceAccess": {
+		"can_edit": "Peut modifier",
+		"can_view": "Peut voir",
+		"restricted": "Restreint"
+	},
+	"share": {
+		"button": "Partager",
+		"title": "Partager {name}",
+		"description": "Invitez des personnes à voir ou à modifier ce projet.",
+		"inviteLabel": "Inviter par e-mail",
+		"invitePlaceholder": "nom@entreprise.com, autre@entreprise.com",
+		"inviteRole": "Rôle des personnes invitées",
+		"inviteSubmit": "Inviter",
+		"inviteSent": "Invitations envoyées",
+		"inviteInvalid": "Saisissez de 1 à {max} adresses e-mail valides.",
+		"viewerNote": "Vous pouvez voir ce projet. Les personnes qui peuvent le modifier invitent les autres.",
+		"peopleTitle": "Personnes ayant accès",
+		"you": "Vous",
+		"changeRole": "Changer le rôle de {name}",
+		"remove": "Retirer l'accès",
+		"leave": "Quitter le projet",
+		"removed": "Accès retiré",
+		"left": "Vous avez quitté le projet",
+		"roleChanged": "Rôle modifié",
+		"pendingTitle": "Invitations en attente",
+		"copyInviteLink": "Copier le lien d'invitation",
+		"cancelInvitation": "Annuler l'invitation",
+		"invitationCanceled": "Invitation annulée",
+		"linkCopied": "Lien copié",
+		"copyFailed": "Le navigateur a bloqué la copie. Sélectionnez le lien et copiez-le.",
+		"workspaceAccessTitle": "Accès de l'espace de travail",
+		"workspaceAccessHelp": "Ce que les personnes de {workspace} peuvent faire",
+		"workspaceAccessSaved": "Accès de l'espace de travail modifié",
+		"restrictedOwnerOnly": "Seul le propriétaire peut activer ou retirer Restreint.",
+		"linkTitle": "Lien d'invitation",
+		"linkRole": "Rôle du lien",
+		"linkNone": "Aucun lien actif.",
+		"linkCreate": "Créer un lien",
+		"linkCreated": "Nouveau lien créé",
+		"linkHelp": "Toute personne qui a le lien rejoint avec ce rôle. Le lien expire le {date}.",
+		"linkCopy": "Copier",
+		"linkRevoke": "Désactiver",
+		"linkRevoked": "Lien désactivé"
+	},
+	"readOnly": {
+		"composer": "Vous pouvez voir ce projet. Demandez à son propriétaire l'accès en modification pour le changer.",
+		"editorsOnly": "Seules les personnes qui peuvent modifier ce projet peuvent faire cela."
+	},
+	"credits": {
+		"payerEmpty": "L'espace de travail de ce projet n'a plus de crédits. Demandez à son propriétaire d'en ajouter."
+	},
+	"domains": {
+		"managersOnly": "Les propriétaires et les admins de l'espace de travail de ce projet gèrent ses domaines.",
+		"otherWorkspace": "Les propriétaires et les admins de l'espace de travail de ce projet gèrent ses domaines. Ouvrez le projet depuis cet espace de travail."
+	},
+	"settings": {
+		"capsAdminsOnly": "Seuls le propriétaire et les admins de ce projet peuvent voir et modifier les limites de dépense.",
+		"capsOwnerOnly": "Seul le propriétaire de ce projet peut voir et modifier les limites de dépense.",
+		"deleteOwnerOnly": "Seul le propriétaire de ce projet peut le supprimer.",
+		"transferTitle": "Transférer la propriété",
+		"transferHelp": "Faites d'un autre propriétaire, admin ou éditeur de {workspace} le propriétaire de ce projet.",
+		"transferPerson": "Nouveau propriétaire",
+		"transferPlaceholder": "Choisir une personne",
+		"transferNoCandidates": "Aucun autre propriétaire, admin ou éditeur n'est dans cet espace de travail.",
+		"transferSubmit": "Transférer",
+		"transferConfirmTitle": "Faire de {name} le propriétaire ?",
+		"transferConfirmBody": "Après le transfert, votre rôle dans l'espace de travail décide de votre accès à ce projet.",
+		"transferred": "Propriété transférée",
+		"moveTitle": "Déplacer vers un autre espace de travail",
+		"moveHelp": "Le nouvel espace de travail paie ce projet à partir de maintenant. Le backend et les secrets le suivent.",
+		"moveDestination": "Espace de travail de destination",
+		"movePlaceholder": "Choisir un espace de travail",
+		"moveNoDestinations": "Vous n'avez aucun autre espace de travail où vous pouvez créer des projets.",
+		"moveKeepCollaborators": "Garder les personnes invitées à ce projet",
+		"moveSubmit": "Déplacer",
+		"moveConfirmTitle": "Déplacer ce projet vers {workspace} ?",
+		"moveConfirmBody": "Le lien d'invitation cesse de fonctionner. Les membres de cet espace de travail perdent l'accès, sauf s'ils ont une invitation directe que vous gardez.",
+		"moved": "Projet déplacé",
+		"moveBlocked": {
+			"turn_active": "Un tour du builder est encore en cours ou en attente. Arrêtez-le, puis déplacez le projet.",
+			"usage_reserved": "Des crédits sont encore réservés pour ce projet. Réessayez dans quelques minutes.",
+			"publish_in_flight": "Une publication est en cours. Réessayez quand elle est terminée.",
+			"mobile_build_in_flight": "Un build mobile est en cours. Réessayez quand il est terminé.",
+			"device_session_active": "Un aperçu sur téléphone est ouvert. Fermez-le, puis déplacez le projet.",
+			"custom_domain_attached": "Un domaine personnalisé est connecté. Retirez-le, puis déplacez le projet.",
+			"backend_slot_unavailable": "L'espace de travail de destination n'a plus d'emplacement backend libre."
+		},
+		"cancel": "Annuler"
+	},
+	"sharedWithMe": {
+		"title": "Partagés avec moi"
+	},
+	"projectMenu": {
+		"share": "Partager"
+	},
+	"invite": {
+		"title": "Invitation à un projet",
+		"signInFirst": "Connectez-vous avec l'adresse e-mail qui a reçu l'invitation.",
+		"invitedTo": "{inviter} vous a invité au projet {project} dans {workspace}.",
+		"role": "Votre rôle : {role}",
+		"accept": "Accepter",
+		"decline": "Refuser",
+		"declined": "Invitation refusée",
+		"invalid": "Cette invitation n'est pas valide. Elle peut être destinée à une autre adresse e-mail.",
+		"expired": "Cette invitation a expiré. Demandez à {inviter} de vous inviter à nouveau.",
+		"notPending": "Cette invitation a déjà été utilisée ou annulée."
+	}
+}

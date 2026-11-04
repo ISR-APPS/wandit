@@ -265,7 +265,7 @@ export const mcpProjectInputSchema = z.object({
 
 /** Input of `list_projects`. One page holds a fixed number of projects, newest first. */
 export const mcpListProjectsInputSchema = z.object({
-	// "personal", or the id of a team from `list_workspaces`. Absent means "personal".
+	// "personal", "shared" (projects shared with the user), or a workspace id from `list_workspaces`. Absent means "personal".
 	workspaceId: z.string().min(1).max(128).optional(),
 	// Index of the first project of the page: 0, or the `nextOffset` of the previous page.
 	offset: z.int().nonnegative().default(0),

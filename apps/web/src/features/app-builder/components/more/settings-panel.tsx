@@ -1,10 +1,12 @@
 /**
  * Settings panel of the More view: the project name and its read-only facts
  * (URL, type, app languages, template version), a link to the Secrets panel,
- * the spending limits, and the delete zone. Rendered by
- * components/more/more-view.tsx inside PanelShell, which draws the title.
- * Renames and deletes through the projects feature (V1 PATCH and DELETE),
- * and reads and saves the caps through projectCostCapsQuery and useUpdateCostCaps.
+ * the spending limits, Transfer and Move (ownership-section.tsx), and the
+ * delete zone. Rendered by components/more/more-view.tsx inside PanelShell,
+ * which draws the title. Renames and deletes through the projects feature
+ * (V1 PATCH and DELETE), and reads and saves the caps through
+ * projectCostCapsQuery and useUpdateCostCaps. Each action follows
+ * `project.access.role`; an older API without access keeps the workspace role rule.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +41,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 
+import { hasProjectRole } from "@/features/project-sharing";
 import {
 	PROJECT_NAME_MAX_LENGTH,
 	useDeleteProject,
@@ -55,6 +58,7 @@ import {
 import type { AppProject } from "../../api/dto";
 import { CLOUD_EMPTY_CELL } from "../../lib/constants";
 import { costCapToDraft, toCostCapsBody } from "../../lib/helpers";
+import { OwnershipSection } from "./ownership-section";
 import {
 	PANEL_CARD_CLASS,
 	PANEL_CARD_ROW_CLASS,
@@ -80,12 +84,28 @@ const INPUT_GROUP_CLASS =
 
 export function SettingsPanel({ project, onOpenSecrets }: SettingsPanelProps) {
 	const { t } = useTranslation();
-	// The API gives the caps and the delete only to owners and admins; a personal workspace counts as owner.
+	// An older API sends no access: the workspace role rule of before applies.
+	// It gives the caps and the delete to owners and admins; a personal workspace counts as owner.
 	const { actorCanManageWorkspace } = useWorkspace();
+	const { access } = project;
+	// Product rule (workspaces-sharing.md 2.2): caps need a team project admin or
+	// the personal project owner, because a personal pool is the owner's money.
+	const capsRole = access?.workspace.kind === "team" ? "admin" : "owner";
+	const canManageCaps =
+		access === undefined
+			? actorCanManageWorkspace
+			: hasProjectRole(access, capsRole);
+	const canDelete =
+		access === undefined
+			? actorCanManageWorkspace
+			: hasProjectRole(access, "owner");
 
 	return (
 		<>
-			<ProjectSection project={project} />
+			<ProjectSection
+				project={project}
+				canRename={hasProjectRole(access, "editor")}
+			/>
 			{onOpenSecrets ? (
 				<section
 					className={cn(
@@ -115,21 +135,43 @@ export function SettingsPanel({ project, onOpenSecrets }: SettingsPanelProps) {
 				<h2 className={PANEL_CARD_TITLE_CLASS}>
 					{t("appBuilder.settings.limitsTitle")}
 				</h2>
-				{actorCanManageWorkspace ? (
+				{canManageCaps ? (
 					<SpendingLimits projectId={project.id} />
 				) : (
 					<p className={cn(PANEL_HINT_CLASS, "mt-0.5")}>
-						{t("appBuilder.settings.limitsManagersOnly")}
+						{access === undefined
+							? t("appBuilder.settings.limitsManagersOnly")
+							: capsRole === "admin"
+								? t("sharing.settings.capsAdminsOnly")
+								: t("sharing.settings.capsOwnerOnly")}
 					</p>
 				)}
 			</section>
-			<DeleteZone project={project} canDelete={actorCanManageWorkspace} />
+			{access === undefined ? null : (
+				<OwnershipSection project={project} access={access} />
+			)}
+			<DeleteZone
+				project={project}
+				canDelete={canDelete}
+				deniedText={
+					access === undefined
+						? t("appBuilder.settings.deleteManagersOnly")
+						: t("sharing.settings.deleteOwnerOnly")
+				}
+			/>
 		</>
 	);
 }
 
 /** The name field, saved on blur, and the facts that never change after creation. */
-function ProjectSection({ project }: { project: AppProject }) {
+function ProjectSection({
+	project,
+	canRename,
+}: {
+	project: AppProject;
+	/** False for a project viewer: the name field is read-only. */
+	canRename: boolean;
+}) {
 	const { t, locale } = useTranslation();
 	const queryClient = useQueryClient();
 	const rename = useRenameProject();
@@ -152,6 +194,7 @@ function ProjectSection({ project }: { project: AppProject }) {
 						key={project.name}
 						id={nameId}
 						defaultValue={project.name}
+						readOnly={!canRename}
 						maxLength={PROJECT_NAME_MAX_LENGTH}
 						dir="auto"
 						className={PANEL_INPUT_CLASS}
@@ -394,14 +437,17 @@ function SpendingLimitsForm({
 	);
 }
 
-/** Delete with a confirm dialog, then the dashboard. A member sees the button off with the reason. */
+/** Delete with a confirm dialog, then the dashboard. Without the right role the button is off, with the reason. */
 function DeleteZone({
 	project,
 	canDelete,
+	deniedText,
 }: {
 	project: AppProject;
-	/** True for a workspace owner or admin. The API refuses the delete to a member. */
+	/** True for the project owner, or for a workspace owner or admin with an older API. */
 	canDelete: boolean;
+	/** The reason shown while `canDelete` is false. */
+	deniedText: string;
 }) {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
@@ -415,9 +461,7 @@ function DeleteZone({
 					{t("appBuilder.settings.deleteTitle")}
 				</h2>
 				<p className="mt-0.5 font-sans text-[13px] text-night/60 dark:text-foreground/60">
-					{canDelete
-						? t("appBuilder.settings.deleteHelp")
-						: t("appBuilder.settings.deleteManagersOnly")}
+					{canDelete ? t("appBuilder.settings.deleteHelp") : deniedText}
 				</p>
 			</div>
 			<AlertDialog>

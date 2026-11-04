@@ -91,6 +91,7 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: {},
 		projectId: PROJECT_ID,
 		provider: null,

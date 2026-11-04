@@ -1,19 +1,24 @@
+/**
+ * Reads and writes member credit limits, and sums the month spend of one member.
+ * MemberLimitsService and the metering reserve gate call it.
+ * It reads `organization`, `organization_billing_settings`, `organization_member_credit_limits`, and `ai_usage_events`.
+ */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gte, sql } from "@wandit/db";
+import { and, eq, gte, isNull, type SQL, sql } from "@wandit/db";
 import { aiUsageEvents } from "@wandit/db/schema/credits";
 import {
+	organization,
 	organizationBillingSettings,
 	organizationMemberCreditLimits,
 } from "@wandit/db/schema/organizations";
-
-import {
-	creditOwnerLockValue,
-	orgOwner,
-} from "../../../credits/domain/credit-owner";
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 
 export type OrganizationBillingSettingsRow =
 	typeof organizationBillingSettings.$inferSelect;
@@ -41,17 +46,18 @@ export class OrganizationLimitsRepository {
 
 	/**
 	 * Serialize limit WRITES against in-flight metering reserves by taking the
-	 * SAME advisory lock as the org's credit balance (creditOwnerLockValue) —
+	 * SAME advisory lock as the paying pool's balance (creditOwnerLockValue) —
 	 * a lowered limit can never interleave with a reserve that already read
-	 * the old value (confirmed design-review finding).
+	 * the old value (confirmed design-review finding). `pool` is the org pool,
+	 * or the owner's personal pool for a personal workspace.
 	 */
-	async withOrgCreditLock<T>(
-		organizationId: string,
+	async withPoolCreditLock<T>(
+		pool: CreditOwner,
 		fn: (tx: LimitsDbClient) => Promise<T>,
 	): Promise<T> {
 		return this.db.transaction(async (tx) => {
 			await tx.execute(
-				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(orgOwner(organizationId))}))`,
+				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(pool)}))`,
 			);
 
 			return fn(tx);
@@ -97,6 +103,23 @@ export class OrganizationLimitsRepository {
 		}
 
 		return { limitCredits: null, source: "none" };
+	}
+
+	/**
+	 * Id of the personal workspace of `ownerUserId`, or null when it has none.
+	 * Its limit rows bind the members who spend the owner's personal pool.
+	 */
+	async findPersonalOrganizationId(
+		ownerUserId: string,
+		client: LimitsDbClient = this.db,
+	): Promise<string | null> {
+		const [row] = await client
+			.select({ id: organization.id })
+			.from(organization)
+			.where(eq(organization.personalOwnerUserId, ownerUserId))
+			.limit(1);
+
+		return row?.id ?? null;
 	}
 
 	async findSettings(
@@ -188,17 +211,56 @@ export class OrganizationLimitsRepository {
 			);
 	}
 
-	/**
-	 * Member spend this calendar month (UTC): reserved-or-final credits over
-	 * the org's usage events. COALESCE(final, reserved) makes refunded work
-	 * count 0 (refunds settle finalCredits to 0) while open reservations count
-	 * their full hold.
-	 */
+	/** Spend of one member this calendar month (UTC) from the org pool, in centi-credits. */
 	async sumMemberSpendThisMonth(
 		organizationId: string,
 		userId: string,
 		now: Date,
 		client: LimitsDbClient = this.db,
+	): Promise<number> {
+		return this.sumSpendThisMonth(
+			[eq(aiUsageEvents.organizationId, organizationId)],
+			userId,
+			now,
+			client,
+		);
+	}
+
+	/**
+	 * Spend of one user this calendar month (UTC) from a personal pool, in
+	 * centi-credits. The owner's own events have no `payer_user_id`; a member's
+	 * events name the owner.
+	 */
+	async sumPersonalPoolMemberSpendThisMonth(
+		ownerUserId: string,
+		userId: string,
+		now: Date,
+		client: LimitsDbClient = this.db,
+	): Promise<number> {
+		return this.sumSpendThisMonth(
+			[
+				isNull(aiUsageEvents.organizationId),
+				userId === ownerUserId
+					? isNull(aiUsageEvents.payerUserId)
+					: eq(aiUsageEvents.payerUserId, ownerUserId),
+			],
+			userId,
+			now,
+			client,
+		);
+	}
+
+	/**
+	 * Reserved-or-final credits of `userId` in one pool since the month start
+	 * (UTC). COALESCE(final, reserved) makes refunded work count 0 (refunds
+	 * settle finalCredits to 0) while open reservations count their full hold.
+	 * `poolFilters` are the conditions that select the pool's events.
+	 */
+	private async sumSpendThisMonth(
+		poolFilters: SQL[],
+		userId: string,
+		now: Date,
+		client: LimitsDbClient,
 	): Promise<number> {
 		const monthStart = new Date(
 			Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
@@ -210,7 +272,7 @@ export class OrganizationLimitsRepository {
 			.from(aiUsageEvents)
 			.where(
 				and(
-					eq(aiUsageEvents.organizationId, organizationId),
+					...poolFilters,
 					eq(aiUsageEvents.userId, userId),
 					gte(aiUsageEvents.createdAt, monthStart),
 				),

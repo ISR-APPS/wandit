@@ -10,6 +10,7 @@ import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
 import type { ChatsRepository } from "../../infrastructure/persistence/chats.repository";
 import { ChatService } from "./chat.service";
@@ -96,9 +97,10 @@ describe("ChatService", () => {
 		await expect(
 			service.getUsage(
 				{
+					actorRoles: ["member"],
 					kind: "org",
 					organizationId: "org_1",
-					userId: "user_1",
+					actorUserId: "user_1",
 					actorIsLimitExempt: false,
 				},
 				"chat_1",
@@ -107,9 +109,10 @@ describe("ChatService", () => {
 		expect(chatsRepository.findAccessibleChatById).toHaveBeenCalledWith(
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["member"],
 				kind: "org",
 				organizationId: "org_1",
-				userId: "user_1",
+				actorUserId: "user_1",
 			},
 			"chat_1",
 		);
@@ -121,7 +124,7 @@ describe("ChatService", () => {
 		chatsRepository.findAccessibleChatById.mockResolvedValue(null);
 
 		await expect(
-			service.getUsage({ kind: "personal", userId: "user_1" }, "chat_1"),
+			service.getUsage(projectScopeFrom(undefined, "user_1"), "chat_1"),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(chatsRepository.getUsage).not.toHaveBeenCalled();
 	});
@@ -341,7 +344,7 @@ describe("ChatService", () => {
 		});
 
 		const result = await service.listMessages(
-			{ kind: "personal", userId: "user_1" },
+			projectScopeFrom(undefined, "user_1"),
 			"chat_1",
 		);
 

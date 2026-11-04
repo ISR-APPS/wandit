@@ -363,7 +363,7 @@
 		},
 		"syncErrors": {
 			"GITHUB_ACCESS_LOST": "The Wandit app cannot reach this repository now. Check the app installation on GitHub.",
-			"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository left the workspace. Unlink it and link it again.",
+			"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository can no longer open this project. Unlink it and link it again.",
 			"GITHUB_LINKER_NO_ACCESS": "The person who linked this repository cannot write to it now.",
 			"GITHUB_PUSH_REJECTED": "GitHub refused the last push, for example because of a branch protection rule.",
 			"GITHUB_WORKFLOW_CHANGED": "The sync stopped: the agent changed a file in .github/workflows. Make workflow changes on GitHub.",

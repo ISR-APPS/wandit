@@ -1,3 +1,8 @@
+/**
+ * Answers the state of one image generation attempt and downloads its images.
+ * ImageGenerationsController calls it. A poll recovers a stale attempt from R2
+ * or fails it. A failed attempt gets an idempotent refund through MeteringService.
+ */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
 	type AiErrorKind,
@@ -94,7 +99,7 @@ export class ImageGenerationsService {
 			await this.imageGenerationsRepository.markAttemptFailed(
 				row.id,
 				STALE_QUEUED_ERROR,
-				scope.userId,
+				scope.actorUserId,
 				"stale_queued",
 			);
 			row = await this.imageGenerationsRepository.findAccessibleAttempt(
@@ -321,7 +326,7 @@ export class ImageGenerationsService {
 				refunded: true,
 				route: "none",
 				surface: "image",
-				userId: scope.userId,
+				userId: scope.actorUserId,
 			});
 			if (sentryEventId) {
 				await this.db
@@ -336,7 +341,7 @@ export class ImageGenerationsService {
 			}
 			captureGenerationFailed(
 				this.analyticsService,
-				scope.userId,
+				scope.actorUserId,
 				"image",
 				failed.projectId,
 				row.id,
@@ -369,10 +374,11 @@ export class ImageGenerationsService {
 			return usageEvent.userId;
 		}
 
-		// Personal attempts have only one authorized actor, so the polling scope is
-		// a safe legacy fallback. A pre-snapshot org attempt admitted with billing
-		// off has no recoverable actor; settle it without emitting a false milestone.
-		return scope.kind === "personal" ? scope.userId : null;
+		// A pre-snapshot personal attempt predates shared workspaces, so its only
+		// actor was the owner: a safe legacy fallback. A pre-snapshot org attempt
+		// admitted with billing off has no recoverable actor; settle it without
+		// emitting a false milestone.
+		return scope.kind === "personal" ? scope.ownerUserId : null;
 	}
 }
 

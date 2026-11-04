@@ -1601,8 +1601,8 @@ then costs its full hold.
   hold the mint, rotate, push, and turn-off code. The tool and the panel
   routes both use them.
 - The panel routes live under `/api/v2/projects/:projectId/ai`, behind
-  `V2BuilderEnabledGuard` and the workspace `project:update` permission. A
-  foreign, V1, or deleted project answers 404.
+  `V2BuilderEnabledGuard` and the project role `editor`, like the secrets
+  routes. A foreign, V1, or deleted project answers 404.
   - `GET /` answers `AppAiStatus`: `enabled`, `keyUpdatedAt`, and the
     `monthCredits` (centi-credits) and `monthRequests` of the billed
     `app_ai_gateway` events since the UTC month start.

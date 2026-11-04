@@ -88,6 +88,8 @@ export * from "./v1/push-tokens";
 export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Workspace kinds, project roles, and project Workspace access (V1 and V2 schemas read them).
+export * from "./v1/shared/project-access";
 // Shared project-engine enum (V1 and V2 schemas both read it).
 export * from "./v1/shared/project-engine";
 // Story-link campaign and analytics contracts.
@@ -146,6 +148,8 @@ export * from "./v2/publish";
 export * from "./v2/routes";
 // V2 write-only project secrets contracts.
 export * from "./v2/secrets";
+// V2 project sharing: grants, invitations, invite link, transfer, move, and shared projects.
+export * from "./v2/sharing";
 // V2 Supabase Management API contracts.
 export * from "./v2/supabase-management";
 // V2 builder turn and stream contracts.

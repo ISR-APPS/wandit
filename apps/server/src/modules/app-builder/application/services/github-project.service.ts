@@ -112,9 +112,9 @@ export class GithubProjectService {
 		]);
 		const headSha = branch?.headSha ?? null;
 		const appConfigured = this.github.isConfigured();
-		// Security: after the linker leaves the org, the project stops reading
-		// their repo. The worker records GITHUB_LINK_OWNER_LEFT.
-		if (link !== null && appConfigured && link.linkerIsMember) {
+		// The check only reads the GitHub head sha. The sync run checks the
+		// project access of the linker before it moves code.
+		if (link !== null && appConfigured) {
 			// The web polls from each open tab. The claim lets one GitHub read through per interval.
 			const intervalMs = this.github.isWebhookConfigured()
 				? GITHUB_CHECK_INTERVAL_WITH_WEBHOOK_MS
@@ -156,7 +156,8 @@ export class GithubProjectService {
 		if ((await this.links.findByProject(projectId)) !== null) {
 			throw alreadyLinked();
 		}
-		const access = await this.accounts.userAccess(scope.userId);
+		// The actor links with their own GitHub account and becomes the linker.
+		const access = await this.accounts.userAccess(scope.actorUserId);
 		if (access === null) {
 			throw notConnected();
 		}
@@ -216,7 +217,7 @@ export class GithubProjectService {
 			repoId: repo.id,
 			repoName: repo.name,
 			repoOwner: repo.ownerLogin,
-			userId: scope.userId,
+			userId: scope.actorUserId,
 		});
 		// Another link request won the race after the check above. The new repo
 		// stays on GitHub with no link.
@@ -225,7 +226,7 @@ export class GithubProjectService {
 		}
 		await this.audit.record({
 			action: "github.link",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: {
 				repoId: repo.id,
@@ -272,7 +273,7 @@ export class GithubProjectService {
 		}
 		await this.audit.record({
 			action: "github.unlink",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { repoName: link.repoName, repoOwner: link.repoOwner },
 			organizationId: project.organizationId,
@@ -294,9 +295,8 @@ export class GithubProjectService {
 				this.links.findByProject(projectId),
 				this.appCommits.findBranch(projectId, "main"),
 			]);
-			// Security: the same rule as `status`. After the linker leaves the org,
-			// the project stops reading their repo.
-			if (link?.linkerIsMember) {
+			// The same rule as `status`: the sync run checks the project access of the linker.
+			if (link !== null) {
 				await this.scheduleWhenHeadsDiffer(link, branch?.headSha ?? null);
 			}
 		}

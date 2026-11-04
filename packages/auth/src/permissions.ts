@@ -2,8 +2,9 @@
 // the v1 role matrix, shared by the Better Auth server plugin, the web
 // organizationClient, and the server-side workspace guards.
 //
-// v1 roles are FIXED (owner/admin/member). Dynamic/custom roles are a later
-// batch; the statement shape below is what makes that a config change.
+// The roles are FIXED (owner/admin/member/viewer). UI labels: Owner, Admin,
+// Editor (key `member`), Viewer. Dynamic/custom roles are a later batch; the
+// statement shape below is what makes that a config change.
 import { createAccessControl } from "better-auth/plugins/access";
 import {
 	adminAc,
@@ -45,12 +46,21 @@ export const workspaceRoles = {
 		project: ["create", "update", "delete"],
 		publish: ["manage"],
 	}),
+	// UI label "Editor". The key stays `member`: Better Auth always accepts it
+	// as its default role, so a rename would leave rows with no permissions.
 	member: workspaceAccessControl.newRole({
 		...memberAc.statements,
-		// Members can build and ship (publish is the core product loop) but
+		// Editors can build and ship (publish is the core product loop) but
 		// cannot delete projects or touch domains/billing/members/limits.
+		// They can invite. The invite-member before-hook must limit them to
+		// `viewer` with no resend (workspaces-sharing.md 2.1).
+		invitation: ["create"],
 		project: ["create", "update"],
 		publish: ["manage"],
+	}),
+	// Read only: Better Auth member statements and no application resource.
+	viewer: workspaceAccessControl.newRole({
+		...memberAc.statements,
 	}),
 };
 

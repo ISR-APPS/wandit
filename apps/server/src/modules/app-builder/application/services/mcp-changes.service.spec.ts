@@ -26,7 +26,13 @@ import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
 import { McpChangesService } from "./mcp-changes.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = {
+	actorIsLimitExempt: true,
+	actorRoles: ["owner"],
+	actorUserId: "user-1",
+	kind: "personal",
+	ownerUserId: "user-1",
+};
 const HEAD = "b".repeat(40);
 const NEW_SHA = "c".repeat(40);
 const REMOTE = "https://org.code.storage/wandit/p-1.git";

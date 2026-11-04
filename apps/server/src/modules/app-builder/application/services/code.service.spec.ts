@@ -14,7 +14,10 @@ import {
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	SandboxCreateOptions,
 	SandboxExecResult,
@@ -27,7 +30,7 @@ import {
 import { CodeService } from "./code.service";
 
 const WORKTREE = FAKE_WORKSPACE_DIR;
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",

@@ -3,8 +3,11 @@
  * screen. The stage shows the preview in a phone or browser frame, or an app
  * tile with the first letter of the name. The meta row shows the platform, the
  * lead count (V1 pages only), and the update time. dashboard-page.tsx renders
- * the card and ProjectCardSkeleton. The card menu opens, views live, renames,
- * or deletes a project; renames and deletes go through projects.mutations.ts.
+ * the card and ProjectCardSkeleton. The card menu opens, views live, shares,
+ * renames, or deletes a project; renames and deletes go through
+ * projects.mutations.ts. The menu shows Share, Rename, and Delete by
+ * `project.access.role`; a V1 Delete reads the workspace role from useWorkspace.
+ * The Share dialog comes from features/project-sharing.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -15,6 +18,7 @@ import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";
 import { GlobeSimpleIcon } from "@phosphor-icons/react/GlobeSimple";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
+import { ShareNetworkIcon } from "@phosphor-icons/react/ShareNetwork";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -53,6 +57,12 @@ import type * as React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	hasProjectRole,
+	ProjectShareDialog,
+	useSharingEnabled,
+} from "@/features/project-sharing";
+import { useWorkspace } from "@/features/workspaces";
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { Project } from "../api/dto";
@@ -235,10 +245,30 @@ export function ProjectCard({ project }: { project: Project }) {
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [shareOpen, setShareOpen] = useState(false);
 	const [failedPreviewImageUrl, setFailedPreviewImageUrl] = useState<
 		string | null
 	>(null);
 	const deleteProject = useDeleteProject();
+	const isSharingEnabled = useSharingEnabled();
+	const { workspaces } = useWorkspace();
+	const isV2 = project.engine === "v2_app";
+	const access = project.access;
+	// Sharing exists for V2 projects only. An older API sends no access and has no sharing routes.
+	const canShare = isSharingEnabled && isV2 && access !== undefined;
+	// Product rule (workspaces-sharing.md 2.2): rename needs editor. Delete needs
+	// owner on V2. A V1 delete keeps the workspace rule `project:delete`: owner or
+	// admin of the project's own workspace, not the project role.
+	const canRename = hasProjectRole(access, "editor");
+	const canDelete = isV2
+		? hasProjectRole(access, "owner")
+		: access === undefined ||
+			workspaces.some(
+				(workspace) =>
+					workspace.id === access.workspace.id &&
+					(workspace.roles.includes("owner") ||
+						workspace.roles.includes("admin")),
+			);
 
 	const glyph = projectTileGlyph(project.name);
 	const look = projectTileLook(project.thumbnailSeed);
@@ -409,18 +439,30 @@ export function ProjectCard({ project }: { project: Project }) {
 								</a>
 							</DropdownMenuItem>
 						) : null}
-						<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
-							<PencilSimpleIcon aria-hidden weight="duotone" />
-							{t("projects.menuRename")}
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem
-							variant="destructive"
-							onSelect={() => setDeleteOpen(true)}
-						>
-							<TrashIcon aria-hidden weight="duotone" />
-							{t("projects.menuDelete")}
-						</DropdownMenuItem>
+						{canShare ? (
+							<DropdownMenuItem onSelect={() => setShareOpen(true)}>
+								<ShareNetworkIcon aria-hidden weight="duotone" />
+								{t("sharing.projectMenu.share")}
+							</DropdownMenuItem>
+						) : null}
+						{canRename ? (
+							<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
+								<PencilSimpleIcon aria-hidden weight="duotone" />
+								{t("projects.menuRename")}
+							</DropdownMenuItem>
+						) : null}
+						{canDelete ? (
+							<>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									variant="destructive"
+									onSelect={() => setDeleteOpen(true)}
+								>
+									<TrashIcon aria-hidden weight="duotone" />
+									{t("projects.menuDelete")}
+								</DropdownMenuItem>
+							</>
+						) : null}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</div>
@@ -430,6 +472,15 @@ export function ProjectCard({ project }: { project: Project }) {
 					project={project}
 					open={renameOpen}
 					onOpenChange={setRenameOpen}
+				/>
+			) : null}
+
+			{canShare ? (
+				<ProjectShareDialog
+					projectId={project.id}
+					projectName={project.name}
+					open={shareOpen}
+					onOpenChange={setShareOpen}
 				/>
 			) : null}
 

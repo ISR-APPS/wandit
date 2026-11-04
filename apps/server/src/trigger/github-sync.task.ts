@@ -19,6 +19,10 @@ import { GithubAppClient } from "../modules/app-builder/infrastructure/github/gi
 import { AppCommitsRepository } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import { ProjectGithubLinksRepository } from "../modules/app-builder/infrastructure/persistence/project-github-links.repository";
 import { GITHUB_SYNC_TASK_ID } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
+// The worker has no Nest container, so it builds the access service on its own pool.
+// It imports the files directly, like the other tasks. The projects barrel loads the full Nest service graph.
+import { ProjectAccessService } from "../modules/projects/application/services/project-access.service";
+import { ProjectsRepository } from "../modules/projects/infrastructure/persistence/projects.repository";
 
 import { runGithubSync } from "./github-sync.runtime";
 
@@ -58,6 +62,7 @@ export const githubSyncTask = schemaTask({
 					links: new ProjectGithubLinksRepository(db),
 					// The process logger: the Trigger Sentry client drops `Sentry.logger` lines.
 					logger,
+					projectAccess: new ProjectAccessService(new ProjectsRepository(db)),
 				},
 				{
 					isFinalAttempt: ctx.attempt.number >= GITHUB_SYNC_MAX_ATTEMPTS,

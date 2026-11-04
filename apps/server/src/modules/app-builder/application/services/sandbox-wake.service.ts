@@ -113,7 +113,7 @@ export class SandboxWakeService {
 		// boot drops it. The lock then blocks the project for up to 2 min. A
 		// boot step that hangs blocks it for up to 12 min. The next wake or
 		// turn boots the sandbox. Upgrade: a Trigger task like publish-app.
-		void this.boot(projectId, lockId, scope.userId);
+		void this.boot(projectId, lockId, scope.actorUserId);
 		return { status: "starting" };
 	}
 

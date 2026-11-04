@@ -335,7 +335,7 @@ class FakeSessions {
 
 /** In-memory `ai_usage_events` store: one hold row. */
 class FakeMetering {
-	event: Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>> =
+	event: Awaited<ReturnType<MeteringService["findByIdempotencyKeyAnyPayer"]>> =
 		fakeHoldEvent("reserved");
 	/** The `monthlySpendCredits` answer, in cc. */
 	monthlySpend = 0;
@@ -410,10 +410,9 @@ class FakeMetering {
 		return this.holdLost ? "lost" : "renewed";
 	}
 
-	async findByIdempotencyKey(
+	async findByIdempotencyKeyAnyPayer(
 		key: string,
-		_subject: MeteringSubject,
-	): ReturnType<MeteringService["findByIdempotencyKey"]> {
+	): ReturnType<MeteringService["findByIdempotencyKeyAnyPayer"]> {
 		this.keys.push(key);
 		return this.event;
 	}
@@ -512,13 +511,20 @@ function fakeCapsRow(
 
 function fakeHoldEvent(
 	status: "reserved" | "settled" | "refunded",
-): Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>> {
-	// SAFETY: the runtime reads only id, status, and reservedCredits off the hold row.
+	over?: { payerUserId?: string | null; userId?: string },
+): Awaited<ReturnType<MeteringService["findByIdempotencyKeyAnyPayer"]>> {
+	// SAFETY: the runtime reads only the payer, match, and hold fields set here.
 	return {
 		id: "evt_hold_1",
+		operation: "agent_session",
+		organizationId: null,
+		payerUserId: over?.payerUserId ?? null,
+		pricingSnapshot: null,
+		projectId: PROJECT_ID,
 		reservedCredits: HOLD_RESERVE_CREDITS,
 		status,
-	} as Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>>;
+		userId: over?.userId ?? "user_1",
+	} as Awaited<ReturnType<MeteringService["findByIdempotencyKeyAnyPayer"]>>;
 }
 
 /** 700_000 micros → ceil(70_000_000/32_000) = 2188 cc; tokens differ from the harness counts on purpose. */
@@ -663,6 +669,8 @@ function makeWorld(over?: {
 	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
 	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
 	const balanceReads: number[] = [];
+	/** The subject of every `resolvePlan` call: the payer the turn bills. */
+	const planSubjects: MeteringSubject[] = [];
 	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
 	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
 	const uploads = new Map<string, Uint8Array>();
@@ -832,7 +840,10 @@ function makeWorld(over?: {
 		},
 		readUpload: async (url) => uploads.get(url) ?? null,
 		readV2Enabled: async () => nextV2(),
-		resolvePlan: async () => "pro",
+		resolvePlan: async (subject) => {
+			planSubjects.push(subject);
+			return "pro";
+		},
 		sandboxSessions: {
 			touchActivity: async (projectId) => {
 				touched.push(projectId);
@@ -860,6 +871,7 @@ function makeWorld(over?: {
 		lock,
 		metering,
 		minted,
+		planSubjects,
 		promoted,
 		proxySum,
 		revoked,
@@ -1891,40 +1903,69 @@ describe("runBuilderTurn", () => {
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 	});
 
-	it("stops as stopped_no_credits on a tick when the hold lookup found nothing", async () => {
-		vi.useFakeTimers();
-		const world = makeWorld({ balances: [50_000, 0], runSpend: [300_000] });
-		world.metering.event = null;
-		let release: () => void = () => {};
-		world.harness.streamHold = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+	it.each([
+		{ event: null, name: "missing", refunds: 0 },
+		{
+			event: fakeHoldEvent("reserved", { userId: "user_other" }),
+			name: "of another actor",
+			refunds: 1,
+		},
+	])("fails the turn before the harness starts when the hold is $name", async ({
+		event,
+		refunds,
+	}) => {
+		const world = makeWorld();
+		world.metering.event = event;
 		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 		const { controller, input } = makeInput();
 
-		const run = runBuilderTurn(world.deps, input, controller.signal);
-		await waitForStream(world.harness);
+		await runBuilderTurn(world.deps, input, controller.signal);
 
-		await vi.advanceTimersByTimeAsync(30_000);
-		release();
-		await run;
+		// Fail closed: no hold that names this turn's payer, no free run.
+		expect(world.harness.streamCalls).toHaveLength(0);
+		expect(world.minted).toHaveLength(0);
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe("hold_missing");
+		// The hold under this turn's key still goes back to its own pool.
+		expect(world.metering.refundCalls).toHaveLength(refunds);
+	});
 
-		// The stop rules run without a hold; only the checkpoint debit needs it.
-		expect(world.metering.checkpointCalls).toHaveLength(0);
-		expect(world.turns.transitionCalls).toEqual([
+	it("bills the pool that the hold row names, not the payload actor", async () => {
+		const world = makeWorld();
+		// A member's turn in another user's personal workspace.
+		world.metering.event = fakeHoldEvent("reserved", {
+			payerUserId: "owner_1",
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.planSubjects).toEqual([
 			{
-				from: ["running", "cancelling"],
-				patch: expect.objectContaining({
-					failureCode: "stopped_no_credits",
-				}),
-				to: "stopped_no_credits",
-				turnId: TURN_ID,
+				actorIsLimitExempt: false,
+				actorUserId: "user_1",
+				organizationId: null,
+				payerUserId: "owner_1",
 			},
 		]);
-		const done = world.stream.eventsOf(TURN_ID).at(-1);
-		expect(done?.type === "done" && done.data.status).toBe(
-			"stopped_no_credits",
-		);
+	});
+
+	it("names the personal owner as payer when billing is off and a member sends the turn", async () => {
+		const world = makeWorld({
+			billingDisabled: true,
+			project: fakeProjectRow({ userId: "owner_1" }),
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// No hold names the payer, so the project row does. secretActor scopes the project with it.
+		expect(world.planSubjects).toEqual([
+			{ actorUserId: "user_1", organizationId: null, payerUserId: "owner_1" },
+		]);
 	});
 
 	it("stops as stopped_project_cap when the spend reaches the per-turn cap", async () => {

@@ -8,6 +8,7 @@ function projectRow(
 	logoUrl: string | null = null,
 ): ProjectQueryRow {
 	return {
+		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-07-31T08:00:00.000Z"),
 		engine: "v1_page",

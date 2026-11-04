@@ -1,14 +1,21 @@
+/**
+ * Grants, consumes, refunds, expires, and revokes credits of one pool in the
+ * append-only `credit_ledger`, and tracks plan holds. Metering, billing, admin,
+ * and the credits controller call it. It reads and writes through CreditsRepository.
+ */
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
 	CREDIT_SPEND_ORDER,
 	type CreditActivityQuery,
 	type CreditBucket,
 	type CreditLedgerQuery,
+	type CreditPayer,
 	SIGNUP_GRANT_CREDITS,
 } from "@wandit/contracts";
 
 import {
 	type CreditOwner,
+	creditPayerOf,
 	ownerColumns,
 	userOwner,
 } from "../../domain/credit-owner";
@@ -53,8 +60,8 @@ type CreditWriteOptions = {
 	/** Metering-only escape hatch for post-provider settlement debt. */
 	allowOverdraft?: boolean;
 	/**
-	 * The acting member for ORG consumption rows (ledger provenance). Ignored
-	 * for personal owners — their rows already carry the user.
+	 * The acting member for ORG consumption rows (ledger provenance) and for
+	 * the `payer` of a 402. Personal rows already carry the pool owner.
 	 */
 	actorUserId?: string;
 	idempotencyKey?: string;
@@ -211,13 +218,19 @@ export class CreditsService {
 						amount,
 						balance.balance,
 						balance.settledBalance,
+						this.refusedPayer(owner, options.actorUserId),
 					);
 				}
 			} else if (!options.allowOverdraft && balance.balance < amount) {
 				// Strict-cover refusal on the raw balance: report the raw number
 				// too, or the error could claim more available than required while
 				// refusing (settled adds running holds back).
-				throw new InsufficientCreditsError(amount, balance.balance);
+				throw new InsufficientCreditsError(
+					amount,
+					balance.balance,
+					balance.balance,
+					this.refusedPayer(owner, options.actorUserId),
+				);
 			}
 
 			const bucketSplit = this.buildConsumeBucketSplit(
@@ -1243,6 +1256,16 @@ export class CreditsService {
 					? meta.reason
 					: defaultReason,
 		};
+	}
+
+	/** The 402 `payer` of `owner`. Without an actor the 402 keeps its old shape. */
+	private refusedPayer(
+		owner: CreditOwner,
+		actorUserId: string | undefined,
+	): CreditPayer | undefined {
+		return actorUserId === undefined
+			? undefined
+			: creditPayerOf(owner, actorUserId);
 	}
 
 	/**

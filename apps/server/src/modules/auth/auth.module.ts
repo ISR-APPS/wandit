@@ -2,9 +2,9 @@
  * Wires Better Auth into Nest: the web and admin auth instances, the guards, and the signup side effects.
  * Its controllers serve /api/auth and /api/admin-auth, and with V2 the OAuth metadata under /.well-known.
  * Other modules inject AUTH_INSTANCE and AuthGuard.
- * The signup hook calls the attribution, credits, lifecycle, and analytics services.
+ * The signup hook calls the attribution, workspaces, credits, lifecycle, and analytics services.
  * The MCP consent hook writes `audit_events` rows through AuditEventsService.
- * Email sign-in and invitations call the email service.
+ * Email sign-in and invitations call the email service. The organization hooks call the membership cleanup.
  */
 import {
 	Global,
@@ -17,7 +17,8 @@ import {
 import { APP_GUARD } from "@nestjs/core";
 import { type AdminAuth, type Auth, adminAuth, createAuth } from "@wandit/auth";
 import { canonicalizeEmail } from "@wandit/auth/email-canonical";
-import { isAdminRole } from "@wandit/contracts";
+import { WORKSPACE_INVITATION_EXPIRES_IN_DAYS } from "@wandit/auth/workspace-membership-rules";
+import { isAdminRole, workspaceRoleNames } from "@wandit/contracts";
 import { eq, inArray, sql } from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import { env } from "@wandit/env/server";
@@ -47,6 +48,11 @@ import {
 } from "../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
+import {
+	MembershipCleanupService,
+	parseWorkspaceRoles,
+	WorkspacesService,
+} from "../workspaces";
 import { DevUserSeedService } from "./application/services/dev-user-seed.service";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
@@ -88,6 +94,8 @@ const authProvider: Provider<Auth> = {
 		EmailService,
 		EmailSendPolicyService,
 		BetterAuthRedisSecondaryStorage,
+		WorkspacesService,
+		MembershipCleanupService,
 		AuditEventsService,
 	],
 	useFactory: (
@@ -101,16 +109,21 @@ const authProvider: Provider<Auth> = {
 		emailService: EmailService,
 		emailSendPolicy: EmailSendPolicyService,
 		secondaryStorage: BetterAuthRedisSecondaryStorage,
+		workspacesService: WorkspacesService,
+		membershipCleanup: MembershipCleanupService,
 		audit: AuditEventsService,
-	) =>
-		createAuth({
+	) => {
+		const organizationsEnabled = async () =>
+			(await productSettings.get()).organizationsEnabled;
+		return createAuth({
 			secondaryStorage,
 			// Workspace creation is a beta-gated admission — the organizations
 			// toggle is the same class of kill switch as paid subscriptions.
-			canCreateOrganization: async () => {
-				const settings = await productSettings.get();
-				return settings.organizationsEnabled;
-			},
+			canCreateOrganization: organizationsEnabled,
+			// The same toggle stops invites and accepts into personal workspaces.
+			isOrganizationsEnabled: organizationsEnabled,
+			onMembershipReduced: (reduction) =>
+				membershipCleanup.handleMembershipReduced(reduction),
 			// Magic-link/OTP sign-in: toggle gate + abuse gates + delivery.
 			// Emails arriving here are canonical (packages/auth before-hook).
 			emailAuth: {
@@ -156,10 +169,15 @@ const authProvider: Provider<Auth> = {
 						.from(user)
 						.where(eq(user.id, invitation.inviterUserId))
 						.limit(1);
+					const roles = parseWorkspaceRoles(invitation.role);
 					await emailService.sendInvitationEmail({
+						expiresInDays: WORKSPACE_INVITATION_EXPIRES_IN_DAYS,
 						inviteUrl: `${env.CORS_ORIGIN}/invite/${invitation.invitationId}`,
 						inviterName: inviter?.name || inviter?.email || "A teammate",
 						organizationName: invitation.organizationName,
+						// `workspaceRoleNames` lists the highest role first.
+						role:
+							workspaceRoleNames.find((role) => roles.includes(role)) ?? null,
 						to: invitation.email,
 					});
 				} catch (error) {
@@ -206,6 +224,16 @@ const authProvider: Provider<Auth> = {
 
 				analytics.capture(newUser.id, "user_signed_up");
 
+				// GET /v1/workspaces creates it again when this step fails.
+				try {
+					await workspacesService.ensurePersonalWorkspace(newUser.id);
+				} catch (error) {
+					logger.error(
+						`Personal workspace creation failed for user ${newUser.id}`,
+						error,
+					);
+				}
+
 				try {
 					await lifecycleEvents.enqueue({
 						dispatchAfter: new Date(
@@ -244,7 +272,8 @@ const authProvider: Provider<Auth> = {
 					logger.error("Admin role bootstrap failed", error);
 				}
 			},
-		}),
+		});
+	},
 };
 
 const adminAuthProvider: Provider<AdminAuth> = {

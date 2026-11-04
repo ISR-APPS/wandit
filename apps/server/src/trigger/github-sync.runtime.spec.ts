@@ -8,6 +8,7 @@ import {
 	type GithubRepoPermission,
 } from "../modules/app-builder/infrastructure/github/github-app.client";
 import type { ProjectGithubLinkRow } from "../modules/app-builder/infrastructure/persistence/project-github-links.repository";
+import type { ResolvedProjectAccess } from "../modules/projects";
 import {
 	type GithubSyncDeps,
 	isFinalGithubPushRefusal,
@@ -24,9 +25,7 @@ const LINK: ProjectGithubLinkRow = {
 	installationId: 11,
 	lastError: null,
 	lastSyncedSha: null,
-	linkerIsMember: true,
 	mirroredSha: null,
-	organizationId: null,
 	projectId: "0b9f1c52-6a43-4f7e-9d1a-2f4c8e7b5a10",
 	remoteHeadSha: null,
 	repoId: 22,
@@ -34,6 +33,21 @@ const LINK: ProjectGithubLinkRow = {
 	repoOwner: "octo",
 	updatedAt: new Date("2026-11-01T10:00:00.000Z"),
 	userId: "user-1",
+};
+
+// The linker owns the personal project of `LINK`.
+const LINKER_ACCESS: ResolvedProjectAccess = {
+	directRole: null,
+	project: {
+		engine: "v2_app",
+		id: LINK.projectId,
+		organizationId: null,
+		userId: LINK.userId,
+		workspaceAccess: "can_edit",
+	},
+	role: "owner",
+	workspace: null,
+	workspaceRoles: [],
 };
 
 // The git steps that a case can answer. "fetch-github" is the fetch from the GitHub URL.
@@ -62,6 +76,8 @@ const DEFAULT_GIT: Record<GitStep, Partial<SandboxExecResult>> = {
 function makeWorld(
 	over: {
 		link?: Partial<ProjectGithubLinkRow>;
+		/** What `ProjectAccessService.resolve` answers for the linker; null means no access. Default `LINKER_ACCESS`. */
+		linkerAccess?: ResolvedProjectAccess | null;
 		tokenError?: GithubApiError;
 		/** The login that GitHub answers for the stored user id; null for a deleted account. Default "octo". */
 		currentLogin?: string | null;
@@ -131,6 +147,10 @@ function makeWorld(
 			},
 		},
 		logger: { warn: () => {} },
+		projectAccess: {
+			resolve: async () =>
+				over.linkerAccess === undefined ? LINKER_ACCESS : over.linkerAccess,
+		},
 	};
 	return { deps, gitSteps, recorded, recordedHeads, synced };
 }
@@ -162,8 +182,8 @@ describe("runGithubSync", () => {
 	// Security: a lost access stops the run before any git command reads or sends code.
 	it.each([
 		[
-			"a linker who left the org",
-			{ link: { linkerIsMember: false } },
+			"a linker who lost read access to the project",
+			{ linkerAccess: null },
 			"GITHUB_LINK_OWNER_LEFT",
 		],
 		[

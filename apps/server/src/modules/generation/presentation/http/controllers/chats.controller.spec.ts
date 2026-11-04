@@ -83,9 +83,10 @@ describe("ChatsController", () => {
 		expect(chatService.getUsage).toHaveBeenCalledWith(
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["member"],
+				actorUserId: "user_1",
 				kind: "org",
 				organizationId: "org_1",
-				userId: "user_1",
 			},
 			"00000000-0000-0000-0000-000000000001",
 		);

@@ -62,7 +62,10 @@
 		"ORGANIZATIONS_DISABLED": "Les espaces de travail d'équipe sont actuellement suspendus.",
 		"MEMBER_CREDIT_LIMIT_REACHED": "Vous avez atteint votre limite mensuelle de crédits dans cet espace de travail. Demandez à un propriétaire de l'augmenter.",
 		"WORKSPACE_PERMISSION_DENIED": "Votre rôle dans l'espace de travail ne permet pas cette action.",
-		"WORKSPACE_NOT_SUPPORTED": "Cette action n'est pas disponible dans un espace de travail d'équipe.",
+		"WORKSPACE_NOT_SUPPORTED": "Cette action n'est pas disponible dans cet espace de travail.",
+		"PROJECT_MOVE_BLOCKED": "Ce projet ne peut pas être déplacé pour l’instant. Attends la fin du travail en cours, puis réessaie.",
+		"INVITE_LINK_INVALID": "Ce lien d’invitation n’est pas valide. Il a peut-être expiré ou été remplacé.",
+		"PROJECT_INVITATION_INVALID": "Cette invitation n’est pas valide. Elle a peut-être expiré, été annulée ou été envoyée à une autre adresse e-mail.",
 		"EMAIL_AUTH_DISABLED": "La connexion par e-mail est indisponible pour le moment.",
 		"EMAIL_DOMAIN_BLOCKED": "Ce domaine e-mail n'est pas pris en charge.",
 		"EMAIL_SEND_RATE_LIMITED": "Trop d'e-mails demandés. Patiente avant de réessayer.",
@@ -99,6 +102,7 @@
 		"GITHUB_NOT_LINKED": "Ce projet n’a pas de dépôt GitHub.",
 		"GITHUB_NOTHING_TO_UPDATE": "GitHub n’a pas de nouvelles modifications pour ce projet.",
 		"GITHUB_UPDATE_CHANGED": "GitHub a encore changé. Relance la mise à jour.",
-		"GITHUB_MERGE_FAILED": "Wandit n’a pas pu fusionner les modifications de GitHub. Ton code n’a pas changé."
+		"GITHUB_MERGE_FAILED": "Wandit n’a pas pu fusionner les modifications de GitHub. Ton code n’a pas changé.",
+		"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau."
 	}
 }

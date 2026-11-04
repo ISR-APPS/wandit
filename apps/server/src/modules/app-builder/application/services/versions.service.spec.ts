@@ -13,7 +13,11 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import type { ResolvedProjectAccess } from "../../../projects";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";
 import type { SandboxExecResult } from "../../domain/ports/sandbox-provider";
 import {
@@ -45,7 +49,7 @@ const GITHUB_SHA = "f".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {
@@ -83,9 +87,7 @@ const LINK: ProjectGithubLinkRow = {
 	installationId: 7,
 	lastError: null,
 	lastSyncedSha: HEAD,
-	linkerIsMember: true,
 	mirroredSha: GITHUB_SHA,
-	organizationId: null,
 	projectId: "p-1",
 	remoteHeadSha: GITHUB_SHA,
 	repoId: 99,
@@ -93,6 +95,21 @@ const LINK: ProjectGithubLinkRow = {
 	repoOwner: "octocat",
 	updatedAt: new Date("2026-11-03T10:00:00.000Z"),
 	userId: "user-1",
+};
+
+// The linker owns the personal project of `LINK`.
+const LINKER_ACCESS: ResolvedProjectAccess = {
+	directRole: null,
+	project: {
+		engine: "v2_app",
+		id: "p-1",
+		organizationId: null,
+		userId: "user-1",
+		workspaceAccess: "can_edit",
+	},
+	role: "owner",
+	workspace: null,
+	workspaceRoles: [],
 };
 
 function commitRow(overrides?: Partial<AppCommitRow>): AppCommitRow {
@@ -128,6 +145,8 @@ function fixture(options?: {
 	turnWaits?: boolean;
 	/** The `project_github_links` row; default `LINK`. */
 	link?: ProjectGithubLinkRow;
+	/** What `ProjectAccessService.resolve` answers for the linker; null means no access. Default `LINKER_ACCESS`. */
+	linkerAccess?: ResolvedProjectAccess | null;
 	/** An error that every R2 patch write throws, like an R2 outage. */
 	putPatchError?: Error;
 }) {
@@ -223,6 +242,7 @@ function fixture(options?: {
 	const githubLinks = {
 		findByProject: vi.fn(async () => options?.link ?? LINK),
 		markPulled: vi.fn(async () => {}),
+		recordError: vi.fn(async () => {}),
 	};
 	const service = new VersionsService(
 		appCommits,
@@ -237,6 +257,12 @@ function fixture(options?: {
 		{ record: async () => undefined },
 		{ scheduleIfLinked: async () => undefined },
 		githubLinks,
+		{
+			resolve: async () =>
+				options?.linkerAccess === undefined
+					? LINKER_ACCESS
+					: options.linkerAccess,
+		},
 	);
 
 	return {
@@ -716,6 +742,31 @@ function scriptPullUntilMerge(
 }
 
 describe("VersionsService.pullFromGithub", () => {
+	// Security: a linker who cannot open the project must not bring code from their repo into it.
+	it("answers 409 GITHUB_LINK_OWNER_LEFT, records it, and boots no sandbox when the linker lost access", async () => {
+		const { githubLinks, sandboxes, service } = fixture({
+			linkerAccess: null,
+		});
+
+		const failure = await service
+			.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "GITHUB_LINK_OWNER_LEFT",
+		});
+		expect(githubLinks.recordError).toHaveBeenCalledWith(
+			"link-1",
+			"GITHUB_LINK_OWNER_LEFT",
+		);
+		expect(sandboxes.calls.some((call) => call.method === "getOrCreate")).toBe(
+			false,
+		);
+	});
+
 	// A pulled head must not boot a sandbox and merge again.
 	it("answers 409 GITHUB_NOTHING_TO_UPDATE without a sandbox when the GitHub head is pulled", async () => {
 		const { sandboxes, service } = fixture({

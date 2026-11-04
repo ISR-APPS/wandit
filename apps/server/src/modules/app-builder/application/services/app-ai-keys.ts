@@ -99,7 +99,7 @@ export class AppAiKeys {
 		}
 		await this.deps.audit.insert({
 			action: "secret.synced",
-			actorUserId: actor.scope.userId,
+			actorUserId: actor.scope.actorUserId,
 			ip: actor.ip,
 			metadata: { name: APP_AI_KEY_SECRET_NAME, source },
 			organizationId: projectOwnerColumns(actor.scope).organizationId,

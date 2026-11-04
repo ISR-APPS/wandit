@@ -4,10 +4,13 @@
  * which draws its title; a Cloud panel renders through
  * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
+ * A project viewer gets a note in place of the AI panel.
  */
 
+import { InfoIcon } from "@phosphor-icons/react/Info";
 import { type ReactNode, useState } from "react";
 
+import { hasProjectRole } from "@/features/project-sharing";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import {
@@ -24,7 +27,7 @@ import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
 import { IntegrationsPanel } from "./integrations-panel";
 import { MoreNav } from "./more-nav";
-import { PanelShell } from "./panel-shell";
+import { PanelMessage, PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
 import { SettingsPanel } from "./settings-panel";
 import { SignInPanel } from "./sign-in-panel";
@@ -79,7 +82,15 @@ export function MoreView({
 					/>
 				);
 			case "ai":
-				return <AiPanel projectId={project.id} isActive={isActive} />;
+				// Every AI key route needs the editor role, the GET too. A viewer gets a note and no API call.
+				return hasProjectRole(project.access, "editor") ? (
+					<AiPanel projectId={project.id} isActive={isActive} />
+				) : (
+					<PanelMessage
+						icon={InfoIcon}
+						text={t("sharing.readOnly.editorsOnly")}
+					/>
+				);
 			case "signIn":
 				return <SignInPanel projectId={project.id} />;
 			case "payments":
@@ -87,7 +98,7 @@ export function MoreView({
 			case "integrations":
 				return <IntegrationsPanel project={project} isActive={isActive} />;
 			case "domains":
-				return <DomainsPanel projectId={project.id} />;
+				return <DomainsPanel projectId={project.id} access={project.access} />;
 			case "appStores":
 				return <AppStoresPanel projectId={project.id} />;
 			case "settings":

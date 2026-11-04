@@ -1,3 +1,9 @@
+/**
+ * Builds the admin project detail page and its page-version list.
+ * AdminProjectsController calls it. It reads the project through AdminRepository,
+ * then calls the project services (pages, sites, assets, leads, domains) with a
+ * system scope of the project owner.
+ */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
 	AdminProjectDetail,
@@ -12,7 +18,10 @@ import { LeadsService } from "../../../leads/application/services/leads.service"
 import { MarketingAssetsService } from "../../../marketing-assets/application/services/marketing-assets.service";
 import { PagesService } from "../../../pages/application/services/pages.service";
 import { ProjectAssetsService } from "../../../project-assets/application/services/project-assets.service";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	systemProjectScope,
+} from "../../../projects/domain/project-scope";
 import { SitesService } from "../../../sites/application/services/sites.service";
 import {
 	type AdminProjectDetailRow,
@@ -187,14 +196,11 @@ export class AdminProjectsService {
 	}
 
 	private projectScope(project: AdminProjectDetailRow): ProjectScope {
-		return project.organizationId
-			? {
-					actorIsLimitExempt: true,
-					kind: "org",
-					organizationId: project.organizationId,
-					userId: project.ownerId,
-				}
-			: { kind: "personal", userId: project.ownerId };
+		return systemProjectScope(
+			{ organizationId: project.organizationId, userId: project.ownerId },
+			project.ownerId,
+			true,
+		);
 	}
 
 	private async sectionOrNull<T>(load: () => Promise<T>): Promise<T | null> {

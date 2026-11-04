@@ -10,7 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { EasBuildRunner } from "../../domain/ports/eas-build-runner";
 import type { MobileBuildTaskStarter } from "../../domain/ports/mobile-build-task-starter";
 import type {
@@ -33,12 +36,13 @@ const BUILD_ID = "22222222-2222-4222-8222-222222222222";
 const REQUEST_KEY = "33333333-3333-4333-8333-333333333333";
 const HEAD_SHA = "a".repeat(40);
 const CREATED_AT = new Date("2026-09-26T10:00:00.000Z");
-const PERSONAL: ProjectScope = { kind: "personal", userId: "user_1" };
+const PERSONAL: ProjectScope = projectScopeFrom(undefined, "user_1");
 const ORG: ProjectScope = {
 	actorIsLimitExempt: true,
+	actorRoles: ["admin"],
 	kind: "org",
 	organizationId: "org_1",
-	userId: "user_1",
+	actorUserId: "user_1",
 };
 const BODY = { platform: "android", requestKey: REQUEST_KEY } as const;
 const IP = "203.0.113.9";
@@ -116,6 +120,7 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: {},
 		projectId: PROJECT_ID,
 		provider: null,
@@ -567,7 +572,7 @@ describe("MobileBuildsService.cancel", () => {
 		expect(runner.cancel).toHaveBeenCalledWith("eas_1");
 		expect(metering.findByIdempotencyKey).toHaveBeenCalledWith(
 			`mobile_build:${BUILD_ID}`,
-			{ actorUserId: "user_1" },
+			{ actorIsLimitExempt: true, actorUserId: "user_1" },
 		);
 		expect(metering.refund).toHaveBeenCalledWith(
 			"hold_1",

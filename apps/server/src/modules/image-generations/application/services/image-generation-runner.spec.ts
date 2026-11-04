@@ -20,7 +20,8 @@ import {
 const ATTEMPT_ID = "11111111-1111-1111-8111-911111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-922222222222";
 const USER_ID = "user_1";
-const SUBJECT = { actorUserId: USER_ID };
+// The runner builds no exemption: the payload carries no role.
+const SUBJECT = { actorIsLimitExempt: false, actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-944444444444";
 
 const PAYLOAD = {
@@ -476,7 +477,11 @@ describe("runImageGeneration", () => {
 			startedAt: new Date("2026-01-01T00:00:00Z"),
 			status: "generating",
 		});
-		const orgSubject = { actorUserId: actingMemberId, organizationId };
+		const orgSubject = {
+			actorIsLimitExempt: false,
+			actorUserId: actingMemberId,
+			organizationId,
+		};
 		const dependencies = makeDependencies({
 			claimQueued: vi.fn().mockResolvedValue(generating),
 			loadAttempt: vi.fn().mockResolvedValue(queued),
@@ -546,7 +551,11 @@ describe("runImageGeneration", () => {
 			),
 		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
 		expect(dependencies.refund).toHaveBeenCalledWith(
-			{ actorUserId: actingMemberId, organizationId },
+			{
+				actorIsLimitExempt: false,
+				actorUserId: actingMemberId,
+				organizationId,
+			},
 			ATTEMPT_ID,
 		);
 	});
@@ -1228,6 +1237,40 @@ describe("runImageGeneration", () => {
 		});
 
 		expect(result).toEqual({ reason: "ownership_mismatch", status: "failed" });
-		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+		// The row is not trusted: the payload's own pool stands in.
+		expect(dependencies.refund).toHaveBeenCalledWith(
+			{ actorUserId: USER_ID, organizationId: null },
+			ATTEMPT_ID,
+		);
+	});
+
+	it("runs a member's attempt on a personal project from the owner's pool", async () => {
+		// Another user's personal workspace: the row names the owner, the
+		// payload names the member who queued the run.
+		const dependencies = makeDependencies({
+			loadAttempt: vi
+				.fn()
+				.mockResolvedValue(makeAttempt({ userId: "user_owner" })),
+		});
+
+		const result = await runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_1",
+		});
+
+		expect(result).toMatchObject({ status: "succeeded" });
+		expect(dependencies.reserve).toHaveBeenCalledWith(
+			{
+				actorIsLimitExempt: false,
+				actorUserId: USER_ID,
+				payerUserId: "user_owner",
+			},
+			ATTEMPT_ID,
+			2,
+			undefined,
+			"enforce",
+			{ hasSourceImages: false },
+		);
+		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 });

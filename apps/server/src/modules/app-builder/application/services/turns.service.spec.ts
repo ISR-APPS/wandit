@@ -12,10 +12,14 @@ import {
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
 import type {
@@ -36,7 +40,7 @@ import type { AuditEventsService } from "./audit-events.service";
 import type { BackendsService } from "./backends.service";
 import { TurnsService } from "./turns.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 // A real price-table id: the estimate math prices the model, so a made-up
@@ -121,6 +125,7 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: "project-1",
 		provider: null,
@@ -246,6 +251,18 @@ function setup(
 			async () => null,
 		),
 	};
+	const credits = {
+		getSettledBalance: vi.fn<CreditsService["getSettledBalance"]>(async () => ({
+			balance: 5_000,
+			plan: 5_000,
+			promo: 0,
+			settledBalance: 5_000,
+			settledPlan: 5_000,
+			settledPromo: 0,
+			settledTopup: 0,
+			topup: 0,
+		})),
+	};
 
 	const service = new TurnsService(
 		turns as unknown as BuilderTurnsRepository,
@@ -261,6 +278,7 @@ function setup(
 		caps,
 		audit,
 		backends,
+		credits,
 	);
 
 	return {
@@ -365,7 +383,7 @@ describe("TurnsService.create", () => {
 		// No settled turns yet: the fixed 14-credit default hold applies.
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({
 				credits: 1_400,
 				idempotencyKey: expect.stringMatching(/^builder-turn:/),
@@ -433,7 +451,7 @@ describe("TurnsService.create", () => {
 		);
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 2_300 }),
 		);
 		expect(result.estimate).toEqual({
@@ -452,7 +470,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 500 }),
 		);
 		expect(result.estimate).toEqual({
@@ -475,7 +493,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 5_000 }),
 		);
 		expect(result.estimate).toEqual({
@@ -517,7 +535,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ model: "anthropic/claude-opus-5" }),
 		);
 		expect(turns.create).toHaveBeenCalledWith(

@@ -1,8 +1,9 @@
 /**
  * The 12 tools of the Wandit remote MCP server (docs/features/coding-agents-mcp.md, "Tools v1").
  * `McpController` calls `createServer` once for each POST, with the caller that `McpTokenGuard` proved.
- * Each tool proves project access again, counts its rate bucket, and calls the existing V2 services.
- * The write, builder, and deploy tools write one `mcp.tool_call` audit row, on success and on failure.
+ * Each tool proves the project role again with the rule of `ProjectAccessGuard`, counts its rate bucket,
+ * and calls the existing V2 services. The write, builder, and deploy tools write one `mcp.tool_call`
+ * audit row, on success and on failure.
  */
 import {
 	type CallToolResult,
@@ -19,10 +20,6 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
-	type WorkspacePermissionRequest,
-	workspaceRoleHasPermission,
-} from "@wandit/auth/permissions";
-import {
 	type CodeTreeNode,
 	type McpScope,
 	type McpToolError,
@@ -37,10 +34,11 @@ import {
 	mcpReadFileInputSchema,
 	mcpSendPromptInputSchema,
 	mcpToolErrorSchema,
+	PERSONAL_WORKSPACE,
+	type ProjectRole,
 	type TurnPlanData,
 	type TurnQuestionData,
 	versionCursorSchema,
-	workspaceRoleNameSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -48,17 +46,19 @@ import { Sentry } from "@wandit/observability/nestjs";
 
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import {
-	type ProjectScope,
+	ProjectAccessService,
+	ProjectsService,
+	projectRoleAtLeast,
 	projectScopeFrom,
-} from "../../../../projects/domain/project-scope";
-import { ProjectsRepository } from "../../../../projects/infrastructure/persistence/projects.repository";
-import { WorkspacesService } from "../../../../workspaces/application/services/workspaces.service";
-import { WorkspacePermissionDeniedError } from "../../../../workspaces/domain/errors/workspace.errors";
+	projectScopeFromAccess,
+} from "../../../../projects";
+import type { ProjectScope } from "../../../../projects/domain/project-scope";
 import {
-	PERSONAL_WORKSPACE_CONTEXT,
-	type WorkspaceContext,
-} from "../../../../workspaces/domain/workspace-context";
-import { WorkspaceMembersRepository } from "../../../../workspaces/infrastructure/persistence/members.repository";
+	WorkspaceMembersRepository,
+	WorkspacePermissionDeniedError,
+	WorkspacesService,
+	workspaceContextOfMembership,
+} from "../../../../workspaces";
 import { AppProjectsService } from "../../../application/services/app-projects.service";
 import { AuditEventsService } from "../../../application/services/audit-events.service";
 import { CodeService } from "../../../application/services/code.service";
@@ -72,7 +72,6 @@ import {
 	BuilderTurnsRepository,
 	type TurnCardPart,
 } from "../../../infrastructure/persistence/builder-turns.repository";
-import { McpAccessRepository } from "../../../infrastructure/persistence/mcp-access.repository";
 import { TEMPLATE_PROFILES } from "../../../infrastructure/sandbox/template-profiles";
 import {
 	APP_PUBLISH_RATE_LIMIT,
@@ -111,15 +110,11 @@ const MCP_APPLY_CHANGES_RATE_LIMIT = {
 	windowMs: 10 * 60_000,
 } satisfies RateLimitOptions;
 
-/** The project permission of the write and builder tools: the web gate of the same actions. */
-const PROJECT_UPDATE = {
-	project: ["update"],
-} as const satisfies WorkspacePermissionRequest;
-
-/** The permission of `publish_app`: the web gate of the publish button. */
-const PUBLISH_MANAGE = {
-	publish: ["manage"],
-} as const satisfies WorkspacePermissionRequest;
+/**
+ * The `list_projects` workspace id of the "Shared with me" list of the web dashboard
+ * (`GET /v2/shared-projects`): the V2 projects with a direct grant for the user.
+ */
+const SHARED_PROJECTS_WORKSPACE_ID = "shared";
 
 // Claude Code cuts a tool answer at 25,000 tokens. 80,000 characters of code are about 20,000 tokens.
 const READ_FILE_PAGE_CHARACTERS = 80_000;
@@ -179,14 +174,17 @@ export class McpTools {
 
 	constructor(
 		// The Pick types keep each seam at the methods the tools need.
-		@Inject(McpAccessRepository)
-		private readonly access: Pick<McpAccessRepository, "findProjectOwner">,
+		@Inject(ProjectAccessService)
+		private readonly access: Pick<ProjectAccessService, "resolve">,
 		@Inject(WorkspaceMembersRepository)
-		private readonly members: Pick<WorkspaceMembersRepository, "findMember">,
+		private readonly members: Pick<
+			WorkspaceMembersRepository,
+			"findMembership"
+		>,
 		@Inject(WorkspacesService)
 		private readonly workspaces: Pick<WorkspacesService, "listForUser">,
-		@Inject(ProjectsRepository)
-		private readonly projects: Pick<ProjectsRepository, "listForScope">,
+		@Inject(ProjectsService)
+		private readonly projects: Pick<ProjectsService, "list" | "listShared">,
 		@Inject(ChatsRepository)
 		private readonly chats: Pick<
 			ChatsRepository,
@@ -231,7 +229,7 @@ export class McpTools {
 			"list_workspaces",
 			{
 				annotations: READ_ONLY,
-				description: `List the workspaces of the user: "personal" and each team, with the role. ${UNTRUSTED_DATA_NOTE}`,
+				description: `List the workspaces of the user, as the Wandit workspace switcher shows them: the own personal workspace first, then each other membership, with the roles. ${UNTRUSTED_DATA_NOTE}`,
 				scopeChallenge: requireScopes("projects:read" satisfies McpScope),
 				title: "List workspaces",
 			},
@@ -242,7 +240,7 @@ export class McpTools {
 			"list_projects",
 			{
 				annotations: READ_ONLY,
-				description: `List the V2 app projects of one workspace, newest first, ${LIST_PROJECTS_PAGE_SIZE} per page. ${UNTRUSTED_DATA_NOTE}`,
+				description: `List the V2 app projects of one workspace, newest first, ${LIST_PROJECTS_PAGE_SIZE} per page. workspaceId "${SHARED_PROJECTS_WORKSPACE_ID}" lists the projects that other users shared with the user. ${UNTRUSTED_DATA_NOTE}`,
 				inputSchema: mcpListProjectsInputSchema,
 				scopeChallenge: requireScopes("projects:read" satisfies McpScope),
 				title: "List projects",
@@ -334,7 +332,8 @@ export class McpTools {
 					call,
 					"wake_sandbox",
 					input.projectId,
-					PROJECT_UPDATE,
+					// A viewer wakes the sandbox, as on the web: the preview and the code view need it.
+					"viewer",
 					SANDBOX_WAKE_RATE_LIMIT,
 					async (access) => ({
 						answer: await this.sandboxWake.wake(access.scope, input.projectId),
@@ -362,7 +361,7 @@ export class McpTools {
 					call,
 					"apply_changes",
 					input.projectId,
-					PROJECT_UPDATE,
+					"editor",
 					MCP_APPLY_CHANGES_RATE_LIMIT,
 					async (access) => {
 						const applied = await this.changes.apply(access.scope, input);
@@ -390,7 +389,7 @@ export class McpTools {
 					call,
 					"send_prompt",
 					input.projectId,
-					PROJECT_UPDATE,
+					"editor",
 					TURN_CREATE_RATE_LIMIT,
 					async (access) => {
 						const turn = await this.sendPrompt(call, access.scope, input);
@@ -418,7 +417,7 @@ export class McpTools {
 					call,
 					"cancel_turn",
 					input.projectId,
-					PROJECT_UPDATE,
+					"editor",
 					TURN_CANCEL_RATE_LIMIT,
 					async (access) => ({
 						answer: await this.turns.cancel(
@@ -451,7 +450,8 @@ export class McpTools {
 					call,
 					"publish_app",
 					input.projectId,
-					PUBLISH_MANAGE,
+					// "Publish anyway" needs the owner on the web. This tool never overrides the publish gate.
+					"editor",
 					APP_PUBLISH_RATE_LIMIT,
 					async (access) => {
 						const build = await this.publish.publishHead(
@@ -474,45 +474,50 @@ export class McpTools {
 		return server;
 	}
 
+	// The list of `GET /v1/workspaces`. The id of the own personal workspace also works as "personal".
 	private async listWorkspaces(call: McpCallContext) {
 		const { workspaces } = await this.workspaces.listForUser(call.userId);
 		return {
-			workspaces: [
-				{ id: "personal", name: "Personal", roles: ["owner"] },
-				...workspaces.map((workspace) => ({
-					id: workspace.id,
-					name: workspace.name,
-					roles: workspace.roles,
-				})),
-			],
+			workspaces: workspaces.map((workspace) => ({
+				id: workspace.id,
+				isOwnPersonal: workspace.isOwnPersonal,
+				kind: workspace.kind,
+				name: workspace.name,
+				roles: workspace.roles,
+			})),
 		};
 	}
 
+	// The calls of the web dashboard, so the Restricted rule and the direct grants match the web.
 	private async listProjects(
 		call: McpCallContext,
 		input: { workspaceId?: string; offset: number },
 	) {
-		const scope = await this.workspaceScope(call, input.workspaceId);
 		// LIMIT: reads every project of the workspace for each page. Upgrade: an engine filter
 		// and a page in SQL, as `listPageForScope` does.
-		const rows = (await this.projects.listForScope(scope)).filter(
-			(row) => row.engine === "v2_app",
-		);
+		const projects =
+			input.workspaceId === SHARED_PROJECTS_WORKSPACE_ID
+				? (await this.projects.listShared(call.userId)).projects
+				: (
+						await this.projects.list(
+							await this.workspaceScope(call, input.workspaceId),
+						)
+					).filter((project) => project.engine === "v2_app");
 		const nextOffset = input.offset + LIST_PROJECTS_PAGE_SIZE;
 		return {
-			nextOffset: nextOffset < rows.length ? nextOffset : null,
-			projects: rows.slice(input.offset, nextOffset).map((row) => ({
-				builderUrl: builderUrlOf(row.id),
-				id: row.id,
-				name: row.name,
-				targetPlatform: row.targetPlatform,
-				updatedAt: row.updatedAt.toISOString(),
+			nextOffset: nextOffset < projects.length ? nextOffset : null,
+			projects: projects.slice(input.offset, nextOffset).map((project) => ({
+				builderUrl: builderUrlOf(project.id),
+				id: project.id,
+				name: project.name,
+				targetPlatform: project.targetPlatform,
+				updatedAt: project.updatedAt,
 			})),
 		};
 	}
 
 	private async getProject(call: McpCallContext, projectId: string) {
-		const { scope } = await this.projectAccess(call, projectId, null);
+		const { scope } = await this.projectAccess(call, projectId, "viewer");
 		const project = await this.appProjects.get(scope, projectId);
 		const headSha = await this.changes.sandboxHead(projectId);
 		// `PublishService` serves web apps only. A mobile app has no live URL.
@@ -557,7 +562,7 @@ export class McpTools {
 		call: McpCallContext,
 		input: { projectId: string; offset: number },
 	) {
-		const { scope } = await this.projectAccess(call, input.projectId, null);
+		const { scope } = await this.projectAccess(call, input.projectId, "viewer");
 		// LIMIT: each page also reads the prefetch files of the Code view, at most 512 KB.
 		// Upgrade: a `CodeService` method that lists the paths only.
 		const snapshot = await this.code.snapshot(scope, input.projectId);
@@ -574,7 +579,7 @@ export class McpTools {
 		call: McpCallContext,
 		input: { projectId: string; path: string; offset: number },
 	) {
-		const { scope } = await this.projectAccess(call, input.projectId, null);
+		const { scope } = await this.projectAccess(call, input.projectId, "viewer");
 		const file = await this.code.file(scope, input.projectId, input.path);
 		if (file.binary) {
 			return { binary: true, content: "", nextOffset: null, path: file.path };
@@ -593,7 +598,7 @@ export class McpTools {
 		call: McpCallContext,
 		input: { projectId: string; cursor?: string; limit: number },
 	) {
-		const { scope } = await this.projectAccess(call, input.projectId, null);
+		const { scope } = await this.projectAccess(call, input.projectId, "viewer");
 		const cursor =
 			input.cursor === undefined
 				? undefined
@@ -628,7 +633,7 @@ export class McpTools {
 		call: McpCallContext,
 		input: { projectId: string; turnId: string; waitSeconds: number },
 	) {
-		const { scope } = await this.projectAccess(call, input.projectId, null);
+		const { scope } = await this.projectAccess(call, input.projectId, "viewer");
 		const waitEndMs = Date.now() + input.waitSeconds * 1000;
 		let turn = await this.turns.assertStreamAccess(
 			scope,
@@ -718,72 +723,56 @@ export class McpTools {
 	}
 
 	/**
-	 * The scope of a workspace id of `list_projects`. Absent or "personal" gives the personal scope.
-	 * A team needs a fresh membership row of the user, so a removed member loses access at once.
+	 * The scope of a `list_projects` workspace id, with the header rule of `WorkspaceContextGuard`.
+	 * Absent, "personal", or the id of the own personal workspace gives the personal scope.
+	 * The scope carries the member roles, so the list hides Restricted projects as the web list does.
 	 */
 	private async workspaceScope(
 		call: McpCallContext,
 		workspaceId: string | undefined,
 	): Promise<ProjectScope> {
-		if (workspaceId === undefined || workspaceId === "personal") {
-			return projectScopeFrom(PERSONAL_WORKSPACE_CONTEXT, call.userId);
+		if (workspaceId === undefined || workspaceId === PERSONAL_WORKSPACE) {
+			return projectScopeFrom({ kind: "personal" }, call.userId);
 		}
-		const member = await this.members.findMember(workspaceId, call.userId);
-		if (member === null) {
+		// Security check: a fresh membership row on each call, so a removed member loses access at once.
+		const membership = await this.members.findMembership(
+			workspaceId,
+			call.userId,
+		);
+		if (membership === null) {
 			throw new NotFoundException({
 				code: "WORKSPACE_NOT_FOUND",
 				message: "Workspace not found",
 			});
 		}
 		return projectScopeFrom(
-			orgContextOf(workspaceId, member.role),
+			workspaceContextOfMembership(membership, call.userId),
 			call.userId,
 		);
 	}
 
 	/**
-	 * Proves access to a V2 project on every call, as the web guards do. A missing, foreign, V1,
-	 * or deleted project gives the same 404. A team role without `permission` gives 403.
+	 * Proves the project role on every call, with the rule of `ProjectAccessGuard` (design 3.3).
+	 * No role, a deleted project, or a V1 project gives the same 404. A role below `neededRole` gives 403.
+	 * The scope comes from the project row, so the project's own pool pays.
 	 */
 	private async projectAccess(
 		call: McpCallContext,
 		projectId: string,
-		permission: WorkspacePermissionRequest | null,
+		neededRole: ProjectRole,
 	): Promise<ProjectAccess> {
-		const owner = await this.access.findProjectOwner(projectId);
-		if (owner === null || owner.engine !== "v2_app") {
+		// Security check: each call reads the role again, so a removed member loses access at once.
+		const access = await this.access.resolve(call.userId, projectId);
+		// The tools serve V2 apps only, so a V1 project is hidden like a foreign one.
+		if (access === null || access.project.engine !== "v2_app") {
 			throw projectNotFound();
 		}
-		// Security check: a personal project belongs to its creator only.
-		if (owner.organizationId === null) {
-			if (owner.userId !== call.userId) {
-				throw projectNotFound();
-			}
-			return {
-				organizationId: null,
-				scope: projectScopeFrom(PERSONAL_WORKSPACE_CONTEXT, call.userId),
-			};
-		}
-		// Security check: a team project needs a membership row now, not at token time.
-		const member = await this.members.findMember(
-			owner.organizationId,
-			call.userId,
-		);
-		if (member === null) {
-			throw projectNotFound();
-		}
-		if (
-			permission !== null &&
-			!workspaceRoleHasPermission(member.role, permission)
-		) {
+		if (!projectRoleAtLeast(access.role, neededRole)) {
 			throw new WorkspacePermissionDeniedError();
 		}
 		return {
-			organizationId: owner.organizationId,
-			scope: projectScopeFrom(
-				orgContextOf(owner.organizationId, member.role),
-				call.userId,
-			),
+			organizationId: access.project.organizationId,
+			scope: projectScopeFromAccess(access, call.userId),
 		};
 	}
 
@@ -800,14 +789,15 @@ export class McpTools {
 	}
 
 	/**
-	 * Runs a write, builder, or deploy tool. The order is the access check with the role gate,
-	 * then the rate bucket, then the work. It writes one `mcp.tool_call` row with the outcome, never the input.
+	 * Runs a write, builder, or deploy tool. The order is the access check with the gate of
+	 * `neededRole`, then the rate bucket, then the work. It writes one `mcp.tool_call` row
+	 * with the outcome, never the input.
 	 */
 	private async audited(
 		call: McpCallContext,
 		tool: AuditedTool,
 		projectId: string,
-		permission: WorkspacePermissionRequest,
+		neededRole: ProjectRole,
 		rateLimit: RateLimitOptions,
 		work: (
 			access: ProjectAccess,
@@ -815,7 +805,7 @@ export class McpTools {
 	): Promise<CallToolResult> {
 		let access: ProjectAccess | null = null;
 		try {
-			access = await this.projectAccess(call, projectId, permission);
+			access = await this.projectAccess(call, projectId, neededRole);
 			await this.assertUnderRateLimit(call, rateLimit);
 			const { answer, ids } = await work(access);
 			await this.recordToolCall(call, tool, projectId, access, "success", ids);
@@ -978,20 +968,6 @@ function requestKeyOf(call: McpCallContext, requestKey: string): string {
 /** The web builder page of a project. A team project opens after the user picks the team. */
 function builderUrlOf(projectId: string): string {
 	return `${env.CORS_ORIGIN}/app/${projectId}`;
-}
-
-// The `WorkspaceContext` of a team member, as `WorkspaceContextGuard` builds it from the row.
-function orgContextOf(organizationId: string, role: string): WorkspaceContext {
-	return {
-		kind: "org",
-		organizationId,
-		role,
-		// `member.role` is a comma string. An unknown role name grants nothing, so it drops.
-		roles: role.split(",").flatMap((name) => {
-			const parsed = workspaceRoleNameSchema.safeParse(name.trim());
-			return parsed.success ? [parsed.data] : [];
-		}),
-	};
 }
 
 // Depth first, in the display order of the Code view.

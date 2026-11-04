@@ -1,6 +1,6 @@
 /**
  * The `apply_changes` MCP tool: direct file edits of an external coding agent, as one commit with source "mcp".
- * `McpTools` calls `apply` after it proves project access and the `project:update` role.
+ * `McpTools` calls `apply` after it proves the `editor` project role.
  * It copies the `AppThemeService.save` flow: the turn lock, the sandbox HEAD check, `commitTurn`, and the undo.
  * The files go through the guarded write script, because the sandbox hook does not see these writes.
  */
@@ -253,7 +253,8 @@ export class McpChangesService {
 						source: "mcp",
 						summary: input.message,
 						turnId: null,
-						userId: scope.userId,
+						// The author of the version is the token user, also on another user's project.
+						userId: scope.actorUserId,
 					},
 				);
 				return { headSha: result.sha };

@@ -5216,6 +5216,7 @@ function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 		organizationId: input.organizationId ?? null,
 		outputTokens: null,
 		parentEventId: input.parentEventId ?? null,
+		payerUserId: input.payerUserId ?? null,
 		pricingSnapshot: input.pricingSnapshot ?? null,
 		projectId: input.projectId ?? null,
 		provider: input.provider ?? null,

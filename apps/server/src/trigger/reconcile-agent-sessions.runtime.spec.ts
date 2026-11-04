@@ -61,6 +61,7 @@ function makeSettledAgentEvent(
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: "project-1",
 		provider: "llm_proxy",

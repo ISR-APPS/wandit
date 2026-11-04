@@ -40,8 +40,8 @@ import type {
 	MobileBuildsRepository,
 } from "../modules/app-builder/infrastructure/persistence/mobile-builds.repository";
 import type { ProjectLivenessRepository } from "../modules/app-builder/infrastructure/persistence/project-liveness.repository";
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { MOBILE_BUILD_CREDITS } from "../modules/metering/domain/operation-registry";
 
 // Security: the read credential lives only as long as the fetch of one
@@ -67,8 +67,6 @@ export type MobileBuildInput = {
 	buildId: string;
 	/** Project of the build. The run skips a row of another project. */
 	projectId: string;
-	/** `actorIsLimitExempt` of the org scope at request time. Not used for a personal row. */
-	actorIsLimitExempt: boolean;
 	/** `ctx.run.id` of this run. The claim writes it to `mobile_builds.trigger_run_id`. */
 	triggerRunId: string;
 };
@@ -88,7 +86,7 @@ export type MobileBuildDeps = {
 	metering: Pick<
 		MeteringService,
 		| "acquireExecutionLease"
-		| "findByIdempotencyKey"
+		| "findByIdempotencyKeyAnyPayer"
 		| "heartbeatExecutionLease"
 		| "refund"
 		| "releaseExecutionLease"
@@ -141,6 +139,19 @@ const SKIPPED: MobileBuildResult = { outcome: "skipped", errorCode: null };
 const CANCELED: MobileBuildResult = { outcome: "canceled", errorCode: null };
 
 /**
+ * True when `hold` is the `mobile_build` hold that the API reserved for this
+ * row: the same project, actor, and team workspace. The hold names the payer.
+ */
+function isHoldOfBuild(hold: AiUsageEvent, row: MobileBuildRow): boolean {
+	return (
+		hold.operation === "mobile_build" &&
+		hold.projectId === row.projectId &&
+		hold.userId === row.userId &&
+		hold.organizationId === row.organizationId
+	);
+}
+
+/**
  * Runs one build: claim the queued row, lease the credit hold, prepare the
  * workspace, start EAS, poll it, then settle or refund. Never throws for a
  * handled failure; every failure exit goes through `fail`.
@@ -174,15 +185,8 @@ export async function runMobileBuild(
 		return SKIPPED;
 	}
 
-	// The payer of the hold: the org pool for an org row, else the user.
-	const subject: MeteringSubject =
-		row.organizationId === null
-			? { actorUserId: row.userId }
-			: {
-					actorIsLimitExempt: input.actorIsLimitExempt,
-					actorUserId: row.userId,
-					organizationId: row.organizationId,
-				};
+	// The hold row names its payer (workspaces-sharing.md 4): `user_id` of
+	// the build is the actor, so the run reads the hold with no payer check.
 	const holdKey = mobileBuildHoldKey(buildId);
 	// The hold's lease column is a uuid. One token per run: the heartbeat
 	// renews only the lease of this run.
@@ -202,7 +206,7 @@ export async function runMobileBuild(
 
 	/** The hold when it is still `reserved`, else null (logged). */
 	const findReservedHold = async (action: "settle" | "refund") => {
-		const hold = await deps.metering.findByIdempotencyKey(holdKey, subject);
+		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(holdKey);
 		if (hold?.status !== "reserved") {
 			deps.logger.info("mobile-build.hold-not-reserved", {
 				...logFields,
@@ -387,15 +391,19 @@ export async function runMobileBuild(
 	};
 
 	try {
-		const hold = await deps.metering.findByIdempotencyKey(holdKey, subject);
-		if (hold === null) {
-			// The API reserves the hold before it inserts the row. No hold means
-			// the API ran with billing off, so the build runs free.
-			if (deps.billingDisabled) {
-				deps.logger.info("billing.off", logFields);
-			} else {
-				deps.logger.warn("mobile-build.hold-missing", logFields);
+		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(holdKey);
+		if (hold === null || !isHoldOfBuild(hold, row)) {
+			// Money check, same rule as builder-turn: with billing on, the build
+			// runs only on the hold that the API reserved for this row. Else it
+			// runs free or bills the wrong pool.
+			if (!deps.billingDisabled) {
+				return await fail(
+					"internal",
+					new Error("credit hold is missing or does not match the build"),
+				);
 			}
+			// With billing off the API made no hold. A foreign hold stays untouched.
+			deps.logger.info("billing.off", logFields);
 		} else {
 			// The sweep refunds a hold that waited too long in the queue. A
 			// build without its hold would run for free, so it fails here.

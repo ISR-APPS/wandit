@@ -1,3 +1,7 @@
+/**
+ * Reads organizations (team and personal workspaces) for the admin dashboard, and writes member roles.
+ * AdminOrganizationsService calls it. It reads organizations, members, billing, and credit tables through Drizzle.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminListOrganizationsQuery,
@@ -12,6 +16,7 @@ import {
 	gte,
 	ilike,
 	inArray,
+	isNull,
 	notInArray,
 	or,
 	sql,
@@ -50,6 +55,8 @@ export type AdminOrganizationSummaryRow = {
 	projectsCount: number;
 	plan: string | null;
 	creditsBalance: number;
+	/** Set: the personal workspace of this user. NULL: a team workspace. */
+	personalOwnerUserId: string | null;
 };
 
 export type AdminOrganizationMemberRow = {
@@ -115,10 +122,17 @@ type AdminOrganizationsDbClient = Pick<Database, "select">;
 export class AdminOrganizationsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+	/** Team workspaces by default (contract default); personal workspaces when `kind` is `personal`. */
 	async listOrganizations(
 		query: AdminListOrganizationsQuery,
 	): Promise<PaginatedResult<AdminOrganizationSummaryRow>> {
-		const where = this.buildSearchFilter(query.q);
+		const where = and(
+			this.buildSearchFilter(query.q),
+			// @wandit/db does not re-export isNotNull.
+			query.kind === "personal"
+				? sql`${organization.personalOwnerUserId} is not null`
+				: isNull(organization.personalOwnerUserId),
+		);
 		const offset = (query.page - 1) * query.pageSize;
 
 		const [totalRow] = await this.db
@@ -409,6 +423,10 @@ export class AdminOrganizationsRepository {
 	 * Identifiers inside the subqueries are fully qualified: in a join-less
 	 * select, drizzle strips table prefixes from embedded column refs, which
 	 * would break the correlation with the outer "organization" row.
+	 *
+	 * A personal workspace keeps its projects, plan, and credits on its owner
+	 * with organization_id NULL, so each subquery also matches those rows.
+	 * For a team workspace, personal_owner_user_id is NULL and that branch matches nothing.
 	 */
 	private summaryColumns() {
 		return {
@@ -417,6 +435,7 @@ export class AdminOrganizationsRepository {
 			slug: organization.slug,
 			logo: organization.logo,
 			createdAt: organization.createdAt,
+			personalOwnerUserId: organization.personalOwnerUserId,
 			membersCount: sql<number>`(
 				select count(*)
 				from "member"
@@ -425,13 +444,21 @@ export class AdminOrganizationsRepository {
 			projectsCount: sql<number>`(
 				select count(*)
 				from "projects"
-				where "projects"."organization_id" = "organization"."id"
+				where (
+						"projects"."organization_id" = "organization"."id"
+						or ("projects"."organization_id" is null
+							and "projects"."user_id" = "organization"."personal_owner_user_id")
+					)
 					and "projects"."deleted_at" is null
 			)::int`,
 			plan: sql<string | null>`(
 				select "subscriptions"."plan"
 				from "subscriptions"
-				where "subscriptions"."organization_id" = "organization"."id"
+				where (
+						"subscriptions"."organization_id" = "organization"."id"
+						or ("subscriptions"."organization_id" is null
+							and "subscriptions"."user_id" = "organization"."personal_owner_user_id")
+					)
 					and "subscriptions"."status" in (${sql.join(
 						entitledStatuses.map((status) => sql`${status}`),
 						sql`, `,
@@ -443,6 +470,8 @@ export class AdminOrganizationsRepository {
 				select sum("credit_ledger"."delta")
 				from "credit_ledger"
 				where "credit_ledger"."organization_id" = "organization"."id"
+					or ("credit_ledger"."organization_id" is null
+						and "credit_ledger"."user_id" = "organization"."personal_owner_user_id")
 			), 0)::int`,
 		};
 	}

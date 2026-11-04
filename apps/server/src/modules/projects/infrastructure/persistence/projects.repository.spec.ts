@@ -1,10 +1,13 @@
-import { PgDialect, db as realDb, sql } from "@wandit/db";
+import { type alias, PgDialect, type SQL, sql } from "@wandit/db";
 import { builderSessions } from "@wandit/db/schema/builder-sessions";
 import { projects } from "@wandit/db/schema/projects";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import type { ProjectScope } from "../../domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../domain/project-scope";
 import { ProjectsRepository } from "./projects.repository";
 
 type SqlQuery = Parameters<PgDialect["sqlToQuery"]>[0];
@@ -19,18 +22,21 @@ function compile(query: unknown) {
 	};
 }
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
+
+/** A table, an alias, or the fields of a fake subquery: the first argument of a join. */
+type JoinedTable = Parameters<typeof alias>[0] | Record<string, SQL>;
 
 /**
- * Fake db for the read path. `projectSelect` builds two aggregate
- * subqueries and one distinct-on subquery through the same `db` handle, so
- * every `select`/`selectDistinctOn` returns a self-serving chain: a
- * subquery terminates on `.as(alias)` and exposes its field names as SQL
- * fragments; the outer query terminates on `.where(...).limit(1)`.
+ * Fake db for the read path. `projectSelect` builds two aggregate subqueries
+ * and one distinct-on subquery through the same `db` handle. So every select
+ * gives one chain. A subquery ends on `.as(alias)` and gives its field names as
+ * SQL fragments. The outer query is a promise of `rows`. The chain keeps each
+ * left-join condition and each filter, so a case can compile them.
  */
 function selectClient(rows: unknown[]) {
-	const selects: Record<string, unknown>[] = [];
-	const wheres: unknown[] = [];
+	const joins: (SQL | undefined)[] = [];
+	const wheres: (SQL | undefined)[] = [];
 
 	const makeChain = (fields: Record<string, unknown>) => {
 		// A subquery's callers read its fields by name; each name answers a
@@ -38,43 +44,43 @@ function selectClient(rows: unknown[]) {
 		const proxied = Object.fromEntries(
 			Object.keys(fields).map((key) => [key, sql.raw(`"sq"."${key}"`)]),
 		);
-		const chain = {
+		const chain = Object.assign(Promise.resolve(rows), {
 			as: () => proxied,
-			groupBy: () => ({ as: () => proxied }),
+			groupBy: () => chain,
 			innerJoin: () => chain,
-			leftJoin: () => chain,
-			orderBy: () => ({ as: () => proxied }),
-			where: (whereArg: unknown) => {
-				wheres.push(whereArg);
-				// Two call sites end here: the outer query takes `.limit(1)`;
-				// the first-messages subquery takes `.orderBy().as(alias)`.
-				return {
-					limit: async () => rows,
-					orderBy: () => ({ as: () => proxied }),
-				};
+			leftJoin: (_table: JoinedTable, on: SQL | undefined) => {
+				joins.push(on);
+				return chain;
 			},
-		};
+			limit: () => chain,
+			offset: () => chain,
+			orderBy: () => chain,
+			where: (where: SQL | undefined) => {
+				wheres.push(where);
+				return chain;
+			},
+		});
 		return chain;
 	};
 
 	const db = {
-		select: vi.fn((fields: Record<string, unknown>) => {
-			selects.push(fields);
-			return { from: () => makeChain(fields) };
-		}),
-		selectDistinctOn: vi.fn((_on: unknown, fields: Record<string, unknown>) => {
-			selects.push(fields);
-			return { from: () => makeChain(fields) };
-		}),
+		select: vi.fn((fields: Record<string, unknown>) => ({
+			from: () => makeChain(fields),
+		})),
+		selectDistinctOn: vi.fn(
+			(_on: unknown, fields: Record<string, unknown>) => ({
+				from: () => makeChain(fields),
+			}),
+		),
 	};
 
 	return {
+		joins,
 		repository: new ProjectsRepository(
 			// SAFETY: `Object.create` yields any; the stub exposes only the
 			// select and selectDistinctOn chains the repository methods call.
 			Object.assign(Object.create(null), db) as Database,
 		),
-		selects,
 		wheres,
 	};
 }
@@ -151,43 +157,52 @@ const CREATE_INPUT = {
 	scope: SCOPE,
 };
 
-describe("ProjectsRepository.projectSelect", () => {
-	it("selects the five engine columns on the read path", async () => {
-		const { repository, selects } = selectClient([]);
+// The four access joins in order: team org, personal org, the actor's member row, the actor's grant.
+// The member join reads the coalesced workspace id. A join on `projects.organization_id`
+// gives every member of a personal workspace a 404.
+const ACCESS_JOINS = [
+	{ params: [], sql: '"team_workspace"."id" = "projects"."organization_id"' },
+	{
+		params: [],
+		sql: '("projects"."organization_id" is null and "personal_workspace"."personal_owner_user_id" = "projects"."user_id")',
+	},
+	{
+		params: ["user-1"],
+		sql: '("member"."organization_id" = coalesce("team_workspace"."id", "personal_workspace"."id") and "member"."user_id" = $1)',
+	},
+	{
+		params: ["user-1"],
+		sql: '("project_members"."project_id" = "projects"."id" and "project_members"."user_id" = $1)',
+	},
+];
 
-		await repository.findByIdForScope(SCOPE, "project-1");
+describe("ProjectsRepository access queries", () => {
+	it("findAccessFacts joins the actor's member row and grant on one live project", async () => {
+		const { joins, repository, wheres } = selectClient([]);
 
-		// The last select call is the outer project query; the earlier calls
-		// build the first-message and aggregate subqueries.
-		const fields = selects.at(-1);
-		expect(Object.keys(fields ?? {})).toEqual(
-			expect.arrayContaining([
-				"engine",
-				"framework",
-				"languages",
-				"targetPlatform",
-				"templateVersion",
-			]),
-		);
-		expect(fields?.engine).toBe(projects.engine);
-		expect(fields?.targetPlatform).toBe(projects.targetPlatform);
-		expect(fields?.framework).toBe(projects.framework);
-		expect(fields?.templateVersion).toBe(projects.templateVersion);
-		expect(fields?.languages).toBe(projects.languages);
-		// Compile a real SELECT from the captured field map and check the
-		// column names land in the SQL.
-		const rendered = realDb
-			// SAFETY: the captured map holds the drizzle column/SQL fragments
-			// the repository passed to db.select.
-			.select((fields ?? {}) as Parameters<typeof realDb.select>[0])
-			.from(projects)
-			.toSQL();
-		const selectSql = rendered.sql.replaceAll(/\s+/g, " ").trim();
-		expect(selectSql).toContain('"engine"');
-		expect(selectSql).toContain('"target_platform"');
-		expect(selectSql).toContain('"framework"');
-		expect(selectSql).toContain('"template_version"');
-		expect(selectSql).toContain('"languages"');
+		await repository.findAccessFacts("project-1", "user-1");
+
+		expect(joins.map(compile)).toEqual(ACCESS_JOINS);
+		expect(wheres.map(compile)).toEqual([
+			{
+				params: ["project-1"],
+				sql: '("projects"."id" = $1 and "projects"."deleted_at" is null)',
+			},
+		]);
+	});
+
+	it("listSharedWithActor keeps only the live V2 projects that the actor has a grant on", async () => {
+		const { joins, repository, wheres } = selectClient([]);
+
+		await repository.listSharedWithActor("user-1");
+
+		// The list joins the subqueries first, then the same four access joins.
+		expect(joins.slice(-4).map(compile)).toEqual(ACCESS_JOINS);
+		// Without the grant filter, the list shows every project of the actor's workspaces.
+		expect(compile(wheres.at(-1))).toEqual({
+			params: ["user-1", "v2_app"],
+			sql: '("project_members"."user_id" = $1 and "projects"."engine" = $2 and "projects"."deleted_at" is null)',
+		});
 	});
 });
 
@@ -280,9 +295,10 @@ describe("ProjectsRepository.createWithChatAndFirstMessage", () => {
 			},
 			scope: {
 				actorIsLimitExempt: false,
+				actorRoles: ["member"],
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-1",
+				actorUserId: "user-1",
 			},
 		});
 

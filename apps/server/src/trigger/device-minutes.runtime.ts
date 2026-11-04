@@ -99,7 +99,11 @@ export async function runDeviceMinutes(deps: DeviceMinutesDeps): Promise<{
 			if (measure.minutes > 0) {
 				await deps.metering.recordFreeUsage(
 					"mobile_preview",
-					{ actorUserId: row.userId, organizationId: row.organizationId },
+					{
+						actorUserId: row.userId,
+						organizationId: row.organizationId,
+						payerUserId: row.payerUserId,
+					},
 					{
 						attemptRef: row.id,
 						evidence: {

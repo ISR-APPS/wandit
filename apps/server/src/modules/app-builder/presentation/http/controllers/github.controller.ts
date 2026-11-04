@@ -1,9 +1,9 @@
 /**
  * The GitHub routes of the V2 app builder: the user connection (`/api/v2/github/account`,
  * `/api/v2/github/authorize`) and the project link (`/api/v2/projects/:projectId/github`, `/pull`).
- * The global AuthGuard requires a session; `V2BuilderEnabledGuard` gates the routes and
- * `RedisRateLimitGuard` reads `@RateLimit`. The services check the project scope.
- * `GithubCallbackController` holds the public OAuth callback.
+ * The global AuthGuard requires a session, and the global ProjectAccessGuard checks the project
+ * role on the `:projectId` routes. `V2BuilderEnabledGuard` gates the routes, and
+ * `RedisRateLimitGuard` reads `@RateLimit`. `GithubCallbackController` holds the public OAuth callback.
  */
 import {
 	Body,
@@ -36,12 +36,12 @@ import type { FastifyRequest } from "fastify";
 import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { GithubAccountService } from "../../../application/services/github-account.service";
 import { GithubProjectService } from "../../../application/services/github-project.service";
 import { VersionsService } from "../../../application/services/versions.service";
@@ -92,23 +92,26 @@ export class GithubController {
 
 	// Each open tab polls it every 15 s and on window focus. The service lets
 	// one GitHub read through per interval, so this bucket only caps a loop.
+	// Any project viewer reads the link state, like the publish status.
+	@RequireProjectRole("viewer")
 	@RateLimit({ key: "github-status", limit: 60, windowMs: 60_000 })
 	@Get("projects/:projectId/github")
 	status(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ProjectGithubStatusResponse> {
 		return this.projects.status(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
 
 	// Each link creates a GitHub repo and starts a full-history push on the
-	// worker: 5 per user per 10 minutes.
-	@RequireWorkspacePermission("project", "update")
+	// worker: 5 per user per 10 minutes. A link sends the project code to
+	// GitHub, so it needs editor, like Cloud and secrets.
+	@RequireProjectRole("editor")
 	@RateLimit({ key: "github-link", limit: 5, windowMs: 10 * 60_000 })
 	@Post("projects/:projectId/github")
 	link(
@@ -117,36 +120,37 @@ export class GithubController {
 		@Body(new ZodValidationPipe(createGithubRepositoryBodySchema))
 		body: CreateGithubRepositoryBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<ProjectGithubStatusResponse> {
 		return this.projects.link(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			readClientIp(request),
 		);
 	}
 
-	@RequireWorkspacePermission("project", "update")
+	// An unlink stops the sync, so it needs the same role as the link.
+	@RequireProjectRole("editor")
 	@Delete("projects/:projectId/github")
 	@HttpCode(204)
 	unlink(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<void> {
 		return this.projects.unlink(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			readClientIp(request),
 		);
 	}
 
-	// A pull writes a commit, so it needs the same permission as a turn.
-	@RequireWorkspacePermission("project", "update")
+	// A pull writes a commit, so it needs the same role as a turn.
+	@RequireProjectRole("editor")
 	@Post("projects/:projectId/github/pull")
 	pull(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -154,11 +158,11 @@ export class GithubController {
 		@Body(new ZodValidationPipe(githubPullBodySchema))
 		body: GithubPullBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<GithubPullResponse> {
 		return this.versions.pullFromGithub(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			readClientIp(request),

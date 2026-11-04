@@ -1,8 +1,8 @@
 /**
  * React hook for the V2 app-builder rollout switch.
- * The dashboard, the landing hero create hook, and useCloudTabEnabled call
- * it. It combines the public product setting, the PostHog flag `v2-builder`,
- * and the client presence through `resolveV2BuilderEnabled`.
+ * The dashboard and the landing hero create hook call it. It combines the
+ * public product setting, the PostHog flag `v2-builder`, and the client
+ * presence through `resolveV2BuilderEnabled`.
  */
 import { getAnalytics } from "@wandit/analytics/browser";
 import { useFeatureFlagEnabled } from "@wandit/analytics/react";

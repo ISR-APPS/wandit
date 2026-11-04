@@ -6,13 +6,14 @@ import {
 import type { GithubInstallation } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { projectScopeFrom } from "../../../projects";
 import { GithubApiError } from "../../infrastructure/github/github-app.client";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
 import type { ProjectGithubLinkRow } from "../../infrastructure/persistence/project-github-links.repository";
 import { GithubProjectService } from "./github-project.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// The caller in their own personal workspace.
+const SCOPE = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {
@@ -49,9 +50,7 @@ const LINK: ProjectGithubLinkRow = {
 	installationId: 1,
 	lastError: null,
 	lastSyncedSha: null,
-	linkerIsMember: true,
 	mirroredSha: null,
-	organizationId: null,
 	projectId: "p-1",
 	remoteHeadSha: null,
 	repoId: 99,
@@ -82,10 +81,9 @@ function fixture(link: ProjectGithubLinkRow | null = null) {
 		claimGithubCheck: vi.fn(async () => true),
 		deleteByProject: async () => true,
 		findByProject: async () => link,
-		findProjectIdsByRepoId: async () => (link === null ? [] : [link.projectId]),
+		findProjectIdsByRepoId: async () => [],
 		insert: vi.fn(async () => "link-1"),
 	};
-	const scheduler = { scheduleIfLinked: vi.fn(async () => undefined) };
 	const service = new GithubProjectService(
 		{
 			findBranch: async () => ({ headSha: null }),
@@ -100,10 +98,10 @@ function fixture(link: ProjectGithubLinkRow | null = null) {
 				githubUserId: OCTOCAT_ID,
 			}),
 		},
-		scheduler,
+		{ scheduleIfLinked: async () => undefined },
 		{ record: async () => undefined },
 	);
-	return { github, links, scheduler, service };
+	return { github, links, service };
 }
 
 describe("GithubProjectService.link", () => {
@@ -197,27 +195,5 @@ describe("GithubProjectService.status", () => {
 		await service.status(SCOPE, "p-1");
 
 		expect(github.branchHeadSha).toHaveBeenCalledTimes(githubReads);
-	});
-});
-
-describe("GithubProjectService.handlePush", () => {
-	// Security: after an org removes the linker, a push to their repo must not
-	// queue a run that moves code between the org project and that repo.
-	it.each([
-		{ linkerIsMember: true, runs: 1 },
-		{ linkerIsMember: false, runs: 0 },
-	])("queues $runs sync run(s) when linkerIsMember is $linkerIsMember", async ({
-		linkerIsMember,
-		runs,
-	}) => {
-		const { scheduler, service } = fixture({
-			...LINK,
-			linkerIsMember,
-			organizationId: "org-1",
-		});
-
-		await service.handlePush(LINK.repoId);
-
-		expect(scheduler.scheduleIfLinked).toHaveBeenCalledTimes(runs);
 	});
 });

@@ -4,7 +4,10 @@ import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MeteringService } from "../../../metering/application/services/metering.service";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	type LeadScrapeAttemptRow,
 	LeadScrapesRepository,
@@ -18,7 +21,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 	runs: { retrieve: vi.fn() },
 }));
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 
 function attemptRow(
 	over: Partial<LeadScrapeAttemptRow> = {},

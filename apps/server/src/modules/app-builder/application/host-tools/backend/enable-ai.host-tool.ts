@@ -44,7 +44,7 @@ export function createEnableAiTool(
 			"The body uses the OpenAI chat completions format: model, messages, and " +
 			"stream. Use fetch. Do not install an AI package. Pick the model from " +
 			"the tool answer. Never put the key in the code, the chat, or a VITE_ " +
-			"or EXPO_PUBLIC_ value. Each call uses the user's credits. When the " +
+			"or EXPO_PUBLIC_ value. Each call uses the project's credits. When the " +
 			"feature is behind sign-in, the function checks the user with " +
 			"`supabase.auth.getUser()` first. The function answers OPTIONS with " +
 			"CORS headers. A 402 answer means the credits are used up. A 429 answer " +

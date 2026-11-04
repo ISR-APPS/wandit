@@ -1,9 +1,9 @@
 /**
  * `/api/v2/projects/:projectId/cost-caps`: read and write the monthly and
  * per-turn credit caps of one V2 app project (WANDIT-174, D7). Both
- * routes sit behind the global AuthGuard and the `V2BuilderEnabledGuard`.
- * The controller derives the scope with `projectScopeFrom`.
- * `AppProjectsService` runs the engine check.
+ * routes sit behind the global AuthGuard, the global ProjectAccessGuard,
+ * and the `V2BuilderEnabledGuard`. The controller derives the scope with
+ * `projectScopeFromAccess`. `AppProjectsService` runs the engine check.
  */
 import {
 	Body,
@@ -24,12 +24,13 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
+import { WorkspacePermissionDeniedError } from "../../../../workspaces/domain/errors/workspace.errors";
 import { AppProjectsService } from "../../../application/services/app-projects.service";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
@@ -45,36 +46,46 @@ export class CostCapsController {
 		>,
 	) {}
 
-	// Only an owner or an org admin can read money limits (D7).
-	@RequireWorkspacePermission("limits", "manage")
+	// Only a project admin or the owner can read money limits (D7).
+	@RequireProjectRole("admin")
 	@Get()
-	get(
+	async get(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ProjectCostCaps> {
+		assertCanManageCostCaps(access);
 		return this.appProjects.getCostCaps(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
 
-	// Only an owner or an org admin can change money limits (D7).
-	@RequireWorkspacePermission("limits", "manage")
+	// Only a project admin or the owner can change money limits (D7).
+	@RequireProjectRole("admin")
 	@Put()
-	update(
+	async update(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@Body(new ZodValidationPipe(updateProjectCostCapsRequestSchema))
 		body: UpdateProjectCostCapsRequest,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ProjectCostCaps> {
+		assertCanManageCostCaps(access);
 		return this.appProjects.updateCostCaps(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 		);
+	}
+}
+
+// Product rule (design 2.2): the personal pool is the owner's money, so on a
+// personal project only the owner manages caps. A team project allows admins.
+function assertCanManageCostCaps(access: ResolvedProjectAccess): void {
+	if (access.project.organizationId === null && access.role !== "owner") {
+		throw new WorkspacePermissionDeniedError();
 	}
 }

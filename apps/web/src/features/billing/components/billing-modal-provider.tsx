@@ -1,8 +1,14 @@
+/**
+ * Owns the plan picker and the workspace billing notice for the whole web app.
+ * Listens to billing-error-dispatch.ts: a refusal opens the picker or a notice.
+ * Components open the picker through useBillingModal().openPlanPicker.
+ */
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import type {
 	BillingInterval,
 	BillingPlanId,
+	CreditPayer,
 	CreditTier,
 	ProductEventSurface,
 } from "@wandit/contracts";
@@ -50,13 +56,42 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 	null,
 );
 
+/**
+ * True when the plan picker can refill the pool that refused the turn.
+ * A purchase credits the active workspace, so a refusal of any other pool gets the pool-empty notice.
+ */
+export function canBuyForPayer(input: {
+	/** The pool that refused, from the 402 details. Undefined from an older API. */
+	payer: CreditPayer | undefined;
+	/** `personal` or the organization id of the active workspace. */
+	activeWorkspaceId: string;
+	/** True in the caller's own personal workspace. */
+	isPersonal: boolean;
+	/** True in the own personal workspace and for the owner of a team workspace. */
+	actorCanManageBilling: boolean;
+}): boolean {
+	// An older API names no payer. Then the active workspace paid, as before.
+	if (input.payer === undefined) {
+		return input.actorCanManageBilling;
+	}
+	if (input.payer.kind === "user") {
+		// Only the caller's own personal pool, bought from the own personal workspace.
+		return input.payer.isActor && input.isPersonal;
+	}
+	return (
+		input.payer.organizationId === input.activeWorkspaceId &&
+		input.actorCanManageBilling
+	);
+}
+
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const { data: session } = useSession();
 	const sessionUserId = session?.user.id;
 	const { open: openAuth } = useAuthModal();
-	const { actorCanManageBilling, isPersonal } = useWorkspace();
+	const { actorCanManageBilling, activeWorkspaceId, isPersonal } =
+		useWorkspace();
 	const [open, setOpen] = useState(false);
 	const [intent, setIntent] = useState<UpgradeModalIntent | null>(null);
 	const [selection, setSelection] = useState<PlanPickerSelection | null>(null);
@@ -73,7 +108,8 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 
 				// The plan picker cannot fix a member's monthly cap, and members
 				// cannot fix an empty org pool — both get a notice instead
-				// (teams-workspaces.md §9; billing is owner-only).
+				// (teams-workspaces.md §9; billing is owner-only). The pool of a
+				// shared project can also differ from the active workspace.
 				if (nextIntent.code === "MEMBER_CREDIT_LIMIT_REACHED") {
 					setNotice({
 						kind: "memberLimit",
@@ -82,7 +118,14 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				if (!isPersonal && !actorCanManageBilling) {
+				if (
+					!canBuyForPayer({
+						payer: nextIntent.payer,
+						activeWorkspaceId,
+						isPersonal,
+						actorCanManageBilling,
+					})
+				) {
 					setNotice({ kind: "poolEmptyMember" });
 					return;
 				}
@@ -92,7 +135,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 				setSurface("plan_picker");
 				setOpen(true);
 			}),
-		[actorCanManageBilling, isPersonal, queryClient],
+		[actorCanManageBilling, activeWorkspaceId, isPersonal, queryClient],
 	);
 
 	useEffect(() => {

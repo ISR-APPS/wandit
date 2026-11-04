@@ -40,9 +40,10 @@ const API = "https://api.supabase.com/v1";
 const STORAGE = `https://${REF}.supabase.co/storage/v1`;
 const SCOPE: ProjectScope = {
 	actorIsLimitExempt: false,
+	actorRoles: ["member"],
 	kind: "org",
 	organizationId: "org-1",
-	userId: "user-1",
+	actorUserId: "user-1",
 };
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",

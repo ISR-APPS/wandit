@@ -5,13 +5,16 @@
  * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project query. The URL search params hold the view state.
- * The Backend group of the More view shows only behind useCloudTabEnabled;
+ * The Backend group of the More view shows only behind useCloudTabEnabled and for an editor;
  * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
  * The details panel of a reply covers the main card (a sheet on a phone).
  * Raw agent thinking never shows in production; local dev has a switch.
  * The page owns the elements picked in the web preview: the composer shows
  * them as chips. It also owns the model pick of the project, which every
  * send carries, and reads the chat cost for the line under the composer.
+ * Every edit control reads `project.access.role`, never the workspace header
+ * role: a project viewer gets a read-only builder. The payer state of the
+ * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
  * strip, and a pull reloads the preview.
  */
@@ -32,6 +35,8 @@ import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { hasProjectRole } from "@/features/project-sharing";
+import { useWorkspace } from "@/features/workspaces";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -140,6 +145,7 @@ export default function AppBuilderPage({
 		publishStatus === undefined ? undefined : (live?.url ?? null);
 	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
 	const isDevicePreviewEnabled = useDevicePreviewEnabled();
+	const { activeWorkspace } = useWorkspace();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the reload button of the preview bar bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
@@ -189,6 +195,21 @@ export default function AppBuilderPage({
 
 	if (!project) return <AppNotFound />;
 
+	// Product rule: a project viewer gets a read-only builder (workspaces-sharing.md 6).
+	const canEdit = hasProjectRole(project.access, "editor");
+	// The Cloud panels and the secrets need the editor role, so a viewer gets no Backend group.
+	const showBackendGroup = isCloudTabEnabled && canEdit;
+	// The payer state of the composer. A missing estimate fails open: the API's
+	// 402 stays the authority. An older API sends no payer: undefined then.
+	const payerOutOfCredits =
+		nextTurnEstimate === undefined
+			? false
+			: nextTurnEstimate.payer?.outOfCredits;
+	// The project's workspace pool pays for its turns (workspaces-sharing.md 4).
+	const isPayerActiveWorkspace =
+		project.access === undefined ||
+		activeWorkspace?.id === project.access.workspace.id;
+
 	const bootContext: BootContext = {
 		isTurnRunning: thread.isTurnRunning,
 		turnPhase: thread.phase,
@@ -200,7 +221,7 @@ export default function AppBuilderPage({
 	};
 
 	const view = search.view ?? "preview";
-	const panel = resolvePanel(project.kind, search.panel, isCloudTabEnabled);
+	const panel = resolvePanel(project.kind, search.panel, showBackendGroup);
 	// A mobile project opens on the web build of the app; a device streams only on request.
 	const mobileTarget = search.device ?? "web";
 	const viewport = search.viewport ?? "desktop";
@@ -237,7 +258,7 @@ export default function AppBuilderPage({
 
 	// The Secrets panel is a Cloud panel; with the Cloud gate closed the link would land elsewhere.
 	// The More view replaces the details panel, so the panel closes.
-	const openSecrets = isCloudTabEnabled
+	const openSecrets = showBackendGroup
 		? () => {
 				setIsActivityOpen(false);
 				setSearch({ view: "more", panel: "secrets" }, false);
@@ -252,6 +273,9 @@ export default function AppBuilderPage({
 				thread.estimate?.credits ?? nextTurnEstimate?.estimate?.credits ?? null
 			}
 			targets={targets}
+			isReadOnly={!canEdit}
+			payerOutOfCredits={payerOutOfCredits}
+			isPayerActiveWorkspace={isPayerActiveWorkspace}
 			onRemoveTarget={(index) =>
 				setPicked({
 					projectId,
@@ -341,7 +365,8 @@ export default function AppBuilderPage({
 						reloadKey={reloadKey}
 						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
-						canStartTurn={thread.isReady && !thread.isSending}
+						canStartTurn={canEdit && thread.isReady && !thread.isSending}
+						canEditTheme={canEdit}
 						isSelecting={isSelecting}
 						onSelectingChange={setIsSelecting}
 						onPickTarget={pickTarget}
@@ -358,8 +383,9 @@ export default function AppBuilderPage({
 						reloadKey={reloadKey}
 						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
-						canRunOnDevice={isDevicePreviewEnabled}
-						canStartTurn={thread.isReady && !thread.isSending}
+						// A device session needs the editor role.
+						canRunOnDevice={canEdit && isDevicePreviewEnabled}
+						canStartTurn={canEdit && thread.isReady && !thread.isSending}
 						onTryToFix={(message) => thread.send({ text: message, files: [] })}
 					/>
 				)}
@@ -385,7 +411,7 @@ export default function AppBuilderPage({
 					project={project}
 					panel={panel}
 					isActive={view === "more"}
-					showBackendGroup={isCloudTabEnabled}
+					showBackendGroup={showBackendGroup}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
 				/>
 			</div>

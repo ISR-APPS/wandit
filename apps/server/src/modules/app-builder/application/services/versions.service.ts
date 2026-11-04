@@ -5,7 +5,8 @@
  * commit through `commitTurn`, and runs `pnpm install` in the sandbox. It
  * also writes a `version.restore` audit row through `AuditEventsService`.
  * `pullFromGithub` (the GitHub Update) merges the code.storage branch
- * `github/main` the same way and writes a `github.pull` audit row.
+ * `github/main` the same way and writes a `github.pull` audit row. It first
+ * checks the project access of the linker through `ProjectAccessService`.
  * Every method first proves the project is a scoped `v2_app` row.
  */
 import { randomUUID } from "node:crypto";
@@ -38,6 +39,7 @@ import {
 	getObjectBytes,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import { ProjectAccessService } from "../../../projects";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { isGithubUpdateAvailable } from "../../domain/github-sync";
 import {
@@ -149,12 +151,15 @@ export class VersionsService {
 		// `commitTurn` schedules the GitHub push of a linked project after each commit.
 		@Inject(GITHUB_SYNC_SCHEDULER)
 		private readonly githubSync: GithubSyncScheduler,
-		// The pull reads the merge target and marks the GitHub head as pulled.
+		// The pull reads the merge target, marks the GitHub head as pulled, and records a linker stop.
 		@Inject(ProjectGithubLinksRepository)
 		private readonly githubLinks: Pick<
 			ProjectGithubLinksRepository,
-			"findByProject" | "markPulled"
+			"findByProject" | "markPulled" | "recordError"
 		>,
+		// The pull checks that the linker can still open the project.
+		@Inject(ProjectAccessService)
+		private readonly projectAccess: Pick<ProjectAccessService, "resolve">,
 	) {}
 
 	/** One page of versions, newest first, for the versions panel. */
@@ -284,7 +289,7 @@ export class VersionsService {
 					source: "wip",
 					summary: "Before restore",
 					turnId: null,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				});
 
 				// After the save, HEAD is the stored head. Only a code.storage main
@@ -307,7 +312,7 @@ export class VersionsService {
 					source: "restore",
 					summary: `Restore to ${sha.slice(0, 7)}`,
 					turnId: null,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				});
 			} catch (error) {
 				if (error instanceof VersionConflictError) {
@@ -323,7 +328,7 @@ export class VersionsService {
 
 			await this.audit.record({
 				action: "version.restore",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				ip,
 				metadata: { restoredFromSha: sha },
 				organizationId: project.organizationId,
@@ -341,8 +346,8 @@ export class VersionsService {
 	 * GitHub Update: merges the code.storage branch `github/main`
 	 * into the project as one "github" merge commit; GitHub wins on conflicting lines and
 	 * paths. It holds the lock and runs the 409 checks of `restore`, and saves uncommitted
-	 * files as a "Before GitHub update" wip version first. 404 GITHUB_NOT_LINKED,
-	 * 409 GITHUB_NOTHING_TO_UPDATE or GITHUB_UPDATE_CHANGED, 500 GITHUB_MERGE_FAILED.
+	 * files as a "Before GitHub update" wip version first. 404 GITHUB_NOT_LINKED, 409
+	 * GITHUB_LINK_OWNER_LEFT, GITHUB_NOTHING_TO_UPDATE, or GITHUB_UPDATE_CHANGED, 500 GITHUB_MERGE_FAILED.
 	 * `commit` is null when the project already holds the GitHub head. `ip` goes to the audit row.
 	 */
 	async pullFromGithub(
@@ -357,6 +362,20 @@ export class VersionsService {
 			throw new NotFoundException({
 				code: "GITHUB_NOT_LINKED",
 				message: "This project has no GitHub repository",
+			});
+		}
+		// Security: the link must not outlive the read access of the linker. Else
+		// the merge takes code from the repo of a person outside the project.
+		// The recorded code shows the stop in the GitHub panel.
+		if ((await this.projectAccess.resolve(link.userId, projectId)) === null) {
+			this.logger.warn(
+				`GitHub pull refused for project ${projectId}: linker ${link.userId} has no project access`,
+			);
+			await this.githubLinks.recordError(link.id, "GITHUB_LINK_OWNER_LEFT");
+			throw new ConflictException({
+				code: "GITHUB_LINK_OWNER_LEFT",
+				message:
+					"The person who linked this repository cannot open this project. Unlink it and link it again.",
 			});
 		}
 		// The merge target is the GitHub head that the worker copied to `github/main`.
@@ -397,7 +416,7 @@ export class VersionsService {
 				organizationId: project.organizationId,
 				projectId,
 				turnId: null,
-				userId: scope.userId,
+				userId: scope.actorUserId,
 			};
 			let result: CommitTurnResult | null;
 			try {
@@ -449,7 +468,7 @@ export class VersionsService {
 			await this.githubLinks.markPulled(link.id, targetSha);
 			await this.audit.record({
 				action: "github.pull",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				ip,
 				metadata: { githubSha: targetSha },
 				organizationId: project.organizationId,

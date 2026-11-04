@@ -3,7 +3,7 @@ import { APP_AI_KEY_SECRET_NAME } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { projectScopeFrom } from "../../../projects";
 import type { AppBackendRow } from "../../infrastructure/persistence/app-backends.repository";
 import {
 	jsonResponse,
@@ -16,7 +16,7 @@ import {
 import type { AppAiKeyAction } from "./app-ai-keys";
 import { AppAiKeysService } from "./app-ai-keys.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE = projectScopeFrom(undefined, "user-1");
 const STORED_AT = "2026-11-01T08:00:00.000Z";
 
 // The body of one Supabase `POST /projects/{ref}/secrets` call.

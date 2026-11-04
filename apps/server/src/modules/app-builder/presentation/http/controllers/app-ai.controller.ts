@@ -1,9 +1,10 @@
 /**
  * `/api/v2/projects/:projectId/ai`: the AI panel routes of a V2 app. The
  * panel shows the gateway state and the month usage, and turns the key on,
- * rotates it, or turns it off. The global AuthGuard requires a session;
- * `V2BuilderEnabledGuard` gates the module and `RedisRateLimitGuard` reads
- * `@RateLimit`. `AppAiKeysService` holds the logic. No route answers the key.
+ * rotates it, or turns it off. The global AuthGuard requires a session.
+ * The global ProjectAccessGuard checks the project role. `V2BuilderEnabledGuard`
+ * gates the module, and `RedisRateLimitGuard` reads `@RateLimit`.
+ * `AppAiKeysService` holds the logic. No route answers the key.
  */
 import {
 	Controller,
@@ -26,12 +27,12 @@ import type { FastifyRequest } from "fastify";
 import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { AppAiKeysService } from "../../../application/services/app-ai-keys.service";
 import {
 	RateLimit,
@@ -54,8 +55,8 @@ const keyWriteRateLimit = RateLimit({
 @Controller("v2/projects/:projectId/ai")
 @UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 @UseInterceptors(RetryAfterInterceptor)
-// The same right as the Secrets panel: owner, admin, and member; never a viewer.
-@RequireWorkspacePermission("project", "update")
+// The AI key is a project secret, so the Secrets panel rule applies: an editor or higher, never a viewer.
+@RequireProjectRole("editor")
 export class AppAiController {
 	constructor(
 		// The Pick type, not the class: a spec passes the fake without a cast.
@@ -70,9 +71,12 @@ export class AppAiController {
 	status(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppAiStatus> {
-		return this.appAi.status(projectScopeFrom(workspace, user.id), projectId);
+		return this.appAi.status(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
 	}
 
 	// Keeps a live key: a second enable never breaks the running app.
@@ -81,12 +85,12 @@ export class AppAiController {
 	enable(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<AppAiStatus> {
 		return this.appAi.writeKey(
 			"enable",
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			readClientIp(request),
 		);
@@ -99,12 +103,12 @@ export class AppAiController {
 	rotate(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<AppAiStatus> {
 		return this.appAi.writeKey(
 			"rotate",
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			readClientIp(request),
 		);
@@ -116,11 +120,11 @@ export class AppAiController {
 	disable(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<void> {
 		return this.appAi.disable(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			readClientIp(request),
 		);

@@ -638,6 +638,13 @@
       "when": 1793825329642,
       "tag": "0090_mcp-oauth-provider",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793829707504,
+      "tag": "0091_workspaces-sharing",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,8 @@
 /**
  * `/api/v2/projects/:projectId/publish`: the Worker publish of one V2 web
  * app (WANDIT-178). The global AuthGuard needs a session, `V2BuilderEnabledGuard`
- * gates the module, the workspace guard checks `publish:manage` on the
- * writes like the V1 routes, and `RedisRateLimitGuard` reads `@RateLimit`.
+ * gates the module, the global ProjectAccessGuard checks the project role,
+ * and `RedisRateLimitGuard` reads `@RateLimit`.
  * This file parses the input, reads the client IP for the audit rows, and
  * delegates to `PublishService`.
  */
@@ -35,12 +35,12 @@ import type { FastifyRequest } from "fastify";
 import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { PublishService } from "../../../application/services/publish.service";
 import {
 	APP_PUBLISH_RATE_LIMIT,
@@ -70,18 +70,22 @@ export class PublishController {
 		>,
 	) {}
 
-	// Any member reads the state, like the V1 `deployments/current` route.
+	// Any project viewer reads the state, like the V1 `deployments/current` route.
+	@RequireProjectRole("viewer")
 	@Get()
 	status(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppPublishStatus> {
-		return this.publish.status(projectScopeFrom(workspace, user.id), projectId);
+		return this.publish.status(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
 	}
 
 	// 202: the build runs in the task. The popover polls the status.
-	@RequireWorkspacePermission("publish", "manage")
+	@RequireProjectRole("editor")
 	@RateLimit(APP_PUBLISH_RATE_LIMIT)
 	@Post()
 	@HttpCode(202)
@@ -89,16 +93,16 @@ export class PublishController {
 		@projectIdParam projectId: string,
 		@Body(new ZodValidationPipe(publishAppBodySchema)) body: PublishAppBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppBuild> {
 		return this.publish.publishHead(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 		);
 	}
 
-	@RequireWorkspacePermission("publish", "manage")
+	@RequireProjectRole("editor")
 	@RateLimit({
 		key: "app-publish-rollback",
 		limit: ROLLBACK_UNPUBLISH_LIMIT,
@@ -110,11 +114,11 @@ export class PublishController {
 		@projectIdParam projectId: string,
 		@Body(new ZodValidationPipe(rollbackAppBodySchema)) body: RollbackAppBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<AppBuild> {
 		return this.publish.rollback(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			readClientIp(request),
@@ -122,8 +126,9 @@ export class PublishController {
 	}
 
 	// "Publish anyway" is a publish, so it shares the publish bucket: the
-	// override cannot get around the publish cap.
-	@RequireWorkspacePermission("publish", "manage")
+	// override cannot get around the publish cap. Product rule (WANDIT-190):
+	// only the project owner takes the risk of an open table.
+	@RequireProjectRole("owner")
 	@RateLimit(APP_PUBLISH_RATE_LIMIT)
 	@Post("override")
 	@HttpCode(202)
@@ -132,18 +137,18 @@ export class PublishController {
 		@Body(new ZodValidationPipe(overridePublishGateBodySchema))
 		body: OverridePublishGateBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<AppBuild> {
 		return this.publish.overrideGate(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			readClientIp(request),
 		);
 	}
 
-	@RequireWorkspacePermission("publish", "manage")
+	@RequireProjectRole("editor")
 	@RateLimit({
 		key: "app-unpublish",
 		limit: ROLLBACK_UNPUBLISH_LIMIT,
@@ -153,11 +158,11 @@ export class PublishController {
 	unpublish(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<AppPublishStatus> {
 		return this.publish.unpublish(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			readClientIp(request),
 		);

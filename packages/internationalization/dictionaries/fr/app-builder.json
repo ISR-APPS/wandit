@@ -363,7 +363,7 @@
 		},
 		"syncErrors": {
 			"GITHUB_ACCESS_LOST": "L’app Wandit n’a plus accès à ce dépôt. Vérifie l’installation de l’app sur GitHub.",
-			"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt a quitté l’espace de travail. Délie-le, puis lie-le à nouveau.",
+			"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau.",
 			"GITHUB_LINKER_NO_ACCESS": "La personne qui a lié ce dépôt ne peut plus y écrire.",
 			"GITHUB_PUSH_REJECTED": "GitHub a refusé le dernier envoi, par exemple à cause d’une règle de protection de branche.",
 			"GITHUB_WORKFLOW_CHANGED": "La synchronisation s’est arrêtée : l’agent a modifié un fichier de .github/workflows. Fais les modifications de workflow sur GitHub.",

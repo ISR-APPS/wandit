@@ -2,7 +2,8 @@
  * GitHub sync runtime: one reconcile run between code.storage `main` and the
  * GitHub `main` of one linked V2 project. `github-sync.task.ts` calls
  * `runGithubSync`; the spec runs it on fakes. It reads the link and the head,
- * checks the access, and runs git in a temp bare repo on the worker.
+ * checks the project access of the linker and the GitHub access, and runs git
+ * in a temp bare repo on the worker.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,6 +34,7 @@ import type {
 	ProjectGithubLinkRow,
 	ProjectGithubLinksRepository,
 } from "../modules/app-builder/infrastructure/persistence/project-github-links.repository";
+import type { ProjectAccessService } from "../modules/projects";
 
 // 120 s per git command. Two fetches, one push, and two GitHub
 // REST calls of 30 s stay below the 600 s `maxDuration` of the task.
@@ -70,6 +72,8 @@ export type GithubSyncDeps = {
 	>;
 	/** Reads `app_branches(main).head_sha`: the head that GitHub must get. */
 	appCommits: Pick<AppCommitsRepository, "findBranch">;
+	/** Resolves the project role of the linker (`project_github_links.user_id`). Null means no access. */
+	projectAccess: Pick<ProjectAccessService, "resolve">;
 	/** Mints the code.storage JWTs: "read" for the fetch, "push-github-mirror" for the mirror push. */
 	gitStore: Pick<GitStore, "issueCredential">;
 	/** Mints the repo-scoped installation token, reads the current login of the linker, and reads its role. */
@@ -167,9 +171,19 @@ async function syncLink(
 	deps: GithubSyncDeps,
 	link: ProjectGithubLinkRow,
 ): Promise<GithubSyncResult> {
-	// Security: an org removed the linker, so the repo of the
-	// linker must stop getting the code of the org.
-	if (!link.linkerIsMember) {
+	// Security: the link must not outlive the read access of the linker. A
+	// workspace removal, a revoked grant, a move, or Restricted can end it.
+	// Then a push sends project code to the repo of a person outside the project.
+	const linkerAccess = await deps.projectAccess.resolve(
+		link.userId,
+		link.projectId,
+	);
+	if (linkerAccess === null) {
+		deps.logger.warn("github-sync.linker-no-project-access", {
+			linkId: link.id,
+			linkerUserId: link.userId,
+			projectId: link.projectId,
+		});
 		return stop(deps, link, "GITHUB_LINK_OWNER_LEFT");
 	}
 	const branch = await deps.appCommits.findBranch(link.projectId);

@@ -12,10 +12,13 @@ import {
 } from "@wandit/contracts";
 import { afterAll, describe, expect, it } from "vitest";
 
-import type { MemberRow } from "../../../../workspaces/infrastructure/persistence/members.repository";
+// The real role rule of `ProjectAccessService.resolve`, so each case states facts, not a role.
+import {
+	type ProjectAccessFacts,
+	resolveProjectAccess,
+} from "../../../../projects";
 import type { TurnsService } from "../../../application/services/turns.service";
 import type { BuilderTurnRow } from "../../../infrastructure/persistence/builder-turns.repository";
-import type { McpProjectOwner } from "../../../infrastructure/persistence/mcp-access.repository";
 import type { RateLimitStore } from "../guards/redis-rate-limit.guard";
 import { type McpCallContext, McpTools } from "./mcp-tools";
 
@@ -32,39 +35,75 @@ const TEAM_PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VIEWER_PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const OUTSIDER_PROJECT_ID = "55555555-5555-4555-8555-555555555555";
 const V1_PROJECT_ID = "66666666-6666-4666-8666-666666666666";
+const RESTRICTED_PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SHARED_PROJECT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-const OWNERS = new Map<string, McpProjectOwner>([
+/** The facts of one project for user-1, without the id: the map key gives it. */
+type ProjectFacts = Omit<ProjectAccessFacts, "id">;
+
+/** The default is a personal project of user-2 without a grant. */
+function factsOf(facts: Partial<ProjectFacts>): ProjectFacts {
+	return {
+		directRole: null,
+		engine: "v2_app",
+		memberRole: null,
+		organizationId: null,
+		userId: "user-2",
+		workspaceAccess: "can_edit",
+		workspaceId: "org-personal-2",
+		workspaceName: "User 2's workspace",
+		workspacePersonalOwnerUserId: "user-2",
+		...facts,
+	};
+}
+
+// user-1 is a workspace Editor (`member`) of "org-team". A team project uses the team's row.
+const TEAM_FACTS = {
+	memberRole: "member",
+	organizationId: "org-team",
+	workspaceId: "org-team",
+	workspaceName: "Team",
+	workspacePersonalOwnerUserId: null,
+} satisfies Partial<ProjectFacts>;
+
+const FACTS = new Map<string, ProjectFacts>([
 	[
 		OWN_PROJECT_ID,
-		{ engine: "v2_app", organizationId: null, userId: "user-1" },
+		factsOf({
+			memberRole: "owner",
+			userId: "user-1",
+			workspaceId: "org-personal-1",
+			workspacePersonalOwnerUserId: "user-1",
+		}),
 	],
-	[
-		FOREIGN_PROJECT_ID,
-		{ engine: "v2_app", organizationId: null, userId: "user-2" },
-	],
-	[
-		TEAM_PROJECT_ID,
-		{ engine: "v2_app", organizationId: "org-team", userId: "user-2" },
-	],
-	[
-		VIEWER_PROJECT_ID,
-		{ engine: "v2_app", organizationId: "org-viewer", userId: "user-2" },
-	],
+	[FOREIGN_PROJECT_ID, factsOf({})],
+	[TEAM_PROJECT_ID, factsOf(TEAM_FACTS)],
+	// A workspace Editor on a "Can view" project is a project viewer.
+	[VIEWER_PROJECT_ID, factsOf({ ...TEAM_FACTS, workspaceAccess: "can_view" })],
 	[
 		OUTSIDER_PROJECT_ID,
-		{ engine: "v2_app", organizationId: "org-outsider", userId: "user-2" },
+		factsOf({
+			organizationId: "org-outsider",
+			workspaceId: "org-outsider",
+			workspacePersonalOwnerUserId: null,
+		}),
 	],
 	[
 		V1_PROJECT_ID,
-		{ engine: "v1_page", organizationId: null, userId: "user-1" },
+		factsOf({
+			engine: "v1_page",
+			memberRole: "owner",
+			userId: "user-1",
+			workspaceId: "org-personal-1",
+			workspacePersonalOwnerUserId: "user-1",
+		}),
 	],
-]);
-
-// The `member.role` of user-1 in each team. Every v1 role has project:update and publish:manage.
-// An unknown role name grants nothing, so "viewer" has neither permission.
-const ROLES = new Map([
-	["org-team", "member"],
-	["org-viewer", "viewer"],
+	[
+		RESTRICTED_PROJECT_ID,
+		factsOf({ ...TEAM_FACTS, workspaceAccess: "restricted" }),
+	],
+	// A direct "Can edit" grant on another user's personal project, without a workspace membership.
+	[SHARED_PROJECT_ID, factsOf({ directRole: "editor" })],
 ]);
 
 const BUILD: AppBuild = {
@@ -93,23 +132,18 @@ type ToolFakes = {
 
 function toolsWith(fakes: ToolFakes = {}): McpTools {
 	return new McpTools(
-		{ findProjectOwner: async (projectId) => OWNERS.get(projectId) ?? null },
 		{
-			findMember: async (organizationId, userId): Promise<MemberRow | null> => {
-				const role = ROLES.get(organizationId);
-				return role === undefined || userId !== CALL.userId
+			resolve: async (userId, projectId) => {
+				const facts = FACTS.get(projectId);
+				return facts === undefined || userId !== CALL.userId
 					? null
-					: {
-							createdAt: new Date(0),
-							id: `member-${organizationId}`,
-							organizationId,
-							role,
-							userId,
-						};
+					: resolveProjectAccess({ ...facts, id: projectId }, userId);
 			},
 		},
+		// The only `list_projects` case names a workspace without a member row of user-1.
+		{ findMembership: async () => null },
 		{ listForUser: notReached },
-		{ listForScope: notReached },
+		{ list: notReached, listShared: notReached },
 		{ findAccessibleChatByProjectId: notReached },
 		{ get: notReached },
 		{ file: notReached, snapshot: notReached },
@@ -121,7 +155,10 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 		},
 		{ findCardParts: notReached },
 		{ wake: async () => ({ status: "running" }) },
-		{ apply: notReached, sandboxHead: notReached },
+		{
+			apply: async () => ({ headSha: "c".repeat(40) }),
+			sandboxHead: notReached,
+		},
 		{ publishHead: async () => BUILD, status: notReached },
 		{ record: async () => {} },
 		fakes.rateLimits ?? {
@@ -253,6 +290,13 @@ describe("McpTools access, role, and scope checks", () => {
 			"PROJECT_NOT_FOUND",
 		],
 		[
+			"a workspace Editor cannot open a Restricted project",
+			[...mcpScopes],
+			"list_versions",
+			{ projectId: RESTRICTED_PROJECT_ID },
+			"PROJECT_NOT_FOUND",
+		],
+		[
 			"a team that the user is not a member of is hidden",
 			[...mcpScopes],
 			"list_projects",
@@ -274,21 +318,21 @@ describe("McpTools access, role, and scope checks", () => {
 			"success",
 		],
 		[
-			"a role without project:update cannot wake the sandbox",
+			"a direct-grant editor applies changes",
 			[...mcpScopes],
-			"wake_sandbox",
-			{ projectId: VIEWER_PROJECT_ID },
-			"WORKSPACE_PERMISSION_DENIED",
+			"apply_changes",
+			{ ...APPLY_CHANGES_INPUT, projectId: SHARED_PROJECT_ID },
+			"success",
 		],
 		[
-			"a role without project:update cannot apply changes",
+			"a project viewer cannot apply changes",
 			[...mcpScopes],
 			"apply_changes",
 			{ ...APPLY_CHANGES_INPUT, projectId: VIEWER_PROJECT_ID },
 			"WORKSPACE_PERMISSION_DENIED",
 		],
 		[
-			"a role without project:update cannot send a prompt",
+			"a project viewer cannot send a prompt",
 			[...mcpScopes],
 			"send_prompt",
 			{
@@ -299,14 +343,14 @@ describe("McpTools access, role, and scope checks", () => {
 			"WORKSPACE_PERMISSION_DENIED",
 		],
 		[
-			"a role without project:update cannot cancel a turn",
+			"a project viewer cannot cancel a turn",
 			[...mcpScopes],
 			"cancel_turn",
 			{ projectId: VIEWER_PROJECT_ID, turnId: TURN_ID },
 			"WORKSPACE_PERMISSION_DENIED",
 		],
 		[
-			"a role without publish:manage cannot publish",
+			"a project viewer cannot publish",
 			[...mcpScopes],
 			"publish_app",
 			{ projectId: VIEWER_PROJECT_ID, requestKey: REQUEST_KEY },

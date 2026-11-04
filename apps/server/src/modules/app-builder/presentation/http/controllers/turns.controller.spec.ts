@@ -2,7 +2,11 @@ import { EventEmitter } from "node:events";
 import { NotFoundException } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+
+import {
+	PROJECT_ROLE_KEY,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import type { TurnStreamRelayService } from "../../../application/services/turn-stream-relay.service";
 import type { TurnsService } from "../../../application/services/turns.service";
 import { RATE_LIMIT_OPTIONS } from "../guards/redis-rate-limit.guard";
@@ -40,9 +44,28 @@ const user = {
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 } satisfies Parameters<TurnsController["create"]>[2];
 
-const workspace = { kind: "personal" } as const satisfies Parameters<
-	TurnsController["create"]
->[3];
+// The personal owner's access, as ProjectAccessGuard attaches it to the request.
+const access: ResolvedProjectAccess = {
+	directRole: null,
+	project: {
+		engine: "v2_app",
+		id: "project-1",
+		organizationId: null,
+		userId: "user_1",
+		workspaceAccess: "can_edit",
+	},
+	role: "owner",
+	workspace: null,
+	workspaceRoles: ["owner"],
+};
+// The scope that `projectScopeFromAccess` builds from `access` for `user_1`.
+const PERSONAL_SCOPE = {
+	actorIsLimitExempt: true,
+	actorRoles: ["owner"],
+	actorUserId: "user_1",
+	kind: "personal",
+	ownerUserId: "user_1",
+};
 
 // One `x-forwarded-for` hop and no trusted proxy list: `readClientIp`
 // answers the hop.
@@ -99,10 +122,10 @@ describe("TurnsController", () => {
 		const request = fakeSseRequest();
 		const reply = fakeReply();
 
-		await controller.create("project-1", body, user, workspace, request, reply);
+		await controller.create("project-1", body, user, access, request, reply);
 
 		expect(turns.create).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
+			PERSONAL_SCOPE,
 			"project-1",
 			body,
 			{ ip: CLIENT_IP, requestStartedAt: expect.any(Number) },
@@ -131,13 +154,13 @@ describe("TurnsController", () => {
 			"project-1",
 			"turn-1",
 			user,
-			workspace,
+			access,
 			request,
 			reply,
 		);
 
 		expect(turns.assertStreamAccess).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
+			PERSONAL_SCOPE,
 			"project-1",
 			"turn-1",
 		);
@@ -168,7 +191,7 @@ describe("TurnsController", () => {
 			"project-1",
 			"turn-1",
 			user,
-			workspace,
+			access,
 			request,
 			reply,
 		);
@@ -179,13 +202,46 @@ describe("TurnsController", () => {
 		expect(reply.code).not.toHaveBeenCalled();
 	});
 
+	// Security: the payer balance is private to the paying workspace and the project owner.
+	it.each([
+		{ canReadPayerBalance: false, directRole: "editor", workspaceRoles: [] },
+		{ canReadPayerBalance: true, directRole: null, workspaceRoles: ["member"] },
+	] as const)("passes canReadPayerBalance $canReadPayerBalance to the relay for workspace roles $workspaceRoles", async ({
+		canReadPayerBalance,
+		directRole,
+		workspaceRoles,
+	}) => {
+		const { controller, relay, turns } = setup();
+		turns.assertStreamAccess.mockResolvedValue(turnRow());
+		const editorAccess: ResolvedProjectAccess = {
+			...access,
+			directRole,
+			project: { ...access.project, userId: "user_2" },
+			role: "editor",
+			workspaceRoles: [...workspaceRoles],
+		};
+
+		await controller.stream(
+			"project-1",
+			"turn-1",
+			user,
+			editorAccess,
+			fakeSseRequest(),
+			fakeReply(),
+		);
+
+		expect(relay.relay).toHaveBeenCalledWith(
+			expect.objectContaining({ canReadPayerBalance }),
+		);
+	});
+
 	it("answers 204 on the active stream when nothing is running", async () => {
 		const { controller, relay, turns } = setup();
 		turns.findActiveTurn.mockResolvedValue(null);
 		const request = fakeSseRequest();
 		const reply = fakeReply();
 
-		await controller.activeStream("project-1", user, workspace, request, reply);
+		await controller.activeStream("project-1", user, access, request, reply);
 
 		expect(relay.relay).not.toHaveBeenCalled();
 		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
@@ -200,7 +256,7 @@ describe("TurnsController", () => {
 		const request = fakeSseRequest();
 		const reply = fakeReply();
 
-		await controller.activeStream("project-1", user, workspace, request, reply);
+		await controller.activeStream("project-1", user, access, request, reply);
 
 		expect(relay.relay).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -224,7 +280,7 @@ describe("TurnsController", () => {
 		await controller.activeStream(
 			"project-1",
 			user,
-			workspace,
+			access,
 			fakeSseRequest(),
 			fakeReply(),
 		);
@@ -252,7 +308,7 @@ describe("TurnsController", () => {
 				"project-1",
 				"turn-1",
 				user,
-				workspace,
+				access,
 				request,
 				fakeReply(),
 			),
@@ -268,13 +324,7 @@ describe("TurnsController", () => {
 		const request = fakeSseRequest();
 
 		await expect(
-			controller.activeStream(
-				"project-1",
-				user,
-				workspace,
-				request,
-				fakeReply(),
-			),
+			controller.activeStream("project-1", user, access, request, fakeReply()),
 		).rejects.toBeInstanceOf(NotFoundException);
 
 		expect(relay.relay).not.toHaveBeenCalled();
@@ -294,7 +344,7 @@ describe("TurnsController", () => {
 				"project-1",
 				"turn-1",
 				user,
-				workspace,
+				access,
 				request,
 				fakeReply(),
 			),
@@ -302,31 +352,10 @@ describe("TurnsController", () => {
 
 		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
 	});
-
-	it("cancel delegates with scope, project and turn ids, and the client IP", async () => {
-		const { controller, turns } = setup();
-		turns.cancel.mockResolvedValue({ status: "canceled", turnId: "turn-1" });
-
-		const result = await controller.cancel(
-			"project-1",
-			"turn-1",
-			user,
-			workspace,
-			fakeSseRequest(),
-		);
-
-		expect(turns.cancel).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
-			"project-1",
-			"turn-1",
-			CLIENT_IP,
-		);
-		expect(result).toEqual({ status: "canceled", turnId: "turn-1" });
-	});
 });
 
 describe("TurnsController route metadata", () => {
-	it("gates create and cancel on project:update with a rate limit, and create also per IP", () => {
+	it("gates create and cancel on the editor role with a rate limit, and create also per IP", () => {
 		// WANDIT-181: one person with many accounts on one IP still hits a cap.
 		expect(
 			Reflect.getMetadata(RATE_LIMIT_OPTIONS, TurnsController.prototype.create),
@@ -339,9 +368,9 @@ describe("TurnsController route metadata", () => {
 			TurnsController.prototype.create,
 			TurnsController.prototype.cancel,
 		]) {
-			expect(Reflect.getMetadata(WORKSPACE_PERMISSION_KEY, handler)).toEqual({
-				actions: ["update"],
-				resource: "project",
+			expect(Reflect.getMetadata(PROJECT_ROLE_KEY, handler)).toEqual({
+				anyEngine: false,
+				role: "editor",
 			});
 		}
 	});

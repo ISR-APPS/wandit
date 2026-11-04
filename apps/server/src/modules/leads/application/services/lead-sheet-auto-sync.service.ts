@@ -5,7 +5,7 @@
  */
 
 import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { systemProjectScope } from "../../../projects/domain/project-scope";
 import { GoogleSheetsApiError } from "../../infrastructure/google/google-sheets.client";
 import {
 	LeadSheetSyncBusyError,
@@ -107,15 +107,15 @@ export class LeadSheetAutoSyncService {
 				continue;
 			}
 
-			const scope: ProjectScope =
-				candidate.organizationId !== null
-					? {
-							actorIsLimitExempt: false,
-							kind: "org",
-							organizationId: candidate.organizationId,
-							userId: candidate.syncedByUserId,
-						}
-					: { kind: "personal", userId: candidate.syncedByUserId };
+			// The scope comes from the project row; the sync user is the actor.
+			const scope = systemProjectScope(
+				{
+					organizationId: candidate.organizationId,
+					userId: candidate.projectUserId,
+				},
+				candidate.syncedByUserId,
+				false,
+			);
 
 			const previousSyncStartedAt = lastSyncStartedAtByUser.get(
 				candidate.syncedByUserId,

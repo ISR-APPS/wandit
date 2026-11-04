@@ -10,7 +10,7 @@ function normalizeSql(value: string): string {
 }
 
 describe("CreditsRepository reserved add-back query", () => {
-	it("sums reserved usage events for a personal owner with the org-null predicate", () => {
+	it("sums the personal pool's reserved events, a member's hold against the owner", () => {
 		const repository = new CreditsRepository(db as Database);
 		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
 		const query = repository["buildSumReservedQuery"](
@@ -25,9 +25,11 @@ describe("CreditsRepository reserved add-back query", () => {
 		expect(statement).toContain(
 			'("ai_usage_events"."status" = \'reserved\' or ("ai_usage_events"."status" = \'reconcile_failed\' and "ai_usage_events"."final_credits" is null))',
 		);
-		expect(statement).toContain('"ai_usage_events"."user_id" = $1');
-		expect(statement).toContain('"ai_usage_events"."organization_id" is null');
-		expect(query.params).toEqual(["user-1"]);
+		// The owner's own rows have no payer. A member's row in the pool names the owner.
+		expect(statement).toContain(
+			'("ai_usage_events"."organization_id" is null and (("ai_usage_events"."user_id" = $1 and "ai_usage_events"."payer_user_id" is null) or "ai_usage_events"."payer_user_id" = $2))',
+		);
+		expect(query.params).toEqual(["user-1", "user-1"]);
 	});
 
 	it("sums reserved usage events for the org pool regardless of the acting member", () => {
@@ -307,8 +309,9 @@ describe("CreditsRepository.listActivityByOwner", () => {
 		);
 		expect(statement).toContain('"credit_ledger"."organization_id" is null');
 		expect(statement).toContain('"ai_usage_events"."organization_id" is null');
-		// limit 2, offset (2 - 1) * 2 = 2.
-		expect(params).toEqual(["user-1", "user-1", 2, 2]);
+		// The two usage-event pool ids, the ledger owner, then limit 2 and
+		// offset (2 - 1) * 2 = 2.
+		expect(params).toEqual(["user-1", "user-1", "user-1", 2, 2]);
 	});
 
 	it("parses a JSON-string items column and an empty page", async () => {

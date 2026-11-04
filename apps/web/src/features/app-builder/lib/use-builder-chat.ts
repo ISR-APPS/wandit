@@ -254,7 +254,13 @@ export function useBuilderChat(
 		// A 402 answer of the create POST opens the credits dialog. The
 		// dispatch ignores every other error; the pane shows its sentence.
 		onError: (error) => {
-			dispatchBillingError(error);
+			// A 402 means the paying pool is empty. The estimate carries the payer
+			// state that locks the composer, so it refetches.
+			if (dispatchBillingError(error) !== null) {
+				void queryClient.invalidateQueries({
+					queryKey: appBuilderKeys.turnEstimate(projectId),
+				});
+			}
 			if (reconnectRef.current !== null) {
 				reconnectRef.current.hasFailed = true;
 			}

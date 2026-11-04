@@ -2,6 +2,8 @@
  * Integrations panel of the More view. It holds one card: the GitHub sync of
  * the project. The card shows one of four states. The App is not set up, the
  * user is not connected, the user can create a repo, or the repo is linked.
+ * A project viewer sees the status read-only: a note in place of Connect and
+ * Create, and no Unlink.
  * Rendered by components/more/more-view.tsx inside PanelShell. Reads
  * github.queries.ts and calls github.mutations.ts.
  */
@@ -46,6 +48,7 @@ import { Switch } from "@wandit/ui/components/switch";
 import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useId, useState } from "react";
 
+import { hasProjectRole } from "@/features/project-sharing";
 import { slugify } from "@/features/workspace";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
@@ -102,10 +105,13 @@ export function IntegrationsPanel({
 	const { t } = useTranslation();
 	// The page reads the same status query for the update banner, so this read hits the cache.
 	const status = useQuery(projectGithubStatusQuery(project.id));
+	// Product rule: connect, link, and unlink need the editor role (workspaces-sharing.md 2.2).
+	const canEdit = hasProjectRole(project.access, "editor");
 	// The account route can call GitHub. Only the create form reads it, so it waits for that state.
 	const account = useQuery(
 		githubAccountQuery(
 			isActive &&
+				canEdit &&
 				status.data?.appConfigured === true &&
 				status.data.link === null,
 		),
@@ -152,7 +158,17 @@ export function IntegrationsPanel({
 					</div>
 				</div>
 				{link !== null ? (
-					<LinkedRepository projectId={project.id} link={link} />
+					<LinkedRepository
+						projectId={project.id}
+						link={link}
+						canUnlink={canEdit}
+					/>
+				) : !canEdit ? (
+					<p
+						className={cn(PANEL_CARD_ROW_CLASS, PANEL_HINT_CLASS, "mt-5 pt-4")}
+					>
+						{t("sharing.readOnly.editorsOnly")}
+					</p>
 				) : account.data === undefined ? (
 					account.isError ? (
 						<p className="mt-4 font-sans text-[13px] text-destructive">
@@ -409,9 +425,12 @@ function CreateRepositoryForm({
 function LinkedRepository({
 	projectId,
 	link,
+	canUnlink,
 }: {
 	projectId: string;
 	link: ProjectGithubLink;
+	/** False for a project viewer: the Unlink button does not show. */
+	canUnlink: boolean;
 }) {
 	const { t } = useTranslation();
 	const unlink = useUnlinkGithubRepository(projectId);
@@ -439,39 +458,43 @@ function LinkedRepository({
 								})}
 					</p>
 				</div>
-				<AlertDialog>
-					<AlertDialogTrigger asChild>
-						<Button
-							variant="outline"
-							size="sm"
-							className={PANEL_SECONDARY_BUTTON_CLASS}
-							disabled={unlink.isPending}
-						>
-							{t("appBuilder.github.unlink")}
-						</Button>
-					</AlertDialogTrigger>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>
-								{t("appBuilder.github.unlinkConfirmTitle", { repo: repoPath })}
-							</AlertDialogTitle>
-							<AlertDialogDescription>
-								{t("appBuilder.github.unlinkConfirmBody")}
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel>
-								{t("appBuilder.github.cancel")}
-							</AlertDialogCancel>
-							<AlertDialogAction
-								variant="destructive"
-								onClick={() => unlink.mutate()}
+				{canUnlink ? (
+					<AlertDialog>
+						<AlertDialogTrigger asChild>
+							<Button
+								variant="outline"
+								size="sm"
+								className={PANEL_SECONDARY_BUTTON_CLASS}
+								disabled={unlink.isPending}
 							>
 								{t("appBuilder.github.unlink")}
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
+							</Button>
+						</AlertDialogTrigger>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>
+									{t("appBuilder.github.unlinkConfirmTitle", {
+										repo: repoPath,
+									})}
+								</AlertDialogTitle>
+								<AlertDialogDescription>
+									{t("appBuilder.github.unlinkConfirmBody")}
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>
+									{t("appBuilder.github.cancel")}
+								</AlertDialogCancel>
+								<AlertDialogAction
+									variant="destructive"
+									onClick={() => unlink.mutate()}
+								>
+									{t("appBuilder.github.unlink")}
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				) : null}
 			</div>
 			{link.lastError !== null ? (
 				<p

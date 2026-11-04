@@ -27,6 +27,12 @@ export const organization = pgTable(
 		logo: text("logo"),
 		// Better Auth serializes JSON into this text column itself — not jsonb.
 		metadata: text("metadata"),
+		// Set: the personal workspace of this user (one per user, the unique
+		// constraint). NULL: a team workspace. Better Auth never writes it.
+		// The personal pool of this user pays for work in this workspace.
+		personalOwnerUserId: text("personal_owner_user_id")
+			.unique()
+			.references(() => user.id, { onDelete: "restrict" }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

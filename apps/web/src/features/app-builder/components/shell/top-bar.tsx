@@ -1,7 +1,8 @@
 /**
  * The two halves of the top bar of the app builder. ProjectBar holds the
  * project controls: back link, project menu, version history, and the chat
- * expand button. WorkBar holds the view switcher, the Publish pill, and the user menu.
+ * expand button. WorkBar holds the view switcher, the Share button, the
+ * Publish pill, and the user menu. A project viewer sees History without Restore.
  * Publish is off for now: the pill shows "Soon" and opens nothing.
  * It shows no credit balance. Billing opens from the user menu.
  * The preview controls live in the bar of each preview card.
@@ -25,6 +26,7 @@ import type { ReactNode } from "react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
+import { hasProjectRole, ShareButton } from "@/features/project-sharing";
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import type { BuilderView } from "../../lib/constants";
@@ -75,6 +77,8 @@ export function ProjectBar({
 					projectId={project.id}
 					liveCommitSha={liveCommitSha}
 					onRestored={onRestored}
+					// Product rule: a restore needs the editor role (workspaces-sharing.md 2.2).
+					canRestore={hasProjectRole(project.access, "editor")}
 				/>
 				{chatOpen ? null : (
 					<IconAction label={t("appBuilder.topBar.expandChat")}>
@@ -113,11 +117,15 @@ export type WorkBarProps = {
 };
 
 /** On desktop this half sits over the main card. A drag of the split moves it with the card. */
-export function WorkBar({ view, onChangeView }: WorkBarProps) {
+export function WorkBar({ project, view, onChangeView }: WorkBarProps) {
 	return (
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
 			<ViewSwitcher view={view} onChangeView={onChangeView} />
 			<div className="ms-auto flex shrink-0 items-center gap-2">
+				{/* An older API sends no access and has no sharing routes. */}
+				{project.access === undefined ? null : (
+					<ShareButton projectId={project.id} projectName={project.name} />
+				)}
 				<PublishComingSoon />
 				<UserMenu />
 			</div>
@@ -129,6 +137,7 @@ export function WorkBar({ view, onChangeView }: WorkBarProps) {
  * The Publish pill while publishing is off: the publish build and the staging
  * serving do not work yet (audit P0-11). To turn Publish on again, render
  * PublishPopover of ./publish-popover here with project, canAskFix, and onAskFix.
+ * Then gate it with hasProjectRole(project.access, "editor"): a viewer cannot publish.
  */
 function PublishComingSoon() {
 	const { t } = useTranslation();

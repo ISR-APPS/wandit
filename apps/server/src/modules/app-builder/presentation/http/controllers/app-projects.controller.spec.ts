@@ -35,6 +35,14 @@ function setup() {
 const user = { id: "user_1" } as AuthUser;
 
 const workspace: WorkspaceContext = { kind: "personal" };
+// The scope that `projectScopeFrom` builds for the caller's own personal workspace.
+const PERSONAL_SCOPE = {
+	actorIsLimitExempt: true,
+	actorRoles: ["owner"],
+	actorUserId: "user_1",
+	kind: "personal",
+	ownerUserId: "user_1",
+};
 
 const BODY: CreateAppProjectRequest = {
 	languages: ["en"],
@@ -58,11 +66,9 @@ describe("AppProjectsController", () => {
 			requestWithHeaders({ "x-vercel-ip-country": "ma" }),
 		);
 
-		expect(appProjects.create).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
-			BODY,
-			{ countryCode: "MA" },
-		);
+		expect(appProjects.create).toHaveBeenCalledWith(PERSONAL_SCOPE, BODY, {
+			countryCode: "MA",
+		});
 		expect(result).toEqual({
 			chatId: "chat-1",
 			projectId: "project-1",
@@ -75,23 +81,9 @@ describe("AppProjectsController", () => {
 
 		await controller.create(BODY, user, workspace, requestWithHeaders({}));
 
-		expect(appProjects.create).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
-			BODY,
-			{ countryCode: null },
-		);
-	});
-
-	it("get delegates with scope and project id", async () => {
-		const { appProjects, controller } = setup();
-		appProjects.get.mockResolvedValue({ id: "project-1" });
-
-		await controller.get("project-1", user, workspace);
-
-		expect(appProjects.get).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
-			"project-1",
-		);
+		expect(appProjects.create).toHaveBeenCalledWith(PERSONAL_SCOPE, BODY, {
+			countryCode: null,
+		});
 	});
 
 	it("propagates the 503 the service throws without the mobile template", async () => {

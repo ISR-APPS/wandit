@@ -3,6 +3,7 @@
  * sandbox without a builder turn, so the preview needs no paid message.
  * The global AuthGuard requires a session; `V2BuilderEnabledGuard` gates
  * the route and `RedisRateLimitGuard` reads the `@RateLimit` metadata.
+ * The global ProjectAccessGuard checks the project role.
  * Scope, lock, and boot live in `SandboxWakeService`.
  */
 import {
@@ -19,12 +20,12 @@ import { type SandboxWakeResponse, uuidSchema } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { SandboxWakeService } from "../../../application/services/sandbox-wake.service";
 import {
 	RateLimit,
@@ -42,10 +43,10 @@ export class SandboxController {
 		private readonly sandboxWake: Pick<SandboxWakeService, "wake">,
 	) {}
 
-	// A wake costs sandbox minutes like a turn, so an org member needs the
-	// right of a turn. It charges no credits, so a small bucket bounds the
-	// cost: 6 wakes per user per 10 minutes.
-	@RequireWorkspacePermission("project", "update")
+	// A viewer may wake: an idle project shows no preview otherwise (design
+	// 2.2). It charges no credits, so a small bucket bounds the sandbox cost:
+	// 6 wakes per user per 10 minutes.
+	@RequireProjectRole("viewer")
 	@RateLimit(SANDBOX_WAKE_RATE_LIMIT)
 	@Post("wake")
 	@HttpCode(HttpStatus.ACCEPTED)
@@ -53,10 +54,10 @@ export class SandboxController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<SandboxWakeResponse> {
 		return this.sandboxWake.wake(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}

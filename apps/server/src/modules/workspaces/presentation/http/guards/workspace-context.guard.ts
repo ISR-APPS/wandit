@@ -1,3 +1,8 @@
+/**
+ * Global guard that turns the x-wandit-workspace header into a WorkspaceContext.
+ * Nest runs it on every non-public request, after AuthGuard.
+ * It reads members through WorkspaceMembersRepository and checks the route's workspace decorators.
+ */
 import {
 	type CanActivate,
 	type ExecutionContext,
@@ -7,15 +12,10 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import {
-	workspaceRoleHasPermission,
 	type WorkspacePermissionRequest,
+	workspaceRoleHasPermission,
 } from "@wandit/auth/permissions";
-import {
-	PERSONAL_WORKSPACE,
-	WORKSPACE_HEADER,
-	workspaceRoleNames,
-	type WorkspaceRoleName,
-} from "@wandit/contracts";
+import { PERSONAL_WORKSPACE, WORKSPACE_HEADER } from "@wandit/contracts";
 
 import { IS_PUBLIC_KEY } from "../../../../auth/presentation/http/decorators/public.decorator";
 import {
@@ -25,10 +25,10 @@ import {
 import {
 	PERSONAL_WORKSPACE_CONTEXT,
 	type WorkspaceContext,
+	workspaceContextOfMembership,
 } from "../../../domain/workspace-context";
 import { WorkspaceMembersRepository } from "../../../infrastructure/persistence/members.repository";
 import {
-	ORG_WORKSPACE_REQUIRED_KEY,
 	PERSONAL_WORKSPACE_ONLY_KEY,
 	WORKSPACE_PERMISSION_KEY,
 	type WorkspacePermissionRequirement,
@@ -38,7 +38,8 @@ import type { MaybeWorkspaceScopedRequest } from "../types/workspace-request";
 /**
  * Resolves the request's workspace scope from the x-wandit-workspace header —
  * the single scope authority (teams-workspaces.md §2) — and enforces the
- * route's workspace decorators.
+ * route's workspace decorators. The header maps to a kind as in
+ * workspaces-sharing.md 3.1: see WorkspaceContext.
  *
  * Registered as a global guard AFTER AuthGuard (module import order in
  * AppModule): it needs request.user. @Public routes are skipped entirely —
@@ -96,18 +97,13 @@ export class WorkspaceContextGuard implements CanActivate {
 			return PERSONAL_WORKSPACE_CONTEXT;
 		}
 
-		const member = await this.members.findMember(value, userId);
+		const membership = await this.members.findMembership(value, userId);
 
-		if (!member) {
+		if (!membership) {
 			throw new NotFoundException();
 		}
 
-		return {
-			kind: "org",
-			organizationId: member.organizationId,
-			role: member.role,
-			roles: parseKnownRoles(member.role),
-		};
+		return workspaceContextOfMembership(membership, userId);
 	}
 
 	private enforceRouteRequirements(
@@ -116,27 +112,17 @@ export class WorkspaceContextGuard implements CanActivate {
 	): void {
 		const targets = [context.getHandler(), context.getClass()];
 
+		// Legacy personal-only routes debit the caller's own pool, so another
+		// user's personal workspace is refused like a team workspace.
 		if (
 			this.reflector.getAllAndOverride<boolean>(
 				PERSONAL_WORKSPACE_ONLY_KEY,
 				targets,
 			) &&
-			workspace.kind === "org"
+			workspace.kind !== "personal"
 		) {
 			throw new WorkspaceNotSupportedError(
 				"This operation is only available in your personal workspace",
-			);
-		}
-
-		if (
-			this.reflector.getAllAndOverride<boolean>(
-				ORG_WORKSPACE_REQUIRED_KEY,
-				targets,
-			) &&
-			workspace.kind !== "org"
-		) {
-			throw new WorkspaceNotSupportedError(
-				"This operation requires a team workspace",
 			);
 		}
 
@@ -147,9 +133,18 @@ export class WorkspaceContextGuard implements CanActivate {
 			);
 
 		// Personal scope bypasses role checks: users are omnipotent in their own
-		// workspace. Role gates only exist between org members.
-		if (!requirement || workspace.kind !== "org") {
+		// workspace. Role gates only exist between workspace members.
+		if (!requirement || workspace.kind === "personal") {
 			return;
+		}
+
+		// The money of a shared personal workspace is the owner's personal
+		// pool: only the owner, in personal scope, manages billing and limits.
+		if (
+			workspace.kind === "shared-personal" &&
+			(requirement.resource === "billing" || requirement.resource === "limits")
+		) {
+			throw new WorkspacePermissionDeniedError();
 		}
 
 		const permitted = workspaceRoleHasPermission(workspace.role, {
@@ -160,13 +155,4 @@ export class WorkspaceContextGuard implements CanActivate {
 			throw new WorkspacePermissionDeniedError();
 		}
 	}
-}
-
-function parseKnownRoles(roleValue: string): WorkspaceRoleName[] {
-	const known = new Set<string>(workspaceRoleNames);
-
-	return roleValue
-		.split(",")
-		.map((name) => name.trim())
-		.filter((name): name is WorkspaceRoleName => known.has(name));
 }

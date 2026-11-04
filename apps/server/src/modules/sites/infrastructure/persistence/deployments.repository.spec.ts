@@ -3,6 +3,7 @@ import { PgDialect, type SQL } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import { DeploymentsRepository } from "./deployments.repository";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -21,7 +22,7 @@ describe("DeploymentsRepository.getAccessibleProject", () => {
 
 		await expect(
 			repository.getAccessibleProject(
-				{ kind: "personal", userId: "user-1" },
+				projectScopeFrom(undefined, "user-1"),
 				PROJECT_ID,
 			),
 		).rejects.toBeInstanceOf(NotFoundException);

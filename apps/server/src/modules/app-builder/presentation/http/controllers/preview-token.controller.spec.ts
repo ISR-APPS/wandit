@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException } from "@nestjs/common";
 import { GUARDS_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import {
 	previewTokenResponseSchema,
@@ -7,9 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-
-import type { ProjectScope } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import type { ResolvedProjectAccess } from "../../../../projects";
 import { PreviewTokenService } from "../../../application/services/preview-token.service";
 import type { V2EnvSource } from "../../../infrastructure/env/v2-env";
 import type { ScopedAppProject } from "../../../infrastructure/persistence/app-commits.repository";
@@ -70,26 +68,25 @@ const user = {
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 } satisfies Parameters<PreviewTokenController["mint"]>[1];
 
-const workspace = { kind: "personal" } as const satisfies Parameters<
-	PreviewTokenController["mint"]
->[2];
-
-// An org workspace the caller does not share with the project.
-const orgWorkspace: WorkspaceContext = {
-	kind: "org",
-	organizationId: "org_1",
-	role: "member",
-	roles: ["member"],
+// The personal owner's access, as ProjectAccessGuard attaches it to the request.
+const access: ResolvedProjectAccess = {
+	directRole: null,
+	project: {
+		engine: "v2_app",
+		id: PROJECT_ID,
+		organizationId: null,
+		userId: "user_1",
+		workspaceAccess: "can_edit",
+	},
+	role: "owner",
+	workspace: null,
+	workspaceRoles: ["owner"],
 };
 
 function setup() {
 	const sessions = new FakeSandboxSessionsRepository();
 	sessions.rows.set(RUNNING_ROW.id, RUNNING_ROW);
-	const appCommits = {
-		// The org scope sees no row: another workspace's project is a 404.
-		findScopedProject: async (scope: ProjectScope) =>
-			scope.kind === "org" ? null : PROJECT,
-	};
+	const appCommits = { findScopedProject: async () => PROJECT };
 	const env: V2EnvSource = {
 		PREVIEW_DOMAIN: DOMAIN,
 		PREVIEW_TOKEN_SIGNING_KEY: SIGNING_KEY,
@@ -119,18 +116,10 @@ describe("PreviewTokenController", () => {
 		).toEqual({ key: "preview-token", limit: 30, windowMs: 60_000 });
 	});
 
-	it("answers 404 when the project belongs to another workspace", async () => {
-		const { controller } = setup();
-
-		await expect(
-			controller.mint(PROJECT_ID, user, orgWorkspace, {}),
-		).rejects.toBeInstanceOf(NotFoundException);
-	});
-
 	it("passes a phone query to the token: the username becomes a claim", async () => {
 		const { controller } = setup();
 
-		const body = await controller.mint(PROJECT_ID, user, workspace, {
+		const body = await controller.mint(PROJECT_ID, user, access, {
 			client: "phone",
 			expoUsername: "zack",
 		});

@@ -31,6 +31,8 @@ import { mobileBuildQueue } from "./mobile-build-task-queues";
 // Queue-boundary parse: the payload crosses a process boundary, so the run
 // validates it instead of trusting the API-side type.
 const mobileBuildPayloadSchema = z.object({
+	// Unused: the runtime reads the payer and the exemption from the hold row.
+	// The API still sends it, and a worker of the previous deploy requires it.
 	actorIsLimitExempt: z.boolean(),
 	buildId: uuidSchema,
 	projectId: uuidSchema,
