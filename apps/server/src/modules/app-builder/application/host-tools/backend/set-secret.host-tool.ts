@@ -36,7 +36,7 @@ export function createSetSecretTool(
 			"first, so tell the user the secret name. `source: generate` creates a " +
 			"random 32-byte value (for example a signing key) when none exists and " +
 			"keeps an existing one. `name` uses A-Z, 0-9, and _, and starts with a " +
-			"letter. Names that start with `SUPABASE_` are reserved.",
+			"letter. Names that start with `SUPABASE_` or `WANDIT_` are reserved.",
 		inputSchema: setSecretToolInputSchema,
 		execute: (input) =>
 			runBackendTool(
@@ -85,9 +85,11 @@ export function createSetSecretTool(
 	});
 }
 
-// The turn's actor in the turn's workspace: `ProjectSecretsService.set`
-// checks the project against this scope. A task has no client IP.
-function secretActor(context: HostToolContext): SecretActor {
+/**
+ * The turn's actor in the turn's workspace: `ProjectSecretsService` checks
+ * the project against this scope. A task has no client IP. `enable_ai` uses it too.
+ */
+export function secretActor(context: HostToolContext): SecretActor {
 	return {
 		ip: null,
 		scope:

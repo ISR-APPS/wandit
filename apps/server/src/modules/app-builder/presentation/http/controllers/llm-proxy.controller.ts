@@ -21,8 +21,11 @@ import {
 	LlmProxyService,
 } from "../../../application/services/llm-proxy.service";
 
-/** Writes the proxied answer onto a hijacked Fastify reply. */
-class FastifyProxyReply implements LlmProxyReply {
+/**
+ * Writes the proxied answer onto a hijacked Fastify reply. The LLM proxy
+ * and the app AI gateway controllers use it.
+ */
+export class FastifyProxyReply implements LlmProxyReply {
 	constructor(private readonly reply: FastifyReply) {}
 
 	writeHead(statusCode: number, headers: Record<string, string>): void {

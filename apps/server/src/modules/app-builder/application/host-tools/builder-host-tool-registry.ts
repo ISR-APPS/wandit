@@ -3,7 +3,8 @@
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
  * `generate_image`, `request_network_host`, the seven backend tools of
- * WANDIT-186, and `set_theme` for a web-app@1.1.0+ project. A Plan Mode
+ * WANDIT-186, `enable_ai` of the app AI gateway, and `set_theme` for a
+ * web-app@1.1.0+ project. A Plan Mode
  * turn gets only `ask_user` and `present_plan`.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
@@ -19,8 +20,11 @@ import {
 	createApplyDestructiveMigrationTool,
 	createApplyMigrationTool,
 } from "./backend/apply-migration.host-tool";
-import type { BackendToolDeps } from "./backend/backend-tool-deps";
 import { createDeployFunctionTool } from "./backend/deploy-function.host-tool";
+import {
+	createEnableAiTool,
+	type EnableAiToolDeps,
+} from "./backend/enable-ai.host-tool";
 import { createGetAdvisorsTool } from "./backend/get-advisors.host-tool";
 import {
 	createRunSqlTool,
@@ -42,12 +46,12 @@ import {
 import { createSetThemeTool, SET_THEME_TOOL_NAME } from "./set-theme.host-tool";
 
 /**
- * The image deps, the backend tool deps (WANDIT-186), and the network-host
- * repository (WANDIT-180). `audit` serves `request_network_host` and the
- * backend tools; `logger` serves every tool.
+ * The image deps, the backend tool deps (WANDIT-186) with the AI key write
+ * of `enable_ai`, and the network-host repository (WANDIT-180). `audit`
+ * serves `request_network_host` and the backend tools; `logger` serves every tool.
  */
 export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
-	BackendToolDeps & {
+	EnableAiToolDeps & {
 		/** Appends an approved egress host, in one transaction with its audit row. */
 		networkHosts: RequestNetworkHostHostToolDeps["networkHosts"];
 	};
@@ -90,6 +94,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				apply_destructive_migration: "user-approval",
 				apply_migration: "not-applicable",
 				deploy_function: "not-applicable",
+				// The user must agree that each AI call of the app spends credits.
+				enable_ai: "user-approval",
 				generate_image: "not-applicable",
 				get_advisors: "not-applicable",
 				// The user must approve each new egress host before it applies.
@@ -108,6 +114,7 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				),
 				apply_migration: createApplyMigrationTool(this.deps, context),
 				deploy_function: createDeployFunctionTool(this.deps, context),
+				enable_ai: createEnableAiTool(this.deps, context),
 				generate_image: createGenerateImageTool(this.deps, context),
 				get_advisors: createGetAdvisorsTool(this.deps, context),
 				request_network_host: createRequestNetworkHostTool(

@@ -146,6 +146,28 @@ function setupDelete(deleted: { id: string }[], found: { kind: string }[]) {
 	return { deleteWhere, repository: new ProjectSecretsRepository(db), select };
 }
 
+describe("ProjectSecretsRepository.insertSystemIfAbsent", () => {
+	// Security: without the guard a repeated enable rotates the live gateway
+	// key, and the running app gets 401.
+	it("guards the conflict update to user rows, so a system row stays", async () => {
+		const { onConflictDoUpdate, repository } = setupInsert([]);
+
+		const id = await repository.insertSystemIfAbsent({
+			ciphertext: "cipher-1",
+			keyVersion: 2,
+			name: "WANDIT_AI_API_KEY",
+			organizationId: null,
+			projectId: "project-1",
+			userId: "user-1",
+		});
+
+		expect(id).toBeNull();
+		const guard = compile(onConflictDoUpdate.mock.calls[0]?.[0]?.setWhere);
+		expect(guard.sql).toContain('"project_secrets"."kind" = $1');
+		expect(guard.params).toEqual(["user"]);
+	});
+});
+
 describe("ProjectSecretsRepository.deleteUserSecret", () => {
 	it("deletes only a user row of that project and name", async () => {
 		const { deleteWhere, repository, select } = setupDelete(

@@ -22,11 +22,12 @@ export const projectSecretNameSchema = z
 /**
  * A name that a user writes from the Secrets panel or with `set_secret`.
  * Supabase refuses the `SUPABASE_` prefix, and wandit keeps its `system`
- * rows (the Supabase keys) under it, so a user row never takes one.
+ * rows under `SUPABASE_` and `WANDIT_` (the AI gateway key), so a user row
+ * never takes one.
  */
 export const userSecretNameSchema = projectSecretNameSchema.refine(
-	(name) => !name.startsWith("SUPABASE_"),
-	"Names that start with SUPABASE_ are reserved",
+	(name) => !name.startsWith("SUPABASE_") && !name.startsWith("WANDIT_"),
+	"Names that start with SUPABASE_ or WANDIT_ are reserved",
 );
 
 /**
