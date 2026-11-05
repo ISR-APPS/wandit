@@ -134,7 +134,7 @@ describe("promptStash", () => {
 
 	it.each([
 		["mobile", "mobile"],
-		["desktop", undefined],
+		["tv", undefined],
 		[42, undefined],
 	])("reads a stored target platform %j as %j", (stored, expected) => {
 		window.sessionStorage.setItem(
