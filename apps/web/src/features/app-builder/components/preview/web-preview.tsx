@@ -5,6 +5,7 @@
  * A desktop project has no viewport toggle: desktop-window.tsx shows the app in a Windows window.
  * usePreviewToken mints the preview URL. PreviewPanel shows the iframe and passes the bridge messages. RoutePicker lists the pages.
  * The Thème button lazy-loads theme-sheet.tsx. This file owns the draft theme, and PreviewPanel posts it to the app.
+ * A project viewer gets the Thème button off, with the reason in its tooltip.
  */
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -91,8 +92,10 @@ export type WebPreviewProps = {
 	onReload: () => void;
 	/** The running turn and the backend state, from the page. The panel shows the start-up steps from them. */
 	bootContext: BootContext;
-	/** False while a turn runs or the chat loads. Then Select and "Try to fix" are disabled. */
+	/** False while a turn runs or the chat loads, and for a project viewer. Then Select and "Try to fix" are disabled. */
 	canStartTurn: boolean;
+	/** False for a project viewer, from `project.access.role` in the page. The Thème button is then off. */
+	canEditTheme: boolean;
 	/** True while the select mode is on. The page owns it, because the composer shows the picks. */
 	isSelecting: boolean;
 	/** Turns the select mode on or off: the toggle, and Escape in the app. */
@@ -121,6 +124,7 @@ export function WebPreview({
 	onReload,
 	bootContext,
 	canStartTurn,
+	canEditTheme,
 	isSelecting,
 	onSelectingChange,
 	onPickTarget,
@@ -195,11 +199,13 @@ export function WebPreview({
 		setIsThemeOpen(false);
 		setThemeDraft(null);
 	}
-	const isThemeDisabled = themeQuery.data?.editable !== true;
+	// Product rule: a theme edit needs the editor role (workspaces-sharing.md 2.2).
+	const isThemeDisabled = !canEditTheme || themeQuery.data?.editable !== true;
 	// An app from an older template has no theme.json, and the GET fails before the first version.
 	// A failed background refetch keeps the old data, and the button stays usable then.
-	const themeTooltip =
-		themeQuery.data === undefined && themeQuery.isError
+	const themeTooltip = !canEditTheme
+		? t("sharing.readOnly.editorsOnly")
+		: themeQuery.data === undefined && themeQuery.isError
 			? t("appBuilder.theme.unavailable")
 			: themeQuery.data?.editable === false
 				? t("appBuilder.theme.oldTemplate")

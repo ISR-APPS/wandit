@@ -38,8 +38,8 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import {
+	type CreditOwner,
 	creditOwnerLockValue,
-	ownerFromIds,
 } from "../../../credits/domain/credit-owner";
 import {
 	type ProjectScope,
@@ -72,9 +72,9 @@ export type DesktopProject = Pick<
 export type NewDesktopBuild = {
 	/** Server-made uuid. The task payload and the audit row name it. */
 	id: string;
-	/** The user who asked for the build. */
+	/** The user who asked for the build, the actor. It is not the payer on a shared personal project. */
 	userId: string;
-	/** Org workspace of the project, or null on a personal project. */
+	/** Team org of the project, or null on a personal project. */
 	organizationId: string | null;
 	projectId: string;
 	/** Head of `main` at request time. The task builds this commit. */
@@ -90,7 +90,7 @@ export type NewDesktopBuild = {
 /** The `desktop_apps` row of the first build of a project. */
 export type NewDesktopApp = {
 	projectId: string;
-	/** Owner pair of the project, as on `projects`. */
+	/** Owner pair from `projectOwnerColumns`: `projects.user_id` of a personal project, or the member of a team project. */
 	userId: string;
 	organizationId: string | null;
 	/** Name of the app on both systems. It never changes after this insert. */
@@ -354,10 +354,12 @@ export class DesktopBuildsRepository {
 	async insertQueued(
 		build: NewDesktopBuild,
 		firstApp: NewDesktopApp | null,
+		/** The pool that pays the build, the same pool as the credit hold: the team org or `projects.user_id`. */
+		payer: CreditOwner,
 	): Promise<InsertDesktopBuildResult> {
 		for (let attempt = 1; attempt <= 2; attempt += 1) {
 			try {
-				return await this.insertQueuedOnce(build, firstApp);
+				return await this.insertQueuedOnce(build, firstApp, payer);
 			} catch (error) {
 				if (!isUniqueViolation(error)) {
 					throw error;
@@ -629,12 +631,12 @@ export class DesktopBuildsRepository {
 	private async insertQueuedOnce(
 		build: NewDesktopBuild,
 		firstApp: NewDesktopApp | null,
+		payer: CreditOwner,
 	): Promise<InsertDesktopBuildResult> {
 		return this.db.transaction(async (tx) => {
 			// The payer lock queues every create of one payer, so two parallel
 			// creates never both pass the count. The prefix keeps it apart from
 			// the credit lock of the same payer.
-			const payer = ownerFromIds(build.userId, build.organizationId);
 			await tx.execute(
 				sql`select pg_advisory_xact_lock(hashtext(${`desktop-builds:${creditOwnerLockValue(payer)}`}))`,
 			);
@@ -653,8 +655,9 @@ export class DesktopBuildsRepository {
 			if (existing !== undefined) {
 				return { kind: "request_exists", row: existing };
 			}
-			// Same payer split as `AppBackendsRepository.countActiveForOwner`: a
-			// personal count must not see the rows of an org the user created.
+			// The payer comes from the project row, not from `desktop_builds.user_id`:
+			// that column holds the actor, and a member builds on the owner's pool.
+			// A personal count must not see the projects of an org the user created.
 			const [live] = await tx
 				.select({ total: sql<number>`count(*)::int` })
 				.from(desktopBuilds)
@@ -670,10 +673,10 @@ export class DesktopBuildsRepository {
 				.where(
 					and(
 						payer.type === "org"
-							? eq(desktopBuilds.organizationId, payer.organizationId)
+							? eq(projects.organizationId, payer.organizationId)
 							: and(
-									eq(desktopBuilds.userId, payer.userId),
-									isNull(desktopBuilds.organizationId),
+									eq(projects.userId, payer.userId),
+									isNull(projects.organizationId),
 								),
 						inArray(desktopBuilds.status, [...liveDesktopBuildStatuses]),
 					),

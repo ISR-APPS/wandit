@@ -33,6 +33,7 @@ import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/pe
 import { DesktopMigrationsRepository } from "../modules/app-builder/infrastructure/persistence/desktop-migrations.repository";
 import { LlmProxyRequestsRepository } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
+import { ProjectGithubLinksRepository } from "../modules/app-builder/infrastructure/persistence/project-github-links.repository";
 import { ProjectNetworkHostsRepository } from "../modules/app-builder/infrastructure/persistence/project-network-hosts.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
@@ -47,6 +48,7 @@ import {
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
 import { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/supabase-rate-limiter";
+import { TriggerGithubSyncScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
 import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
@@ -185,6 +187,11 @@ export async function createBuilderTurnDeps(
 			commit: commitTurnUnlessClean,
 			commitDeps: {
 				appCommits: new AppCommitsRepository(db),
+				// The process logger: the Trigger Sentry client drops `Sentry.logger` lines.
+				githubSync: new TriggerGithubSyncScheduler(
+					new ProjectGithubLinksRepository(db),
+					logger,
+				),
 				gitStore,
 				putPatch: (key, text) => putSiteFile(key, text, contentTypeFor(key)),
 			},

@@ -15,6 +15,7 @@ import {
 	magicLinkEmail,
 	manualRequestEmail,
 	otpEmail,
+	projectInvitationEmail,
 	type SubscriptionRenewalReminderEmailData,
 	subscriptionRenewalReminderEmail,
 } from "../../templates/auth-email-templates";
@@ -63,16 +64,25 @@ export class EmailService {
 		await this.deliver(to, otpEmail(otp), `sign-in code: ${otp}`);
 	}
 
-	async sendInvitationEmail(data: {
-		to: string;
-		inviterName: string;
-		organizationName: string;
-		inviteUrl: string;
-	}): Promise<void> {
+	/** Workspace invitation. AuthModule calls it from the Better Auth `sendInvitationEmail` callback. */
+	async sendInvitationEmail(
+		data: Parameters<typeof invitationEmail>[0] & { to: string },
+	): Promise<void> {
 		await this.deliver(
 			data.to,
 			invitationEmail(data),
 			`invitation: ${data.inviteUrl}`,
+		);
+	}
+
+	/** Project invitation. `ProjectInvitationsService` calls it once for each invited address. */
+	async sendProjectInvitationEmail(
+		data: Parameters<typeof projectInvitationEmail>[0] & { to: string },
+	): Promise<void> {
+		await this.deliver(
+			data.to,
+			projectInvitationEmail(data),
+			`project invitation: ${data.inviteUrl}`,
 		);
 	}
 

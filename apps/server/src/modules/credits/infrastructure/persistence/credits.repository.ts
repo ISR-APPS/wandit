@@ -1,3 +1,7 @@
+/**
+ * Drizzle queries of the credit pools: `credit_ledger`, plan holds, and the
+ * in-flight `ai_usage_events` that hold credits. CreditsService calls it.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	CREDIT_SPEND_ORDER,
@@ -5,7 +9,7 @@ import {
 	type CreditKind,
 	type PaginationQuery,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from "@wandit/db";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
 import {
 	aiUsageEvents,
 	type aiUsageOperation,
@@ -818,11 +822,20 @@ export class CreditsRepository {
 	// Mirrors ledgerOwnerPredicate: a personal pool requires organization_id
 	// IS NULL because org usage events record the acting member in user_id, and
 	// those reserves must never inflate the member's personal settled balance.
+	// A personal event names its payer in payer_user_id when another user's
+	// pool pays (workspaces-sharing.md 4): it counts for that payer, never for
+	// the actor in user_id.
 	private usageEventOwnerPredicate(owner: CreditOwner) {
 		return owner.type === "user"
 			? and(
-					eq(aiUsageEvents.userId, owner.userId),
 					isNull(aiUsageEvents.organizationId),
+					or(
+						and(
+							eq(aiUsageEvents.userId, owner.userId),
+							isNull(aiUsageEvents.payerUserId),
+						),
+						eq(aiUsageEvents.payerUserId, owner.userId),
+					),
 				)
 			: eq(aiUsageEvents.organizationId, owner.organizationId);
 	}

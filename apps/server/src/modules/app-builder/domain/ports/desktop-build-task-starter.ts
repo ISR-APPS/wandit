@@ -21,11 +21,6 @@ export type DesktopBuildTaskInput = {
 	 * runs one build at a time. The task checks it against the row.
 	 */
 	projectId: string;
-	/**
-	 * `actorIsLimitExempt` of the org scope; false in a personal scope. The
-	 * task rebuilds the metering subject of the credit hold with it.
-	 */
-	actorIsLimitExempt: boolean;
 };
 
 /**

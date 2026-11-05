@@ -52,6 +52,8 @@ export * from "./domains";
 export * from "./feedback";
 // Shared durable generation lifecycle enum.
 export * from "./generation-status";
+// V2 GitHub sync: user connections and project repo links.
+export * from "./github";
 // Standalone image generation attempt tables (chat's generate_image tool).
 export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.
@@ -70,6 +72,8 @@ export * from "./mcp-connectors";
 export * from "./mobile-builds";
 // Monthly cost input tables.
 export * from "./monthly-costs";
+// Better Auth OAuth provider tables of the remote MCP server (D29).
+export * from "./oauth-provider";
 // User onboarding questionnaire answers.
 export * from "./onboarding";
 // Payment order tables.
@@ -85,6 +89,8 @@ export * from "./product-events";
 export * from "./project-cost-caps";
 // Encrypted per-project V2 secret values.
 export * from "./project-secrets";
+// Project grants, project invitations, and workspace and project invite links.
+export * from "./project-sharing";
 // Project tables.
 export * from "./projects";
 export * from "./push-tokens";

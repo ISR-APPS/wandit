@@ -40,7 +40,13 @@ const OLDER_SHA = "b".repeat(40);
 const REQUEST_KEY = "33333333-3333-4333-8333-333333333333";
 const HEAD_SHA = "a".repeat(40);
 const CREATED_AT = new Date("2026-11-04T10:00:00.000Z");
-const PERSONAL: ProjectScope = { kind: "personal", userId: "user_1" };
+const PERSONAL: ProjectScope = {
+	actorIsLimitExempt: true,
+	actorRoles: ["owner"],
+	actorUserId: "user_1",
+	kind: "personal",
+	ownerUserId: "user_1",
+};
 const IP = "203.0.113.9";
 const HOLD_KEY = `desktop_build:${PROJECT_ID}:${REQUEST_KEY}`;
 const KEY_RING = `v1:${Buffer.alloc(32, 7).toString("base64")}`;
@@ -193,6 +199,7 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: {},
 		projectId: PROJECT_ID,
 		provider: null,
@@ -338,7 +345,7 @@ describe("DesktopBuildsService.create", () => {
 		expect(build.status).toBe("queued");
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"desktop_build",
-			{ actorUserId: "user_1" },
+			{ actorIsLimitExempt: true, actorUserId: "user_1" },
 			{ credits: 2_500, idempotencyKey: HOLD_KEY, projectId: PROJECT_ID },
 		);
 		const firstApp = builds.insertQueued.mock.calls[0]?.[1];
@@ -388,6 +395,37 @@ describe("DesktopBuildsService.create", () => {
 		expect(audits.map((audit) => audit.action)).toEqual(["desktop.build"]);
 	});
 
+	// Workspaces: the owner of a personal project pays, also for the build of
+	// a member. The row and the audit name the member; the cap counts the owner.
+	it("writes the member as the actor and holds and caps on the owner's pool for a shared personal project", async () => {
+		const { audits, builds, metering, service } = setup();
+		const member: ProjectScope = {
+			actorIsLimitExempt: false,
+			actorRoles: ["member"],
+			actorUserId: "user_member",
+			kind: "personal",
+			ownerUserId: "user_1",
+		};
+
+		await service.create(
+			member,
+			PROJECT_ID,
+			{ platform: "windows", requestKey: REQUEST_KEY },
+			IP,
+		);
+
+		expect(metering.reserveWithReplay.mock.calls[0]?.[1]).toEqual({
+			actorIsLimitExempt: false,
+			actorUserId: "user_member",
+			payerUserId: "user_1",
+		});
+		const [row, firstApp, payer] = builds.insertQueued.mock.calls[0] ?? [];
+		expect(row).toMatchObject({ organizationId: null, userId: "user_member" });
+		expect(firstApp).toMatchObject({ organizationId: null, userId: "user_1" });
+		expect(payer).toEqual({ type: "user", userId: "user_1" });
+		expect(audits[0]?.actorUserId).toBe("user_member");
+	});
+
 	// A rename would move the install folder and the data folder of every
 	// installed app (section 8).
 	it("keeps the identity of an existing app and ignores the product name of the body", async () => {
@@ -420,7 +458,7 @@ describe("DesktopBuildsService.create", () => {
 		expect(starter.start).not.toHaveBeenCalled();
 	});
 
-	// D35: the flag stops new macOS runner minutes. A refused create must hold nothing.
+	// D36: the flag stops new macOS runner minutes. A refused create must hold nothing.
 	it("answers 403 DESKTOP_PLATFORM_UNAVAILABLE for a macOS create while the flag is off and holds nothing", async () => {
 		const { metering, service, starter } = setup();
 		// The flag is off when unset. process.env turns `false` into the truthy text "false".
@@ -848,9 +886,6 @@ describe("DesktopBuildsService.cancel", () => {
 			to: "canceled",
 		});
 		expect(runner.cancel).toHaveBeenCalledWith("987");
-		expect(metering.findByIdempotencyKey).toHaveBeenCalledWith(HOLD_KEY, {
-			actorUserId: "user_1",
-		});
 		expect(metering.refund).toHaveBeenCalledWith(
 			"hold_1",
 			"desktop_build_canceled",

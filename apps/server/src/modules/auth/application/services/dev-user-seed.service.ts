@@ -105,13 +105,17 @@ export class DevUserSeedService implements OnModuleInit {
 		// second concurrent boot fail here, so the signup credit grant runs once.
 		const user =
 			existing?.user ??
-			(await internalAdapter.createUser({
-				email: DEV_USER.email,
-				emailVerified: true,
-				name: DEV_USER.name,
-				// Skip onboarding, so a browser agent lands on the dashboard.
-				onboardingCompletedAt: new Date(),
-			}));
+			(await internalAdapter.createUser(
+				{
+					email: DEV_USER.email,
+					emailVerified: true,
+					name: DEV_USER.name,
+					// Skip onboarding, so a browser agent lands on the dashboard.
+					onboardingCompletedAt: new Date(),
+				},
+				// The account is a password account. Better Auth gives this source to `user.validateUserInfo`.
+				{ method: "email-password" },
+			));
 
 		// The same row that Better Auth sign-up writes: account id = user id.
 		await internalAdapter.linkAccount({

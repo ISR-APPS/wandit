@@ -40,6 +40,9 @@ function setupHook() {
 		enqueue: vi.fn().mockResolvedValue(null),
 	};
 	const analytics = { capture: vi.fn() };
+	const workspaces = {
+		ensurePersonalWorkspace: vi.fn().mockResolvedValue("org_personal"),
+	};
 	const providers = Reflect.getMetadata("providers", AuthModule) as Provider[];
 	const provider = providers.find(
 		(candidate) =>
@@ -64,6 +67,7 @@ function setupHook() {
 		{},
 		{},
 		{},
+		workspaces,
 	);
 
 	const options = createAuthMock.mock.calls.at(-1)?.[0] as

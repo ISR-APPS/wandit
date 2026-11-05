@@ -49,6 +49,7 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: LEGACY_FIXED_SNAPSHOT,
 		projectId: null,
 		provider: null,

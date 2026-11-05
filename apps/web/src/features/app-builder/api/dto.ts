@@ -9,6 +9,7 @@ import type {
 	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
+	ProjectAccess,
 	ProjectEngine,
 	TargetPlatform,
 	TurnDataParts,
@@ -42,6 +43,11 @@ export type AppProject = {
 	unpublishedChanges: number;
 	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
 	hasCodeChanges: boolean;
+	/**
+	 * The caller's project role and the project's workspace. Every V2 panel reads it,
+	 * never the workspace header role. Absent from an older API: full access, as before.
+	 */
+	access?: ProjectAccess;
 };
 
 /**

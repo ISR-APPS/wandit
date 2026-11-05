@@ -5,7 +5,10 @@ import {
 	marketingAssetKey,
 } from "../../../../infrastructure/storage/r2";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	MarketingAssetRow,
 	MarketingAssetsRepository,
@@ -35,7 +38,7 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user_1");
 
 const BASE_ROW: MarketingAssetRow = {
 	assetType: "ad-copy",
@@ -187,7 +190,7 @@ describe("MarketingAssetsService stale recovery billing", () => {
 		});
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			`marketing:${BASE_ROW.id}`,
-			{ actorUserId: "user_1" },
+			{ actorIsLimitExempt: true, actorUserId: "user_1" },
 		);
 		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_marketing",

@@ -6,7 +6,7 @@ one platform. The user downloads an installer (Windows) or a disk image
 (macOS). Installed apps update themselves when the owner releases a newer
 build of their platform. An update never loses saved data.
 
-Decisions: D29 to D35 in `DECISIONS.md`. Security notes: section 14 of
+Decisions: D30 to D36 in `DECISIONS.md`. Security notes: section 14 of
 `security.md`. This file is the contract between the parts below. When you
 change a contract here, change every part in the same diff.
 
@@ -52,8 +52,12 @@ desktop-app/
 ```
 
 The agent changes the schema only with the `add_local_migration` host tool
-(section 6). The deny rules block a direct write under `migrations/`.
-A desktop turn gets no backend tool and no `request_network_host`. The
+(section 6). The deny rules block a direct write under `migrations/`. The
+MCP `apply_changes` tool refuses a path under `migrations/` too. A GitHub
+Update can write `migrations/`; the `desktop-build` task checks every file
+again before CI. A desktop turn gets no backend tool, no `enable_ai`, and no
+`request_network_host`. The API gives a desktop project no cloud backend,
+and every Cloud route answers 404. The
 installed app reaches no remote host, so the agent must not build a feature
 that needs one.
 
@@ -168,7 +172,7 @@ does not change these values.
   runs no executable without a signature. An app with only the linker
   signature shows "damaged" after a download, with no Open Anyway button.
   So CI never builds with `--no-sign`.
-- `bundle.macOS.minimumSystemVersion`: `15.0` (D35).
+- `bundle.macOS.minimumSystemVersion`: `15.0` (D36).
 - `hardenedRuntime` keeps its default, `true`. The app has no entitlements.
 
 CSP on every answer: Tauri sets the CSP header only on an `.html` answer
@@ -502,6 +506,9 @@ name, SHA-256). Installed apps may have run it.
 
 The gate (`checkDesktopMigrations`) runs in two places: in the
 `add_local_migration` host tool, and in the `desktop-build` task before CI.
+A file from a GitHub Update skips the host tool. The build gate is the check
+that protects installed apps. A refused file blocks every build until a
+restore or another GitHub change fixes it.
 It refuses:
 
 - a bad name, a duplicate version, a file above 256 KB, more than 500 files,
@@ -736,8 +743,10 @@ The sandbox runs `pnpm run dev`. The browser preview has no Tauri, so
 
 ## 8. API
 
-Routes are in `desktopRoutes` (packages/contracts). All need the workspace
-header and project access. The POST routes need `project:update`.
+Routes are in `desktopRoutes` (packages/contracts). All four need the
+project role `editor`, which the global `ProjectAccessGuard` checks from the
+project row. The workspace header does not decide. A viewer gets 403, and a
+caller without access gets 404.
 
 - `GET /api/v2/projects/:id/desktop` answers `desktopOverviewResponseSchema`.
   `app.releases.windows` and `app.releases.macos` each hold the manifest
@@ -782,14 +791,17 @@ header and project access. The POST routes need `project:update`.
      - Count the live builds of the payer in all its projects. A build of a
        deleted project does not count. At
        `MAX_LIVE_DESKTOP_BUILDS_PER_PAYER` (2), refund the hold and answer
-       409 `DESKTOP_BUILD_LIMIT_REACHED`. The payer is the user of a
-       personal workspace, or the organization of a team workspace.
+       409 `DESKTOP_BUILD_LIMIT_REACHED`. The payer is the organization of
+       a team project, else the owner of a personal project
+       (`projects.user_id`), also when a member or a collaborator builds.
+       The count reads the payer from the project row.
      - On the first build: write `desktop_apps` with the product name, the
        binary name, and a new Ed25519 updater key pair. The private key is
        encrypted with `APP_SECRETS_ENCRYPTION_KEY`, with
        `<project id>:DESKTOP_UPDATER_KEY` as the authenticated data.
      - Insert the build row (`queued`, its `platform`, next release
-       number). One counter serves both platforms, so each build has its
+       number). `desktop_builds.user_id` holds the user who asked: the
+       actor, not always the payer. One counter serves both platforms, so each build has its
        own version (section 10). The unique index answers
        `DESKTOP_BUILD_ACTIVE` for a second live build, of any platform.
   7. Write the `desktop.build` audit row and start the `desktop-build` task.
@@ -1124,10 +1136,10 @@ these changes:
 - The job holds no secret: no signing key and no updater key. The disk
   image stays mounted until the job ends.
 
-The installer is not Authenticode-signed (D33). Windows SmartScreen shows a
+The installer is not Authenticode-signed (D34). Windows SmartScreen shows a
 warning on the first download.
 
-The macOS app has an ad-hoc signature and no notarization (D35). On the
+The macOS app has an ad-hoc signature and no notarization (D36). On the
 first start, Gatekeeper shows "Not Opened". The user opens the app one time
 with System Settings > Privacy & Security > Open Anyway. The web shows these
 steps (`appBuilder.desktopBuilds.gatekeeper` in `publish-popover.tsx`) while
@@ -1197,7 +1209,7 @@ The check at start shows no dialog for a check error or for "no update".
 After "Install", every update error shows a dialog, also in the start
 check.
 
-No downgrade: an installed app installs only a newer version (D34).
+No downgrade: an installed app installs only a newer version (D35).
 `requireSignedVersion` refuses a manifest that gives a higher version with
 the url and signature of an older build. Both rules together stop a
 changed manifest from installing an older signed build. The release route
@@ -1219,7 +1231,7 @@ costs `DESKTOP_BUILD_CREDITS`. Its frontend and theme come from the old
 commit. Its `migrations/` come from a commit that holds every frozen file
 (section 9, step 1). The gate refuses a missing frozen file. The old
 frontend then runs on the newer database, which works because the schema
-is additive (D32). The owner releases the rebuild as any build, and
+is additive (D33). The owner releases the rebuild as any build, and
 installed apps take it as an update. A rebuild does not fix a file that
 fails on saved rows: it embeds that file too. Only a replacement file fixes
 it (section 6).
@@ -1259,7 +1271,7 @@ build (section 8), so a signed installer is never free. A cold Windows
 build takes about 35 minutes: 10 for tauri-cli and 25 for the shell
 (ESTIMATE). A cached Windows build takes about 8 minutes (ESTIMATE).
 
-A macOS build has the same price (D35, `DESKTOP_BUILD_CREDITS` in
+A macOS build has the same price (D36, `DESKTOP_BUILD_CREDITS` in
 packages/contracts). The settle row holds the platform
 (`rawUsage: { ciRunId, platform }`). A macOS runner minute costs $0.062. A
 cached macOS build takes 5 to 8 minutes, $0.31 to $0.50 (ESTIMATE). A cold
@@ -1272,9 +1284,11 @@ each week.
 The task leases the hold and renews the lease (heartbeat) after each step and
 at each poll. The lease TTL is 40 min, so the stale-hold sweep skips a live
 build. A hold that is not `reserved` at the lease, or that leaves `reserved`
-during the build, fails the build with `internal`. `createBuildCreditHold` in
-`apps/server/src/trigger/build-credit-hold.ts` holds this code for the
-desktop and the mobile builds.
+during the build, fails the build with `internal`. The task reads the hold
+with no payer check and takes the payer from the hold row. With billing on,
+a missing hold, or a hold of another project, actor, or operation, fails the
+build with `internal` before any work. `createBuildCreditHold` in
+`apps/server/src/trigger/build-credit-hold.ts` holds this code.
 
 Refund reasons:
 
@@ -1292,7 +1306,7 @@ cancels it, and the sweep refunds the hold after the lease ends.
 
 ## 12. Limits
 
-- Windows x64, and macOS 15 or later on Apple silicon (D35). No Linux
+- Windows x64, and macOS 15 or later on Apple silicon (D36). No Linux
   build. An Intel Mac refuses the app. One build makes the files of one
   platform.
 - No remote network from the app (section 3). Windows uses the CSP and the
@@ -1316,7 +1330,7 @@ cancels it, and the sweep refunds the hold after the lease ends.
   the limits. The build sources use the same 2 GB `medium-1x` machine
   (LIMIT in `desktop-build.runtime.ts`). Upgrade: a streaming tar reader.
 - GitHub Free, Pro, and Team run at most 5 macOS jobs at the same time, for
-  the whole account (D35). The task stops 70 min after the dispatch, also
+  the whole account (D36). The task stops 70 min after the dispatch, also
   while GitHub queues the job. So a long queue can time out macOS builds.
 - On macOS, the single-instance lock is a socket in the shared `/tmp`.
   Another local user can take the path first and stop the start.

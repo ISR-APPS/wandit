@@ -2,7 +2,11 @@ import { PgDialect } from "@wandit/db";
 import { describe, expect, it } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import { DeviceSessionsRepository } from "./device-sessions.repository";
+import { orgOwner, userOwner } from "../../../credits/domain/credit-owner";
+import {
+	type DeviceSessionRow,
+	DeviceSessionsRepository,
+} from "./device-sessions.repository";
 
 type SqlQuery = Parameters<PgDialect["sqlToQuery"]>[0];
 
@@ -33,15 +37,24 @@ function setup(rows: unknown[]) {
 		"update",
 		"set",
 		"returning",
+		"insert",
+		"values",
+		"execute",
 	]) {
 		chain[method] = (...args: unknown[]) => {
 			calls.set(method, args);
 			return Object.assign(Promise.resolve(rows), chain);
 		};
 	}
+	// The transaction runs its callback on the same stub.
+	const transaction = async (
+		callback: (tx: Database) => Promise<DeviceSessionRow | null>,
+	) => callback(db);
 	// SAFETY: `Object.create` yields `any`; the stub answers every builder
 	// call the repository methods under test make.
-	const db = Object.assign(Object.create(null), chain) as Database;
+	const db = Object.assign(Object.create(null), chain, {
+		transaction,
+	}) as Database;
 	return { calls, repository: new DeviceSessionsRepository(db) };
 }
 
@@ -77,27 +90,60 @@ describe("DeviceSessionsRepository", () => {
 		expect(calls.get("limit")).toEqual([50]);
 	});
 
-	it("sums a personal payer over its personal rows only, and an org over the org rows", async () => {
+	it.each([
+		{ inserted: false, usedMinutes: 60 },
+		{ inserted: true, usedMinutes: 59 },
+	])("inserts under the payer lock only while minutes are left ($usedMinutes of 60 used)", async ({
+		inserted,
+		usedMinutes,
+	}) => {
+		const { calls, repository } = setup([{ minutes: usedMinutes }]);
+
+		const row = await repository.insertOpenWithinAllowance(
+			{
+				id: "row-1",
+				organizationId: null,
+				payerUserId: "owner-1",
+				platform: "ios",
+				projectId: "project-1",
+				userId: "member-1",
+			},
+			userOwner("owner-1"),
+			60,
+			new Date("2026-09-01T00:00:00.000Z"),
+		);
+
+		expect(row !== null).toBe(inserted);
+		expect(calls.has("insert")).toBe(inserted);
+		// The lock is the payer's, so two members of one pool wait on one key.
+		expect(compile(calls.get("execute")?.[0]).params).toEqual([
+			"device-minutes:owner-1",
+		]);
+	});
+
+	it("sums a personal payer over its own rows and the rows that name it as payer, and an org over the org rows", async () => {
 		const personal = setup([{ minutes: 12 }]);
 		const org = setup([{ minutes: 40 }]);
 		const since = new Date("2026-09-01T00:00:00.000Z");
 
 		expect(
 			await personal.repository.usedMinutesSince(
-				{ userId: "user-1", organizationId: null },
+				userOwner("user-1"),
 				since,
 				new Date(),
 			),
 		).toBe(12);
 		expect(
 			await org.repository.usedMinutesSince(
-				{ userId: "user-1", organizationId: "org-1" },
+				orgOwner("org-1"),
 				since,
 				new Date(),
 			),
 		).toBe(40);
+		// A member's minutes in another user's personal workspace count for
+		// the owner (payer_user_id), never for the member's own allowance.
 		expect(compile(personal.calls.get("where")?.[0]).sql).toBe(
-			'("device_sessions"."started_at" >= $1 and ("device_sessions"."user_id" = $2 and "device_sessions"."organization_id" is null))',
+			'("device_sessions"."started_at" >= $1 and ("device_sessions"."organization_id" is null and (("device_sessions"."user_id" = $2 and "device_sessions"."payer_user_id" is null) or "device_sessions"."payer_user_id" = $3)))',
 		);
 		expect(compile(org.calls.get("where")?.[0]).sql).toBe(
 			'("device_sessions"."started_at" >= $1 and "device_sessions"."organization_id" = $2)',

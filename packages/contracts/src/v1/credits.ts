@@ -137,8 +137,9 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // `sandbox` records sandbox minutes at a zero rate (not billed before
 // WANDIT-196); `mobile_build` is one EAS build of a V2 mobile app;
 // `mobile_preview` records Appetize device minutes at zero credits inside
-// the plan allowance (WANDIT-196); `desktop_build` is one desktop build,
-// Windows or macOS, of a V2 desktop app.
+// the plan allowance (WANDIT-196); `app_ai_gateway` is one AI call of a
+// V2 app through the app AI gateway, billed by tokens; `desktop_build` is
+// one desktop build, Windows or macOS, of a V2 desktop app.
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -152,6 +153,7 @@ export const creditActivityOperations = [
 	"sandbox",
 	"mobile_build",
 	"mobile_preview",
+	"app_ai_gateway",
 	"desktop_build",
 	"topup_adjust",
 ] as const;

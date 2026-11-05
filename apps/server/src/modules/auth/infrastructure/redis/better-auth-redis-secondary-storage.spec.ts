@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const redisMocks = vi.hoisted(() => ({
 	constructorOptions: [] as unknown[],
-	del: vi.fn<(key: string) => Promise<number>>(),
 	disconnect: vi.fn<() => void>(),
 	eval: vi.fn<
 		(
@@ -13,17 +12,9 @@ const redisMocks = vi.hoisted(() => ({
 			ttl: number,
 		) => Promise<unknown>
 	>(),
-	get: vi.fn<(key: string) => Promise<string | null>>(),
 	initialStatus: "ready",
 	on: vi.fn<(event: string, listener: (error: Error) => void) => void>(),
 	quit: vi.fn<() => Promise<"OK">>(),
-	set: vi.fn<
-		(
-			key: string,
-			value: string,
-			...args: Array<number | string>
-		) => Promise<"OK">
-	>(),
 }));
 
 vi.mock("ioredis", () => ({
@@ -33,10 +24,6 @@ vi.mock("ioredis", () => ({
 		constructor(options: unknown) {
 			this.status = redisMocks.initialStatus;
 			redisMocks.constructorOptions.push(options);
-		}
-
-		del(key: string): Promise<number> {
-			return redisMocks.del(key);
 		}
 
 		disconnect(): void {
@@ -53,10 +40,6 @@ vi.mock("ioredis", () => ({
 			return redisMocks.eval(script, keyCount, key, ttl);
 		}
 
-		get(key: string): Promise<string | null> {
-			return redisMocks.get(key);
-		}
-
 		on(event: string, listener: (error: Error) => void): this {
 			redisMocks.on(event, listener);
 			return this;
@@ -65,14 +48,6 @@ vi.mock("ioredis", () => ({
 		async quit(): Promise<"OK"> {
 			this.status = "end";
 			return redisMocks.quit();
-		}
-
-		set(
-			key: string,
-			value: string,
-			...args: Array<number | string>
-		): Promise<"OK"> {
-			return redisMocks.set(key, value, ...args);
 		}
 	},
 }));
@@ -89,10 +64,7 @@ const NAMESPACED_RATE_LIMIT_KEY =
 
 function createBackend(): RateLimitSecondaryStorageBackend {
 	return {
-		delete: vi.fn(async () => undefined),
-		get: vi.fn(async () => "stored"),
 		increment: vi.fn(async () => 2),
-		set: vi.fn(async () => undefined),
 	};
 }
 
@@ -100,13 +72,10 @@ describe("createFailOpenRateLimitSecondaryStorage", () => {
 	beforeEach(() => {
 		redisMocks.constructorOptions.length = 0;
 		redisMocks.initialStatus = "ready";
-		redisMocks.del.mockReset().mockResolvedValue(1);
 		redisMocks.disconnect.mockReset();
 		redisMocks.eval.mockReset().mockResolvedValue(1);
-		redisMocks.get.mockReset().mockResolvedValue(null);
 		redisMocks.on.mockReset();
 		redisMocks.quit.mockReset().mockResolvedValue("OK");
-		redisMocks.set.mockReset().mockResolvedValue("OK");
 	});
 
 	afterEach(() => {
@@ -118,31 +87,21 @@ describe("createFailOpenRateLimitSecondaryStorage", () => {
 		const logger = { warn: vi.fn() };
 		const storage = createFailOpenRateLimitSecondaryStorage(backend, logger);
 
-		await expect(storage.get(RATE_LIMIT_KEY)).resolves.toBe("stored");
-		await storage.set(RATE_LIMIT_KEY, "value", 30);
-		await storage.delete(RATE_LIMIT_KEY);
-		await expect(storage.increment?.(RATE_LIMIT_KEY, 30)).resolves.toBe(2);
+		await expect(storage.increment(RATE_LIMIT_KEY, 30)).resolves.toBe(2);
+		await storage.increment("2001:db8::1|/sign-up/email", 30);
+		await storage.increment("no-trusted-ip|/request-password-reset", 30);
 
-		expect(backend.get).toHaveBeenCalledWith(NAMESPACED_RATE_LIMIT_KEY);
-		expect(backend.set).toHaveBeenCalledWith(
-			NAMESPACED_RATE_LIMIT_KEY,
-			"value",
-			30,
-		);
-		expect(backend.delete).toHaveBeenCalledWith(NAMESPACED_RATE_LIMIT_KEY);
 		expect(backend.increment).toHaveBeenCalledWith(
 			NAMESPACED_RATE_LIMIT_KEY,
 			30,
 		);
-
-		await storage.get("2001:db8::1|/sign-up/email");
-		await storage.get("no-trusted-ip|/request-password-reset");
-
-		expect(backend.get).toHaveBeenCalledWith(
+		expect(backend.increment).toHaveBeenCalledWith(
 			"better-auth:rate-limit:2001:db8::1|/sign-up/email",
+			30,
 		);
-		expect(backend.get).toHaveBeenCalledWith(
+		expect(backend.increment).toHaveBeenCalledWith(
 			"better-auth:rate-limit:no-trusted-ip|/request-password-reset",
+			30,
 		);
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
@@ -158,79 +117,48 @@ describe("createFailOpenRateLimitSecondaryStorage", () => {
 		const logger = { warn: vi.fn() };
 		const storage = createFailOpenRateLimitSecondaryStorage(backend, logger);
 
-		await expect(storage.get(key)).resolves.toBeNull();
-		await storage.set(key, "value", 30);
-		await storage.delete(key);
-		await expect(storage.increment?.(key, 30)).resolves.toBe(0);
+		await expect(storage.increment(key, 30)).resolves.toBe(0);
 
-		expect(backend.get).not.toHaveBeenCalled();
-		expect(backend.set).not.toHaveBeenCalled();
-		expect(backend.delete).not.toHaveBeenCalled();
 		expect(backend.increment).not.toHaveBeenCalled();
 		expect(logger.warn).not.toHaveBeenCalled();
 	});
 
-	it("swallows backend rejections and warns for every operation", async () => {
+	it("swallows a backend rejection and warns", async () => {
 		const failure = new Error("Redis unavailable");
 		const backend: RateLimitSecondaryStorageBackend = {
-			delete: vi.fn(async () => {
-				throw failure;
-			}),
-			get: vi.fn(async () => {
-				throw failure;
-			}),
 			increment: vi.fn(async () => {
-				throw failure;
-			}),
-			set: vi.fn(async () => {
 				throw failure;
 			}),
 		};
 		const logger = { warn: vi.fn() };
 		const storage = createFailOpenRateLimitSecondaryStorage(backend, logger);
 
-		await expect(storage.get(RATE_LIMIT_KEY)).resolves.toBeNull();
-		await expect(storage.set(RATE_LIMIT_KEY, "value", 30)).resolves.toBe(
-			undefined,
-		);
-		await expect(storage.delete(RATE_LIMIT_KEY)).resolves.toBeUndefined();
-		await expect(storage.increment?.(RATE_LIMIT_KEY, 30)).resolves.toBe(0);
+		await expect(storage.increment(RATE_LIMIT_KEY, 30)).resolves.toBe(0);
 
-		expect(logger.warn).toHaveBeenCalledTimes(4);
-		for (const operation of ["get", "set", "delete", "increment"]) {
-			expect(logger.warn).toHaveBeenCalledWith(
-				expect.stringContaining(`Redis ${operation} failed open`),
-				failure,
-			);
-		}
+		expect(logger.warn).toHaveBeenCalledOnce();
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining("Redis increment failed open"),
+			failure,
+		);
 	});
 
-	it("fails open when backend operations exceed the timeout", async () => {
+	it("fails open when the backend exceeds the timeout", async () => {
 		vi.useFakeTimers();
 		const never = () => new Promise<never>(() => undefined);
 		const backend: RateLimitSecondaryStorageBackend = {
-			delete: vi.fn(never),
-			get: vi.fn(never),
 			increment: vi.fn(never),
-			set: vi.fn(never),
 		};
 		const logger = { warn: vi.fn() };
 		const storage = createFailOpenRateLimitSecondaryStorage(backend, logger, {
 			timeoutMs: 25,
 		});
 
-		const getResult = storage.get(RATE_LIMIT_KEY);
-		const setResult = storage.set(RATE_LIMIT_KEY, "value", 30);
-		const deleteResult = storage.delete(RATE_LIMIT_KEY);
-		const incrementResult = storage.increment?.(RATE_LIMIT_KEY, 30);
+		const incrementResult = storage.increment(RATE_LIMIT_KEY, 30);
 
 		await vi.advanceTimersByTimeAsync(25);
 
-		await expect(getResult).resolves.toBeNull();
-		await expect(setResult).resolves.toBeUndefined();
-		await expect(deleteResult).resolves.toBeUndefined();
 		await expect(incrementResult).resolves.toBe(0);
-		expect(logger.warn).toHaveBeenCalledTimes(4);
+		expect(logger.warn).toHaveBeenCalledOnce();
 		for (const [, error] of logger.warn.mock.calls) {
 			expect(error).toMatchObject({
 				message: expect.stringContaining("timed out after 25ms"),
@@ -244,13 +172,10 @@ describe("BetterAuthRedisSecondaryStorage", () => {
 	beforeEach(() => {
 		redisMocks.constructorOptions.length = 0;
 		redisMocks.initialStatus = "ready";
-		redisMocks.del.mockReset().mockResolvedValue(1);
 		redisMocks.disconnect.mockReset();
 		redisMocks.eval.mockReset().mockResolvedValue(1);
-		redisMocks.get.mockReset().mockResolvedValue(null);
 		redisMocks.on.mockReset();
 		redisMocks.quit.mockReset().mockResolvedValue("OK");
-		redisMocks.set.mockReset().mockResolvedValue("OK");
 	});
 
 	afterEach(() => {

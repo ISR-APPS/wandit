@@ -1,7 +1,7 @@
 /**
  * `/api/v2/projects/:projectId/cloud/*`: the routes of the Cloud tab
- * (WANDIT-187). The global AuthGuard requires a session, the workspace
- * guard reads `x-wandit-workspace` and checks `project:update`,
+ * (WANDIT-187). The global AuthGuard requires a session, the global
+ * ProjectAccessGuard checks the editor role,
  * `V2BuilderEnabledGuard` gates the module, and `RedisRateLimitGuard`
  * reads the `@RateLimit` on the SQL route. This file parses and
  * delegates to `CloudService`; `RetryAfterInterceptor` adds the
@@ -68,12 +68,12 @@ import { catchError } from "rxjs/operators";
 import { readRequestCountryCode } from "../../../../../infrastructure/http/request-country-code";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import {
 	CloudRateLimitedException,
 	CloudService,
@@ -116,10 +116,9 @@ const bucketParam = Param(
 @Controller("v2/projects/:projectId/cloud")
 @UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 @UseInterceptors(RetryAfterInterceptor)
-// Every panel shows user data of the app, so reads need `project:update`
-// too. Owner, admin, and member all hold it; a non-member answers 404 in
-// the service.
-@RequireWorkspacePermission("project", "update")
+// Every panel shows user data of the app, so reads need an editor too.
+// A viewer gets 403; a caller without access gets 404 from the guard.
+@RequireProjectRole("editor")
 export class CloudController {
 	constructor(
 		@Inject(CloudService)
@@ -130,10 +129,10 @@ export class CloudController {
 	getBackend(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudBackendResponse> {
 		return this.cloud.getBackend(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
@@ -142,11 +141,11 @@ export class CloudController {
 	ensureBackend(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: FastifyRequest,
 	): Promise<CloudBackendResponse> {
 		return this.cloud.ensureBackend(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			// Edge geo header, best-effort context only (not a security input).
 			readRequestCountryCode(request.headers),
@@ -158,10 +157,10 @@ export class CloudController {
 	restoreBackend(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudBackendResponse> {
 		return this.cloud.restoreBackend(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
@@ -172,10 +171,10 @@ export class CloudController {
 		@Query(new ZodValidationPipe(cloudTablesQuerySchema))
 		query: CloudTablesQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudTablesResponse> {
 		return this.cloud.listTables(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);
@@ -188,10 +187,10 @@ export class CloudController {
 		@Query(new ZodValidationPipe(cloudRowsQuerySchema))
 		query: CloudRowsQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudRowsResponse> {
 		return this.cloud.listRows(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			table,
 			query,
@@ -207,10 +206,10 @@ export class CloudController {
 		@projectIdParam projectId: string,
 		@Body(new ZodValidationPipe(cloudSqlBodySchema)) body: CloudSqlBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudSqlResponse> {
 		return this.cloud.runSql(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 		);
@@ -222,10 +221,10 @@ export class CloudController {
 		@Query(new ZodValidationPipe(cloudAuthUsersQuerySchema))
 		query: CloudAuthUsersQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudAuthUsersResponse> {
 		return this.cloud.listAuthUsers(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);
@@ -235,10 +234,10 @@ export class CloudController {
 	listSignups(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudSignupsResponse> {
 		return this.cloud.listSignups(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
@@ -247,10 +246,10 @@ export class CloudController {
 	listBuckets(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudBucketsResponse> {
 		return this.cloud.listBuckets(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
@@ -262,10 +261,10 @@ export class CloudController {
 		@Query(new ZodValidationPipe(cloudObjectsQuerySchema))
 		query: CloudObjectsQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudObjectsResponse> {
 		return this.cloud.listObjects(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			bucket,
 			query,
@@ -279,10 +278,10 @@ export class CloudController {
 		@Body(new ZodValidationPipe(cloudUploadUrlBodySchema))
 		body: CloudUploadUrlBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudUploadUrlResponse> {
 		return this.cloud.createUploadUrl(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			bucket,
 			body,
@@ -296,10 +295,10 @@ export class CloudController {
 		@Body(new ZodValidationPipe(cloudDeleteObjectsBodySchema))
 		body: CloudDeleteObjectsBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudDeleteObjectsResponse> {
 		return this.cloud.deleteObjects(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			bucket,
 			body,
@@ -312,10 +311,10 @@ export class CloudController {
 		@Query(new ZodValidationPipe(cloudLogsQuerySchema))
 		query: CloudLogsQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudLogsResponse> {
 		return this.cloud.queryLogs(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);
@@ -325,10 +324,10 @@ export class CloudController {
 	listFunctions(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudFunctionsResponse> {
 		return this.cloud.listFunctions(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
@@ -337,8 +336,11 @@ export class CloudController {
 	listJobs(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<CloudJobsResponse> {
-		return this.cloud.listJobs(projectScopeFrom(workspace, user.id), projectId);
+		return this.cloud.listJobs(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
 	}
 }

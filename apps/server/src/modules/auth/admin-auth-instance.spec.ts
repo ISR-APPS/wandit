@@ -6,7 +6,6 @@ import {
 } from "@wandit/auth";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
-import type { SecondaryStorage } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@wandit/env/server", async (importOriginal) => {
@@ -68,17 +67,10 @@ describe("@wandit/auth isolated admin instance", () => {
 
 	it("uses injected secondary storage only for main-auth rate limiting", () => {
 		const increment = vi.fn(async () => 1);
-		const secondaryStorage = {
-			delete: vi.fn(async () => undefined),
-			get: vi.fn(async () => null),
-			increment,
-			set: vi.fn(async () => undefined),
-		} satisfies SecondaryStorage;
 
-		const redisAuth = createAuth({ secondaryStorage });
+		const redisAuth = createAuth({ secondaryStorage: { increment } });
 
-		// Root secondary storage would also take over session-list and
-		// bulk-revocation operations in Better Auth 1.6.22.
+		// The port is only a rate-limit counter, never a session store.
 		expect(redisAuth.options).not.toHaveProperty("secondaryStorage");
 		expect(redisAuth.options.rateLimit?.storage).toBe("secondary-storage");
 		expect(redisAuth.options.rateLimit).toHaveProperty("customStorage");
@@ -100,14 +92,7 @@ describe("@wandit/auth isolated admin instance", () => {
 			.fn<(key: string, ttl: number) => Promise<number>>()
 			.mockResolvedValueOnce(3)
 			.mockResolvedValueOnce(4);
-		const redisAuth = createAuth({
-			secondaryStorage: {
-				delete: vi.fn(async () => undefined),
-				get: vi.fn(async () => null),
-				increment,
-				set: vi.fn(async () => undefined),
-			},
-		});
+		const redisAuth = createAuth({ secondaryStorage: { increment } });
 		const rateLimit = redisAuth.options.rateLimit;
 		const consume =
 			rateLimit && "customStorage" in rateLimit

@@ -19,6 +19,9 @@ import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
+import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { AppAiGatewayService } from "./application/services/app-ai-gateway.service";
+import { AppAiKeysService } from "./application/services/app-ai-keys.service";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
 import { AuditEventsService } from "./application/services/audit-events.service";
@@ -32,10 +35,13 @@ import {
 	r2DesktopObjects,
 } from "./application/services/desktop-builds.service";
 import { DeviceSessionsService } from "./application/services/device-sessions.service";
+import { GithubAccountService } from "./application/services/github-account.service";
+import { GithubProjectService } from "./application/services/github-project.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { McpChangesService } from "./application/services/mcp-changes.service";
 import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
@@ -58,6 +64,7 @@ import {
 	GIT_STORE,
 	REPO_RESTORER,
 } from "./domain/ports/git-store";
+import { GITHUB_SYNC_SCHEDULER } from "./domain/ports/github-sync-scheduler";
 import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
@@ -77,6 +84,7 @@ import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
+import { GithubAppClient } from "./infrastructure/github/github-app.client";
 import { createTurnTaskStarter } from "./infrastructure/host/routing-turn-task-starter";
 import {
 	LangfuseExporter,
@@ -90,9 +98,12 @@ import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { DesktopBuildsRepository } from "./infrastructure/persistence/desktop-builds.repository";
 import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
+import { GithubConnectionsRepository } from "./infrastructure/persistence/github-connections.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
+import { McpAccessRepository } from "./infrastructure/persistence/mcp-access.repository";
 import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
+import { ProjectGithubLinksRepository } from "./infrastructure/persistence/project-github-links.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
 import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
@@ -117,12 +128,15 @@ import {
 } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerDesktopBuildTaskStarter } from "./infrastructure/trigger/trigger-desktop-build-task-starter";
+import { TriggerGithubSyncScheduler } from "./infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
 import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
+import { AppAiController } from "./presentation/http/controllers/app-ai.controller";
+import { AppAiGatewayController } from "./presentation/http/controllers/app-ai-gateway.controller";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { ChatHistoryController } from "./presentation/http/controllers/chat-history.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
@@ -130,17 +144,24 @@ import { CodeController } from "./presentation/http/controllers/code.controller"
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { DesktopBuildsController } from "./presentation/http/controllers/desktop-builds.controller";
 import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
+import { GithubController } from "./presentation/http/controllers/github.controller";
+import { GithubCallbackController } from "./presentation/http/controllers/github-callback.controller";
+import { GithubWebhookController } from "./presentation/http/controllers/github-webhook.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
+import { McpController } from "./presentation/http/controllers/mcp.controller";
+import { McpTools } from "./presentation/http/controllers/mcp-tools";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { ModelsController } from "./presentation/http/controllers/models.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
 import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
+import { SharedProjectsController } from "./presentation/http/controllers/shared-projects.controller";
 import { ThemeController } from "./presentation/http/controllers/theme.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
+import { McpTokenGuard } from "./presentation/http/guards/mcp-token.guard";
 import {
 	RATE_LIMIT_STORE,
 	RedisRateLimitGuard,
@@ -181,6 +202,8 @@ export function createCloudSupabaseClient(
 
 @Module({
 	controllers: [
+		AppAiController,
+		AppAiGatewayController,
 		AppProjectsController,
 		ChatHistoryController,
 		CloudController,
@@ -188,13 +211,19 @@ export function createCloudSupabaseClient(
 		CostCapsController,
 		DesktopBuildsController,
 		DeviceSessionsController,
+		GithubCallbackController,
+		GithubController,
+		GithubWebhookController,
 		LlmProxyController,
+		// The remote MCP server: it mounts only with V2, as the feature doc asks.
+		McpController,
 		MobileBuildsController,
 		ModelsController,
 		PreviewTokenController,
 		ProjectSecretsController,
 		PublishController,
 		SandboxController,
+		SharedProjectsController,
 		ThemeController,
 		TurnsController,
 		V2HealthController,
@@ -215,8 +244,12 @@ export function createCloudSupabaseClient(
 		SettingsModule,
 		// DeploymentsRepository: the publish shares the V1 promote and unpublish writes.
 		SitesModule,
+		// The MCP `list_workspaces` tool reads WorkspacesService. The module is global, so the import only names the dependency.
+		WorkspacesModule,
 	],
 	providers: [
+		AppAiGatewayService,
+		AppAiKeysService,
 		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,
@@ -233,14 +266,23 @@ export function createCloudSupabaseClient(
 		DesktopBuildsService,
 		DeviceSessionsRepository,
 		DeviceSessionsService,
+		GithubAccountService,
+		GithubAppClient,
+		GithubConnectionsRepository,
+		GithubProjectService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
+		McpAccessRepository,
+		McpChangesService,
+		McpTokenGuard,
+		McpTools,
 		MobileBuildsRepository,
 		MobileBuildsService,
 		PreviewProxyClient,
 		PreviewTokenService,
 		ProjectCostCapsRepository,
+		ProjectGithubLinksRepository,
 		ProjectSecretsRepository,
 		ProjectSecretsService,
 		PublishService,
@@ -285,6 +327,13 @@ export function createCloudSupabaseClient(
 			inject: [V2_ENV],
 		},
 		{ provide: GIT_STORE, useClass: CodeStorageGitStore },
+		// A plain class: the Trigger tasks build the same scheduler by hand.
+		{
+			provide: GITHUB_SYNC_SCHEDULER,
+			useFactory: (links: ProjectGithubLinksRepository) =>
+				new TriggerGithubSyncScheduler(links, Sentry.logger),
+			inject: [ProjectGithubLinksRepository],
+		},
 		// The same code.storage store reads one committed file for the theme GET.
 		{ provide: GIT_FILE_READER, useExisting: GIT_STORE },
 		// Null without both Langfuse keys: the LLM proxy then traces nothing.

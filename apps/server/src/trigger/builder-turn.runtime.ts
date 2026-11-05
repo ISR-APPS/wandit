@@ -159,8 +159,10 @@ import type { ChatMessageText } from "../modules/generation/infrastructure/persi
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
+	meteringSubjectOfEvent,
 } from "../modules/metering/application/services/metering.service";
 import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
+import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
 // 60 s: refreshes the lock, the vendor sandbox deadline, and activity.
@@ -358,7 +360,6 @@ export type BuilderTurnInput = {
 	actorUserId: string;
 	/** Org workspace of the project, or null for a personal project. */
 	organizationId: string | null;
-	actorIsLimitExempt?: boolean;
 	/**
 	 * `ctx.run.id` on Trigger.dev, `hostRunIdOf(turnId)` on the host. It
 	 * binds the proxy token claims, and on Trigger also the row claim.
@@ -430,7 +431,7 @@ export type BuilderTurnDeps = {
 		MeteringService,
 		| "acquireExecutionLease"
 		| "checkpoint"
-		| "findByIdempotencyKey"
+		| "findByIdempotencyKeyAnyPayer"
 		| "heartbeatExecutionLease"
 		| "monthlySpendCredits"
 		| "refund"
@@ -511,6 +512,19 @@ export type BuilderTurnDeps = {
 };
 
 /**
+ * True when `hold` is the `agent_session` hold that the API reserved for this
+ * turn: the same project, actor, and team workspace as the task payload.
+ */
+function isHoldOfTurn(hold: AiUsageEvent, input: BuilderTurnInput): boolean {
+	return (
+		hold.operation === "agent_session" &&
+		hold.projectId === input.projectId &&
+		hold.userId === input.actorUserId &&
+		hold.organizationId === input.organizationId
+	);
+}
+
+/**
  * Cancel finalizers keyed by run id; the task's `onCancel` calls them
  * after the run's own grace window. Memoized inside the run, so the
  * aborted-catch and the hook can never settle the same turn twice.
@@ -542,11 +556,11 @@ export async function runBuilderTurn(
 	// one, and Postgres rejects it. One token per run: the heartbeat matches
 	// only this run's lease.
 	const leaseToken = randomUUID();
-	const subject: MeteringSubject = {
+	// The payer of the turn. With billing on, the hold row replaces this
+	// value before the plan read (workspaces-sharing.md 4). With billing off
+	// no hold exists, so the payload actor and org, plus the personal owner, stand in.
+	let subject: MeteringSubject = {
 		actorUserId: input.actorUserId,
-		...(input.actorIsLimitExempt === undefined
-			? {}
-			: { actorIsLimitExempt: input.actorIsLimitExempt }),
 		organizationId: input.organizationId,
 	};
 
@@ -568,12 +582,14 @@ export async function runBuilderTurn(
 	}
 	const chatId = turn.chatId;
 
-	/** The `builder-turn:<turnId>` hold row, or null on lookup failure. */
+	/**
+	 * The `builder-turn:<turnId>` hold row, or null on lookup failure. No payer
+	 * check: the row itself names the payer.
+	 */
 	const findHold = async () => {
 		try {
-			return await deps.metering.findByIdempotencyKey(
+			return await deps.metering.findByIdempotencyKeyAnyPayer(
 				`builder-turn:${turnId}`,
-				subject,
 			);
 		} catch (error) {
 			logger.warn(
@@ -1628,7 +1644,7 @@ export async function runBuilderTurn(
 		const modeSwitch =
 			resumeState !== null && switchesMode(resumeState, spec.mode);
 		// The session row is saved at the end of each agent turn, so its
-		// `updatedAt` tells whether the agent ran after a restore.
+		// `updatedAt` tells whether the agent ran after a restore or an Update.
 		const restoreNote = restoreNoteOf(
 			await deps.versions.findLatest(projectId),
 			sessionRow?.updatedAt ?? null,
@@ -1738,10 +1754,32 @@ export async function runBuilderTurn(
 		const caps = await deps.caps.findByProjectId(projectId);
 		perTurnCapCredits = caps?.perTurnCapCredits ?? DEFAULT_PER_TURN_CAP_CREDITS;
 		monthlyCapCredits = caps?.monthlyCapCredits ?? null;
-		const plan = await deps.resolvePlan(subject);
 		// The hold is loaded once: the pulse tick checkpoints against it.
 		const hold = await findHold();
 		holdId = hold?.id ?? null;
+		if (!deps.billingDisabled) {
+			// Money check: the payer comes from the hold that the API reserved,
+			// never from the payload. A missing hold, or a hold of another actor
+			// or project, would run the turn free or bill the wrong pool.
+			if (hold === null || !isHoldOfTurn(hold, input)) {
+				// The catch at the end reads `code` into the row's failure code.
+				throw Object.assign(
+					new Error(
+						`The credit hold of turn ${turnId} is missing or does not match the turn`,
+					),
+					{ code: "hold_missing" },
+				);
+			}
+			subject = meteringSubjectOfEvent(hold);
+		} else if (
+			project.organizationId === null &&
+			project.userId !== input.actorUserId
+		) {
+			// With billing off no hold names the payer. The personal owner pays, as a
+			// hold would say, so set_secret and enable_ai find the owner's project.
+			subject = { ...subject, payerUserId: project.userId };
+		}
+		const plan = await deps.resolvePlan(subject);
 		// The stranded-hold sweep refunds a hold that waited too long in the
 		// queue. A turn without a hold would run for free, so it fails here.
 		if (hold?.status === "refunded" && !deps.billingDisabled) {
@@ -3020,21 +3058,24 @@ async function wakeBackend(
 }
 
 /**
- * The note for the agent when the newest version is a restore that the
- * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
- * the chat's session row, or null when the chat has none.
+ * The note for the agent when the newest version is a restore or a GitHub
+ * Update that the agent did not see yet, else null. `sessionSavedAt` is the
+ * `updatedAt` of the chat's session row, or null when the chat has none.
  */
 export function restoreNoteOf(
 	latest: LatestAppCommit | null,
 	sessionSavedAt: Date | null,
 ): string | null {
-	if (latest?.source !== "restore") {
+	if (latest?.source !== "restore" && latest?.source !== "github") {
 		return null;
 	}
-	// A restore holds the turn lock, so it never overlaps a turn. A session
-	// saved after the restore commit already ran on the restored code.
+	// A restore and an Update hold the turn lock, so they never overlap a turn.
+	// A session saved after the commit already ran on the new code.
 	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
 		return null;
+	}
+	if (latest.source === "github") {
+		return "The code was updated from GitHub. Read the files again before you edit.";
 	}
 	// The version the user picked, not the new commit that copies it forward.
 	const version = latest.restoredFromSha ?? latest.sha;

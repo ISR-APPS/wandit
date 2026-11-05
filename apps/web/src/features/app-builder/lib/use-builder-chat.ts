@@ -29,6 +29,7 @@ import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
 import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage, TurnMessagePart } from "../api/dto";
+import { githubKeys } from "../api/github.queries";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
 /** What `send` accepts: the draft text plus optional per-turn extras. */
@@ -168,13 +169,14 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can change eight caches: the versions, the code, the
+	// A finished turn can change nine caches: the versions, the code, the
 	// theme, the project summary, the app backend, the credits, the next
-	// estimate, and the chat cost. All eight refresh at once. The code key
-	// covers the Code view tree and every open file. The theme changes on a
-	// set_theme call or a theme answer. The Cloud keys cover the tables,
-	// functions, secrets, and every other panel. The backend state polls on
-	// its own.
+	// estimate, the chat cost, and the GitHub status. All nine refresh at
+	// once. The code key covers the Code view tree and every open file. The
+	// theme changes on a set_theme call or a theme answer. The Cloud keys
+	// cover the tables, functions, secrets, and every other panel. The backend
+	// state polls on its own. The turn commit moves the head that the GitHub
+	// pull sends back.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
@@ -200,6 +202,9 @@ export function useBuilderChat(
 		});
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.chatCost(projectId, chatId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: githubKeys.status(projectId),
 		});
 	}, [queryClient, projectId, chatId]);
 
@@ -249,7 +254,13 @@ export function useBuilderChat(
 		// A 402 answer of the create POST opens the credits dialog. The
 		// dispatch ignores every other error; the pane shows its sentence.
 		onError: (error) => {
-			dispatchBillingError(error);
+			// A 402 means the paying pool is empty. The estimate carries the payer
+			// state that locks the composer, so it refetches.
+			if (dispatchBillingError(error) !== null) {
+				void queryClient.invalidateQueries({
+					queryKey: appBuilderKeys.turnEstimate(projectId),
+				});
+			}
 			if (reconnectRef.current !== null) {
 				reconnectRef.current.hasFailed = true;
 			}

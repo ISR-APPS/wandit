@@ -33,6 +33,16 @@ async function setup() {
 			appendHost: async () => [],
 			transaction: async () => undefined,
 		},
+		// `build` only creates the tools; `enable_ai` writes no key here.
+		secrets: {
+			...fixture.deps.secrets,
+			readSystemValue: async () => {
+				throw new Error("enable_ai is not called by build");
+			},
+			setSystemIfAbsent: async () => {
+				throw new Error("enable_ai is not called by build");
+			},
+		},
 	});
 	return { fixture, registry };
 }
@@ -56,6 +66,7 @@ describe("BuilderHostToolRegistry.build", () => {
 			ask_user: "not-applicable",
 			apply_migration: "not-applicable",
 			deploy_function: "not-applicable",
+			enable_ai: "user-approval",
 			generate_image: "not-applicable",
 			get_advisors: "not-applicable",
 			request_network_host: "user-approval",

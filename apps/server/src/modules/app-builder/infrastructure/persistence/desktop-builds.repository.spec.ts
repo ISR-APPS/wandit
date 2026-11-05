@@ -4,6 +4,7 @@ import type { projects } from "@wandit/db/schema/projects";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import {
 	type DesktopBuildRow,
 	DesktopBuildsRepository,
@@ -36,6 +37,8 @@ const NEW_BUILD: NewDesktopBuild = {
 	requestKey: REQUEST_KEY,
 	userId: "user-1",
 };
+
+const PERSONAL_PAYER: CreditOwner = { type: "user", userId: "user-1" };
 
 const ROW: DesktopBuildRow = {
 	...NEW_BUILD,
@@ -120,9 +123,9 @@ describe("DesktopBuildsRepository.insertQueued", () => {
 	])("$name", async ({ expected, outcomes, requestKeyRow, transactions }) => {
 		const { repository, transaction } = fakeDb([...outcomes], requestKeyRow);
 
-		await expect(repository.insertQueued(NEW_BUILD, null)).resolves.toEqual(
-			expected,
-		);
+		await expect(
+			repository.insertQueued(NEW_BUILD, null, PERSONAL_PAYER),
+		).resolves.toEqual(expected);
 		expect(transaction).toHaveBeenCalledTimes(transactions);
 	});
 });
@@ -170,34 +173,52 @@ function payerLockDb(input: {
 describe("DesktopBuildsRepository.insertQueued payer limit", () => {
 	// A wrong payer key gives each org member a cap of their own, and a
 	// count without the lock lets two parallel creates both pass (audit A6).
-	it.each([
+	// The row holds the actor, so a member of a shared personal project must
+	// lock and count on the owner's pool, not on the member.
+	it.each<{
+		build: NewDesktopBuild;
+		lock: string;
+		name: string;
+		payer: CreditOwner;
+		payerKey: string;
+	}>([
 		{
 			build: NEW_BUILD,
 			lock: "desktop-builds:user-1",
 			name: "a personal payer",
-			payer: "user-1",
+			payer: PERSONAL_PAYER,
+			payerKey: "user-1",
+		},
+		{
+			build: { ...NEW_BUILD, userId: "member-1" },
+			lock: "desktop-builds:user-1",
+			name: "a personal payer when a member builds",
+			payer: PERSONAL_PAYER,
+			payerKey: "user-1",
 		},
 		{
 			build: { ...NEW_BUILD, organizationId: "org-1" },
 			lock: "desktop-builds:org:org-1",
 			name: "an org payer",
-			payer: "org-1",
+			payer: { organizationId: "org-1", type: "org" },
+			payerKey: "org-1",
 		},
 	])("refuses a third live build of $name under the payer lock", async ({
 		build,
 		lock,
 		payer,
+		payerKey,
 	}) => {
 		const { countParams, lockParams, repository } = payerLockDb({
 			existing: null,
 			liveTotal: 2,
 		});
 
-		await expect(repository.insertQueued(build, null)).resolves.toEqual({
+		await expect(repository.insertQueued(build, null, payer)).resolves.toEqual({
 			kind: "payer_limit",
 		});
 		expect(lockParams).toEqual([[lock]]);
-		expect(countParams.map((params) => params[0])).toEqual([payer]);
+		expect(countParams.map((params) => params[0])).toEqual([payerKey]);
 	});
 
 	// A retry of one click shares the hold of its first row. A `payer_limit`
@@ -209,7 +230,9 @@ describe("DesktopBuildsRepository.insertQueued payer limit", () => {
 			liveTotal: 2,
 		});
 
-		await expect(repository.insertQueued(NEW_BUILD, null)).resolves.toEqual({
+		await expect(
+			repository.insertQueued(NEW_BUILD, null, PERSONAL_PAYER),
+		).resolves.toEqual({
 			kind: "request_exists",
 			row: existing,
 		});

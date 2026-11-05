@@ -1,8 +1,10 @@
 /**
  * Wires Better Auth into Nest: the web and admin auth instances, the guards, and the signup side effects.
- * Its controllers serve /api/auth and /api/admin-auth. Other modules inject AUTH_INSTANCE and AuthGuard.
- * The signup hook calls the attribution, credits, lifecycle, and analytics services.
- * Email sign-in and invitations call the email service.
+ * Its controllers serve /api/auth and /api/admin-auth, and with V2 the OAuth metadata under /.well-known.
+ * Other modules inject AUTH_INSTANCE and AuthGuard.
+ * The signup hook calls the attribution, workspaces, credits, lifecycle, and analytics services.
+ * The MCP consent hook writes `audit_events` rows through AuditEventsService.
+ * Email sign-in and invitations call the email service. The organization hooks call the membership cleanup.
  */
 import {
 	Global,
@@ -15,10 +17,12 @@ import {
 import { APP_GUARD } from "@nestjs/core";
 import { type AdminAuth, type Auth, adminAuth, createAuth } from "@wandit/auth";
 import { canonicalizeEmail } from "@wandit/auth/email-canonical";
-import { isAdminRole } from "@wandit/contracts";
+import { WORKSPACE_INVITATION_EXPIRES_IN_DAYS } from "@wandit/auth/workspace-membership-rules";
+import { isAdminRole, workspaceRoleNames } from "@wandit/contracts";
 import { eq, inArray, sql } from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 import { AnalyticsService } from "../../infrastructure/analytics/analytics.service";
 import {
 	DATABASE,
@@ -28,6 +32,8 @@ import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AdminSecurityModule } from "../admin/admin-security.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
+import { AuditEventsService } from "../app-builder/application/services/audit-events.service";
+import { AuditEventsRepository } from "../app-builder/infrastructure/persistence/audit-events.repository";
 import { UtmAttributionService } from "../attribution/application/services/utm-attribution.service";
 import { AttributionModule } from "../attribution/attribution.module";
 import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
@@ -42,6 +48,11 @@ import {
 } from "../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
+import {
+	MembershipCleanupService,
+	parseWorkspaceRoles,
+	WorkspacesService,
+} from "../workspaces";
 import { DevUserSeedService } from "./application/services/dev-user-seed.service";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
@@ -54,6 +65,7 @@ import { AdminAuthController } from "./presentation/http/controllers/admin-auth.
 import { AdminSignupGrantsController } from "./presentation/http/controllers/admin-signup-grants.controller";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
+import { OAuthMetadataController } from "./presentation/http/controllers/oauth-metadata.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
 import { CrossSiteWriteGuard } from "./presentation/http/guards/cross-site-write.guard";
 
@@ -82,6 +94,9 @@ const authProvider: Provider<Auth> = {
 		EmailService,
 		EmailSendPolicyService,
 		BetterAuthRedisSecondaryStorage,
+		WorkspacesService,
+		MembershipCleanupService,
+		AuditEventsService,
 	],
 	useFactory: (
 		affiliateAttributionService: AffiliateAttributionService,
@@ -94,15 +109,21 @@ const authProvider: Provider<Auth> = {
 		emailService: EmailService,
 		emailSendPolicy: EmailSendPolicyService,
 		secondaryStorage: BetterAuthRedisSecondaryStorage,
-	) =>
-		createAuth({
+		workspacesService: WorkspacesService,
+		membershipCleanup: MembershipCleanupService,
+		audit: AuditEventsService,
+	) => {
+		const organizationsEnabled = async () =>
+			(await productSettings.get()).organizationsEnabled;
+		return createAuth({
 			secondaryStorage,
 			// Workspace creation is a beta-gated admission — the organizations
 			// toggle is the same class of kill switch as paid subscriptions.
-			canCreateOrganization: async () => {
-				const settings = await productSettings.get();
-				return settings.organizationsEnabled;
-			},
+			canCreateOrganization: organizationsEnabled,
+			// The same toggle stops invites and accepts into personal workspaces.
+			isOrganizationsEnabled: organizationsEnabled,
+			onMembershipReduced: (reduction) =>
+				membershipCleanup.handleMembershipReduced(reduction),
 			// Magic-link/OTP sign-in: toggle gate + abuse gates + delivery.
 			// Emails arriving here are canonical (packages/auth before-hook).
 			emailAuth: {
@@ -148,10 +169,15 @@ const authProvider: Provider<Auth> = {
 						.from(user)
 						.where(eq(user.id, invitation.inviterUserId))
 						.limit(1);
+					const roles = parseWorkspaceRoles(invitation.role);
 					await emailService.sendInvitationEmail({
+						expiresInDays: WORKSPACE_INVITATION_EXPIRES_IN_DAYS,
 						inviteUrl: `${env.CORS_ORIGIN}/invite/${invitation.invitationId}`,
 						inviterName: inviter?.name || inviter?.email || "A teammate",
 						organizationName: invitation.organizationName,
+						// `workspaceRoleNames` lists the highest role first.
+						role:
+							workspaceRoleNames.find((role) => roles.includes(role)) ?? null,
 						to: invitation.email,
 					});
 				} catch (error) {
@@ -171,6 +197,18 @@ const authProvider: Provider<Auth> = {
 					organizationId: data.organizationId,
 				});
 			},
+			// A grant has no project. The `mcp.tool_call` rows keep the client id in the metadata.
+			// The consent rows do the same, so one filter finds all rows of a client.
+			onMcpConsentChange: (change) =>
+				audit.record({
+					action: change.action,
+					actorUserId: change.userId,
+					metadata: { clientId: change.clientId },
+					organizationId: null,
+					projectId: null,
+					targetId: change.clientId,
+					targetType: "oauth_client",
+				}),
 			onUserCreated: async (newUser, ctx) => {
 				try {
 					await affiliateAttributionService.lockForCreatedUser(newUser, ctx);
@@ -185,6 +223,16 @@ const authProvider: Provider<Auth> = {
 				}
 
 				analytics.capture(newUser.id, "user_signed_up");
+
+				// GET /v1/workspaces creates it again when this step fails.
+				try {
+					await workspacesService.ensurePersonalWorkspace(newUser.id);
+				} catch (error) {
+					logger.error(
+						`Personal workspace creation failed for user ${newUser.id}`,
+						error,
+					);
+				}
 
 				try {
 					await lifecycleEvents.enqueue({
@@ -224,7 +272,8 @@ const authProvider: Provider<Auth> = {
 					logger.error("Admin role bootstrap failed", error);
 				}
 			},
-		}),
+		});
+	},
 };
 
 const adminAuthProvider: Provider<AdminAuth> = {
@@ -239,6 +288,8 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		AdminSignupGrantsController,
 		AuthController,
 		AuthMeController,
+		// The OAuth provider plugins load only with V2 (packages/auth), so do its metadata routes.
+		...(env.V2_BUILDER_ENABLED ? [OAuthMetadataController] : []),
 	],
 	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard],
 	imports: [
@@ -252,6 +303,15 @@ const adminAuthProvider: Provider<AdminAuth> = {
 	],
 	providers: [
 		adminAuthProvider,
+		AuditEventsRepository,
+		// AppBuilderModule does not export its audit writer.
+		// The MCP consent audit builds its own, with the same factory as AdminModule.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
 		BetterAuthRedisSecondaryStorage,
 		authProvider,
 		AuthGuard,

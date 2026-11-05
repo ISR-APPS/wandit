@@ -1,3 +1,8 @@
+/**
+ * Redis store for Better Auth rate-limit counters, shared by every API process.
+ * AuthModule injects it into `createAuth`, which reads only `increment`.
+ * It calls Redis through ioredis and fails open when Redis errors or is slow.
+ */
 import { isIP } from "node:net";
 import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import { env } from "@wandit/env/server";
@@ -23,11 +28,13 @@ return count
 
 type WarningLogger = Pick<Logger, "warn">;
 
+// Better Auth reads only `increment`, through rateLimit.customStorage. The
+// store never becomes root secondaryStorage, so it has no other method.
+type RateLimitCounter = Pick<SecondaryStorage, "increment">;
+
+/** The Redis call of the store. The spec passes an in-memory fake. */
 export interface RateLimitSecondaryStorageBackend {
-	delete(key: string): Promise<unknown>;
-	get(key: string): Promise<unknown>;
 	increment(key: string, ttl: number): Promise<number>;
-	set(key: string, value: string, ttl?: number): Promise<unknown>;
 }
 
 interface FailOpenStorageOptions {
@@ -44,9 +51,8 @@ class RedisOperationTimeoutError extends Error {
 
 /**
  * Accept only Better Auth rate-limit keys. The auth factory wires this port
- * through rateLimit.customStorage instead of root secondaryStorage, because
- * Better Auth 1.6.22 would otherwise divert some session operations from the
- * database.
+ * through rateLimit.customStorage, never as root secondaryStorage, so session
+ * and verification records stay in Postgres.
  */
 export function isBetterAuthRateLimitKey(key: string): boolean {
 	const separatorIndex = key.indexOf("|");
@@ -86,14 +92,14 @@ async function withTimeout<T>(
 }
 
 /**
- * Pure Better Auth storage wrapper: it filters and namespaces keys, bounds
- * every operation, and converts Redis failures into safe rate-limit misses.
+ * Pure Better Auth counter wrapper: it filters and namespaces keys, bounds
+ * each increment, and converts Redis failures into safe rate-limit misses.
  */
 export function createFailOpenRateLimitSecondaryStorage(
 	backend: RateLimitSecondaryStorageBackend,
 	logger: WarningLogger,
 	options: FailOpenStorageOptions = {},
-): SecondaryStorage {
+): RateLimitCounter {
 	const keyPrefix = options.keyPrefix ?? REDIS_KEY_PREFIX;
 	const timeoutMs = options.timeoutMs ?? REDIS_COMMAND_TIMEOUT_MS;
 
@@ -120,22 +126,6 @@ export function createFailOpenRateLimitSecondaryStorage(
 	}
 
 	return {
-		async delete(key) {
-			if (!isBetterAuthRateLimitKey(key)) {
-				return;
-			}
-
-			await failOpen("delete", undefined, async () => {
-				await backend.delete(namespacedKey(key));
-			});
-		},
-		async get(key) {
-			if (!isBetterAuthRateLimitKey(key)) {
-				return null;
-			}
-
-			return failOpen("get", null, () => backend.get(namespacedKey(key)));
-		},
 		async increment(key, ttl) {
 			if (!isBetterAuthRateLimitKey(key)) {
 				return 0;
@@ -144,15 +134,6 @@ export function createFailOpenRateLimitSecondaryStorage(
 			return failOpen("increment", 0, () =>
 				backend.increment(namespacedKey(key), ttl),
 			);
-		},
-		async set(key, value, ttl) {
-			if (!isBetterAuthRateLimitKey(key)) {
-				return;
-			}
-
-			await failOpen("set", undefined, async () => {
-				await backend.set(namespacedKey(key), value, ttl);
-			});
 		},
 	};
 }
@@ -163,10 +144,6 @@ function normalizeTtlSeconds(ttl: number): number {
 
 function createRedisBackend(redis: Redis): RateLimitSecondaryStorageBackend {
 	return {
-		async delete(key) {
-			await redis.del(key);
-		},
-		get: (key) => redis.get(key),
 		async increment(key, ttl) {
 			const result = await redis.eval(
 				INCREMENT_WITH_FIXED_TTL_SCRIPT,
@@ -177,20 +154,12 @@ function createRedisBackend(redis: Redis): RateLimitSecondaryStorageBackend {
 
 			return Number(result);
 		},
-		async set(key, value, ttl) {
-			if (ttl === undefined) {
-				await redis.set(key, value);
-				return;
-			}
-
-			await redis.set(key, value, "EX", normalizeTtlSeconds(ttl));
-		},
 	};
 }
 
 @Injectable()
 export class BetterAuthRedisSecondaryStorage
-	implements SecondaryStorage, OnModuleDestroy
+	implements RateLimitCounter, OnModuleDestroy
 {
 	private readonly logger = new Logger(BetterAuthRedisSecondaryStorage.name);
 	private readonly redis = new Redis({
@@ -223,16 +192,8 @@ export class BetterAuthRedisSecondaryStorage
 		});
 	}
 
-	async delete(key: string): Promise<void> {
-		await this.storage.delete(key);
-	}
-
-	async get(key: string): Promise<unknown> {
-		return this.storage.get(key);
-	}
-
 	async increment(key: string, ttl: number): Promise<number> {
-		return (await this.storage.increment?.(key, ttl)) ?? 0;
+		return this.storage.increment(key, ttl);
 	}
 
 	async onModuleDestroy(): Promise<void> {
@@ -250,9 +211,5 @@ export class BetterAuthRedisSecondaryStorage
 		} catch {
 			this.redis.disconnect();
 		}
-	}
-
-	async set(key: string, value: string, ttl?: number): Promise<void> {
-		await this.storage.set(key, value, ttl);
 	}
 }

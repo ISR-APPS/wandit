@@ -285,10 +285,10 @@ export const desktopBuildErrorCodeSchema = z.enum(desktopBuildErrorCodes);
 export type DesktopBuildErrorCode = z.infer<typeof desktopBuildErrorCodeSchema>;
 
 /**
- * Price of one desktop build, in whole credits (D31, default). At $0.032
+ * Price of one desktop build, in whole credits (D32, default). At $0.032
  * per credit (D2) it is $0.80. A cold build on a 2-core Windows runner takes
  * about 35 minutes: 10 for tauri-cli and 25 for the shell. A cached build
- * takes about 8 minutes. A macOS build has the same price (D35). ESTIMATE:
+ * takes about 8 minutes. A macOS build has the same price (D36). ESTIMATE:
  * a cached macOS build uses 5 to 8 minutes of a $0.062 runner.
  */
 export const DESKTOP_BUILD_CREDITS = 25;
@@ -431,7 +431,7 @@ export type CreateDesktopBuildBody = z.infer<
 const desktopBase = (projectId: string) =>
 	`/api/v2/projects/${projectId}/desktop`;
 
-/** Every desktop route. All need the workspace header; the POST routes need `project:update`. */
+/** Every desktop route. All need the project role `editor`; the workspace header does not decide. */
 export const desktopRoutes = {
 	// GET the identity and the build list.
 	overview: (projectId: string) => desktopBase(projectId),

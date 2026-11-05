@@ -4,6 +4,8 @@
 // instead of writing SQL directly.
 //
 // Project creation also creates the first chat and first user message.
+// Reads also join the project's workspace and the caller's grants, so each
+// row carries the caller's `access` (workspaces-sharing.md 2.2 and 3.3).
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	AppLanguage,
@@ -11,16 +13,19 @@ import type {
 	FileRef,
 	ListProjectsQuery,
 	PaginatedResult,
+	ProjectAccess,
 	ProjectEngine,
 	TargetPlatform,
 	UpdateProjectBody,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, desc, eq, ilike, isNull, or, sql } from "@wandit/db";
+import { alias, and, asc, desc, eq, ilike, isNull, or, sql } from "@wandit/db";
 import { builderSessions } from "@wandit/db/schema/builder-sessions";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
+import { member, organization } from "@wandit/db/schema/organizations";
+import { projectMembers } from "@wandit/db/schema/project-sharing";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -29,10 +34,65 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 import type { HarnessKind } from "../../../app-builder/domain/ports/builder-harness";
 import {
+	type ProjectAccessFacts,
+	projectAccessDto,
+	resolveProjectAccess,
+} from "../../domain/project-access";
+import {
 	type ProjectScope,
 	projectOwnerColumns,
 	projectScopePredicate,
 } from "../../domain/project-scope";
+
+// The workspace of a project: the team org of `organization_id`, or the
+// personal org of `user_id` when `organization_id` is null. Two plain
+// equality joins keep an index or hash join; one OR join would block both.
+const teamWorkspace = alias(organization, "team_workspace");
+const personalWorkspace = alias(organization, "personal_workspace");
+const workspaceIdColumn = sql<
+	string | null
+>`coalesce(${teamWorkspace.id}, ${personalWorkspace.id})`;
+
+/**
+ * The `on` conditions of the four access joins: team org, personal org, and
+ * the actor's `member` row and grant. `findAccessFacts` and every list read use
+ * them, so a list row shows the role that ProjectAccessGuard checks.
+ */
+function accessJoinConditions(actorUserId: string) {
+	return {
+		// `workspaceIdColumn` reads both workspace aliases, so this join comes after them.
+		member: and(
+			eq(member.organizationId, workspaceIdColumn),
+			eq(member.userId, actorUserId),
+		),
+		personalWorkspace: and(
+			isNull(projects.organizationId),
+			eq(personalWorkspace.personalOwnerUserId, projects.userId),
+		),
+		projectMembers: and(
+			eq(projectMembers.projectId, projects.id),
+			eq(projectMembers.userId, actorUserId),
+		),
+		teamWorkspace: eq(teamWorkspace.id, projects.organizationId),
+	};
+}
+
+// The access facts that every project read selects next to its own columns.
+// `resolveProjectAccess` turns them into the caller's role.
+const accessFactColumns = {
+	directRole: projectMembers.role,
+	memberRole: member.role,
+	organizationId: projects.organizationId,
+	userId: projects.userId,
+	workspaceAccess: projects.workspaceAccess,
+	workspaceId: workspaceIdColumn,
+	workspaceName: sql<
+		string | null
+	>`coalesce(${teamWorkspace.name}, ${personalWorkspace.name})`,
+	workspacePersonalOwnerUserId: sql<
+		string | null
+	>`coalesce(${teamWorkspace.personalOwnerUserId}, ${personalWorkspace.personalOwnerUserId})`,
+};
 
 // Raw DB row shape before mapping to the API Project shape.
 export type ProjectQueryRow = {
@@ -55,6 +115,9 @@ export type ProjectQueryRow = {
 	prompt: string;
 	// "web" or "mobile" on V2 rows; null on V1 rows.
 	targetPlatform: TargetPlatform | null;
+	// The caller's role and the project's workspace. Null when the project's
+	// workspace row is missing; the answer then leaves out `access`.
+	access: ProjectAccess | null;
 	// Template version the app was created from; null on V1 rows.
 	templateVersion: string | null;
 	tiktokPixelId: string | null;
@@ -75,10 +138,32 @@ export class ProjectsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
 	// List the scope's non-deleted projects (personal or org workspace).
-	listForScope(scope: ProjectScope): Promise<ProjectQueryRow[]> {
-		return this.projectSelect()
+	async listForScope(scope: ProjectScope): Promise<ProjectQueryRow[]> {
+		const rows = await this.projectSelect(scope.actorUserId)
 			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)))
 			.orderBy(desc(projects.updatedAt), desc(projects.createdAt));
+
+		return rows.map((row) => withAccess(row, scope.actorUserId));
+	}
+
+	/**
+	 * "Shared with me": live V2 projects where the caller has a direct grant,
+	 * whatever the active workspace. Newest first.
+	 */
+	async listSharedWithActor(actorUserId: string): Promise<ProjectQueryRow[]> {
+		// LIMIT: one answer with all grants, acceptable up to a few hundred. Upgrade: page it like listPageForScope.
+		const rows = await this.projectSelect(actorUserId)
+			.where(
+				and(
+					// The grant join matches only the caller's row, so this keeps the granted projects.
+					eq(projectMembers.userId, actorUserId),
+					eq(projects.engine, "v2_app"),
+					isNull(projects.deletedAt),
+				),
+			)
+			.orderBy(desc(projects.updatedAt), desc(projects.createdAt));
+
+		return rows.map((row) => withAccess(row, actorUserId));
 	}
 
 	// Paginated variant used by the native drawer's infinite list + search.
@@ -104,7 +189,7 @@ export class ProjectsRepository {
 			.from(projects)
 			.leftJoin(firstMessages, eq(firstMessages.projectId, projects.id))
 			.where(where);
-		const items = await this.projectSelect(firstMessages)
+		const items = await this.projectSelect(scope.actorUserId, firstMessages)
 			.where(where)
 			.orderBy(
 				desc(projects.updatedAt),
@@ -115,7 +200,7 @@ export class ProjectsRepository {
 			.offset(offset);
 
 		return {
-			items,
+			items: items.map((row) => withAccess(row, scope.actorUserId)),
 			page: query.page,
 			pageSize: query.pageSize,
 			total: totalRow?.total ?? 0,
@@ -128,7 +213,7 @@ export class ProjectsRepository {
 		projectId: string,
 	): Promise<ProjectQueryRow | null> {
 		// Drizzle returns an array even with limit(1).
-		const [row] = await this.projectSelect()
+		const [row] = await this.projectSelect(scope.actorUserId)
 			.where(
 				and(
 					projectScopePredicate(scope),
@@ -136,6 +221,33 @@ export class ProjectsRepository {
 					isNull(projects.deletedAt),
 				),
 			)
+			.limit(1);
+
+		return row ? withAccess(row, scope.actorUserId) : null;
+	}
+
+	/**
+	 * The facts that decide the actor's role on one live project, in one query
+	 * (design 3.3). Null when the project is missing or deleted. ProjectAccessGuard
+	 * calls it through ProjectAccessService on every `:projectId` route.
+	 */
+	async findAccessFacts(
+		projectId: string,
+		actorUserId: string,
+	): Promise<ProjectAccessFacts | null> {
+		const on = accessJoinConditions(actorUserId);
+		const [row] = await this.db
+			.select({
+				engine: projects.engine,
+				id: projects.id,
+				...accessFactColumns,
+			})
+			.from(projects)
+			.leftJoin(teamWorkspace, on.teamWorkspace)
+			.leftJoin(personalWorkspace, on.personalWorkspace)
+			.leftJoin(member, on.member)
+			.leftJoin(projectMembers, on.projectMembers)
+			.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
 			.limit(1);
 
 		return row ?? null;
@@ -278,12 +390,11 @@ export class ProjectsRepository {
 					chatId: chat.id,
 					harness: input.app.harness,
 					model: input.app.model,
-					organizationId:
-						input.scope.kind === "org" ? input.scope.organizationId : null,
 					projectId: project.id,
 					providerSessionId: null,
 					templateVersion: input.app.templateVersion,
-					userId: input.scope.userId,
+					// Same owner columns as the project row.
+					...projectOwnerColumns(input.scope),
 				});
 			}
 
@@ -392,7 +503,13 @@ export class ProjectsRepository {
 			.as("first_messages");
 	}
 
-	private projectSelect(firstMessages = this.firstMessagesSelect()) {
+	// `actorUserId` picks the caller's member row and direct grant for `access`.
+	// Scoped reads also join `member` and ignore `scope.actorRoles`. The shared list has no scope.
+	// So one join set gives the same role rule to all reads.
+	private projectSelect(
+		actorUserId: string,
+		firstMessages = this.firstMessagesSelect(),
+	) {
 		// Count leads per project.
 		const leadCounts = this.db
 			.select({
@@ -423,6 +540,7 @@ export class ProjectsRepository {
 			.as("deployment_agg");
 
 		// Final row: project + optional joined/aggregated data.
+		const on = accessJoinConditions(actorUserId);
 		return this.db
 			.select({
 				activeSlug: deploymentAgg.activeSlug,
@@ -444,12 +562,43 @@ export class ProjectsRepository {
 				templateVersion: projects.templateVersion,
 				tiktokPixelId: projects.tiktokPixelId,
 				updatedAt: projects.updatedAt,
+				...accessFactColumns,
 			})
 			.from(projects)
 			.leftJoin(firstMessages, eq(firstMessages.projectId, projects.id))
 			.leftJoin(leadCounts, eq(leadCounts.projectId, projects.id))
-			.leftJoin(deploymentAgg, eq(deploymentAgg.projectId, projects.id));
+			.leftJoin(deploymentAgg, eq(deploymentAgg.projectId, projects.id))
+			.leftJoin(teamWorkspace, on.teamWorkspace)
+			.leftJoin(personalWorkspace, on.personalWorkspace)
+			.leftJoin(member, on.member)
+			.leftJoin(projectMembers, on.projectMembers);
 	}
+}
+
+// Swaps the raw access facts of one read row for the caller's `access`.
+function withAccess(
+	row: Omit<ProjectQueryRow, "access"> &
+		Omit<ProjectAccessFacts, "engine" | "id">,
+	actorUserId: string,
+): ProjectQueryRow {
+	const access = resolveProjectAccess(row, actorUserId);
+	// The destructure only removes the fact columns from the answer.
+	const {
+		directRole,
+		memberRole,
+		organizationId,
+		userId,
+		workspaceAccess,
+		workspaceId,
+		workspaceName,
+		workspacePersonalOwnerUserId,
+		...projectRow
+	} = row;
+
+	return {
+		...projectRow,
+		access: access === null ? null : projectAccessDto(access),
+	};
 }
 
 function escapeLikePattern(value: string): string {

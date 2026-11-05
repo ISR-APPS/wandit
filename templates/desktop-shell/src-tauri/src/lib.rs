@@ -76,7 +76,7 @@ const WEBVIEW2_BROWSER_ARGS: &str = concat!(
 
 /// macOS only: a proxy on loopback port 1, where no service listens. An HTTP load that the
 /// CSP does not govern (for example a preconnect) then reaches no host. It does not stop
-/// WebRTC; `locked_webview_configuration` does. Needs macOS 14 or later (D35 sets 15).
+/// WebRTC; `locked_webview_configuration` does. Needs macOS 14 or later (D36 sets 15).
 #[cfg(target_os = "macos")]
 const LOOPBACK_PROXY_URL: &str = "http://127.0.0.1:1";
 

@@ -114,6 +114,24 @@ describe("billing error dispatch", () => {
 		}
 	});
 
+	it.each([
+		{
+			payer: { kind: "org", isActor: false, organizationId: "org-1" },
+			expected: {
+				payer: { kind: "org", isActor: false, organizationId: "org-1" },
+			},
+		},
+		{ payer: { kind: "team", isActor: true }, expected: {} },
+	])("forwards only a valid payer: $payer.kind", ({ payer, expected }) => {
+		expect(
+			toUpgradeModalIntent({
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: { ...details, payer },
+			}),
+		).toEqual({ code: "INSUFFICIENT_CREDITS", ...details, ...expected });
+	});
+
 	it("maps decimal member-limit details to the member-limit intent", () => {
 		const limitDetails = {
 			limitCredits: 100,

@@ -1,5 +1,5 @@
 /**
- * Pure helpers of the app builder, with no React. Four list and test the
+ * Pure helpers of the app builder, with no React. Three list and test the
  * panels of the More view and pick the open one. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
  * the Expo Go username, and the model pick. Two pair a model with its Fast
@@ -44,7 +44,7 @@ import {
 import { chatLayoutSchema } from "./schemas";
 import type { ElementSize } from "./use-element-size";
 
-/** More panels the nav lists for a project kind, in nav order. Disabled panels are in the list. */
+/** More panels the nav lists for a project kind, in nav order. */
 export function panelsForKind(kind: AppProjectKind): MorePanel[] {
 	return MORE_PANELS.filter((panel) =>
 		MORE_PANEL_META[panel].kinds.includes(kind),
@@ -62,15 +62,10 @@ export function isCloudPanel(
 	return CLOUD_PANELS.some((cloudPanel) => cloudPanel === panel);
 }
 
-/** True for Integrations: the nav shows it as "Soon", and it never opens. */
-export function isDisabledMorePanel(panel: MorePanel): panel is "integrations" {
-	return panel === "integrations";
-}
-
 /**
  * The panel the More view opens for the `?panel=` request. A Cloud panel
  * opens only while the Cloud gate is open. A panel the kind does not have,
- * a disabled panel, or no request opens the fallback panel.
+ * or no request, opens the fallback panel.
  */
 export function resolvePanel(
 	kind: AppProjectKind,
@@ -81,10 +76,7 @@ export function resolvePanel(
 		if (isCloudPanel(requested)) {
 			// The Cloud panels are behind a rollout gate. A shared link must not open an empty panel.
 			if (isCloudTabEnabled) return requested;
-		} else if (
-			!isDisabledMorePanel(requested) &&
-			panelsForKind(kind).includes(requested)
-		) {
+		} else if (panelsForKind(kind).includes(requested)) {
 			return requested;
 		}
 	}

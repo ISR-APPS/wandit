@@ -41,11 +41,15 @@ export type LeadSheetAutoSyncCandidate = {
 	organizationId: string | null;
 	projectId: string;
 	projectName: string;
+	/** `projects.user_id`: the owner of a personal project. The sweep scope reads it. */
+	projectUserId: string;
 	syncedByUserId: string;
 	syncedLeadCount: number;
 };
 
 export type GoogleAccountRow = {
+	/** Local `account.id`. Better Auth `getAccessToken` selects the account by this id. */
+	id: string;
 	accessTokenExpiresAt: Date | null;
 	refreshToken: string | null;
 	scope: string | null;
@@ -100,6 +104,7 @@ export class LeadSheetSyncsRepository {
 	async findGoogleAccount(userId: string): Promise<GoogleAccountRow | null> {
 		const [row] = await this.db
 			.select({
+				id: account.id,
 				accessTokenExpiresAt: account.accessTokenExpiresAt,
 				refreshToken: account.refreshToken,
 				scope: account.scope,
@@ -122,6 +127,7 @@ export class LeadSheetSyncsRepository {
 
 		const rows = await this.db
 			.select({
+				id: account.id,
 				accessTokenExpiresAt: account.accessTokenExpiresAt,
 				refreshToken: account.refreshToken,
 				scope: account.scope,
@@ -185,6 +191,7 @@ export class LeadSheetSyncsRepository {
 				organizationId: projects.organizationId,
 				projectId: projects.id,
 				projectName: projects.name,
+				projectUserId: projects.userId,
 				syncedByUserId: leadSheetSyncs.syncedByUserId,
 				syncedLeadCount: leadSheetSyncs.syncedLeadCount,
 			})

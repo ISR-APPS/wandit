@@ -12,10 +12,14 @@ import {
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
 import type {
@@ -36,7 +40,7 @@ import type { AuditEventsService } from "./audit-events.service";
 import type { BackendsService } from "./backends.service";
 import { TurnsService } from "./turns.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 // A real price-table id: the estimate math prices the model, so a made-up
@@ -121,6 +125,7 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: "project-1",
 		provider: null,
@@ -161,6 +166,9 @@ function setup(
 			async () => null,
 		),
 		findById: vi.fn<BuilderTurnsRepository["findById"]>(async () => null),
+		findByRequestKey: vi.fn<BuilderTurnsRepository["findByRequestKey"]>(
+			async () => null,
+		),
 		findOldestWaiting: vi.fn<BuilderTurnsRepository["findOldestWaiting"]>(
 			async () => null,
 		),
@@ -243,6 +251,18 @@ function setup(
 			async () => null,
 		),
 	};
+	const credits = {
+		getSettledBalance: vi.fn<CreditsService["getSettledBalance"]>(async () => ({
+			balance: 5_000,
+			plan: 5_000,
+			promo: 0,
+			settledBalance: 5_000,
+			settledPlan: 5_000,
+			settledPromo: 0,
+			settledTopup: 0,
+			topup: 0,
+		})),
+	};
 
 	const service = new TurnsService(
 		turns as unknown as BuilderTurnsRepository,
@@ -258,6 +278,7 @@ function setup(
 		caps,
 		audit,
 		backends,
+		credits,
 	);
 
 	return {
@@ -362,7 +383,7 @@ describe("TurnsService.create", () => {
 		// No settled turns yet: the fixed 14-credit default hold applies.
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({
 				credits: 1_400,
 				idempotencyKey: expect.stringMatching(/^builder-turn:/),
@@ -430,7 +451,7 @@ describe("TurnsService.create", () => {
 		);
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 2_300 }),
 		);
 		expect(result.estimate).toEqual({
@@ -449,7 +470,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 500 }),
 		);
 		expect(result.estimate).toEqual({
@@ -472,7 +493,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ credits: 5_000 }),
 		);
 		expect(result.estimate).toEqual({
@@ -514,7 +535,7 @@ describe("TurnsService.create", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"agent_session",
-			{ actorUserId: "user-1" },
+			{ actorIsLimitExempt: true, actorUserId: "user-1" },
 			expect.objectContaining({ model: "anthropic/claude-opus-5" }),
 		);
 		expect(turns.create).toHaveBeenCalledWith(
@@ -717,7 +738,11 @@ describe("TurnsService.create", () => {
 
 	it("adopts the replayed row and refunds the fresh hold", async () => {
 		const { metering, service, turns } = setup();
-		const existing = turnRow({ id: "turn-old", status: "running" });
+		const existing = turnRow({
+			id: "turn-old",
+			spec: { attachments: [], composer: null, message: BODY.message },
+			status: "running",
+		});
 		turns.create.mockResolvedValue({ replayed: true, turn: existing });
 
 		const result = await service.create(SCOPE, "project-1", BODY);
@@ -727,6 +752,66 @@ describe("TurnsService.create", () => {
 			"event-1",
 			"builder_turn_create_replayed",
 		);
+	});
+
+	it("answers the first turn when an MCP send_prompt retry repeats its key after the turn paused", async () => {
+		const { metering, service, turns } = setup();
+		// The rows of builder_turns by their unique (chat_id, request_key) pair.
+		const rowsByKey = new Map<string, BuilderTurnRow>();
+		turns.create.mockImplementation(async (input) => {
+			const turn = turnRow({
+				chatId: input.chatId,
+				id: input.id,
+				requestKey: input.requestKey,
+				spec: input.spec,
+				status: input.status,
+			});
+			rowsByKey.set(`${input.chatId}:${input.requestKey}`, turn);
+			return { replayed: false, turn };
+		});
+		turns.findByRequestKey.mockImplementation(
+			async (chatId, requestKey) =>
+				rowsByKey.get(`${chatId}:${requestKey}`) ?? null,
+		);
+		const options = { ip: IP, requestKey: "mcp:client-1:user-1:key-1" };
+
+		const first = await service.create(SCOPE, "project-1", BODY, options);
+		// The first turn pauses on an approval card: a new submit without `approval` gets 409.
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ id: first.turnId, status: "waiting_for_approval" }),
+		);
+		const retry = await service.create(SCOPE, "project-1", BODY, options);
+
+		expect(retry.turnId).toBe(first.turnId);
+		// The replay takes no second credit hold.
+		expect(metering.reserveWithReplay).toHaveBeenCalledTimes(1);
+	});
+
+	// An MCP agent writes its own requestKey. A reused key must not drop the new prompt silently.
+	it.each([
+		["the early replay", "early"],
+		["the late replay of two parallel submits", "late"],
+	] as const)("answers REQUEST_KEY_REUSED when %s holds another message", async (_label, replayPath) => {
+		const { service, turns } = setup();
+		const replayed = turnRow({
+			id: "turn-old",
+			spec: { attachments: [], composer: null, message: "another prompt" },
+			status: "running",
+		});
+		if (replayPath === "early") {
+			turns.findByRequestKey.mockResolvedValue(replayed);
+		} else {
+			turns.create.mockResolvedValue({ replayed: true, turn: replayed });
+		}
+
+		await expect(
+			service.create(SCOPE, "project-1", BODY, {
+				ip: IP,
+				requestKey: "mcp:client-1:user-1:key-1",
+			}),
+		).rejects.toMatchObject({ response: { code: "REQUEST_KEY_REUSED" } });
+		// This call made no row, so the refusal marks no row failed.
+		expect(turns.fail).not.toHaveBeenCalled();
 	});
 
 	it("marks the row failed, frees the lock, and refunds when start fails", async () => {

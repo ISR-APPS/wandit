@@ -3,7 +3,12 @@
 // Copy is English-only for v1 — the sender has no reliable locale signal for
 // a recipient who has never signed in.
 
-import type { BillingInterval, BillingPlanId } from "@wandit/contracts";
+import type {
+	BillingInterval,
+	BillingPlanId,
+	ProjectMemberRole,
+	WorkspaceRoleName,
+} from "@wandit/contracts";
 
 export type EmailContent = {
 	subject: string;
@@ -87,10 +92,31 @@ export function otpEmail(otp: string): EmailContent {
 	};
 }
 
+/** UI labels of the workspace roles. `member` shows as Editor (workspaces-sharing.md 2.1). */
+const WORKSPACE_ROLE_LABELS = {
+	admin: "Admin",
+	member: "Editor",
+	owner: "Owner",
+	viewer: "Viewer",
+} as const satisfies Record<WorkspaceRoleName, string>;
+
+/** UI labels of the project grant roles (workspaces-sharing.md 2.2). */
+const PROJECT_ROLE_LABELS = {
+	admin: "Admin",
+	editor: "Can edit",
+	viewer: "Can view",
+} as const satisfies Record<ProjectMemberRole, string>;
+
+/** The workspace invitation email. Better Auth `sendInvitationEmail` sends it through AuthModule. */
 export function invitationEmail(data: {
 	inviterName: string;
+	/** The stored workspace name. A personal name already ends in "'s workspace", so the copy adds no suffix. */
 	organizationName: string;
 	inviteUrl: string;
+	/** The highest known role of the invitation; null hides the role line. */
+	role: WorkspaceRoleName | null;
+	/** Days until the invitation expires, from the Better Auth `invitationExpiresIn` value. */
+	expiresInDays: number;
 }): EmailContent {
 	// Both names are user-controlled and land in the SUBJECT as well as the
 	// body: strip newlines/control characters (header-shaped input) and bound
@@ -98,13 +124,45 @@ export function invitationEmail(data: {
 	const inviterName = sanitizeHeaderText(data.inviterName);
 	const organizationName = sanitizeHeaderText(data.organizationName);
 	const { inviteUrl } = data;
+	const roleSentence =
+		data.role === null ? "" : ` as ${WORKSPACE_ROLE_LABELS[data.role]}`;
+	const expirySentence = `This invitation expires in ${data.expiresInDays} days.`;
 	return {
 		subject: `${inviterName} invited you to ${organizationName} on Wandit`,
 		html: shell(`
-<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:24px;"><strong>${escapeHtml(inviterName)}</strong> invited you to join the <strong>${escapeHtml(organizationName)}</strong> workspace on Wandit. This invitation expires in 7 days.</td></tr>
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:24px;"><strong>${escapeHtml(inviterName)}</strong> invited you to join <strong>${escapeHtml(organizationName)}</strong> on Wandit${roleSentence}. ${expirySentence}</td></tr>
 <tr><td style="padding-bottom:24px;"><a href="${inviteUrl}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">View invitation</a></td></tr>
 <tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">Button not working? Paste this link into your browser:<br><a href="${inviteUrl}" style="color:${EMBER};word-break:break-all;">${inviteUrl}</a></td></tr>`),
-		text: `${inviterName} invited you to join the ${organizationName} workspace on Wandit.\n\nView the invitation (expires in 7 days):\n${inviteUrl}\n\nIf you didn't request this email, you can safely ignore it.`,
+		text: `${inviterName} invited you to join ${organizationName} on Wandit${roleSentence}. ${expirySentence}\n\nView the invitation:\n${inviteUrl}\n\nIf you didn't request this email, you can safely ignore it.`,
+	};
+}
+
+/** The project invitation email. `ProjectInvitationsService` sends one for each invited address. */
+export function projectInvitationEmail(data: {
+	inviterName: string;
+	projectName: string;
+	/** Name of the workspace that holds the project. */
+	workspaceName: string;
+	role: ProjectMemberRole;
+	/** The web page `/project-invite/<invitation id>`. */
+	inviteUrl: string;
+	/** Days until the invitation expires. */
+	expiresInDays: number;
+}): EmailContent {
+	// The three names are user text that also lands in the subject.
+	const inviterName = sanitizeHeaderText(data.inviterName);
+	const projectName = sanitizeHeaderText(data.projectName);
+	const workspaceName = sanitizeHeaderText(data.workspaceName);
+	const roleLabel = PROJECT_ROLE_LABELS[data.role];
+	const { inviteUrl } = data;
+	const expirySentence = `This invitation expires in ${data.expiresInDays} days.`;
+	return {
+		subject: `${inviterName} shared ${projectName} with you on Wandit`,
+		html: shell(`
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:24px;"><strong>${escapeHtml(inviterName)}</strong> invited you to the project <strong>${escapeHtml(projectName)}</strong> in ${escapeHtml(workspaceName)} on Wandit. Your access: ${roleLabel}. ${expirySentence}</td></tr>
+<tr><td style="padding-bottom:24px;"><a href="${inviteUrl}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">View invitation</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">Button not working? Paste this link into your browser:<br><a href="${inviteUrl}" style="color:${EMBER};word-break:break-all;">${inviteUrl}</a></td></tr>`),
+		text: `${inviterName} invited you to the project ${projectName} in ${workspaceName} on Wandit. Your access: ${roleLabel}. ${expirySentence}\n\nView the invitation:\n${inviteUrl}\n\nIf you didn't request this email, you can safely ignore it.`,
 	};
 }
 

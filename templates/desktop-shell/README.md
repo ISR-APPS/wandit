@@ -138,7 +138,7 @@ proxy) and the install of an update run only in a real install.
   opens the app one time with System Settings, Privacy & Security, Open Anyway. A bundle
   with no signature shows "damaged" after a download, with no Open Anyway button. So never
   build with `--no-sign`.
-- **Minimum version.** `minimumSystemVersion` is 15.0 (decision D35). The loopback proxy
+- **Minimum version.** `minimumSystemVersion` is 15.0 (decision D36). The loopback proxy
   needs macOS 14, and each supported version needs a probe of the WebRTC preference.
 - **WebRTC block.** WKWebView takes no browser args, and the CSP does not stop WebRTC UDP.
   `locked_webview_configuration` in `lib.rs` sets the private WebKit preference

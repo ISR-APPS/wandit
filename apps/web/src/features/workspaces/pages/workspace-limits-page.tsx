@@ -1,6 +1,11 @@
 /**
  * Member credit limits — the default monthly cap plus per-member overrides,
  * with each member's spend this calendar month (teams-workspaces.md §9).
+ * It shows for a team workspace and the own personal workspace. In another
+ * user's personal workspace it sends the user to the dashboard: those limits
+ * cap that user's money (workspaces-sharing.md 0). While organizations are off,
+ * the own personal workspace sends the user there too (workspaces-sharing.md 3.4).
+ * The list also holds external collaborators; owners and admins see them labeled.
  * Scoped by the workspace header; the server requires limits:manage for PUT.
  */
 import { useNavigate } from "@tanstack/react-router";
@@ -11,12 +16,18 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { formatCreditAmount } from "@/features/credits/lib/format-credits";
+import { useSession } from "@/features/auth";
+import { formatCreditAmount } from "@/features/credits";
+import { DashboardShell } from "@/features/projects";
 import {
 	usePutWorkspaceMemberLimitsMutation,
+	useWorkspaceCollaboratorsQuery,
 	useWorkspaceMemberLimitsQuery,
 } from "@/features/workspaces/api/workspaces.queries";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import {
+	useCollaborationGates,
+	useWorkspace,
+} from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
 /**
@@ -36,18 +47,45 @@ function parseLimit(value: string): number | null | undefined {
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/** The `/_auth/workspace/limits` route renders it. */
 export default function WorkspaceLimitsPage() {
+	const { activeWorkspaceId } = useWorkspace();
+
+	return (
+		<DashboardShell titleKey="workspaces.limits.title">
+			{/* A new key drops the typed limits when the workspace changes. */}
+			<LimitsContent key={activeWorkspaceId} />
+		</DashboardShell>
+	);
+}
+
+function LimitsContent() {
 	const { locale, t } = useTranslation();
 	const navigate = useNavigate();
-	const { actorCanManageWorkspace, isPersonal } = useWorkspace();
-	const limitsQuery = useWorkspaceMemberLimitsQuery({ enabled: !isPersonal });
+	const { data: session } = useSession();
+	const { actorCanManageLimits, isPersonal } = useWorkspace();
+	const gates = useCollaborationGates();
+	// A URL can still open the page while it is hidden.
+	const isHidden = !gates.isPending && !gates.showsLimits;
+	const limitsQuery = useWorkspaceMemberLimitsQuery({
+		enabled: gates.showsLimits,
+	});
+	// The collaborators route answers owners and admins only; it labels the external rows.
+	const collaboratorsQuery = useWorkspaceCollaboratorsQuery({
+		enabled: gates.showsLimits && actorCanManageLimits,
+	});
 	const save = usePutWorkspaceMemberLimitsMutation();
+	const collaboratorIds = new Set(
+		(collaboratorsQuery.data?.collaborators ?? []).map(
+			(collaborator) => collaborator.userId,
+		),
+	);
 
 	useEffect(() => {
-		if (isPersonal) {
+		if (isHidden) {
 			void navigate({ to: "/dashboard" });
 		}
-	}, [isPersonal, navigate]);
+	}, [isHidden, navigate]);
 
 	const [defaultLimit, setDefaultLimit] = useState<string>("");
 	const [memberLimits, setMemberLimits] = useState<Record<string, string>>({});
@@ -72,7 +110,7 @@ export default function WorkspaceLimitsPage() {
 		setHydrated(true);
 	}, [limitsQuery.data, hydrated]);
 
-	if (isPersonal) {
+	if (isHidden) {
 		return null;
 	}
 
@@ -107,7 +145,7 @@ export default function WorkspaceLimitsPage() {
 	};
 
 	return (
-		<div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10">
+		<div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-16 md:px-6">
 			<header>
 				<h1 className="font-display text-2xl tracking-tight">
 					{t("workspaces.limits.title")}
@@ -123,6 +161,12 @@ export default function WorkspaceLimitsPage() {
 				</div>
 			) : null}
 
+			{limitsQuery.isError ? (
+				<p className="text-muted-foreground text-sm">
+					{t("workspaces.limits.loadFailed")}
+				</p>
+			) : null}
+
 			{limitsQuery.data ? (
 				<>
 					<section className="flex max-w-sm flex-col gap-2">
@@ -134,47 +178,63 @@ export default function WorkspaceLimitsPage() {
 							inputMode="numeric"
 							placeholder={t("workspaces.limits.noLimit")}
 							value={defaultLimit}
-							disabled={!actorCanManageWorkspace}
+							disabled={!actorCanManageLimits}
 							onChange={(event) => setDefaultLimit(event.target.value)}
 						/>
 					</section>
 
 					<section className="flex flex-col divide-y rounded-lg border">
-						{limitsQuery.data.members.map((member) => (
-							<div key={member.userId} className="flex items-center gap-3 p-4">
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-medium text-sm">{member.name}</p>
-									<p className="truncate text-muted-foreground text-xs">
-										{member.email}
-									</p>
+						{limitsQuery.data.members.map((member) => {
+							// The personal owner spends their own money, so the server refuses a limit on them.
+							const isPersonalOwner =
+								isPersonal && member.userId === session?.user.id;
+
+							return (
+								<div
+									key={member.userId}
+									className="flex items-center gap-3 p-4"
+								>
+									<div className="min-w-0 flex-1">
+										<p className="truncate font-medium text-sm">
+											{member.name}
+											{collaboratorIds.has(member.userId) ? (
+												<span className="ms-2 text-muted-foreground text-xs">
+													{t("workspaces.limits.collaborator")}
+												</span>
+											) : null}
+										</p>
+										<p className="truncate text-muted-foreground text-xs">
+											{member.email}
+										</p>
+									</div>
+									<div className="text-end">
+										<p className="text-muted-foreground text-xs">
+											{t("workspaces.limits.spentThisMonth")}
+										</p>
+										<p className="font-mono text-sm tabular-nums">
+											{formatCreditAmount(member.spentThisMonth, locale)}
+										</p>
+									</div>
+									<Input
+										className="w-28"
+										inputMode="numeric"
+										placeholder={t("workspaces.limits.noLimit")}
+										aria-label={t("workspaces.limits.customLimit")}
+										value={memberLimits[member.userId] ?? ""}
+										disabled={!actorCanManageLimits || isPersonalOwner}
+										onChange={(event) =>
+											setMemberLimits((current) => ({
+												...current,
+												[member.userId]: event.target.value,
+											}))
+										}
+									/>
 								</div>
-								<div className="text-end">
-									<p className="text-muted-foreground text-xs">
-										{t("workspaces.limits.spentThisMonth")}
-									</p>
-									<p className="font-mono text-sm tabular-nums">
-										{formatCreditAmount(member.spentThisMonth, locale)}
-									</p>
-								</div>
-								<Input
-									className="w-28"
-									inputMode="numeric"
-									placeholder={t("workspaces.limits.noLimit")}
-									aria-label={t("workspaces.limits.customLimit")}
-									value={memberLimits[member.userId] ?? ""}
-									disabled={!actorCanManageWorkspace}
-									onChange={(event) =>
-										setMemberLimits((current) => ({
-											...current,
-											[member.userId]: event.target.value,
-										}))
-									}
-								/>
-							</div>
-						))}
+							);
+						})}
 					</section>
 
-					{actorCanManageWorkspace ? (
+					{actorCanManageLimits ? (
 						<div>
 							<Button type="button" disabled={save.isPending} onClick={submit}>
 								{save.isPending

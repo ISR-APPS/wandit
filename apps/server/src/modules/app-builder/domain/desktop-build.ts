@@ -56,10 +56,10 @@ export const userCancelableDesktopBuildStatuses = [
 export const DESKTOP_SIGNING_STUCK_AFTER_MS = 90 * 60_000;
 
 /**
- * Most live builds of one payer (the user or the organization whose credits
- * hold the build), in all its projects. Zack's rule: one payer must not fill
- * the shared CI runners (security audit A6). GitHub runs at most 5 macOS jobs
- * at the same time on Free, Pro, and Team.
+ * Most live builds of one payer (the team org, or `projects.user_id` of a
+ * personal project, also for a member's build), in all its projects. Zack's
+ * rule: one payer must not fill the shared CI runners (security audit A6).
+ * GitHub runs at most 5 macOS jobs at the same time on Free, Pro, and Team.
  */
 export const MAX_LIVE_DESKTOP_BUILDS_PER_PAYER = 2;
 

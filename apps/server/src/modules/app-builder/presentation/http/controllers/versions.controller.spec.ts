@@ -1,7 +1,7 @@
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it } from "vitest";
 
-import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { PROJECT_ROLE_KEY } from "../../../../projects";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 import { VersionsController } from "./versions.controller";
 
@@ -12,28 +12,16 @@ describe("VersionsController", () => {
 		expect(guards as unknown[]).toContain(V2BuilderEnabledGuard);
 	});
 
-	it("requires project:update on restore only", () => {
-		const restorePermission = Reflect.getMetadata(
-			WORKSPACE_PERMISSION_KEY,
-			VersionsController.prototype.restore,
-		);
-		expect(restorePermission).toEqual({
-			actions: ["update"],
-			resource: "project",
-		});
-
-		// List and diff are reads; scope filtering happens in the service.
-		expect(
-			Reflect.getMetadata(
-				WORKSPACE_PERMISSION_KEY,
-				VersionsController.prototype.list,
-			),
-		).toBeUndefined();
-		expect(
-			Reflect.getMetadata(
-				WORKSPACE_PERMISSION_KEY,
-				VersionsController.prototype.diff,
-			),
-		).toBeUndefined();
+	it("needs the editor role on restore and the viewer role on the reads", () => {
+		for (const [handler, role] of [
+			[VersionsController.prototype.restore, "editor"],
+			[VersionsController.prototype.list, "viewer"],
+			[VersionsController.prototype.diff, "viewer"],
+		] as const) {
+			expect(Reflect.getMetadata(PROJECT_ROLE_KEY, handler)).toEqual({
+				anyEngine: false,
+				role,
+			});
+		}
 	});
 });

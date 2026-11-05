@@ -173,7 +173,10 @@ function buildRow(platform: DesktopPlatform): DesktopBuildRow {
 	};
 }
 
-function holdEvent(status: AiUsageEvent["status"]): AiUsageEvent {
+function holdEvent(
+	status: AiUsageEvent["status"],
+	overrides: Partial<AiUsageEvent> = {},
+): AiUsageEvent {
 	return {
 		attemptRef: null,
 		cacheReadTokens: null,
@@ -194,6 +197,7 @@ function holdEvent(status: AiUsageEvent["status"]): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: PROJECT_ID,
 		provider: null,
@@ -205,6 +209,7 @@ function holdEvent(status: AiUsageEvent["status"]): AiUsageEvent {
 		settledAt: null,
 		status,
 		userId: "user-1",
+		...overrides,
 	};
 }
 
@@ -214,11 +219,12 @@ class FakeMetering {
 	readonly calls: string[] = [];
 	readonly refundReasons: string[] = [];
 
-	async findByIdempotencyKey(): Promise<AiUsageEvent | null> {
+	async findByIdempotencyKeyAnyPayer(): Promise<AiUsageEvent | null> {
 		return this.hold;
 	}
 
 	async acquireExecutionLease(): Promise<AiUsageEvent | null> {
+		this.calls.push("lease");
 		return this.hold;
 	}
 
@@ -495,7 +501,6 @@ async function setup(options: SetupOptions = {}) {
 
 	const run = () =>
 		runDesktopBuild(deps, {
-			actorIsLimitExempt: false,
 			buildId: BUILD_ID,
 			projectId: PROJECT_ID,
 			triggerRunId: "run_1",
@@ -792,6 +797,47 @@ describe("runDesktopBuild", () => {
 		expect(ctx.metering.calls).not.toContain("settle");
 		// No installer of a canceled or suspended build stays in R2.
 		expect(ctx.objects.size).toBe(0);
+	});
+
+	// Money check, same rule as the mobile run: with billing on, a build runs only on
+	// the hold that the API reserved for its row. Else it runs free or bills the wrong pool.
+	it.each<[string, AiUsageEvent | null]>([
+		["no hold", null],
+		["a hold of another actor", holdEvent("reserved", { userId: "user-2" })],
+		[
+			"a hold of another operation",
+			holdEvent("reserved", { operation: "mobile_build" }),
+		],
+	])("fails internal on %s and leases, settles, and refunds nothing", async (_label, hold) => {
+		const ctx = await setup();
+		ctx.metering.hold = hold;
+
+		const result = await ctx.run();
+
+		expect(result).toEqual({ errorCode: "internal", outcome: "failed" });
+		expect(ctx.dispatches).toEqual([]);
+		expect(ctx.metering.calls).toEqual([]);
+	});
+
+	// A member of a shared personal project builds: the row and the hold name the
+	// member, and the hold names the owner as payer. The run must accept it.
+	it("leases and settles the hold of a member build that the project owner pays", async () => {
+		const ctx = await setup({
+			runs: [{ conclusion: "success", status: "completed" }],
+		});
+		if (ctx.state.row === null) {
+			throw new Error("The fake has no build row");
+		}
+		ctx.state.row = { ...ctx.state.row, userId: "member-1" };
+		ctx.metering.hold = holdEvent("reserved", {
+			payerUserId: "user-1",
+			userId: "member-1",
+		});
+
+		const result = await ctx.run();
+
+		expect(result).toEqual({ errorCode: null, outcome: "ready" });
+		expect(ctx.metering.calls).toEqual(["lease", "settle"]);
 	});
 
 	it("cancels a queued build of a deleted project before the sandbox and refunds its hold", async () => {

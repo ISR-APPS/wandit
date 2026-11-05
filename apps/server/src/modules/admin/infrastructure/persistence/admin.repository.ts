@@ -41,6 +41,11 @@ import { subscriptions } from "@wandit/db/schema/billing";
 import { aiUsageEvents, creditLedger } from "@wandit/db/schema/credits";
 import { deployments } from "@wandit/db/schema/deployments";
 import { domains } from "@wandit/db/schema/domains";
+import {
+	oauthAccessToken,
+	oauthConsent,
+	oauthRefreshToken,
+} from "@wandit/db/schema/oauth-provider";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -847,6 +852,23 @@ export class AdminRepository {
 
 	async deleteUserSessions(userId: string): Promise<void> {
 		await this.db.delete(session).where(eq(session.userId, userId));
+	}
+
+	/**
+	 * Ends every coding-agent grant of a user: OAuth access tokens, refresh tokens, and consents.
+	 * A ban calls it. Without it, an unban gives an old agent its refresh token back.
+	 */
+	async deleteUserOAuthGrants(userId: string): Promise<void> {
+		// One transaction, so a failed delete never leaves a consent with a live refresh token.
+		await this.db.transaction(async (tx) => {
+			await tx
+				.delete(oauthAccessToken)
+				.where(eq(oauthAccessToken.userId, userId));
+			await tx
+				.delete(oauthRefreshToken)
+				.where(eq(oauthRefreshToken.userId, userId));
+			await tx.delete(oauthConsent).where(eq(oauthConsent.userId, userId));
+		});
 	}
 
 	/** Zero-filled per-UTC-day signup counts for the last `days` days. */

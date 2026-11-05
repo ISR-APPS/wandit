@@ -454,7 +454,7 @@ uses; Expo does not document it as a public contract (UNVERIFIED).
 ## 14. Desktop apps
 
 The contract is `docs/v2/desktop-apps.md`, and its section 1 gives the
-trust of each part. Decisions: D29 to D35 in `DECISIONS.md`. This section
+trust of each part. Decisions: D30 to D36 in `DECISIONS.md`. This section
 gives each threat and its controls. A security audit found 16 holes in
 this feature. A bullet that starts with "Audit fix:" gives the fix of one
 hole.
@@ -493,8 +493,11 @@ webview of every installed app. The SQL runs at each start of the app.
   delays Back up now, Export, and Import, which wait for the lock. An
   update then waits only when the copy through its own connection also
   fails, for example on a full disk.
-- The gate (D32) checks every migration file in the `add_local_migration`
+- The gate (D33) checks every migration file in the `add_local_migration`
   host tool, and again in the `desktop-build` task with the frozen rows.
+  The MCP `apply_changes` tool refuses a path under `migrations/` of a
+  desktop project. A GitHub Update can write `migrations/`, so the build
+  gate is the check that protects installed apps.
   Its dry run uses sql.js in memory, with no file access. New INSERT,
   UPDATE, and check statements execute on at most 15 test rows per table.
   The gate refuses WITH, so no recursive query runs.
@@ -658,11 +661,18 @@ hold the shared CI runners.
   leaks no installer.
 - Audit fix: no cap existed across projects. Now a payer has at most 2 live
   builds in all its projects (`MAX_LIVE_DESKTOP_BUILDS_PER_PAYER`). The
-  payer is the user of a personal workspace, or the organization of a team
-  workspace. The create transaction takes the advisory lock
+  payer is the organization of a team project, else the owner of a personal
+  project (`projects.user_id`), also when a member or a collaborator builds.
+  The count reads the payer from the project row, because
+  `desktop_builds.user_id` holds the actor. The create transaction takes the advisory lock
   `desktop-builds:<credit owner>` before the count, so two parallel creates
   never both pass it. A third build answers 409
   `DESKTOP_BUILD_LIMIT_REACHED`, and the hold comes back.
+- Workspaces: every desktop route needs the project role `editor`
+  (`@RequireProjectRole`), so a Can view member cannot build, cancel,
+  release, or read unreleased download links. The `desktop-build` task reads
+  its hold with no payer check. With billing on, a missing hold or a hold of
+  another project, actor, or operation fails the build before any CI work.
 - Audit fix: ten parallel releases deadlocked the database pool. Each
   release held a connection and then read the project on a second one.
   Now every read of the release runs on its own transaction.
@@ -709,7 +719,7 @@ known bug can try to replace a newer one.
   own. A person with write access to `latest.json` could then push any
   older signed build with an old manifest entry. Such access comes from a
   leaked R2 key or a bad CDN host. Now the shell uses the default
-  comparator of the plugin: only a newer version installs (D34). With
+  comparator of the plugin: only a newer version installs (D35). With
   `requireSignedVersion`, a higher version cannot come with the url and
   signature of an older build. The release route refuses a build older
   than the current one (`DESKTOP_BUILD_OLDER_THAN_CURRENT`). A rollback is
@@ -795,7 +805,7 @@ window, or a remote script. From there it can try to call the commands.
 An update, a bad migration, a crash, or an import can try to destroy the
 saved data.
 
-- The gate keeps every table, column, and view of an older build (D32).
+- The gate keeps every table, column, and view of an older build (D33).
 - The runner checks the SHA-256 of each ledger row whose file the app
   embeds. It stops when a pending version is below the highest ledger
   version.
@@ -867,7 +877,7 @@ A suspended or deleted app must stop reaching users.
 
 ### macOS builds
 
-A macOS build (D35) uses the controls above, with these changes and risks.
+A macOS build (D36) uses the controls above, with these changes and risks.
 The contract is `desktop-apps.md` sections 3, 9, and 10.
 
 - WebRTC: WKWebView takes no browser args, and the CSP does not stop WebRTC
@@ -881,7 +891,7 @@ The contract is `desktop-apps.md` sections 3, 9, and 10.
   from the `macos-proxy` feature of `tauri` (`lib.rs`, `Cargo.toml`). No
   service listens on that port. So an HTTP load that the CSP does not
   govern, for example a preconnect, reaches no host. The proxy does not
-  stop WebRTC UDP. It needs macOS 14 or later, and D35 sets 15.
+  stop WebRTC UDP. It needs macOS 14 or later, and D36 sets 15.
 - Update archive: the updater unpacks the `.app.tar.gz` with no path
   guard. CI writes plain ustar with the root `<binary name>.app` and checks
   the seal of an unpacked copy. `repackMacAppArchive` parses with strict
@@ -910,7 +920,7 @@ The contract is `desktop-apps.md` sections 3, 9, and 10.
   row holds its SHA-256. The task checks only the `koly` trailer. This is
   the same trust as the content of the Windows setup exe.
 - Gatekeeper habit: "Open Anyway" teaches users to pass a security alert.
-  Accepted until notarization (D35).
+  Accepted until notarization (D36).
 - Navigation lock: each system accepts only its own app origin (see
   "Webview escape").
 - Single instance: the lock of the plugin is a socket in the shared `/tmp`.
@@ -946,7 +956,7 @@ The contract is `desktop-apps.md` sections 3, 9, and 10.
 
 ### Open items
 
-- No Authenticode signature (D33). SmartScreen warns on the first
+- No Authenticode signature (D34). SmartScreen warns on the first
   download.
 - No rotation of the updater key pair of one app. The public key is in
   every installer. Upgrade: a release, signed with the old key, that ships
@@ -963,8 +973,8 @@ The contract is `desktop-apps.md` sections 3, 9, and 10.
   has the setter. Newer WebKit ignores it. Write the result of the check
   here. If the check sees a DNS query, a WebKit content rule list must
   block it before production turns macOS on.
-- macOS apps have no Developer ID signature and no notarization (D35).
+- macOS apps have no Developer ID signature and no notarization (D36).
   Upgrade: sign and notarize on the server with rcodesign, after a decision
-  on whose Developer ID signs user apps (D35).
+  on whose Developer ID signs user apps (D36).
 - The gate dry run still runs on the event loop of the task. Upgrade: a
   worker thread (see "Untrusted frontend and SQL").

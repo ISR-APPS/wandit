@@ -3,6 +3,7 @@ import type { ProductSettings } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AnalyticsService } from "../../../../../infrastructure/analytics/analytics.service";
+import type { ResolvedProjectAccess } from "../../../../projects";
 import type { ProductSettingsService } from "../../../../settings";
 import { V2_BUILDER_DISABLED_ERROR_CODE } from "../../../domain/errors/v2-builder-disabled.error";
 import { V2BuilderEnabledGuard } from "./v2-builder-enabled.guard";
@@ -49,14 +50,35 @@ function analyticsServiceFor(
 	return fake as AnalyticsService;
 }
 
-function contextFor(userId: string | null): ExecutionContext {
-	// SAFETY: the guard only calls switchToHttp().getRequest() and reads user.id.
+function contextFor(
+	userId: string | null,
+	projectAccess?: ResolvedProjectAccess,
+): ExecutionContext {
+	// SAFETY: the guard only calls switchToHttp().getRequest() and reads user.id and projectAccess.
 	return {
 		switchToHttp: () => ({
-			getRequest: () => ({ user: userId ? { id: userId } : undefined }),
+			getRequest: () => ({
+				projectAccess,
+				user: userId ? { id: userId } : undefined,
+			}),
 		}),
 	} as ExecutionContext;
 }
+
+// A collaborator's access, as the global ProjectAccessGuard attaches it before this guard.
+const SHARED_ACCESS: ResolvedProjectAccess = {
+	directRole: "editor",
+	project: {
+		engine: "v2_app",
+		id: "project_1",
+		organizationId: null,
+		userId: "owner_1",
+		workspaceAccess: "can_edit",
+	},
+	role: "editor",
+	workspace: null,
+	workspaceRoles: [],
+};
 
 async function expectDisabled(guard: V2BuilderEnabledGuard): Promise<void> {
 	try {
@@ -97,6 +119,32 @@ describe("V2BuilderEnabledGuard", () => {
 		await expectDisabled(guard);
 		// The flag is never asked when the setting already denies.
 		expect(analytics.isFeatureEnabled).not.toHaveBeenCalled();
+	});
+
+	// An invited collaborator often lacks the rollout flag (design 3.3).
+	it("passes a request with a resolved project access without asking the flag", async () => {
+		const analytics = analyticsServiceFor(false);
+		const guard = new V2BuilderEnabledGuard(
+			settingsServiceFor(settings({ v2BuilderEnabled: true })),
+			analytics,
+		);
+
+		await expect(
+			guard.canActivate(contextFor("user_1", SHARED_ACCESS)),
+		).resolves.toBe(true);
+		expect(analytics.isFeatureEnabled).not.toHaveBeenCalled();
+	});
+
+	// The product setting stays a kill switch for everyone, collaborators too.
+	it("denies a request with a resolved project access when the product setting is off", async () => {
+		const guard = new V2BuilderEnabledGuard(
+			settingsServiceFor(settings()),
+			analyticsServiceFor(true),
+		);
+
+		await expect(
+			guard.canActivate(contextFor("user_1", SHARED_ACCESS)),
+		).rejects.toBeInstanceOf(ForbiddenException);
 	});
 
 	it("denies with 403 when the flag is off for the user", async () => {

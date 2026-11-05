@@ -213,8 +213,7 @@
 		},
 		"ai": {
 			"title": "AI",
-			"description": "Give your app its own AI features, billed to your credits.",
-			"cta": "Add an AI feature"
+			"description": "Give your app its own AI features, billed to your credits."
 		},
 		"payments": {
 			"title": "Payments",
@@ -222,7 +221,7 @@
 		},
 		"integrations": {
 			"title": "Integrations",
-			"description": "Google Sheets, WhatsApp, email and other services your app talks to."
+			"description": "GitHub, and later the other services your app talks to."
 		},
 		"domains": {
 			"title": "Domains",
@@ -275,6 +274,43 @@
 		},
 		"signUpNote": "New users sign up with an email and a password. They get no confirmation email."
 	},
+	"ai": {
+		"gateway": "AI gateway",
+		"on": "On",
+		"off": "Off",
+		"howItWorks": "When your app needs AI, the agent turns on the gateway after you approve. A server function of your app then calls AI models. Each call uses your credits.",
+		"keySafety": "Wandit keeps the key in the secrets of your backend. The key never goes into the app code.",
+		"noCredits": "When your credits run out, the AI calls of your app stop until you add credits.",
+		"monthCredits": "Credits this month",
+		"monthRequests": "AI calls this month",
+		"keyUpdated": "Key updated {date}",
+		"models": "Models",
+		"modelsHint": "The agent picks one of these models for each AI feature.",
+		"defaultModel": "Default",
+		"actions": {
+			"enable": "Turn on",
+			"rotate": "Rotate key",
+			"disable": "Turn off"
+		},
+		"confirm": {
+			"cancel": "Cancel",
+			"enable": {
+				"title": "Turn on the AI gateway?",
+				"description": "Wandit makes a key for your app and sends it to your backend. Each AI call of your app uses your credits.",
+				"done": "The AI gateway is on."
+			},
+			"rotate": {
+				"title": "Rotate the key?",
+				"description": "Wandit makes a new key and sends it to your backend. The old key stops working at once.",
+				"done": "The new key is active."
+			},
+			"disable": {
+				"title": "Turn off the AI gateway?",
+				"description": "Wandit deletes the key. The AI features of your app stop working until you turn the gateway on again.",
+				"done": "The AI gateway is off."
+			}
+		}
+	},
 	"payments": {
 		"title": "Payments are coming soon",
 		"body": "Soon you can accept payments in your web apps and SaaS, set up from the chat.",
@@ -289,6 +325,51 @@
 		"freeTitle": "Free Wandit address",
 		"freeAfterPublish": "You get it when you publish the app.",
 		"freeHost": "Free Wandit domain"
+	},
+	"github": {
+		"title": "GitHub",
+		"hint": "Keep the code of this app in a repository on your GitHub account.",
+		"notConfigured": "GitHub sync is not set up on this server.",
+		"connectHint": "Connect your GitHub account to create a repository for this app.",
+		"connect": "Connect GitHub",
+		"connectedAs": "Connected as {login}",
+		"owner": "Owner",
+		"addOwner": "Add an account or org",
+		"noInstallations": "Install the Wandit app on your GitHub account or on an org to create a repository.",
+		"repoName": "Repository name",
+		"repoNameInvalid": "Use only letters, digits, dots, dashes, and underscores, 100 characters at most.",
+		"private": "Private repository",
+		"privateHelp": "Only you and the people you add on GitHub can see it.",
+		"create": "Create repository",
+		"lastSynced": "Last sync: {sha}",
+		"neverSynced": "Not synced yet.",
+		"unlink": "Unlink repository",
+		"unlinkConfirmTitle": "Unlink {repo}?",
+		"unlinkConfirmBody": "Wandit stops the sync. The repository and its commits stay on GitHub.",
+		"cancel": "Cancel",
+		"notes": {
+			"mainOnly": "Only the main branch syncs, in both directions.",
+			"githubWins": "When both sides change the same lines, the GitHub version wins.",
+			"workflows": "When the agent changes a file in .github/workflows, the sync to GitHub stops."
+		},
+		"banner": {
+			"text": "This project has new changes on GitHub.",
+			"update": "Update"
+		},
+		"connectedToast": "GitHub is connected.",
+		"callbackErrors": {
+			"invalid_state": "The GitHub connection expired. Try again.",
+			"access_denied": "You refused access on GitHub.",
+			"exchange_failed": "The GitHub connection failed. Try again."
+		},
+		"syncErrors": {
+			"GITHUB_ACCESS_LOST": "The Wandit app cannot reach this repository now. Check the app installation on GitHub.",
+			"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository can no longer open this project. Unlink it and link it again.",
+			"GITHUB_LINKER_NO_ACCESS": "The person who linked this repository cannot write to it now.",
+			"GITHUB_PUSH_REJECTED": "GitHub refused the last push, for example because of a branch protection rule.",
+			"GITHUB_WORKFLOW_CHANGED": "The sync stopped: the agent changed a file in .github/workflows. Make workflow changes on GitHub.",
+			"GITHUB_SYNC_FAILED": "The last sync failed. Wandit tries again soon."
+		}
 	},
 	"appStores": {
 		"androidHelp": "The Android builds of your app. Start a new build from Publish.",
@@ -531,6 +612,7 @@
 			"request_network_host": "Allow the app to reach {host}?",
 			"run_sql_write": "Change data in your database?",
 			"apply_destructive_migration": "Change your database structure? Some data can be lost.",
+			"enable_ai": "Let your app use AI? Each AI call uses your credits.",
 			"other": "Allow Wandit to run this action?"
 		},
 		"elapsed": "{seconds}s",
@@ -657,7 +739,8 @@
 				"supabase_service_role_jwt": "Supabase service role key",
 				"anthropic_api_key": "Anthropic API key",
 				"google_api_key": "Google API key",
-				"private_key": "private key"
+				"private_key": "private key",
+				"wandit_ai_api_key": "Wandit AI gateway key"
 			},
 			"phishing": "The public name \"{target}\" looks like a login, bank, or wallet page.",
 			"advisor": {
@@ -819,7 +902,9 @@
 			"restore": "Restore",
 			"wip": "Work in progress",
 			"merge": "Merge",
-			"theme": "Theme"
+			"theme": "Theme",
+			"github": "GitHub",
+			"mcp": "Coding agent"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

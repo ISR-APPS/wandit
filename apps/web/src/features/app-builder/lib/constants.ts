@@ -1,8 +1,8 @@
 /**
  * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
  * and devices. Also the storage keys and panel widths of the chat column,
- * the storage key of the model pick, and the easing and detail pace of the
- * start-up screens. Read by
+ * the storage key of the model pick, the easing and detail pace of the
+ * start-up screens, and the length of a short commit sha. Read by
  * the route search schema, the shell, the More view, the Cloud panels, the
  * preview, and the chat. No logic and no React here.
  */
@@ -54,12 +54,6 @@ export const MORE_PANELS = [
 export type MorePanel = (typeof MORE_PANELS)[number];
 
 /**
- * A More panel that the More view can open. The nav lists Integrations muted,
- * with a "Soon" badge, and never opens it. Payments opens its coming-soon page.
- */
-export type EnabledMorePanel = Exclude<MorePanel, "integrations">;
-
-/**
  * Panels of the Backend group of the More view, in nav order (WANDIT-188).
  * Every panel except `secrets` needs a running backend; secrets live in the
  * Wandit database. No id is also in MORE_PANELS, so `?panel=` holds both.
@@ -75,8 +69,8 @@ export const CLOUD_PANELS = [
 ] as const;
 export type CloudPanel = (typeof CLOUD_PANELS)[number];
 
-/** A panel that the More view can open: an enabled More panel, or a Cloud panel behind the gate. */
-export type ProjectPanel = EnabledMorePanel | CloudPanel;
+/** A panel that the More view can open: a More panel, or a Cloud panel behind the gate. */
+export type ProjectPanel = MorePanel | CloudPanel;
 
 /** Phosphor icon of each Cloud panel in the More nav. The label is `workspace.cloud.panels.<id>`. */
 export const CLOUD_PANEL_ICONS: Record<CloudPanel, Icon> = {
@@ -133,7 +127,7 @@ type MorePanelMeta = {
 };
 
 // A desktop app has no backend and no network (docs/v2/desktop-apps.md, section 12).
-// So the sign-in methods and the payments of a hosted app do not apply to it.
+// So the sign-in methods, the payments, and the AI gateway of a hosted app do not apply to it.
 const HOSTED_KINDS: readonly AppProjectKind[] = ["web", "mobile"];
 
 /** Icon, visibility, and copy keys of each More panel. */
@@ -152,7 +146,7 @@ export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 	},
 	ai: {
 		icon: SparkleIcon,
-		kinds: targetPlatforms,
+		kinds: HOSTED_KINDS,
 		title: "appBuilder.panels.ai.title",
 		description: "appBuilder.panels.ai.description",
 	},
@@ -260,3 +254,6 @@ export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;
  * the same pace. The last line then stays.
  */
 export const DETAIL_STEP_MS = 3200;
+
+/** Seven characters name a commit, like `git log --oneline`. The versions and publish popovers and the GitHub card use it. */
+export const SHORT_SHA_LENGTH = 7;

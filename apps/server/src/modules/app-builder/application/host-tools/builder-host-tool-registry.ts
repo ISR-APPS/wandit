@@ -3,9 +3,10 @@
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
  * `generate_image`, and `set_theme` for a template with the theme system.
- * A web or mobile project adds `request_network_host` and the seven backend
- * tools of WANDIT-186; a desktop project adds `add_local_migration`. A Plan
- * Mode turn gets only `ask_user` and `present_plan`.
+ * A web or mobile project adds `request_network_host`, the seven backend
+ * tools of WANDIT-186, and `enable_ai` of the app AI gateway; a desktop
+ * project adds `add_local_migration`. A Plan Mode turn gets only `ask_user`
+ * and `present_plan`.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
  */
@@ -26,8 +27,11 @@ import {
 	createApplyDestructiveMigrationTool,
 	createApplyMigrationTool,
 } from "./backend/apply-migration.host-tool";
-import type { BackendToolDeps } from "./backend/backend-tool-deps";
 import { createDeployFunctionTool } from "./backend/deploy-function.host-tool";
+import {
+	createEnableAiTool,
+	type EnableAiToolDeps,
+} from "./backend/enable-ai.host-tool";
 import { createGetAdvisorsTool } from "./backend/get-advisors.host-tool";
 import {
 	createRunSqlTool,
@@ -49,12 +53,13 @@ import {
 import { createSetThemeTool, SET_THEME_TOOL_NAME } from "./set-theme.host-tool";
 
 /**
- * The image deps, the backend tool deps (WANDIT-186), the network-host
- * repository (WANDIT-180), and the desktop migration registry. `audit`
+ * The image deps, the backend tool deps (WANDIT-186) with the AI key write
+ * of `enable_ai`, the network-host repository (WANDIT-180), and the desktop
+ * migration registry. `audit`
  * serves `request_network_host` and the backend tools; `logger` serves every tool.
  */
 export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
-	BackendToolDeps & {
+	EnableAiToolDeps & {
 		/** Appends an approved egress host, in one transaction with its audit row. */
 		networkHosts: RequestNetworkHostHostToolDeps["networkHosts"];
 		/** Reads the frozen migrations of a desktop project for `add_local_migration`. */
@@ -88,7 +93,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 		// Only a template with src/styles/theme.json has a theme to set.
 		const hasAppTheme = supportsAppTheme(context.templateVersion);
 		// A desktop app keeps its data in a local SQLite file: it has no cloud
-		// backend, and its schema changes only through add_local_migration.
+		// backend, so no backend tool and no enable_ai. Its schema changes only
+		// through add_local_migration.
 		// Its CSP blocks every remote host, so it gets no request_network_host:
 		// an approved host would work in the preview and fail in the installed app.
 		const isDesktop = context.framework === TEMPLATE_PROFILES.desktop.framework;
@@ -111,6 +117,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 							apply_destructive_migration: "user-approval",
 							apply_migration: "not-applicable",
 							deploy_function: "not-applicable",
+							// The user must agree that each AI call of the app spends credits.
+							enable_ai: "user-approval",
 							get_advisors: "not-applicable",
 							run_sql: "not-applicable",
 							run_sql_write: "user-approval",
@@ -147,6 +155,7 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 							),
 							apply_migration: createApplyMigrationTool(this.deps, context),
 							deploy_function: createDeployFunctionTool(this.deps, context),
+							enable_ai: createEnableAiTool(this.deps, context),
 							get_advisors: createGetAdvisorsTool(this.deps, context),
 							run_sql: createRunSqlTool(this.deps, context),
 							run_sql_write: createRunSqlWriteTool(this.deps, context),

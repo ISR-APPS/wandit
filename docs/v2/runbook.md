@@ -402,7 +402,7 @@ staging account with credits. Do the steps of "Setup" first.
 1. Create a desktop project. Ask the agent for a notes app with one `notes`
    table. Build it, and release it when it is `ready`. This is v1 (`1.0.1`).
 2. On the PC, download the installer from the download link and run it.
-   SmartScreen warns about the unsigned installer (D33): select "More info",
+   SmartScreen warns about the unsigned installer (D34): select "More info",
    then "Run anyway".
 3. Open the app and add 3 notes. Close the app.
 4. In the chat, ask for a `pinned` column with `DEFAULT 0`, plus this check
@@ -628,9 +628,9 @@ API errors of the desktop routes:
 
 - `DESKTOP_BUILD_ACTIVE`: the project has a live build. Wait, or cancel it.
 - `DESKTOP_BUILD_LIMIT_REACHED`: the payer already has 2 live builds in
-  all its projects. The payer is the user of a personal workspace, or the
-  organization of a team workspace. So a team member with no build of
-  their own can get it. Wait for a build to end. The hold comes back.
+  all its projects. The payer is the organization of a team project, else
+  the owner of a personal project, also when a shared member or a
+  collaborator asks. So a member with no build of their own can get it. Wait for a build to end. The hold comes back.
 - `DESKTOP_BUILD_NO_VERSION`: `main` has no commit yet. The user sends a
   first message in the chat.
 - `DESKTOP_BUILD_NOT_READY`: a release of a build that is not `ready`, or
@@ -638,7 +638,7 @@ API errors of the desktop routes:
   suspend removes every installer.
 - `DESKTOP_BUILD_OLDER_THAN_CURRENT`: a release of a build older than the
   current one. Installed apps accept only a newer version. The owner
-  clicks Rebuild on that build (D34).
+  clicks Rebuild on that build (D35).
 - `PROJECT_SUSPENDED` (403): staff suspended the project. See "Suspend and
   delete".
 - `DESKTOP_TEMPLATE_UNAVAILABLE`: see "Setup", step 4.
@@ -733,7 +733,7 @@ or a check query that failed on the saved rows.
 ### macOS desktop builds
 
 A macOS build makes a disk image (`.dmg`) and an update archive
-(`.app.tar.gz`) for Apple silicon, macOS 15 or later (D35). The app has an
+(`.app.tar.gz`) for Apple silicon, macOS 15 or later (D36). The app has an
 ad-hoc signature and no notarization. The contract is
 `docs/v2/desktop-apps.md` sections 3, 9, and 10.
 
@@ -785,13 +785,15 @@ A failed build refunds its hold, but GitHub bills the runner minutes. A
 macOS minute costs $0.062. One payer has at most 2 live builds, so one payer
 can cost about $7.44 per hour (`desktop-apps.md` section 11).
 
-1. Each Monday, run this query on the production database:
+1. Each Monday, run this query on the production database. The payer comes
+   from `projects`: `desktop_builds.user_id` holds the user who asked.
    ```sql
-   SELECT coalesce(organization_id, user_id) AS payer, error_code, count(*)
-   FROM desktop_builds
-   WHERE platform = 'macos'
-     AND status = 'failed'
-     AND completed_at > now() - interval '7 days'
+   SELECT coalesce(p.organization_id, p.user_id) AS payer, b.error_code, count(*)
+   FROM desktop_builds b
+   JOIN projects p ON p.id = b.project_id
+   WHERE b.platform = 'macos'
+     AND b.status = 'failed'
+     AND b.completed_at > now() - interval '7 days'
    GROUP BY 1, 2
    ORDER BY 3 DESC;
    ```
@@ -861,13 +863,20 @@ The lifecycle rule of "Setup", step 5, deletes them.
 3. If check 6 shows `RTCPeerConnection`, or the window does not open, set
    the flag to `false`. Then tell engineering: Apple changed the WebRTC key.
 
-#### Migration number at the merge
+#### Desktop migration number
 
-`origin/dev` already holds `0088_app-ai-gateway-operation.sql` to
-`0091_workspaces-sharing.sql`. So the desktop migration
-(`packages/db/src/migrations/0088_desktop-apps.sql`) gets a new number at
-the merge with `dev`. A local database that ran the old 0088 must drop and
-create its desktop tables again, or reset.
+The desktop migration is `packages/db/src/migrations/0092_desktop-apps.sql`.
+Before the merge with `dev`, it was `0088_desktop-apps.sql` with the journal
+`when` 1793877910625. No remote branch holds that file, so only a local
+database can have its row. To find the row, run
+`select 1 from drizzle.__drizzle_migrations where created_at = 1793877910625;`.
+
+Drizzle applies only the files that are newer than the newest row. So a
+database with this row skips dev's 0088 to 0091. It then fails on 0092 with
+`type "desktop_build_status" already exists`. Drop and create that database
+again, then run `pnpm db:migrate`. A drop of the desktop tables is not
+sufficient: Postgres cannot remove the enum values `desktop_build` and
+`desktop` that 0092 adds, so 0092 fails again.
 
 #### macOS staging checks
 
@@ -886,7 +895,7 @@ fail.
    (cached).
    - Pass: both builds reach `ready`. Record the job minutes from the run
      pages. A cold build over 40 minutes needs a new `timeout-minutes`
-     (D35, 45 now).
+     (D36, 45 now).
    - Result: not run.
 3. First start. Download the disk image with Safari from the stable link.
    Open it, drag the app to Applications, and open the app.

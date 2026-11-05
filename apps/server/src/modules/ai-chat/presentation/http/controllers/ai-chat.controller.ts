@@ -1,3 +1,8 @@
+/**
+ * `POST /api/v1/chats/:chatId/ai-stream`: one streamed V1 page-builder AI turn.
+ * Nest calls it after the session and workspace guards; the chat must be in the header scope.
+ * It validates the UI messages, then calls AiChatService to reserve credits and stream the answer.
+ */
 import {
 	BadRequestException,
 	Body,
@@ -32,7 +37,10 @@ import { CurrentUser } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
-import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import {
+	CurrentWorkspace,
+	RequireWorkspacePermission,
+} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import {
 	aiChatToolsForValidation,
 	type WanditUIMessage,
@@ -86,6 +94,8 @@ export class AiChatController {
 		private readonly chatsRepository: ChatsRepository,
 	) {}
 
+	// A V1 prompt edits the page and spends credits, so a workspace Viewer may not send one.
+	@RequireWorkspacePermission("project", "update")
 	@Post(":chatId/ai-stream")
 	@SkipResponseEnvelope()
 	async stream(

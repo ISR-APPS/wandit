@@ -50,7 +50,9 @@ export const desktopApps = pgTable(
 		projectId: uuid("project_id")
 			.primaryKey()
 			.references(() => projects.id, { onDelete: "cascade" }),
-		// The owner pair, as on `projects`: the creating member for an org project.
+		// The owner pair, as `projectOwnerColumns` writes it at the first build:
+		// `projects.user_id` of a personal project, or the org and the member of
+		// the first build of a team project. A project move rewrites both.
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
@@ -113,11 +115,13 @@ export const desktopBuilds = pgTable(
 	"desktop_builds",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		// The user who asked for the build. Restrict: the credit history of the
-		// build must survive account rows.
+		// The user who asked for the build, the actor (workspaces-sharing.md 4).
+		// On a shared personal project the payer is `projects.user_id`, not this
+		// user. Restrict: the credit history of the build must survive account rows.
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// The team org of the project, or null on a personal project.
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "restrict",
 		}),

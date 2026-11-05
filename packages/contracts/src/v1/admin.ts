@@ -45,6 +45,8 @@ import { pageAttemptStatusSchema, pageVersionListItemSchema } from "./pages";
 import { projectAssetSourceSchema } from "./project-assets";
 import { dzdPerUsdRateSchema } from "./settings";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
+import { workspaceKindSchema } from "./shared/project-access";
+import { workspaceRoleNames } from "./workspaces";
 
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
 // the AdminGuard: non-staff sessions get 404; staff permissions are enforced
@@ -816,7 +818,8 @@ export type AdminSetBannedInput = z.infer<typeof adminSetBannedInputSchema>;
 
 // --- Organizations (teams/workspaces, teams-workspaces.md §10) ---
 
-export const adminWorkspaceRoles = ["owner", "admin", "member"] as const;
+// All workspace roles, also `viewer`. The server refuses `owner` for another member of a personal workspace.
+export const adminWorkspaceRoles = workspaceRoleNames;
 
 export const adminWorkspaceRoleSchema = z.enum(adminWorkspaceRoles);
 
@@ -833,6 +836,9 @@ export const adminOrganizationSummarySchema = z.object({
 	plan: adminUserPlanSchema,
 	// Decimal credits (server divides internal centi-credits by 100).
 	creditsBalance: z.number(),
+	// True for a user's personal workspace (`personal_owner_user_id` is set).
+	// The list shows a "Personal" badge. Optional: an older API omits it.
+	isPersonal: z.boolean().optional(),
 });
 
 export type AdminOrganizationSummary = z.infer<
@@ -848,6 +854,9 @@ export const adminListOrganizationsSorts = [
 export const adminListOrganizationsQuerySchema = paginationQuerySchema.extend({
 	q: z.string().trim().min(1).max(200).optional(),
 	sort: z.enum(adminListOrganizationsSorts).default("newest"),
+	// Team workspaces by default. Every user has a personal workspace, so
+	// personal ones show only on demand.
+	kind: workspaceKindSchema.default("team"),
 });
 
 export type AdminListOrganizationsQuery = z.infer<
@@ -917,6 +926,9 @@ export const adminOrganizationDetailSchema =
 		// Affiliate policy snapshot from the org's Stripe customer; null until
 		// the first checkout creates that customer.
 		attributionUserId: z.string().nullable(),
+		// The only user who may hold `owner` in a personal workspace; null for a team.
+		// Staff can give `owner` back to this user. Optional: an older API omits it.
+		personalOwnerUserId: z.string().nullable().optional(),
 	});
 
 export type AdminOrganizationDetail = z.infer<

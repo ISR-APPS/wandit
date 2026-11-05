@@ -4,21 +4,26 @@
  * the `builder-turn` task (WANDIT-166) calls the CAS methods inside a run.
  * The partial unique index `builder_turns_active_project_uq` is the last
  * guard of the one-active-turn-per-project rule; every mutator is a CAS so
- * a stale writer can never overwrite a newer state.
+ * a stale writer can never overwrite a newer state. `findCardParts` reads the
+ * cards of a paused turn from `messages` for the MCP `get_turn` tool.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import type {
-	BuilderTurnMode,
-	BuilderTurnStatus,
-	ComposerMetadata,
-	FileRef,
-	PreviewTarget,
-	TurnQuestionAnswer,
+import {
+	type BuilderTurnMode,
+	type BuilderTurnStatus,
+	type ComposerMetadata,
+	type FileRef,
+	type PreviewTarget,
+	type TurnQuestionAnswer,
+	turnApprovalDataPartSchema,
+	turnPlanDataPartSchema,
+	turnQuestionDataPartSchema,
 } from "@wandit/contracts";
 import {
 	alias,
 	and,
 	asc,
+	desc,
 	eq,
 	inArray,
 	isNull,
@@ -26,7 +31,9 @@ import {
 	sql,
 } from "@wandit/db";
 import { builderTurns } from "@wandit/db/schema/builder-turns";
+import { messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
+import { z } from "zod";
 
 import {
 	DATABASE,
@@ -45,6 +52,16 @@ export type BuilderTurnRow = typeof builderTurns.$inferSelect;
 
 /** The process that owns a turn run; see `builderTurnRunner` in the schema. */
 export type BuilderTurnRunner = BuilderTurnRow["runner"];
+
+// The card parts that pause a turn. The builder-turn task writes them into the assistant message.
+const turnCardPartSchema = z.discriminatedUnion("type", [
+	turnQuestionDataPartSchema,
+	turnApprovalDataPartSchema,
+	turnPlanDataPartSchema,
+]);
+
+/** One card of a turn: a `data-question`, a `data-approval`, or a `data-plan` part. */
+export type TurnCardPart = z.infer<typeof turnCardPartSchema>;
 
 /**
  * The frozen request snapshot stored in `spec` at queue time. The task
@@ -146,7 +163,7 @@ export class BuilderTurnsRepository {
 		model: string | null;
 		organizationId: string | null;
 		projectId: string;
-		/** Dedupe key of the submit; today it is the generated turn id. */
+		/** Dedupe key of the submit: the generated turn id, or `mcp:<clientId>:<userId>:<requestKey>` from the MCP `send_prompt` tool. */
 		requestKey: string;
 		sessionId: string;
 		spec: BuilderTurnSpec;
@@ -227,6 +244,27 @@ export class BuilderTurnsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	/**
+	 * The card parts of the newest assistant message of the turn, answered or not.
+	 * The jsonb column has no type, so each part is parsed. Other parts and old card shapes are skipped.
+	 */
+	async findCardParts(turnId: string): Promise<TurnCardPart[]> {
+		const [row] = await this.db
+			.select({ parts: messages.parts })
+			.from(messages)
+			.where(and(eq(messages.turnId, turnId), eq(messages.role, "assistant")))
+			.orderBy(desc(messages.createdAt))
+			.limit(1);
+		const parts = z.array(z.unknown()).safeParse(row?.parts);
+		if (!parts.success) {
+			return [];
+		}
+		return parts.data.flatMap((part) => {
+			const card = turnCardPartSchema.safeParse(part);
+			return card.success ? [card.data] : [];
+		});
 	}
 
 	/** The row holding a Trigger.dev run id, used by run-side callbacks. */

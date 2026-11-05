@@ -186,34 +186,35 @@ export class DomainsRepository {
 	): Promise<DomainRow[]> {
 		await this.assertProjectAccessible(scope, projectId);
 
-		// Personal keeps the purchaser filter (byte-compat). Org projects list
-		// every attached domain regardless of which member bought it — project
-		// access is already proven above and mutations are role-gated.
-		const purchaserFilter =
-			scope.kind === "personal" ? [eq(domains.userId, scope.userId)] : [];
-
+		// Every attached domain shows, whichever member bought it: an admin of a
+		// shared personal workspace buys for the owner's project. Project access
+		// is already proven above, and mutations are role-gated.
 		return this.db
 			.select()
 			.from(domains)
-			.where(and(eq(domains.projectId, projectId), ...purchaserFilter))
+			.where(eq(domains.projectId, projectId))
 			.orderBy(desc(domains.createdAt), desc(domains.id));
 	}
 
 	/**
 	 * Scope-aware access for PROJECT-side domain management (verify, primary,
-	 * detach). Personal: purchaser equality, byte-compat. Org: the domain must
-	 * be attached to a project of this org — which member bought it does not
-	 * matter (asset-side ops like auto-renew stay purchaser-only elsewhere).
+	 * detach). The domain must be attached to a project of this scope — which
+	 * member bought it does not matter (asset-side ops like auto-renew stay
+	 * purchaser-only elsewhere). The personal owner also reaches every domain
+	 * that the owner bought, attached or not.
 	 */
 	async getByIdForScope(id: string, scope: ProjectScope): Promise<DomainRow> {
-		if (scope.kind === "personal") {
-			return this.getByIdForUser(id, scope.userId);
-		}
+		// Only the personal owner keeps purchaser access. Other actors need the
+		// project join, so the Restricted rule of the project applies to them.
+		const ownerPurchase =
+			scope.kind === "personal" && scope.actorUserId === scope.ownerUserId
+				? eq(domains.userId, scope.ownerUserId)
+				: undefined;
 
 		const [row] = await this.db
 			.select({ domains })
 			.from(domains)
-			.innerJoin(
+			.leftJoin(
 				projects,
 				and(
 					eq(projects.id, domains.projectId),
@@ -221,7 +222,12 @@ export class DomainsRepository {
 					sql`${projects.deletedAt} IS NULL`,
 				),
 			)
-			.where(eq(domains.id, id))
+			.where(
+				and(
+					eq(domains.id, id),
+					or(sql`${projects.id} IS NOT NULL`, ownerPurchase),
+				),
+			)
 			.limit(1);
 
 		return this.expectRow(row?.domains);

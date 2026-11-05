@@ -30,7 +30,10 @@ import { getErrorMessage } from "@wandit/observability/error";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { CreditsService } from "../../../credits/application/services/credits.service";
-import { subjectPayer } from "../../../credits/domain/credit-owner";
+import {
+	creditPayerOf,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import {
@@ -41,6 +44,7 @@ import {
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
+	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
@@ -131,7 +135,7 @@ export class AppProjectsService {
 		);
 		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
-		assertWanditHostedAttachments(scope.userId, body.attachments);
+		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
 		// Before any row: an unpriced pick must not leave a project whose
 		// first turn already failed.
 		if (body.model !== undefined) {
@@ -140,14 +144,14 @@ export class AppProjectsService {
 
 		// D-C: the create path holds nothing; it only refuses a user with no
 		// credits, before any row exists.
-		const balance = await this.credits.getSettledBalance(
-			subjectPayer(meteringSubjectFrom(scope)),
-		);
+		const payer = subjectPayer(meteringSubjectFrom(scope));
+		const balance = await this.credits.getSettledBalance(payer);
 		if (balance.settledBalance <= 0) {
 			throw new InsufficientCreditsError(
 				TURN_HOLD_DEFAULT_CREDITS,
 				balance.balance,
 				balance.settledBalance,
+				creditPayerOf(payer, scope.actorUserId),
 			);
 		}
 
@@ -179,23 +183,21 @@ export class AppProjectsService {
 		// D18 and D3: a V2 project gets one backend at creation when the
 		// payer's plan has a free slot. A failure here must not lose the
 		// project — the `app_backends` row stays `error` or absent and the
-		// first turn still runs. A desktop app keeps its data in a local
-		// SQLite file, so it gets no cloud backend.
-		if (body.targetPlatform !== "desktop") {
-			try {
-				await this.backends.provisionBackend(projectId, {
-					countryCode: request.countryCode,
-					organizationId: scope.kind === "org" ? scope.organizationId : null,
-					userId: scope.userId,
-				});
-			} catch (error) {
-				// A plan without a free backend slot is a product rule, not a
-				// failure: `BackendsService` already logged it.
-				if (!(error instanceof BackendLimitReachedError)) {
-					this.logger.error(
-						`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
-					);
-				}
+		// first turn still runs. `BackendsService` gives a desktop project no
+		// backend.
+		try {
+			await this.backends.provisionBackend(projectId, {
+				countryCode: request.countryCode,
+				// The payer's plan decides the backend slot: the project owner columns.
+				...projectOwnerColumns(scope),
+			});
+		} catch (error) {
+			// A plan without a free backend slot is a product rule, not a
+			// failure: `BackendsService` already logged it.
+			if (!(error instanceof BackendLimitReachedError)) {
+				this.logger.error(
+					`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+				);
 			}
 		}
 
@@ -244,7 +246,7 @@ export class AppProjectsService {
 				this.logger.warn(`Background project title update failed: ${message}`);
 			});
 
-		this.analytics.capture(scope.userId, "v2_project_created", {
+		this.analytics.capture(scope.actorUserId, "v2_project_created", {
 			countryCode: request.countryCode,
 			framework: templateProfile.framework,
 			languages: body.languages,
@@ -345,7 +347,7 @@ export class AppProjectsService {
 
 	/**
 	 * `GET /v2/projects/:id/cost-caps`. Called by `cost-caps.controller.ts`
-	 * behind a `limits:manage` role gate. A missing row answers the plan
+	 * behind its project role gate (team admin, personal owner). A missing row answers the plan
 	 * default so the settings form has a number to edit.
 	 */
 	async getCostCaps(
@@ -365,8 +367,8 @@ export class AppProjectsService {
 
 	/**
 	 * `PUT /v2/projects/:id/cost-caps`. Called by `cost-caps.controller.ts`
-	 * behind the same `limits:manage` role gate. Writes the caps row and
-	 * answers it; `scope.userId` is the acting user stored on the row.
+	 * behind the same project role gate. Writes the caps row and
+	 * answers it; `scope.actorUserId` is the acting user stored on the row.
 	 */
 	async updateCostCaps(
 		scope: ProjectScope,
@@ -375,7 +377,7 @@ export class AppProjectsService {
 	): Promise<ProjectCostCaps> {
 		await this.requireV2AppProject(scope, projectId);
 
-		return this.costCaps.upsert(projectId, body, scope.userId);
+		return this.costCaps.upsert(projectId, body, scope.actorUserId);
 	}
 
 	/**

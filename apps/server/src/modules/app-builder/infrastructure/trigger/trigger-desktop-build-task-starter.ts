@@ -48,7 +48,6 @@ export class TriggerDesktopBuildTaskStarter implements DesktopBuildTaskStarter {
 				const handle = await tasks.trigger(
 					DESKTOP_BUILD_TASK_ID,
 					{
-						actorIsLimitExempt: input.actorIsLimitExempt,
 						buildId: input.buildId,
 						projectId: input.projectId,
 					},

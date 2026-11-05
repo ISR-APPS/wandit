@@ -270,7 +270,7 @@ export class AiChatService {
 		const subject = meteringSubjectFrom(options.scope);
 		// Concurrency is per ACTOR, not per payer: one org member streaming must
 		// not block another member's slot.
-		const releaseSlot = this.acquireStreamSlot(options.scope.userId);
+		const releaseSlot = this.acquireStreamSlot(options.scope.actorUserId);
 		let release = releaseSlot;
 
 		try {
@@ -667,7 +667,7 @@ export class AiChatService {
 		} = options;
 		// The acting member: upload ownership, MCP connections, and stream slots
 		// are actor-scoped even when the org pool pays.
-		const userId = scope.userId;
+		const userId = scope.actorUserId;
 		const subject = meteringSubjectFrom(scope);
 		// Internal aborter: a lost execution lease must stop the stream itself
 		// (settlement stays safe — settle replays are idempotent under the

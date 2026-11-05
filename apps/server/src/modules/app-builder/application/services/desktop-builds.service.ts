@@ -44,6 +44,7 @@ import {
 	type ObjectHeaders,
 	putObject,
 } from "../../../../infrastructure/storage/r2";
+import { subjectPayer } from "../../../credits/domain/credit-owner";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import { DESKTOP_BUILD_CREDITS_CENTI } from "../../../metering/domain/operation-registry";
@@ -188,7 +189,7 @@ export class DesktopBuildsService {
 		]);
 		return {
 			app: app === null ? null : this.toApiApp(app, project),
-			// D35: the web offers macOS only while the API accepts macOS builds.
+			// D36: the web offers macOS only while the API accepts macOS builds.
 			buildablePlatforms: env.DESKTOP_MACOS_BUILDS_ENABLED
 				? ["windows", "macos"]
 				: ["windows"],
@@ -233,7 +234,7 @@ export class DesktopBuildsService {
 				project,
 			);
 		}
-		// D35: macOS builds stay off until the macOS staging checks pass. The check follows the
+		// D36: macOS builds stay off until the macOS staging checks pass. The check follows the
 		// replay, so a retry of an accepted request still answers its first build.
 		if (body.platform === "macos" && !env.DESKTOP_MACOS_BUILDS_ENABLED) {
 			throw new ForbiddenException({
@@ -265,7 +266,10 @@ export class DesktopBuildsService {
 		try {
 			insert = await this.builds.insertQueued(
 				{
-					...projectOwnerColumns(scope),
+					// `desktop_builds.user_id` holds the actor (workspaces-sharing.md 4).
+					// `organizationId` is the team org of the project or null.
+					organizationId: projectOwnerColumns(scope).organizationId,
+					userId: scope.actorUserId,
 					commitSha,
 					id: buildId,
 					notes: body.notes || null,
@@ -276,6 +280,8 @@ export class DesktopBuildsService {
 				app === null
 					? this.newDesktopApp(scope, project, body.productName, ring)
 					: null,
+				// The cap counts the builds of the pool that pays the hold.
+				subjectPayer(meteringSubjectFrom(scope)),
 			);
 		} catch (error) {
 			await this.refundCreateHold(holdEventId, buildId);
@@ -300,11 +306,7 @@ export class DesktopBuildsService {
 
 		let runId: string;
 		try {
-			({ runId } = await this.starter.start({
-				actorIsLimitExempt: scope.kind === "org" && scope.actorIsLimitExempt,
-				buildId,
-				projectId,
-			}));
+			({ runId } = await this.starter.start({ buildId, projectId }));
 		} catch (error) {
 			return this.failStart(insert.row, project, holdEventId, error);
 		}
@@ -320,7 +322,7 @@ export class DesktopBuildsService {
 
 		await this.audit.record({
 			action: "desktop.build",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: {
 				commitSha,
@@ -371,7 +373,7 @@ export class DesktopBuildsService {
 		await this.refundCanceledHold(scope, canceled);
 		await this.audit.record({
 			action: "desktop.cancel",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { version: canceled.version },
 			organizationId: projectOwnerColumns(scope).organizationId,
@@ -471,7 +473,7 @@ export class DesktopBuildsService {
 
 		await this.audit.record({
 			action: "desktop.release",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { platform: released.platform, version: released.version },
 			organizationId: projectOwnerColumns(scope).organizationId,

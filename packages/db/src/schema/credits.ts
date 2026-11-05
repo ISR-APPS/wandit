@@ -54,6 +54,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"mobile_build",
 	// Appetize device minutes (WANDIT-196): zero credits inside the plan allowance.
 	"mobile_preview",
+	// One AI call of a V2 app through the app AI gateway, billed by tokens.
+	"app_ai_gateway",
 	// One desktop build of a V2 desktop app, Windows or macOS, at a fixed price.
 	"desktop_build",
 	"topup_adjust",
@@ -290,6 +292,12 @@ export const aiUsageEvents = pgTable(
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "restrict",
 		}),
+		// Set only when another user's personal pool pays for this actor's work
+		// (a shared personal workspace). NULL: the pool of `organizationId`, or
+		// of `userId` when that is NULL too (workspaces-sharing.md 4).
+		payerUserId: text("payer_user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
 		operation: aiUsageOperation("operation").notNull(),
 		parentEventId: uuid("parent_event_id").references(
 			(): AnyPgColumn => aiUsageEvents.id,
@@ -348,6 +356,11 @@ export const aiUsageEvents = pgTable(
 		index("ai_usage_events_orgId_userId_createdAt_idx")
 			.on(table.organizationId, table.userId, table.createdAt)
 			.where(sql`${table.organizationId} IS NOT NULL`),
+		// The personal pool balance (in-flight holds) and the per-member spend
+		// of a shared personal workspace both filter on the payer first.
+		index("ai_usage_events_payerUserId_userId_createdAt_idx")
+			.on(table.payerUserId, table.userId, table.createdAt)
+			.where(sql`${table.payerUserId} IS NOT NULL`),
 		index("ai_usage_events_attemptRef_operation_createdAt_idx")
 			.on(table.attemptRef, table.operation, table.createdAt)
 			.where(sql`${table.attemptRef} IS NOT NULL`),

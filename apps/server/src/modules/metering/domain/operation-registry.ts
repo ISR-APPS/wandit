@@ -130,6 +130,15 @@ export const OPERATION_REGISTRY = {
 		reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 	},
+	// One AI call of a V2 app. The app's own backend calls the gateway, never a
+	// chat or a turn, so it has no parent.
+	app_ai_gateway: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		mode: "token",
+		reserveFloorCredits: 1,
+		rootAllowed: true,
+	},
 	chat: {
 		allowedChildOperations: [
 			"page_build",

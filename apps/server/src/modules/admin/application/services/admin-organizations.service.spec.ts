@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
+import type { MembershipReduction } from "@wandit/auth";
 import type { CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -40,6 +41,7 @@ function summaryRow(
 		plan: "business",
 		// Repository rows carry integer centi-credits (75_000 = 750 credits).
 		creditsBalance: 75_000,
+		personalOwnerUserId: null,
 		...overrides,
 	};
 }
@@ -191,15 +193,30 @@ class FakeCreditsService {
 	}
 }
 
+// The membership cleanup of a change to viewer. `fails` makes it throw like a failed turn cancel.
+class FakeMembershipCleanup {
+	reductions: MembershipReduction[] = [];
+	fails = false;
+
+	async handleMembershipReduced(reduction: MembershipReduction) {
+		this.reductions.push(reduction);
+		if (this.fails) {
+			throw new Error("turn cancel failed");
+		}
+	}
+}
+
 function build() {
 	const repository = new InMemoryOrgsRepository();
 	const credits = new FakeCreditsService();
+	const cleanup = new FakeMembershipCleanup();
 	const service = new AdminOrganizationsService(
 		repository as unknown as AdminOrganizationsRepository,
 		credits as unknown as CreditsService,
+		cleanup,
 	);
 
-	return { credits, repository, service };
+	return { cleanup, credits, repository, service };
 }
 
 describe("AdminOrganizationsService", () => {
@@ -336,6 +353,28 @@ describe("AdminOrganizationsService", () => {
 		).toBe("admin");
 	});
 
+	it("runs the viewer cleanup and writes the old role back when it fails", async () => {
+		const { cleanup, repository, service } = build();
+		cleanup.fails = true;
+
+		await expect(
+			service.setMemberRole("admin_1", ORG_ID, "user_b", { role: "viewer" }),
+		).rejects.toThrow("turn cancel failed");
+
+		expect(cleanup.reductions).toEqual([
+			{
+				change: "viewer",
+				ipAddress: null,
+				organizationId: ORG_ID,
+				userId: "user_b",
+			},
+		]);
+		expect(repository.roleWrites).toEqual([
+			{ organizationId: ORG_ID, role: "viewer", userId: "user_b" },
+			{ organizationId: ORG_ID, role: "member", userId: "user_b" },
+		]);
+	});
+
 	it("allows demoting the last owner (repair tool semantics)", async () => {
 		const { repository, service } = build();
 
@@ -352,6 +391,45 @@ describe("AdminOrganizationsService", () => {
 		expect(
 			detail.members.every((entry) => !entry.role.split(",").includes("owner")),
 		).toBe(true);
+	});
+
+	it("refuses an org credit grant to a personal workspace", async () => {
+		const { credits, repository, service } = build();
+		repository.summaries.set(
+			ORG_ID,
+			summaryRow({ personalOwnerUserId: "user_owner" }),
+		);
+
+		await expect(
+			service.grantCredits(ADMIN, ORG_ID, {
+				amount: 300,
+				requestId: REQUEST_ID,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(credits.grants).toEqual([]);
+	});
+
+	it.each([
+		{ name: "owner for another member", role: "owner", userId: "user_b" },
+		{
+			name: "member for the personal owner",
+			role: "member",
+			userId: "user_owner",
+		},
+	] as const)("refuses $name of a personal workspace", async ({
+		role,
+		userId,
+	}) => {
+		const { repository, service } = build();
+		repository.summaries.set(
+			ORG_ID,
+			summaryRow({ personalOwnerUserId: "user_owner" }),
+		);
+
+		await expect(
+			service.setMemberRole("admin_1", ORG_ID, userId, { role }),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(repository.roleWrites).toEqual([]);
 	});
 
 	it("404s a role write for a non-member", async () => {

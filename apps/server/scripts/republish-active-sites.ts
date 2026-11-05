@@ -55,7 +55,10 @@ import type { Database } from "../src/infrastructure/database/database.constants
 import { getPageHtml, isR2Configured } from "../src/infrastructure/storage/r2";
 import { DomainRoutingService } from "../src/modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { DomainsRepository } from "../src/modules/domains/infrastructure/persistence/domains.repository";
-import type { ProjectScope } from "../src/modules/projects/domain/project-scope";
+import {
+	type ProjectScope,
+	systemProjectScope,
+} from "../src/modules/projects/domain/project-scope";
 import { SitesService } from "../src/modules/sites/application/services/sites.service";
 import {
 	type DeploymentRow,
@@ -230,14 +233,7 @@ async function loadProjectScope(
 		return null;
 	}
 
-	return row.organizationId === null
-		? { kind: "personal", userId: row.userId }
-		: {
-				actorIsLimitExempt: true,
-				kind: "org",
-				organizationId: row.organizationId,
-				userId: row.userId,
-			};
+	return systemProjectScope(row, row.userId, true);
 }
 
 async function loadWorkList(

@@ -4,6 +4,7 @@
  * `?client=phone` the token feeds the phone link of the Worker (WANDIT-193).
  * The global AuthGuard requires a session; `V2BuilderEnabledGuard` gates
  * the route and `RedisRateLimitGuard` reads the `@RateLimit` metadata.
+ * The global ProjectAccessGuard checks the project role.
  * Scope and sandbox checks live in `PreviewTokenService`.
  */
 import {
@@ -24,9 +25,12 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
-import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import {
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { PreviewTokenService } from "../../../application/services/preview-token.service";
 import {
 	RateLimit,
@@ -43,22 +47,22 @@ export class PreviewTokenController {
 		private readonly previewTokens: PreviewTokenService,
 	) {}
 
-	// Minting is a read like `versions.list`: scope filtering happens in
-	// the service, so no `@RequireWorkspacePermission` on purpose.
+	// Minting is a read like `versions.list`, so a project viewer may call it.
 	// 30 per user per minute: one refresh every 30 s per open builder tab
 	// stays far below it.
+	@RequireProjectRole("viewer")
 	@RateLimit({ key: "preview-token", limit: 30, windowMs: 60_000 })
 	@Get()
 	mint(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Query(new ZodValidationPipe(previewTokenQuerySchema))
 		query: PreviewTokenQuery,
 	): Promise<PreviewTokenResponse> {
 		return this.previewTokens.mint(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);

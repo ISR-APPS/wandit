@@ -40,13 +40,14 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D26 | App design recipe picked by the host | default | 2026-10-04 |
 | D27 | Plan Mode | default | 2026-10-05 |
 | D28 | App theme owned by the host (D26 change) | default | 2026-10-26 |
-| D29 | Desktop app stack | default | 2026-11-04 |
-| D30 | Trust split of desktop builds | default | 2026-11-04 |
-| D31 | Price of a desktop build | default | 2026-11-04 |
-| D32 | Additive-only migrations of desktop databases | default | 2026-11-04 |
-| D33 | No Authenticode signature on desktop installers yet | default | 2026-11-04 |
-| D34 | Desktop rollback by rebuild, and 2 live builds per payer | changed | 2026-11-05 |
-| D35 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
+| D29 | External coding agents through a remote MCP server | confirmed | 2026-11-04 |
+| D30 | Desktop app stack | default | 2026-11-04 |
+| D31 | Trust split of desktop builds | default | 2026-11-04 |
+| D32 | Price of a desktop build | default | 2026-11-04 |
+| D33 | Additive-only migrations of desktop databases | default | 2026-11-04 |
+| D34 | No Authenticode signature on desktop installers yet | default | 2026-11-04 |
+| D35 | Desktop rollback by rebuild, and 2 live builds per payer | changed | 2026-11-05 |
+| D36 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
 
 ## D1. Sandbox vendor
 
@@ -387,7 +388,19 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: With A, the agent wrote capital labels and ink bands from prose. The schema of B cannot express them. The user picks one of 3 cards in the first `ask_user` call, or edits each field in the builder. The agent calls `set_theme` for the user's words. The host restores a file that a turn changed. Older projects keep D26.
 
-## D29. Desktop app stack
+## D29. External coding agents through a remote MCP server
+
+- Question: How does a user work on a V2 project from an external coding agent (Claude Code, Codex, Cursor)?
+- Options: A. A remote MCP server on the API with OAuth, whole-account grants, and read, edit, prompt, and publish tools. B. Per-project grants. C. Prompt-only tools, as Lovable does. D. Personal access tokens.
+- Default: A, on Better Auth 1.7.16 (`jwt`, `mcp`, `cimd` plugins). Direct edits are commits with source `mcp`. Approvals stay in the web app.
+- Final choice: A.
+- Status: confirmed
+- Date: 2026-11-04
+- Decided by: Zack ("the most secure option", "the way Lovable does it", all four tool groups).
+- Issues that change: none filed yet.
+- Notes: The Better Auth 1.6 `mcp` plugin can skip consent and stores plain-text tokens. Rules: `docs/features/coding-agents-mcp.md`.
+
+## D30. Desktop app stack
 
 - Question: With which stack does a user build a desktop app, for which systems, and where do its data stay?
 - Options: Shell: Tauri v2 (Rust and the WebView2 of Windows, small installer) or Electron (a bundled Chromium and Node, about 10 times larger, ESTIMATE). Systems: Windows only, or Windows, macOS, and Linux. Data: one local SQLite file, or a cloud backend as in web apps.
@@ -398,9 +411,9 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
 - Notes: macOS needs notarization and a macOS runner. Linux has many package formats. A local file works offline and costs nothing per user, but it gives no sync and no login. Contract: `docs/v2/desktop-apps.md`.
-- Update 2026-11-05: D35 adds macOS. The systems are now Windows x64 and macOS on Apple silicon (D35). macOS apps ship with an ad-hoc signature first. Notarization comes later.
+- Update 2026-11-05: D36 adds macOS. The systems are now Windows x64 and macOS on Apple silicon (D36). macOS apps ship with an ad-hoc signature first. Notarization comes later.
 
-## D30. Trust split of desktop builds
+## D31. Trust split of desktop builds
 
 - Question: Who holds the native code, the CI token, and the updater keys of a desktop app?
 - Options: A. The agent edits the full Tauri project in the sandbox, and CI builds it with the signing key. B. The server owns the native shell and the keys. The project holds only the frontend and the migrations. A private CI repo compiles the trusted shell with server-made inputs. The server signs each update.
@@ -412,7 +425,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: With A, user Rust code runs on CI and with native rights on every user machine. With B, CI runs no user code and holds no secret. The updater private key never leaves the API and the `desktop-build` task. Details: `security.md` section 14.
 
-## D31. Price of a desktop build
+## D32. Price of a desktop build
 
 - Question: What does one Windows installer build cost the user?
 - Options: A fixed operation `desktop_build`, as `mobile_build` (D23). Or free builds inside the plan.
@@ -423,10 +436,10 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
 - Notes: At $0.032 per credit (D2), 25 credits are $0.80. A cold build on a 2-core Windows runner takes about 35 minutes: 10 for tauri-cli, 25 for the shell (ESTIMATE). A cached build takes about 8 minutes (ESTIMATE). At $0.016 per runner minute (2025 price, UNVERIFIED for 2026), a cold build costs about $0.56 and a cached build about $0.13. Constant: `DESKTOP_BUILD_CREDITS`.
-- Update 2026-11-05: D34 makes a rollback a rebuild, so a rollback now costs one build. A release still costs nothing.
-- Update 2026-11-05: a macOS build has the same price, 25 credits (D35). A macOS runner minute costs $0.062 (GitHub price page, see `tooling/desktop-builder/README.md`). A cached macOS build costs $0.31 to $0.50, and a cold one $0.62 to $1.55 (ESTIMATE). Same price, review after staging: the runbook records the job minutes (macOS staging check 2).
+- Update 2026-11-05: D35 makes a rollback a rebuild, so a rollback now costs one build. A release still costs nothing.
+- Update 2026-11-05: a macOS build has the same price, 25 credits (D36). A macOS runner minute costs $0.062 (GitHub price page, see `tooling/desktop-builder/README.md`). A cached macOS build costs $0.31 to $0.50, and a cold one $0.62 to $1.55 (ESTIMATE). Same price, review after staging: the runbook records the job minutes (macOS staging check 2).
 
-## D32. Additive-only migrations of desktop databases
+## D33. Additive-only migrations of desktop databases
 
 - Question: How does a desktop app change its schema without data loss, also after a rollback?
 - Options: A. Free SQL migrations, as on a server. B. Additive-only migrations: a frozen registry of the built files, and a gate that refuses a change of saved data or of an older schema. C. No migrations: one fixed key-value store.
@@ -438,7 +451,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: Installed apps run each file once, so `desktop_migrations` freezes a built file at `ready`. The gate runs in `add_local_migration` and before CI. It refuses DROP TABLE, DELETE, RENAME, PRAGMA, and a UNIQUE index on an older table. So a rollback stays safe. Cost: no column rename and no table drop. Limit: a file can fail on saved rows. The whole update then rolls back as one transaction. A replacement file in a later build fixes the data statements (`desktop-apps.md` sections 5 and 6). A frozen DDL statement has no fix.
 
-## D33. No Authenticode signature on desktop installers yet
+## D34. No Authenticode signature on desktop installers yet
 
 - Question: Does Wandit sign the Windows installers with an Authenticode certificate?
 - Options: A. No signature at first. SmartScreen shows "Windows protected your PC", and the user clicks "More info" and "Run anyway". B. An OV or EV certificate on a hardware token. A hosted CI cannot use the token easily. C. Azure Trusted Signing, a cloud signing service of about $10 per month (UNVERIFIED).
@@ -449,9 +462,9 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
 - Notes: The updater signature (one Ed25519 key per app) protects each update also without Authenticode. Azure Trusted Signing accepts companies of some countries with about 3 years of history (UNVERIFIED). A Wandit certificate names Wandit as the publisher of each user app, so it also needs an abuse policy.
-- Update 2026-11-05: macOS: Gatekeeper note (D35). macOS apps have no Developer ID signature and no notarization. Gatekeeper shows "Not Opened", and the user clicks Open Anyway in System Settings. The web shows these steps under the SmartScreen note.
+- Update 2026-11-05: macOS: Gatekeeper note (D36). macOS apps have no Developer ID signature and no notarization. Gatekeeper shows "Not Opened", and the user clicks Open Anyway in System Settings. The web shows these steps under the SmartScreen note.
 
-## D34. Desktop rollback by rebuild, and 2 live builds per payer
+## D35. Desktop rollback by rebuild, and 2 live builds per payer
 
 - Question: Can an installed desktop app install an older version? How many desktop builds can one payer run at once?
 - Options: A. The shell installs any other version, and a rollback releases an older build. B. The shell installs only a newer version, and a rollback rebuilds the older code with a higher version. Builds: no cap across projects, or a cap per payer.
@@ -461,13 +474,14 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Date: 2026-11-05
 - Decided by: Zack, 2026-11-05.
 - Issues that change: none filed yet.
-- Notes: The security audit found both holes. With A, a writer of `latest.json` can push an older signed build. A rebuild costs `DESKTOP_BUILD_CREDITS` (D31). A third live build answers 409 `DESKTOP_BUILD_LIMIT_REACHED`. Contract: `desktop-apps.md` sections 8 and 10.
+- Notes: The security audit found both holes. With A, a writer of `latest.json` can push an older signed build. A rebuild costs `DESKTOP_BUILD_CREDITS` (D32). A third live build answers 409 `DESKTOP_BUILD_LIMIT_REACHED`. Contract: `desktop-apps.md` sections 8 and 10.
+- Update 2026-11-05: on a shared personal project, `projects.user_id` pays, also for the build of a member.
 
-## D35. macOS desktop builds: ad-hoc signature first
+## D36. macOS desktop builds: ad-hoc signature first
 
 - Question: How does a user get a macOS desktop app?
 - Options: one platform per build, or both. Apple silicon, or universal. Minimum macOS 15, 14, or 11. 25 credits, or more.
-- Default: one platform per build, Apple silicon only, macOS 15 or later, 25 credits (D31). Ad-hoc signature `-`, no notarization.
+- Default: one platform per build, Apple silicon only, macOS 15 or later, 25 credits (D32). Ad-hoc signature `-`, no notarization.
 - Final choice: the default, on GitHub Free, Pro, or Team: at most 5 macOS jobs at once.
 - Status: confirmed
 - Date: 2026-11-05
@@ -477,7 +491,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 
 ## How to add an entry
 
-1. Take the next number. The next number is D36.
+1. Take the next number. The next number is D37.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

@@ -30,13 +30,36 @@ catalog:
   "@sentry/esbuild-plugin": 5.4.0
   posthog-js: 1.359.1
   posthog-node: 5.28.0
-  zod: ^4.1.13
+  # better-auth 1.7.16 needs zod ^4.5.4. With one zod version, better-call
+  # resolves once, so the API and @wandit/auth load one @better-auth/core.
+  zod: ^4.5.4
   typescript: ^6
-  better-auth: 1.6.22
+  better-auth: 1.7.16
   lucide-react: ^1.21.0
   next-themes: ^0.4.6
   sonner: ^2.0.7
   "@tanstack/react-form": ^1.28.0
   "@types/react-dom": ^19.2.3
   tailwind-merge: ^3.6.0
-  "@better-auth/expo": 1.6.22
+  "@better-auth/expo": 1.7.16
+  # OAuth provider for the remote MCP server (D29). Keep in lockstep with better-auth.
+  "@better-auth/cimd": 1.7.16
+  "@better-auth/mcp": 1.7.16
+  "@better-auth/oauth-provider": 1.7.16
+# pnpm wrote these lines: better-auth 1.7.16 was one day old at install.
+# 1.7.16 fixes GHSA-4wq4-2ppv-q3hg (expo proxy). Remove the lines once the
+# versions pass the age guard.
+minimumReleaseAgeExclude:
+  - '@better-auth/cimd@1.7.16'
+  - '@better-auth/core@1.7.16'
+  - '@better-auth/drizzle-adapter@1.7.16'
+  - '@better-auth/expo@1.7.16'
+  - '@better-auth/kysely-adapter@1.7.16'
+  - '@better-auth/mcp@1.7.16'
+  - '@better-auth/memory-adapter@1.7.16'
+  - '@better-auth/mongo-adapter@1.7.16'
+  - '@better-auth/oauth-provider@1.7.16'
+  - '@better-auth/prisma-adapter@1.7.16'
+  - '@better-auth/telemetry@1.7.16'
+  - better-auth@1.7.16
+  - better-call@1.4.5

@@ -9,7 +9,10 @@ import type {
 	ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
 import { ProjectAssetsService } from "./project-assets.service";
 
@@ -43,7 +46,7 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_1";
-const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, USER_ID);
 
 const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	aspect: "1:1",

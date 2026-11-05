@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-import WorkspaceMembersPage from "@/features/workspaces/pages/workspace-members-page";
-import { pageTitle } from "@/lib/i18n";
+/**
+ * Old `/workspace/members` URL. The People page replaced the members page,
+ * so old links and bookmarks go to `/workspace/people`.
+ */
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_auth/workspace/members")({
-	head: () => ({
-		meta: [{ title: pageTitle("workspaces.members.title") }],
-	}),
-	component: WorkspaceMembersPage,
+	beforeLoad: () => {
+		throw redirect({ to: "/workspace/people", replace: true });
+	},
 });

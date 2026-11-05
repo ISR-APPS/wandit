@@ -33,6 +33,7 @@
 		"@aws-sdk/s3-request-presigner": "3.1085.0",
 		"@fastify/multipart": "^10.0.0",
 		"@modelcontextprotocol/sdk": "1.29.0",
+		"@modelcontextprotocol/server": "2.4.0",
 		"@nestjs/bullmq": "^11.0.4",
 		"@nestjs/common": "^11.1.27",
 		"@nestjs/config": "^4.0.4",

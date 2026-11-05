@@ -13,7 +13,10 @@ import type {
 	SubscriptionRow,
 	SubscriptionsRepository,
 } from "../../../billing/infrastructure/persistence/subscriptions.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import { DEVICE_MINUTES_PER_PLAN } from "../../domain/device-minutes";
 import type { DeviceSessionLock } from "../../domain/ports/device-session-lock";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
@@ -27,7 +30,7 @@ import { DeviceSessionsService } from "./device-sessions.service";
 import type { PreviewTokenService } from "./preview-token.service";
 
 const PROJECT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const EXPO_URL = `exps://m-abcdefghijklmnopqrs27--p-${PROJECT_ID}.wanditpreview.app`;
 const NOW = new Date("2026-09-25T00:00:00.000Z");
 
@@ -88,11 +91,19 @@ function fakeLock() {
 function setup(options?: {
 	project?: ScopedAppProject | null;
 	usedMinutes?: number;
+	/** Minutes that the locked insert counts; another member started after the first read. */
+	lockedUsedMinutes?: number;
 	metroRunning?: boolean;
 }) {
 	const rows = new Map<string, DeviceSessionRow>();
 	const sessions = {
-		insertOpen: vi.fn<DeviceSessionsRepository["insertOpen"]>(async (input) => {
+		insertOpenWithinAllowance: vi.fn<
+			DeviceSessionsRepository["insertOpenWithinAllowance"]
+		>(async (input, _payer, allowanceMinutes) => {
+			const used = options?.lockedUsedMinutes ?? options?.usedMinutes ?? 0;
+			if (used >= allowanceMinutes) {
+				return null;
+			}
 			const row: DeviceSessionRow = {
 				...input,
 				appetizeSessionToken: null,
@@ -211,6 +222,21 @@ describe("DeviceSessionsService.start", () => {
 		expect(rows.size).toBe(0);
 	});
 
+	it("answers 402 and frees the user lock when the payer-locked insert finds the month spent", async () => {
+		const { holders, rows, service } = setup({
+			lockedUsedMinutes: DEVICE_MINUTES_PER_PLAN.pro,
+			usedMinutes: DEVICE_MINUTES_PER_PLAN.pro - 1,
+		});
+
+		const failure = await service
+			.start(SCOPE, PROJECT_ID, "ios")
+			.catch((error: unknown) => error);
+
+		expect(codeOf(failure)).toBe("DEVICE_MINUTES_EXHAUSTED");
+		expect(rows.size).toBe(0);
+		expect(holders.size).toBe(0);
+	});
+
 	it("refuses a second open session of the same user with 409 DEVICE_SESSION_OPEN", async () => {
 		const { service } = setup();
 		await service.start(SCOPE, PROJECT_ID, "ios");
@@ -272,7 +298,7 @@ describe("DeviceSessionsService.end", () => {
 
 		await expect(
 			service.end(
-				{ kind: "personal", userId: "user-2" },
+				projectScopeFrom(undefined, "user-2"),
 				PROJECT_ID,
 				started.deviceSessionId,
 				undefined,

@@ -99,6 +99,7 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { McpChatToolsResult } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import type { WanditUIMessage } from "../../agent/chat-agent";
 import { AiChatController } from "../../presentation/http/controllers/ai-chat.controller";
 import {
@@ -125,7 +126,7 @@ type CapturedStreamOptions = {
 const CHAT_ID = "chat-1";
 const PROJECT_ID = "project-1";
 const USER_ID = "user-1";
-const PERSONAL_SCOPE = { kind: "personal", userId: USER_ID } as const;
+const PERSONAL_SCOPE = projectScopeFrom(undefined, USER_ID);
 
 let capturedStreamOptions: CapturedStreamOptions | undefined;
 
@@ -493,7 +494,7 @@ describe("AiChatService MCP lifecycle", () => {
 			idempotencyKey: `project-create:${PROJECT_ID}`,
 			messageId: "user-message",
 			operation: "chat",
-			subject: { actorUserId: USER_ID },
+			subject: { actorIsLimitExempt: true, actorUserId: USER_ID },
 		});
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		prepared.release();
@@ -667,7 +668,7 @@ describe("AiChatService MCP lifecycle", () => {
 			).toHaveBeenNthCalledWith(
 				2,
 				`ai-chat:${CHAT_ID}:completed-under-gen-2#2`,
-				{ actorUserId: USER_ID },
+				{ actorIsLimitExempt: true, actorUserId: USER_ID },
 			);
 
 			const newOperation = buildService();
@@ -2911,7 +2912,7 @@ describe("AiChatService MCP lifecycle", () => {
 		const pendingStream = service.stream(streamOptions());
 
 		expect(mcpChatToolsService.resolveToolsForUser).toHaveBeenCalledWith(
-			{ actorUserId: USER_ID },
+			{ actorIsLimitExempt: true, actorUserId: USER_ID },
 			"usage-event-1",
 			CHAT_ID,
 		);

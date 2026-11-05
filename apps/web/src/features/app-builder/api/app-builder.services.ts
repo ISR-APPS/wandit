@@ -121,6 +121,7 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		versionNumber: project.versionNumber,
 		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
+		access: project.access,
 	};
 }
 

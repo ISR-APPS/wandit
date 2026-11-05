@@ -63,6 +63,7 @@ import {
 	appPublishQuery,
 	LIVE_PUBLISH_STATUSES,
 } from "../../api/publish.queries";
+import { SHORT_SHA_LENGTH } from "../../lib/constants";
 import {
 	AndroidBuildCard,
 	type AndroidBuildCardProps,
@@ -82,8 +83,6 @@ import {
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
-// Seven characters name a commit, like `git log --oneline`.
-const SHORT_SHA_LENGTH = 7;
 
 /** Props of the top bar Publish button. WorkBar in top-bar.tsx passes them from the page. */
 export type PublishPopoverProps = {
@@ -600,8 +599,8 @@ export function PublishMobileTargets({
 
 /**
  * Reads the desktop overview and wires the desktop actions. The overview
- * polls only while this body is mounted. The SmartScreen note (D33) and,
- * when macOS is on or a macOS link is live, the Gatekeeper note (D35) sit
+ * polls only while this body is mounted. The SmartScreen note (D34) and,
+ * when macOS is on or a macOS link is live, the Gatekeeper note (D36) sit
  * under the card. The setup exe has no Authenticode signature, and Apple does
  * not notarize the macOS app.
  */

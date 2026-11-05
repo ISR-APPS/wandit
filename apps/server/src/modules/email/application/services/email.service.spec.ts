@@ -164,9 +164,11 @@ describe("EmailService", () => {
 		mockEnv.RESEND_API_KEY = "re_test_key";
 		const service = new EmailService();
 		await service.sendInvitationEmail({
+			expiresInDays: 30,
 			inviteUrl: "https://app.example.com/invite/inv_1",
 			inviterName: '<img src=x onerror=alert(1)>"Zack"',
 			organizationName: "Acme & Sons <script>",
+			role: "member",
 			to: "invitee@example.com",
 		});
 		const payload = transactionalSendMock.mock.calls[0]?.[0] as unknown as {
@@ -178,6 +180,30 @@ describe("EmailService", () => {
 		expect(payload.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
 		expect(payload.html).toContain("Acme &amp; Sons &lt;script&gt;");
 		expect(payload.html).toContain("https://app.example.com/invite/inv_1");
+	});
+
+	it("escapes user-controlled names in project invitation html", async () => {
+		mockEnv.RESEND_API_KEY = "re_test_key";
+		const service = new EmailService();
+		await service.sendProjectInvitationEmail({
+			expiresInDays: 30,
+			inviteUrl: "https://app.example.com/project-invite/inv_2",
+			inviterName: "Zack",
+			projectName: "<img src=x onerror=alert(1)>",
+			role: "editor",
+			to: "invitee@example.com",
+			workspaceName: "Acme & Sons <script>",
+		});
+		expect(transactionalSendMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				html: expect.not.stringMatching(/<img src=x|<script>/),
+			}),
+		);
+		expect(transactionalSendMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				html: expect.stringContaining("Acme &amp; Sons &lt;script&gt;"),
+			}),
+		);
 	});
 
 	it("sends one escaped offline-request notification to all admins", async () => {

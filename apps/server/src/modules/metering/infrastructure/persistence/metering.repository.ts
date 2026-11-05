@@ -652,6 +652,38 @@ export class MeteringRepository {
 			: Math.round(Number(total));
 	}
 
+	/**
+	 * Billed `operation` events of the project since `monthStartUtc`: their
+	 * credit sum in cc and their count. Settled, reconciled, and
+	 * reconcile_failed rows with a final charge count: each one holds a
+	 * settle debit. An open hold or a refund is no bill. The AI panel reads it.
+	 */
+	async monthlyBilledUsage(
+		projectId: string,
+		operation: AiUsageEventRow["operation"],
+		monthStartUtc: Date,
+	): Promise<{ credits: number; requests: number }> {
+		const result = await this.db.execute<{
+			credits: number | string | null;
+			requests: number | string | null;
+		}>(sql`
+			select coalesce(sum(final_credits), 0) as credits, count(*) as requests
+			from ai_usage_events
+			where project_id = ${projectId}
+				and operation = ${operation}
+				and created_at >= ${monthStartUtc}
+				and status in ('settled', 'reconciled', 'reconcile_failed')
+				and final_credits is not null
+		`);
+
+		// Postgres answers a bigint sum and count as strings.
+		const row = result.rows[0];
+		return {
+			credits: Math.round(Number(row?.credits ?? 0)),
+			requests: Number(row?.requests ?? 0),
+		};
+	}
+
 	/** Reserved (still-open) holds of one operation owned by one acting user. */
 	async countReservedByActor(
 		operation: AiUsageEventRow["operation"],

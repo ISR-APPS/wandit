@@ -18,7 +18,8 @@ import {
 const ASSET_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_123";
-const SUBJECT = { actorUserId: USER_ID };
+// The runner builds no exemption: the payload carries no role.
+const SUBJECT = { actorIsLimitExempt: false, actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const R2_KEY = `marketing/${PROJECT_ID}/${ASSET_ID}/index.html`;
 const NOW = new Date("2026-07-25T12:00:00.000Z");
@@ -583,7 +584,11 @@ describe("runMarketingAssetGeneration", () => {
 				runId: "run_missing",
 			}),
 		).resolves.toEqual({ reason: "ownership_mismatch", status: "failed" });
-		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
+		// The row is missing: the payload's own pool stands in.
+		expect(dependencies.refund).toHaveBeenCalledWith(
+			{ actorUserId: USER_ID, organizationId: null },
+			ASSET_ID,
+		);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 	});
 });

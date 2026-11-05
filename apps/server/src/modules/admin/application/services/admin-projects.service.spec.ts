@@ -9,8 +9,12 @@ import type { LeadsService } from "../../../leads/application/services/leads.ser
 import type { MarketingAssetsService } from "../../../marketing-assets/application/services/marketing-assets.service";
 import type { PagesService } from "../../../pages/application/services/pages.service";
 import type { ProjectAssetsService } from "../../../project-assets/application/services/project-assets.service";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { SitesService } from "../../../sites/application/services/sites.service";
-import type { AdminRepository } from "../../infrastructure/persistence/admin.repository";
+import type {
+	AdminProjectDetailRow,
+	AdminRepository,
+} from "../../infrastructure/persistence/admin.repository";
 import { AdminProjectsService } from "./admin-projects.service";
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
@@ -19,7 +23,14 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const OWNER_ID = "owner_1";
-const OWNER_SCOPE = { kind: "personal", userId: OWNER_ID } as const;
+// Staff reads act as the owner, with the owner's full access.
+const OWNER_SCOPE = {
+	actorIsLimitExempt: true,
+	actorRoles: ["owner"],
+	actorUserId: OWNER_ID,
+	kind: "personal",
+	ownerUserId: OWNER_ID,
+} satisfies ProjectScope;
 
 const PROJECT = {
 	createdAt: new Date("2026-07-01T10:00:00.000Z"),
@@ -27,9 +38,10 @@ const PROJECT = {
 	name: "Launch page",
 	ownerEmail: "owner@example.com",
 	ownerId: OWNER_ID,
+	organizationId: null,
 	ownerName: "Owner",
 	updatedAt: new Date("2026-07-02T11:00:00.000Z"),
-};
+} satisfies AdminProjectDetailRow;
 
 function setup() {
 	const adminRepository = {

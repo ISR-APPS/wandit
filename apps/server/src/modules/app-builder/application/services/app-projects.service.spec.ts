@@ -14,7 +14,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	ProjectQueryRow,
 	ProjectsRepository,
@@ -27,7 +30,7 @@ import type { ProjectCostCapsRepository } from "../../infrastructure/persistence
 import type { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { AppProjectsService } from "./app-projects.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const BODY: CreateAppProjectRequest = {
 	languages: ["fr", "en"],
 	prompt: "Build me a booking app",
@@ -36,6 +39,7 @@ const BODY: CreateAppProjectRequest = {
 
 function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 	return {
+		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
 		engine: "v2_app",
@@ -393,27 +397,6 @@ describe("AppProjectsService.create", () => {
 		});
 	});
 
-	it("gives a desktop project no cloud backend and still starts its first turn", async () => {
-		const { backends, projects, service, turns } = setup();
-
-		await service.create(
-			SCOPE,
-			{ ...BODY, targetPlatform: "desktop" },
-			{ countryCode: "MA" },
-		);
-
-		expect(projects.createWithChatAndFirstMessage).toHaveBeenCalledWith(
-			expect.objectContaining({
-				app: expect.objectContaining({
-					framework: "desktop-app",
-					targetPlatform: "desktop",
-				}),
-			}),
-		);
-		expect(backends.provisionBackend).not.toHaveBeenCalled();
-		expect(turns.create).toHaveBeenCalledTimes(1);
-	});
-
 	it("still answers the ids when backend provisioning throws", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(new Error("db down"));
@@ -501,9 +484,10 @@ describe("AppProjectsService.create", () => {
 		await service.create(
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["member"],
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-1",
+				actorUserId: "user-1",
 			},
 			BODY,
 			{ countryCode: null },

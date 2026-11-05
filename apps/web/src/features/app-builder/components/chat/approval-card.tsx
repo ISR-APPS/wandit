@@ -84,7 +84,9 @@ export function ApprovalCard({
 			? t("appBuilder.chat.approvalTitles.run_sql_write")
 			: toolName === "apply_destructive_migration"
 				? t("appBuilder.chat.approvalTitles.apply_destructive_migration")
-				: t("appBuilder.chat.approvalTitles.other");
+				: toolName === "enable_ai"
+					? t("appBuilder.chat.approvalTitles.enable_ai")
+					: t("appBuilder.chat.approvalTitles.other");
 
 	return (
 		<MessageCard

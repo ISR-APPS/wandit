@@ -3,7 +3,8 @@
  * `wandit/<projectId>`. All credentials are ES256 JWTs minted locally with
  * the org's private key — no platform-wide token ever leaves this class.
  * Called by `commitTurn`, the restorer, and the project-create flow. The
- * `mobile-build` task gets a "read" credential here to fetch one commit.
+ * `mobile-build` task gets a "read" credential here to fetch one commit,
+ * and the `github-sync` task gets the "push-github-mirror" credential.
  * The theme service reads one committed file through `readFile`.
  */
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
@@ -79,6 +80,15 @@ const PUSH_MAIN_REFS: CodeStorageRefRule[] = [
 	["refs/heads/main", ["no-force-push"]],
 	["*", ["no-push"]],
 ];
+// Security: the GitHub mirror token of the worker may move `github/main` in
+// any way, because GitHub history can be rewritten. It must never push
+// `main`, another branch, or a tag. The docs say that a rule with no ops
+// permits its ref: https://code.storage/docs/repos/ref-policies.md
+// The docs show no empty `[]` list, so test one mirror push on staging.
+const GITHUB_MIRROR_REFS: CodeStorageRefRule[] = [
+	["refs/heads/github/main", []],
+	["*", ["no-push"]],
+];
 
 /** `GitStore` over the code.storage REST API. */
 @Injectable()
@@ -124,6 +134,7 @@ export class CodeStorageGitStore implements GitStore, GitFileReader {
 	 * Mints a git JWT without an API call. "read" access carries only
 	 * `git:read`, so the token cannot push. "push-main" adds `git:write` and
 	 * the `refs` claim `PUSH_MAIN_REFS`. Its LIMIT says what the claim allows.
+	 * "push-github-mirror" adds `git:write` and the claim `GITHUB_MIRROR_REFS`.
 	 */
 	async issueCredential(
 		projectId: string,
@@ -136,17 +147,13 @@ export class CodeStorageGitStore implements GitStore, GitFileReader {
 		remoteUrl: string;
 	}> {
 		const now = new Date();
-		// A push needs both scopes: `git:read` for fetch/clone, `git:write`
-		// for push. One scope never includes the other.
-		const password = await this.mint(
-			access === "read" ? ["git:read"] : ["git:read", "git:write"],
-			{
-				repoName: codeStorageRepoName(projectId),
-				ttlSeconds,
-				now,
-				refs: access === "read" ? undefined : PUSH_MAIN_REFS,
-			},
-		);
+		const claims = credentialClaims(access);
+		const password = await this.mint(claims.scopes, {
+			repoName: codeStorageRepoName(projectId),
+			ttlSeconds,
+			now,
+			refs: claims.refs,
+		});
 		return {
 			username: CODE_STORAGE_GIT_USERNAME,
 			password,
@@ -335,6 +342,28 @@ export class CodeStorageGitStore implements GitStore, GitFileReader {
 			return this.options.sleep(ms);
 		}
 		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+}
+
+// The scopes and the refs claim of one access. The `never` default makes a
+// new access value fail the compile. It never gets the claim of another
+// access. A push needs both scopes: `git:read` for fetch, `git:write` for
+// push. One scope never includes the other.
+function credentialClaims(access: GitCredentialAccess): {
+	scopes: CodeStorageScope[];
+	refs: CodeStorageRefRule[] | undefined;
+} {
+	switch (access) {
+		case "read":
+			return { scopes: ["git:read"], refs: undefined };
+		case "push-main":
+			return { scopes: ["git:read", "git:write"], refs: PUSH_MAIN_REFS };
+		case "push-github-mirror":
+			return { scopes: ["git:read", "git:write"], refs: GITHUB_MIRROR_REFS };
+		default: {
+			const unknownAccess: never = access;
+			throw new Error(`Unknown git credential access: ${unknownAccess}`);
+		}
 	}
 }
 

@@ -18,8 +18,7 @@ import {
 	MORE_PANEL_META,
 	type ProjectPanel,
 } from "../../lib/constants";
-import { isDisabledMorePanel, panelsForKind } from "../../lib/helpers";
-import { PanelChip } from "./panel-shell";
+import { panelsForKind } from "../../lib/helpers";
 
 /** Props of MoreNav. More view passes the resolved open panel and the Cloud gate. */
 export type MoreNavProps = {
@@ -45,7 +44,7 @@ const NAV_ROW_CLASS = cn(
 	"max-md:w-auto",
 );
 
-/** The More panels in nav order. A disabled panel is a muted "Soon" row that selects nothing. */
+/** The More panels in nav order. Each row opens its panel. */
 export function MoreNav({
 	kind,
 	active,
@@ -59,38 +58,6 @@ export function MoreNav({
 	const appPanels = panelsForKind(kind).filter(
 		(panel) => panel !== "analytics",
 	);
-
-	function moreRow(panel: (typeof appPanels)[number]): ReactNode {
-		const meta = MORE_PANEL_META[panel];
-		if (isDisabledMorePanel(panel)) {
-			return (
-				<button
-					key={panel}
-					type="button"
-					disabled
-					className={cn(
-						NAV_ROW_CLASS,
-						"cursor-not-allowed opacity-55 hover:bg-transparent hover:text-night/75 dark:hover:bg-transparent dark:hover:text-foreground/75",
-					)}
-				>
-					<NavIcon icon={meta.icon} isActive={false} />
-					<span className="truncate">{t(meta.title)}</span>
-					<PanelChip className="ms-auto h-5 px-2 text-[11px]">
-						{t("appBuilder.soon")}
-					</PanelChip>
-				</button>
-			);
-		}
-		return (
-			<NavRow
-				key={panel}
-				icon={meta.icon}
-				label={t(meta.title)}
-				isActive={panel === active}
-				onClick={() => onSelect(panel)}
-			/>
-		);
-	}
 
 	return (
 		<nav
@@ -125,7 +92,15 @@ export function MoreNav({
 				headingId={appHeadingId}
 				heading={t("appBuilder.panels.app.title")}
 			>
-				{appPanels.map(moreRow)}
+				{appPanels.map((panel) => (
+					<NavRow
+						key={panel}
+						icon={MORE_PANEL_META[panel].icon}
+						label={t(MORE_PANEL_META[panel].title)}
+						isActive={panel === active}
+						onClick={() => onSelect(panel)}
+					/>
+				))}
 			</NavGroup>
 		</nav>
 	);

@@ -14,6 +14,7 @@ import type { ManualSubscriptionPaymentRow } from "../../infrastructure/persiste
 import type { ManualSubscriptionRequestRow } from "../../infrastructure/persistence/manual-subscription-requests.repository";
 import type {
 	AdminManualSubscriptionRow,
+	ManualBillingOwnerRow,
 	SubscriptionRow,
 	UpdateSubscriptionPeriodInput,
 } from "../../infrastructure/persistence/subscriptions.repository";
@@ -203,10 +204,12 @@ function createContext(
 					}
 				: null;
 		}),
-		findManualBillingOwner: vi.fn(async () => ({
-			organization: null,
-			user: USER,
-		})),
+		findManualBillingOwner: vi.fn(
+			async (): Promise<ManualBillingOwnerRow | null> => ({
+				organization: null,
+				user: USER,
+			}),
+		),
 		insertManual: vi.fn(
 			async (
 				input: Omit<
@@ -583,6 +586,34 @@ describe("ManualSubscriptionsService", () => {
 			),
 		).rejects.toMatchObject({ status: 400 });
 		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
+	});
+
+	it("rejects a grant to the org of a personal workspace", async () => {
+		const context = createContext();
+		context.subscriptionsRepository.findManualBillingOwner.mockResolvedValueOnce(
+			{
+				organization: {
+					id: "personal_org_1",
+					name: "Zack",
+					personalOwnerUserId: USER.id,
+					slug: "personal-0123456789abcdef",
+				},
+				user: USER,
+			},
+		);
+
+		await expect(
+			context.service.grant(
+				"admin_1",
+				grantInput({
+					organizationId: "personal_org_1",
+					plan: "business",
+					tierCredits: 500,
+				}),
+			),
+		).rejects.toThrow("A personal workspace cannot have its own plan");
+		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
+		expect(context.creditsService.grant).not.toHaveBeenCalled();
 	});
 
 	it("propagates manual payment lifecycle capture failures", async () => {

@@ -3,6 +3,7 @@ import { sql } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import { LeadScrapesRepository } from "./lead-scrapes.repository";
 
 function setup(returned: Array<{ id: string }>) {
@@ -98,7 +99,7 @@ describe("LeadScrapesRepository stale-read self-heal", () => {
 
 		await expect(
 			repository.findAccessibleAttempt(
-				{ kind: "personal", userId: "user-1" },
+				projectScopeFrom(undefined, "user-1"),
 				"attempt-1",
 			),
 		).resolves.toBeNull();

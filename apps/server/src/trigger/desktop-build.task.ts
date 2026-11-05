@@ -47,7 +47,6 @@ import { createTriggerMetering } from "./metering.runtime";
 // Queue-boundary parse: the payload crosses a process boundary, so the run
 // validates it instead of trusting the API-side type.
 const desktopBuildPayloadSchema = z.object({
-	actorIsLimitExempt: z.boolean(),
 	buildId: uuidSchema,
 	projectId: uuidSchema,
 });

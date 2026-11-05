@@ -85,9 +85,9 @@ export const BaseService = axios.create({
 // Request interceptors run before every request leaves the phone. We standardize
 // the URL, attach the session cookie, and set default headers so feature code
 // stays tiny.
-BaseService.interceptors.request.use((config) => {
+BaseService.interceptors.request.use(async (config) => {
 	config.url = normalizeApiPath(config.url);
-	attachSessionCookie(config);
+	await attachSessionCookie(config);
 	applyDefaultHeaders(config);
 
 	return config;
@@ -140,9 +140,10 @@ export function getApiErrorMessage(error: unknown) {
 
 // THE key native step: read the session cookie @better-auth/expo stored in
 // SecureStore and attach it to this request. This is what web gets for free via
-// `withCredentials: true`.
-function attachSessionCookie(config: InternalAxiosRequestConfig) {
-	const cookie = authClient.getCookie();
+// `withCredentials: true`. `getCookie` reads SecureStore asynchronously, so the
+// request waits for it.
+async function attachSessionCookie(config: InternalAxiosRequestConfig) {
+	const cookie = await authClient.getCookie();
 
 	if (cookie) {
 		const headers = AxiosHeaders.from(config.headers);

@@ -9,9 +9,11 @@ import { randomUUID } from "node:crypto";
 import { getErrorMessage } from "@wandit/observability/error";
 
 import type { SandboxLogger } from "../modules/app-builder/domain/ports/sandbox-provider";
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
-import type { MeteringSettlement } from "../modules/metering/domain/metering";
+import type {
+	AiUsageEvent,
+	MeteringSettlement,
+} from "../modules/metering/domain/metering";
 
 // 40 min, the window of the stale-hold sweep. The sweep refunds a 40-minute-old
 // hold only when no live lease covers it. The longest steps between two
@@ -27,24 +29,30 @@ export type BuildHoldRefundReason =
 	| "mobile_build_failed"
 	| "mobile_build_canceled";
 
-/** What `createBuildCreditHold` needs. Each runtime passes its own deps and ids. */
+/** What `createBuildCreditHold` needs. Each runtime passes its own deps and its row. */
 export type BuildCreditHoldInput = {
 	metering: Pick<
 		MeteringService,
 		| "acquireExecutionLease"
-		| "findByIdempotencyKey"
+		| "findByIdempotencyKeyAnyPayer"
 		| "heartbeatExecutionLease"
 		| "refund"
 		| "releaseExecutionLease"
 		| "settle"
 	>;
 	logger: SandboxLogger;
-	/** `GENERATION_BILLING_MODE === "off"`: a missing hold logs at info level, not as a warning. */
+	/** `GENERATION_BILLING_MODE === "off"`: the API made no hold, so the build runs without one. */
 	billingDisabled: boolean;
-	/** The idempotency key of the API hold, for example `mobile_build:<buildId>`. */
+	/** The idempotency key of the API hold, from `desktopBuildHoldKey` or `mobileBuildHoldKey`. */
 	holdKey: string;
-	/** The payer of the hold: the org pool for an org row, else the user. */
-	subject: MeteringSubject;
+	/** The `operation` that the API wrote on the hold row. A hold of another operation never pays for this build. */
+	operation: "desktop_build" | "mobile_build";
+	/**
+	 * The owner columns of the `desktop_builds` or `mobile_builds` row. `userId`
+	 * is the actor and `organizationId` the team org or null. The hold must name
+	 * the same ones.
+	 */
+	build: { projectId: string; userId: string; organizationId: string | null };
 	/** The first part of each log message. The specs and the log alerts read these names. */
 	logPrefix: "desktop-build" | "mobile-build";
 	/** The ids on each log line. */
@@ -55,10 +63,12 @@ export type BuildCreditHoldInput = {
 export type BuildCreditHold = {
 	/**
 	 * Finds the API hold and leases it, so the stale-hold sweep skips it.
-	 * "not_reserved": the hold left `reserved` before the run, so the caller
-	 * fails the build. A throw (a DB error) goes to the caller.
+	 * "hold_mismatch": billing is on, and no hold or a hold of another build
+	 * has the key. "not_reserved": the hold left `reserved` before the run.
+	 * The caller fails the build on both. "no_hold": billing is off and the
+	 * key has no hold of this build. A throw (a DB error) goes to the caller.
 	 */
-	lease: () => Promise<"leased" | "no_hold" | "not_reserved">;
+	lease: () => Promise<"leased" | "no_hold" | "not_reserved" | "hold_mismatch">;
 	/** Renews the lease. Throws when the hold left `reserved`: no unpaid build. */
 	heartbeat: () => Promise<void>;
 	/** Refunds a still-reserved hold. A failure only logs: the stale-hold sweep refunds it later. */
@@ -68,6 +78,23 @@ export type BuildCreditHold = {
 	/** Ends the lease of this run. Never throws: the service logs its own failure. */
 	release: () => Promise<void>;
 };
+
+/**
+ * True when `hold` is the hold that the API reserved for this row: the same
+ * operation, project, actor, and team org. The hold row names the payer
+ * (workspaces-sharing.md 4), so the run needs no payer of its own.
+ */
+function isHoldOfBuild(
+	hold: AiUsageEvent,
+	input: BuildCreditHoldInput,
+): boolean {
+	return (
+		hold.operation === input.operation &&
+		hold.projectId === input.build.projectId &&
+		hold.userId === input.build.userId &&
+		hold.organizationId === input.build.organizationId
+	);
+}
 
 /** Makes the hold handle of one run. Call it once per run, before the first `lease`. */
 export function createBuildCreditHold(
@@ -80,12 +107,12 @@ export function createBuildCreditHold(
 	// The id of the hold this run leased; null without a hold.
 	let holdId: string | null = null;
 
-	/** The hold when it is still `reserved`, else null (logged). */
+	/**
+	 * The hold when it is still `reserved`, else null (logged). The callers
+	 * run only after `lease` matched this hold to the row.
+	 */
 	const findReservedHold = async (action: "settle" | "refund") => {
-		const hold = await metering.findByIdempotencyKey(
-			input.holdKey,
-			input.subject,
-		);
+		const hold = await metering.findByIdempotencyKeyAnyPayer(input.holdKey);
 		if (hold?.status !== "reserved") {
 			logger.info(`${logPrefix}.hold-not-reserved`, {
 				...logFields,
@@ -99,18 +126,16 @@ export function createBuildCreditHold(
 
 	return {
 		lease: async () => {
-			const hold = await metering.findByIdempotencyKey(
-				input.holdKey,
-				input.subject,
-			);
-			if (hold === null) {
-				// The API reserves the hold before it inserts the row. No hold means
-				// the API ran with billing off, so the build runs free.
-				if (input.billingDisabled) {
-					logger.info("billing.off", logFields);
-				} else {
-					logger.warn(`${logPrefix}.hold-missing`, logFields);
+			const hold = await metering.findByIdempotencyKeyAnyPayer(input.holdKey);
+			if (hold === null || !isHoldOfBuild(hold, input)) {
+				// Money check, same rule as builder-turn: with billing on, the
+				// build runs only on the hold that the API reserved for this row.
+				// Else it runs free or bills the wrong pool.
+				if (!input.billingDisabled) {
+					return "hold_mismatch";
 				}
+				// With billing off the API made no hold. A foreign hold stays untouched.
+				logger.info("billing.off", logFields);
 				return "no_hold";
 			}
 			// The sweep refunds a hold that waited too long in the queue. A

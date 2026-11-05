@@ -92,7 +92,6 @@ import {
 import { startSandboxWithoutTurn } from "../modules/app-builder/infrastructure/sandbox/sandbox-start";
 import { parseSecretKeyRing } from "../modules/app-builder/infrastructure/secrets/secret-crypto";
 import { checkDesktopMigrations } from "../modules/app-builder/infrastructure/sqlite/desktop-migration-gate";
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import { DESKTOP_BUILD_CREDITS_CENTI } from "../modules/metering/domain/operation-registry";
 
 import {
@@ -147,8 +146,6 @@ export type DesktopBuildRunInput = {
 	buildId: string;
 	/** Project of the build. The run skips a row of another project. */
 	projectId: string;
-	/** `actorIsLimitExempt` of the org scope at request time. Not used for a personal row. */
-	actorIsLimitExempt: boolean;
 	/** `ctx.run.id` of this run. The claim writes it to `desktop_builds.trigger_run_id`. */
 	triggerRunId: string;
 };
@@ -304,23 +301,16 @@ export async function runDesktopBuild(
 		return SKIPPED;
 	}
 
-	// The payer of the hold: the org pool for an org row, else the user.
-	const subject: MeteringSubject =
-		build.organizationId === null
-			? { actorUserId: build.userId }
-			: {
-					actorIsLimitExempt: input.actorIsLimitExempt,
-					actorUserId: build.userId,
-					organizationId: build.organizationId,
-				};
+	// The hold row names the payer, so the run passes only the row columns.
 	const hold = createBuildCreditHold({
 		billingDisabled: deps.billingDisabled,
+		build,
 		holdKey: desktopBuildHoldKey(projectId, build.requestKey),
 		logFields,
-		logger: deps.logger,
 		logPrefix: "desktop-build",
+		logger: deps.logger,
 		metering: deps.metering,
-		subject,
+		operation: "desktop_build",
 	});
 	// The input and staged objects. Every exit deletes them.
 	const temporaryKeys: string[] = [];
@@ -492,7 +482,14 @@ export async function runDesktopBuild(
 	};
 
 	try {
-		if ((await hold.lease()) === "not_reserved") {
+		const lease = await hold.lease();
+		if (lease === "hold_mismatch") {
+			return await fail(
+				"internal",
+				new Error("credit hold is missing or does not match the build"),
+			);
+		}
+		if (lease === "not_reserved") {
 			return await fail("internal", new Error("credit hold is not reserved"));
 		}
 

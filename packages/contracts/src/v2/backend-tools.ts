@@ -23,6 +23,8 @@ export const backendToolNames = [
 	"deploy_function",
 	"set_secret",
 	"get_advisors",
+	// Its schemas live in `app-ai.ts`, next to the AI gateway contract.
+	"enable_ai",
 ] as const;
 
 /** One backend tool name; the key in the harness tool set. */
