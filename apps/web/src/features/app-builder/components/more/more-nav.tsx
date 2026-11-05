@@ -23,7 +23,7 @@ import { PanelChip } from "./panel-shell";
 
 /** Props of MoreNav. More view passes the resolved open panel and the Cloud gate. */
 export type MoreNavProps = {
-	/** Web apps list Domains, mobile apps list App stores. */
+	/** Web apps list Domains, mobile apps list App stores. Desktop apps list neither, and no Sign-in or Payments. */
 	kind: AppProjectKind;
 	/** The open panel. Its row is the night pill and gets aria-current. */
 	active: ProjectPanel;

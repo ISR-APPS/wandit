@@ -28,6 +28,7 @@ import {
 } from "@/features/credits";
 import {
 	KeycapButton,
+	nextTargetPlatform,
 	PlatformToken,
 	V2ComingSoonBanner,
 } from "@/features/landing";
@@ -219,11 +220,7 @@ export default function DashboardPage() {
 									</span>{" "}
 									<PlatformToken
 										platform={targetPlatform}
-										onFlip={() =>
-											setTargetPlatform((current) =>
-												current === "mobile" ? "web" : "mobile",
-											)
-										}
+										onFlip={() => setTargetPlatform(nextTargetPlatform)}
 									/>
 								</>
 							) : (

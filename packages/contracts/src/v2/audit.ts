@@ -16,6 +16,9 @@ export const auditActions = [
 	"publish.unpublish",
 	"publish.gate_override",
 	"version.restore",
+	"desktop.build",
+	"desktop.cancel",
+	"desktop.release",
 	"project.suspend",
 	"project.unsuspend",
 ] as const;

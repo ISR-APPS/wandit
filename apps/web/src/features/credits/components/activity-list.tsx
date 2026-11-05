@@ -6,6 +6,7 @@
 import type { Icon } from "@phosphor-icons/react";
 import { ChatCircleIcon } from "@phosphor-icons/react/ChatCircle";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
@@ -45,6 +46,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	sandbox: HardDrivesIcon,
 	mobile_build: DeviceMobileIcon,
 	mobile_preview: DeviceMobileIcon,
+	desktop_build: DesktopIcon,
 	topup_adjust: ScalesIcon,
 };
 

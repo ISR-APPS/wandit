@@ -114,6 +114,8 @@ export * from "./v2/cloud";
 export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
+// V2 desktop app contracts: the builds, the migration rules, and the updater manifest.
+export * from "./v2/desktop";
 // V2 Appetize device-session routes and the Appetize and Expo answers.
 export * from "./v2/device-sessions";
 // V2 builder harness lifecycle contracts.

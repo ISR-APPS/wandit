@@ -1,5 +1,6 @@
 /**
- * Reads and writes src/styles/theme.json in the sandbox of a web-app@1.1.0+ project. Only the host writes it.
+ * Reads and writes src/styles/theme.json in the sandbox of a web-app@1.1.0+ or desktop-app@1.0.0+ project.
+ * Only the host writes it.
  * builder-turn.runtime.ts (pre-turn fallback, theme answer, turn-end guard), the set_theme tool, and the
  * theme routes (AppThemeService) call it.
  * It parses with the contracts schema and writes JSON with tabs, the format of the template file.

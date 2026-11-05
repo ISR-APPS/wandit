@@ -135,7 +135,7 @@ export class AppThemeService {
 		body: PutAppThemeBody,
 	): Promise<PutAppThemeResponse> {
 		const project = await this.requireV2Project(scope, projectId);
-		// Product rule: a project before web-app@1.1.0 has no theme file. The GET answers it as not editable.
+		// Product rule: only a web-app@1.1.0+ or desktop-app@1.0.0+ project has a theme file. The GET answers other projects as not editable.
 		if (!isThemeEditable(project)) {
 			throw new NotFoundException();
 		}
@@ -326,7 +326,7 @@ export class AppThemeService {
 	}
 }
 
-/** True for a web-app@1.1.0+ project: only these projects have src/styles/theme.json. */
+/** True for a web-app@1.1.0+ or desktop-app@1.0.0+ project: only these projects have src/styles/theme.json. */
 function isThemeEditable(project: ScopedAppProject): boolean {
 	return (
 		project.templateVersion !== null &&
@@ -336,7 +336,7 @@ function isThemeEditable(project: ScopedAppProject): boolean {
 
 /**
  * The theme of a project with no readable file. Before web-app@1.1.0 it is the template default.
- * From web-app@1.1.0 it is the file that the pre-turn fallback of the next turn writes.
+ * From web-app@1.1.0 or desktop-app@1.0.0 it is the file that the pre-turn fallback of the next turn writes.
  */
 function defaultThemeOf(projectId: string, editable: boolean): AppThemeFile {
 	return editable

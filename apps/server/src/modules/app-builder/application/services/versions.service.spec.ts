@@ -176,6 +176,7 @@ function fixture(options?: {
 						languages: ["en"],
 						networkAllowedHosts: ["api.stripe.com"],
 						organizationId: project.organizationId,
+						suspendedReasonCode: null,
 						templateVersion: project.templateVersion,
 						userId: project.userId,
 					},

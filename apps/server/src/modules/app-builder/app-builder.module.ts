@@ -26,6 +26,11 @@ import { BackendsService } from "./application/services/backends.service";
 import { ChatHistoryService } from "./application/services/chat-history.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
+import {
+	DESKTOP_OBJECTS,
+	DesktopBuildsService,
+	r2DesktopObjects,
+} from "./application/services/desktop-builds.service";
 import { DeviceSessionsService } from "./application/services/device-sessions.service";
 import {
 	LLM_PROXY_FETCH,
@@ -44,6 +49,8 @@ import {
 	VersionsService,
 } from "./application/services/versions.service";
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
+import { DESKTOP_BUILD_RUNNER } from "./domain/ports/desktop-build-runner";
+import { DESKTOP_BUILD_TASK_STARTER } from "./domain/ports/desktop-build-task-starter";
 import { DEVICE_SESSION_LOCK } from "./domain/ports/device-session-lock";
 import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
 import {
@@ -65,6 +72,7 @@ import {
 	WORKERS_FOR_PLATFORMS_CLIENT,
 	workersForPlatformsClientFromEnv,
 } from "./infrastructure/cloudflare/workers-for-platforms.client";
+import { desktopBuildRunnerFromEnv } from "./infrastructure/desktop/github-desktop-build-runner";
 import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
@@ -80,6 +88,7 @@ import { AppPublishRepository } from "./infrastructure/persistence/app-publish.r
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
+import { DesktopBuildsRepository } from "./infrastructure/persistence/desktop-builds.repository";
 import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
 import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
@@ -107,6 +116,7 @@ import {
 	type SupabaseRateLimiter,
 } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerDesktopBuildTaskStarter } from "./infrastructure/trigger/trigger-desktop-build-task-starter";
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
@@ -118,6 +128,7 @@ import { ChatHistoryController } from "./presentation/http/controllers/chat-hist
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
+import { DesktopBuildsController } from "./presentation/http/controllers/desktop-builds.controller";
 import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
@@ -175,6 +186,7 @@ export function createCloudSupabaseClient(
 		CloudController,
 		CodeController,
 		CostCapsController,
+		DesktopBuildsController,
 		DeviceSessionsController,
 		LlmProxyController,
 		MobileBuildsController,
@@ -217,6 +229,8 @@ export function createCloudSupabaseClient(
 		ChatHistoryService,
 		CloudService,
 		CodeService,
+		DesktopBuildsRepository,
+		DesktopBuildsService,
 		DeviceSessionsRepository,
 		DeviceSessionsService,
 		LlmProxyRequestsRepository,
@@ -252,6 +266,17 @@ export function createCloudSupabaseClient(
 				new AuditEventsService(repository, Sentry.logger),
 			inject: [AuditEventsRepository],
 		},
+		// Null without DESKTOP_BUILD_GITHUB_TOKEN or DESKTOP_BUILD_REPO: a desktop create then answers 503.
+		{
+			provide: DESKTOP_BUILD_RUNNER,
+			useFactory: desktopBuildRunnerFromEnv,
+			inject: [V2_ENV],
+		},
+		{
+			provide: DESKTOP_BUILD_TASK_STARTER,
+			useClass: TriggerDesktopBuildTaskStarter,
+		},
+		{ provide: DESKTOP_OBJECTS, useValue: r2DesktopObjects },
 		{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
 		// Null without EXPO_TOKEN or EXPO_ACCOUNT: `MobileBuildsService` then answers 503.
 		{

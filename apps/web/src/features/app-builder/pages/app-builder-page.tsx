@@ -5,8 +5,10 @@
  * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project query. The URL search params hold the view state.
- * The Backend group of the More view shows only behind useCloudTabEnabled;
- * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
+ * The Backend group of the More view shows only behind useCloudTabEnabled,
+ * and never for a desktop project. The Appetize device of a mobile project
+ * shows only behind useDevicePreviewEnabled. A desktop project shows its
+ * preview in a Windows window inside WebPreview.
  * The details panel of a reply covers the main card (a sheet on a phone).
  * Raw agent thinking never shows in production; local dev has a switch.
  * The page owns the elements picked in the web preview: the composer shows
@@ -121,11 +123,15 @@ export default function AppBuilderPage({
 			: thread.messages.find((message) => message.id === activityMessageId);
 	// The project menu switches the project in place. A missing reply must not open again on the way back.
 	if (isActivityOpen && activityMessage === undefined) setIsActivityOpen(false);
-	// The preview boot screen shows the database step on every view, so this read is always on.
+	// The preview boot screen shows the database step on every view, so this read is on for every view.
 	// The query polls while Supabase creates or wakes the project.
-	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
+	// A desktop app keeps its data in a local SQLite file and has no Supabase backend.
+	const isDesktopProject = project?.kind === "desktop";
+	const { data: backend } = useQuery(
+		cloudBackendQuery(projectId, !isDesktopProject),
+	);
 	// The live app of a web project: the host link in the preview bar and the
-	// Live mark of the versions read it. A mobile app has no publish status.
+	// Live mark of the versions read it. A mobile or desktop app has no publish status.
 	const { data: publishStatus } = useQuery({
 		...appPublishQuery(projectId),
 		enabled: project?.kind === "web",
@@ -134,7 +140,9 @@ export default function AppBuilderPage({
 	// Undefined until a status arrives, so the preview bar never says "Not published yet" for a live app.
 	const previewLiveUrl =
 		publishStatus === undefined ? undefined : (live?.url ?? null);
-	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
+	// No backend, so no Backend group: a desktop project never shows the Cloud panels.
+	const isCloudTabEnabled =
+		useCloudTabEnabled(project?.engine) && !isDesktopProject;
 	const isDevicePreviewEnabled = useDevicePreviewEnabled();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the reload button of the preview bar bumps it.
@@ -309,7 +317,8 @@ export default function AppBuilderPage({
 				)}
 			>
 				{/* A project switch in place remounts the preview, so the old frame and its token state go away. */}
-				{project.kind === "web" ? (
+				{/* A desktop app runs the same Vite frontend in the browser, so WebPreview shows it in a window frame. */}
+				{project.kind !== "mobile" ? (
 					<WebPreview
 						key={project.id}
 						project={project}

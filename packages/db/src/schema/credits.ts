@@ -54,6 +54,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"mobile_build",
 	// Appetize device minutes (WANDIT-196): zero credits inside the plan allowance.
 	"mobile_preview",
+	// One desktop build of a V2 desktop app, Windows or macOS, at a fixed price.
+	"desktop_build",
 	"topup_adjust",
 ]);
 

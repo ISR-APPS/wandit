@@ -134,6 +134,10 @@
 			"mobile": {
 				"label": "تطبيق جوال",
 				"description": "لأجهزة iPhone وAndroid. جرّبه على هاتفك."
+			},
+			"desktop": {
+				"label": "تطبيق سطح مكتب",
+				"description": "لنظام Windows. تبقى البيانات على الحاسوب."
 			}
 		},
 		"outputLabel": "المُخرَج",

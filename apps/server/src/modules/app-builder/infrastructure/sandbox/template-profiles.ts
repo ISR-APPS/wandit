@@ -40,6 +40,14 @@ export const TEMPLATE_PROFILES: Readonly<
 		framework: "mobile-app",
 		versionFile: "mobile-app/template_version",
 	}),
+	desktop: Object.freeze({
+		devCommand: "pnpm run dev",
+		// The Vite default port. The preview runs the frontend of the Tauri app
+		// in the browser, with a sql.js database in place of the Rust one.
+		devPort: 5173,
+		framework: "desktop-app",
+		versionFile: "desktop-app/template_version",
+	}),
 });
 
 /**

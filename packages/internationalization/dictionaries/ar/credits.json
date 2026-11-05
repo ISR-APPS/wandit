@@ -48,6 +48,7 @@
 		"sandbox": "وقت الصندوق الرملي",
 		"mobile_build": "بناء التطبيق",
 		"mobile_preview": "المعاينة على جهاز",
+		"desktop_build": "بناء تطبيق سطح المكتب",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

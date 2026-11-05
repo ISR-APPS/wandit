@@ -126,8 +126,13 @@ function setup(
 		}),
 		deleteObjectsByPrefix: vi.fn(async (prefix: string) => {
 			order.push(`objects:${prefix}`);
-			// No stored build under `published/`: the default project never published.
-			if (prefix.startsWith("published/")) {
+			// No object under `published/`, `desktop/`, or `desktop-temp/`: the
+			// default project never published and never built a desktop app.
+			if (
+				prefix.startsWith("published/") ||
+				prefix.startsWith("desktop/") ||
+				prefix.startsWith("desktop-temp/")
+			) {
 				return 0;
 			}
 			return prefix.startsWith("git/") ? 2 : 3;
@@ -138,6 +143,12 @@ function setup(
 				return live === null
 					? null
 					: { ...live, status: "unpublished" as const };
+			}),
+		},
+		desktopApps: {
+			deleteApp: vi.fn(async (_projectId: string) => {
+				order.push("desktop-app");
+				return 1;
 			}),
 		},
 		gitStore: {
@@ -187,7 +198,7 @@ function setup(
 }
 
 describe("runDeleteAppProject", () => {
-	it("runs the nine steps in order and sums the prefixes", async () => {
+	it("runs the ten steps in order and sums the prefixes", async () => {
 		const { deps, order } = setup(
 			turnRow({ status: "running", triggerRunId: "run-9" }),
 		);
@@ -199,9 +210,12 @@ describe("runDeleteAppProject", () => {
 			"sandbox",
 			"worker",
 			"secrets",
+			"desktop-app",
 			"objects:git/project-1/",
 			"objects:sites/project-1/assets/",
 			"objects:published/project-1/builds/",
+			"objects:desktop/project-1/",
+			"objects:desktop-temp/project-1/",
 			"repository",
 			"audit",
 			"capture",
@@ -212,6 +226,7 @@ describe("runDeleteAppProject", () => {
 			backend: "skipped",
 			// The default project never published.
 			deployment: "none",
+			desktopAppsDeleted: 1,
 			objectsDeleted: 5,
 			repository: "deleted",
 			sandbox: "destroyed",
@@ -330,6 +345,24 @@ describe("runDeleteAppProject", () => {
 		);
 	});
 
+	// A thrown key delete must not skip the R2 drain: the installers would stay public.
+	it("deletes the desktop app row of the project, and logs a failed delete and runs the later steps", async () => {
+		const { deps, order } = setup();
+		deps.desktopApps.deleteApp.mockRejectedValue(new Error("db down"));
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(deps.desktopApps.deleteApp).toHaveBeenCalledWith("project-1");
+		expect(result.desktopAppsDeleted).toBe(0);
+		expect(order).toContain("objects:desktop/project-1/");
+		expect(result.repository).toBe("deleted");
+		expect(result.auditWritten).toBe(true);
+		expect(deps.logger.error).toHaveBeenCalledWith(
+			"app-project.delete.desktop-app-failed",
+			{ error: "db down", projectId: "project-1" },
+		);
+	});
+
 	it("does not cancel a queued turn without a run id", async () => {
 		const { deps, order } = setup(
 			turnRow({ status: "queued", triggerRunId: null }),
@@ -416,6 +449,7 @@ describe("runDeleteAppProject", () => {
 				metadata: {
 					backend: "skipped",
 					deployment: "none",
+					desktopAppsDeleted: 1,
 					objectsDeleted: 5,
 					repository: "deleted",
 					sandbox: "error",
@@ -465,6 +499,7 @@ describe("runDeleteAppProject", () => {
 			metadata: {
 				backend: "skipped",
 				deployment: "none",
+				desktopAppsDeleted: 1,
 				objectsDeleted: 5,
 				repository: "deleted",
 				sandbox: "destroyed",
@@ -556,8 +591,8 @@ describe("runDeleteAppProject", () => {
 
 		const result = await runDeleteAppProject(deps, INPUT);
 
-		// `sites/` and `published/` still drain: 3 keys each.
-		expect(result.objectsDeleted).toBe(6);
+		// The 4 other prefixes still drain: 3 keys each.
+		expect(result.objectsDeleted).toBe(12);
 		expect(deps.logger.error).toHaveBeenCalledWith(
 			"app-project.delete.objects-failed",
 			expect.objectContaining({ prefix: "git/project-1/" }),

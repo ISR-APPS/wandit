@@ -27,6 +27,7 @@ const TURN_PROJECT: TurnProjectRow = {
 	languages: ["en"],
 	networkAllowedHosts: [],
 	organizationId: null,
+	suspendedReasonCode: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
 };

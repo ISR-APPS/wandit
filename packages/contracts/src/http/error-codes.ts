@@ -65,6 +65,18 @@ export const apiErrorCodes = [
 	"BACKEND_LIMIT_REACHED",
 	"MOBILE_BUILD_ACTIVE",
 	"MOBILE_BUILD_NO_VERSION",
+	"DESKTOP_BUILD_ACTIVE",
+	"DESKTOP_BUILD_NO_VERSION",
+	"DESKTOP_BUILD_NOT_READY",
+	// 409 on a desktop build create while the paying account already has 2 live desktop builds, in all its projects.
+	"DESKTOP_BUILD_LIMIT_REACHED",
+	// 409 on a desktop release of a build older than the current build of its platform. Installed apps accept only a newer version.
+	"DESKTOP_BUILD_OLDER_THAN_CURRENT",
+	// 403 on a macOS desktop build create while DESKTOP_MACOS_BUILDS_ENABLED is false. A request-key replay still answers its build.
+	"DESKTOP_PLATFORM_UNAVAILABLE",
+	"DESKTOP_TEMPLATE_UNAVAILABLE",
+	// 403 on publish, rollback, a desktop build, or a desktop release while staff suspend the app (WANDIT-181).
+	"PROJECT_SUSPENDED",
 	"WRITE_NEEDS_CONFIRM",
 	"INVALID_IDENTIFIER",
 	"QUERY_FAILED",

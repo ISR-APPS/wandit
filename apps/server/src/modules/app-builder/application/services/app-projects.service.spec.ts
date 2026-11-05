@@ -393,6 +393,27 @@ describe("AppProjectsService.create", () => {
 		});
 	});
 
+	it("gives a desktop project no cloud backend and still starts its first turn", async () => {
+		const { backends, projects, service, turns } = setup();
+
+		await service.create(
+			SCOPE,
+			{ ...BODY, targetPlatform: "desktop" },
+			{ countryCode: "MA" },
+		);
+
+		expect(projects.createWithChatAndFirstMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				app: expect.objectContaining({
+					framework: "desktop-app",
+					targetPlatform: "desktop",
+				}),
+			}),
+		);
+		expect(backends.provisionBackend).not.toHaveBeenCalled();
+		expect(turns.create).toHaveBeenCalledTimes(1);
+	});
+
 	it("still answers the ids when backend provisioning throws", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(new Error("db down"));

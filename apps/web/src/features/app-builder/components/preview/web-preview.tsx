@@ -1,7 +1,8 @@
 /**
- * Web preview of a web project. pages/app-builder-page.tsx renders it and passes the live URL of the publish status.
+ * Web preview of a web project and of a desktop project. pages/app-builder-page.tsx renders it and passes the live URL of the publish status.
  * A stage bar holds the address capsule (viewport toggle, page picker, live app link, reload, new tab), the Select toggle, and the Thème button.
  * The "Try to fix" error banner (PreviewErrorBanner) sits under the bar. Below it, the app shows at full width or in a phone of iPhone shape.
+ * A desktop project has no viewport toggle: desktop-window.tsx shows the app in a Windows window.
  * usePreviewToken mints the preview URL. PreviewPanel shows the iframe and passes the bridge messages. RoutePicker lists the pages.
  * The Thème button lazy-loads theme-sheet.tsx. This file owns the draft theme, and PreviewPanel posts it to the app.
  */
@@ -45,6 +46,7 @@ import {
 	usePreviewToken,
 } from "../../lib/use-preview-token";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
+import { DesktopWindowStage } from "./desktop-window";
 import { PreviewErrorBanner } from "./preview-error-banner";
 import { PreviewPanel } from "./preview-panel";
 import { RoutePicker } from "./route-picker";
@@ -79,7 +81,7 @@ export type WebPreviewProps = {
 	 * first publish. Undefined while the status loads or after it failed: the capsule then shows no host.
 	 */
 	liveUrl: string | null | undefined;
-	/** `desktop` or `mobile`, from `?viewport=`. `mobile` shrinks the iframe. */
+	/** `desktop` or `mobile`, from `?viewport=`. `mobile` shrinks the iframe. A desktop project ignores it. */
 	viewport: WebViewport;
 	/** Stores the new viewport in the URL. The viewport button of the bar calls it. */
 	onChangeViewport: (viewport: WebViewport) => void;
@@ -149,7 +151,9 @@ export function WebPreview({
 		setFramePath(currentPath);
 	}
 
-	const isMobileViewport = viewport === "mobile";
+	// A desktop app runs in a fixed window, so the phone viewport does not apply to it.
+	const isDesktopApp = project.kind === "desktop";
+	const isMobileViewport = !isDesktopApp && viewport === "mobile";
 	// The button shows the icon of the next view, not of the current view.
 	// Users read a phone icon on the desktop view as "now on mobile".
 	const nextViewport: WebViewport = isMobileViewport ? "desktop" : "mobile";
@@ -267,26 +271,30 @@ export function WebPreview({
 			{/* No Back or Forward: the page cannot read the history of the cross-origin preview frame. */}
 			<div className="flex h-12 shrink-0 items-center justify-center gap-2 border-night/[0.07] border-b px-3 dark:border-white/[0.07]">
 				<div className="flex h-9 min-w-0 max-w-[680px] flex-1 items-center gap-0.5 rounded-full bg-night/[0.045] px-1 dark:bg-white/[0.06]">
-					<IconAction
-						label={t(
-							nextViewport === "mobile"
-								? "appBuilder.viewport.switchToMobile"
-								: "appBuilder.viewport.switchToDesktop",
-						)}
-					>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							className={CAPSULE_BUTTON_CLASS}
-							onClick={() => onChangeViewport(nextViewport)}
-						>
-							<ViewportIcon aria-hidden weight="bold" className="size-4" />
-						</Button>
-					</IconAction>
-					<span
-						aria-hidden
-						className="mx-0.5 h-4 w-px shrink-0 bg-night/[0.1] dark:bg-white/[0.1]"
-					/>
+					{isDesktopApp ? null : (
+						<>
+							<IconAction
+								label={t(
+									nextViewport === "mobile"
+										? "appBuilder.viewport.switchToMobile"
+										: "appBuilder.viewport.switchToDesktop",
+								)}
+							>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									className={CAPSULE_BUTTON_CLASS}
+									onClick={() => onChangeViewport(nextViewport)}
+								>
+									<ViewportIcon aria-hidden weight="bold" className="size-4" />
+								</Button>
+							</IconAction>
+							<span
+								aria-hidden
+								className="mx-0.5 h-4 w-px shrink-0 bg-night/[0.1] dark:bg-white/[0.1]"
+							/>
+						</>
+					)}
 					<RoutePicker
 						projectId={project.id}
 						currentPath={currentPath}
@@ -407,54 +415,71 @@ export function WebPreview({
 					onTryToFix={onTryToFix}
 				/>
 			) : null}
-			<div
-				className={cn(
-					// A size container: the phone width reads the stage height in `cqh`.
-					"relative flex min-h-0 flex-1 items-center justify-center overflow-hidden transition-[padding] [container-type:size]",
-					VIEWPORT_MOTION_CLASS,
-					// The padding leaves room for the 11 px bezel and the drop shadow of the phone.
-					isMobileViewport && "px-4 py-8",
-				)}
-			>
-				{/* The dots get their own layer. The mask of `bg-dots` fades the element and all its children. */}
+			{isDesktopApp ? (
+				<DesktopWindowStage title={project.name}>
+					<PreviewPanel
+						projectId={project.id}
+						preview={preview}
+						path={framePath}
+						title={t("appBuilder.preview.frameTitle", { name: project.name })}
+						className="size-full bg-night"
+						bootContext={bootContext}
+						isSelecting={isSelecting}
+						liveTheme={themeDraft?.theme ?? null}
+						onBridgeMessage={onBridgeMessage}
+						onFrameLoad={runtimeErrors.onFrameLoad}
+					/>
+				</DesktopWindowStage>
+			) : (
 				<div
-					aria-hidden
 					className={cn(
-						"pointer-events-none absolute inset-0 bg-dots transition-opacity",
+						// A size container: the phone width reads the stage height in `cqh`.
+						"relative flex min-h-0 flex-1 items-center justify-center overflow-hidden transition-[padding] [container-type:size]",
 						VIEWPORT_MOTION_CLASS,
-						isMobileViewport ? "opacity-100" : "opacity-0",
+						// The padding leaves room for the 11 px bezel and the drop shadow of the phone.
+						isMobileViewport && "px-4 py-8",
 					)}
-				/>
-				<PreviewPanel
-					projectId={project.id}
-					preview={preview}
-					path={framePath}
-					title={t("appBuilder.preview.frameTitle", { name: project.name })}
-					className={cn(
-						"bg-night transition-[width,height,border-radius,box-shadow]",
-						VIEWPORT_MOTION_CLASS,
-						// The mobile view is a phone on the dotted stage: a black bezel, a thin rim, and a soft drop.
-						// Shadows draw the body, so the panel needs no wrapper and the iframe never reloads on a switch.
-						// The desktop view fills the stage, and the card clips the corners.
-						isMobileViewport
-							? "rounded-[48px] shadow-[0_0_0_10px_#000,0_0_0_11px_rgb(11_16_51/0.3),0_16px_32px_-20px_rgb(11_16_51/0.5)] dark:shadow-[0_0_0_10px_#000,0_0_0_11px_rgb(255_255_255/0.14)]"
-							: "rounded-none",
-					)}
-					// CSS animates a size from 100 % to px and back, so the app reflows during the move.
-					// The max values keep the phone inside a small card: it gets narrower or shorter, never cut.
-					style={{
-						width: isMobileViewport ? MOBILE_FRAME_WIDTH : "100%",
-						height: isMobileViewport ? MOBILE_VIEWPORT_HEIGHT_PX : "100%",
-						maxWidth: "100%",
-						maxHeight: "100%",
-					}}
-					bootContext={bootContext}
-					isSelecting={isSelecting}
-					liveTheme={themeDraft?.theme ?? null}
-					onBridgeMessage={onBridgeMessage}
-					onFrameLoad={runtimeErrors.onFrameLoad}
-				/>
-			</div>
+				>
+					{/* The dots get their own layer. The mask of `bg-dots` fades the element and all its children. */}
+					<div
+						aria-hidden
+						className={cn(
+							"pointer-events-none absolute inset-0 bg-dots transition-opacity",
+							VIEWPORT_MOTION_CLASS,
+							isMobileViewport ? "opacity-100" : "opacity-0",
+						)}
+					/>
+					<PreviewPanel
+						projectId={project.id}
+						preview={preview}
+						path={framePath}
+						title={t("appBuilder.preview.frameTitle", { name: project.name })}
+						className={cn(
+							"bg-night transition-[width,height,border-radius,box-shadow]",
+							VIEWPORT_MOTION_CLASS,
+							// The mobile view is a phone on the dotted stage: a black bezel, a thin rim, and a soft drop.
+							// Shadows draw the body, so the panel needs no wrapper and the iframe never reloads on a switch.
+							// The desktop view fills the stage, and the card clips the corners.
+							isMobileViewport
+								? "rounded-[48px] shadow-[0_0_0_10px_#000,0_0_0_11px_rgb(11_16_51/0.3),0_16px_32px_-20px_rgb(11_16_51/0.5)] dark:shadow-[0_0_0_10px_#000,0_0_0_11px_rgb(255_255_255/0.14)]"
+								: "rounded-none",
+						)}
+						// CSS animates a size from 100 % to px and back, so the app reflows during the move.
+						// The max values keep the phone inside a small card: it gets narrower or shorter, never cut.
+						style={{
+							width: isMobileViewport ? MOBILE_FRAME_WIDTH : "100%",
+							height: isMobileViewport ? MOBILE_VIEWPORT_HEIGHT_PX : "100%",
+							maxWidth: "100%",
+							maxHeight: "100%",
+						}}
+						bootContext={bootContext}
+						isSelecting={isSelecting}
+						liveTheme={themeDraft?.theme ?? null}
+						onBridgeMessage={onBridgeMessage}
+						onFrameLoad={runtimeErrors.onFrameLoad}
+					/>
+				</div>
+			)}
 			{hasOpenedTheme && themeQuery.data !== undefined ? (
 				<Suspense fallback={null}>
 					<ThemeSheet

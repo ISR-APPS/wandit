@@ -103,13 +103,18 @@ export async function getAppProject(
 
 /**
  * Maps the V2 project answer to the UI project. The app kind comes from
- * `targetPlatform`; a null platform counts as web.
+ * `targetPlatform`; a null platform counts as web. The `desktop-app`
+ * template also makes a desktop project.
  */
 export function toUiAppProject(project: ApiAppProject): AppProject {
 	return {
 		id: project.id,
 		name: project.name,
-		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		// The API builds an installer only for the `desktop-app` template (docs/v2/desktop-apps.md, section 8).
+		kind:
+			project.framework === "desktop-app"
+				? "desktop"
+				: (project.targetPlatform ?? "web"),
 		languages: project.languages,
 		templateVersion: project.templateVersion,
 		engine: project.engine,

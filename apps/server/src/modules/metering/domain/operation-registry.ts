@@ -4,7 +4,10 @@
  * settlement ceilings, and legal parent/child nesting of usage operations.
  * Pure constants and helpers; it calls nothing.
  */
-import { MOBILE_BUILD_ANDROID_CREDITS } from "@wandit/contracts";
+import {
+	DESKTOP_BUILD_CREDITS,
+	MOBILE_BUILD_ANDROID_CREDITS,
+} from "@wandit/contracts";
 import type { aiUsageOperation } from "@wandit/db/schema/credits";
 
 export type AiUsageOperation = (typeof aiUsageOperation.enumValues)[number];
@@ -53,6 +56,11 @@ export const LEAD_SCRAPE_MINIMUM_CREDITS = 100;
  * price is in whole credits; the registry keeps centi-credits.
  */
 export const MOBILE_BUILD_CREDITS = MOBILE_BUILD_ANDROID_CREDITS * 100;
+/**
+ * One desktop build of a desktop app, Windows or macOS, at a fixed price. The contract
+ * price is in whole credits; the registry keeps centi-credits.
+ */
+export const DESKTOP_BUILD_CREDITS_CENTI = DESKTOP_BUILD_CREDITS * 100;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -140,6 +148,17 @@ export const OPERATION_REGISTRY = {
 		allowedParentOperations: ["agent_session", "chat"],
 		mode: "measured",
 		reserveFloorCredits: CONNECTOR_RESERVE_FLOOR_CREDITS,
+		rootAllowed: true,
+		unit: "operation",
+	},
+	// The user starts a desktop build from the Release popover, never from a
+	// chat or a turn, so it has no parent.
+	desktop_build: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		creditsPerUnit: DESKTOP_BUILD_CREDITS_CENTI,
+		mode: "fixed",
+		reserveFloorCredits: DESKTOP_BUILD_CREDITS_CENTI,
 		rootAllowed: true,
 		unit: "operation",
 	},

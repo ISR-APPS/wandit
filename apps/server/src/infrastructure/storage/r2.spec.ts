@@ -20,6 +20,9 @@ vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 const s3 = vi.hoisted(() => ({ send: vi.fn() }));
 
 vi.mock("@aws-sdk/client-s3", () => ({
+	CopyObjectCommand: class {
+		constructor(readonly input: unknown) {}
+	},
 	DeleteObjectCommand: class {
 		constructor(readonly input: unknown) {}
 	},
@@ -43,7 +46,9 @@ vi.mock("@aws-sdk/client-s3", () => ({
 
 import {
 	contentTypeFor,
+	deleteDesktopReleaseObjects,
 	deleteObjectsByPrefix,
+	desktopDownloadHeaders,
 	downloadObjectToFile,
 	feedbackScreenshotKey,
 	IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -56,7 +61,6 @@ import {
 	r2ObjectExists,
 	type StoredObject,
 	VARIANT_FILENAME_PATTERN,
-	v2ProjectPrefixes,
 	variantKey,
 } from "./r2";
 
@@ -280,12 +284,57 @@ describe("deleteObjectsByPrefix", () => {
 		await expect(deleteObjectsByPrefix("git/p1/", io)).resolves.toBe(0);
 		expect(io.remove).not.toHaveBeenCalled();
 	});
+});
 
-	it("names the three v2 prefixes of a project", () => {
-		expect(v2ProjectPrefixes("p1")).toEqual([
-			"git/p1/",
-			"sites/p1/assets/",
-			"published/p1/builds/",
+describe("desktopDownloadHeaders", () => {
+	// The bucket is public. An unknown file type must never get a download
+	// header, and a bare `.tar.gz` is not the macOS update archive.
+	it.each([
+		"stock.zip",
+		"stock.tar.gz",
+	])("refuses the file name %s", (fileName) => {
+		expect(() => desktopDownloadHeaders(fileName)).toThrow(
+			`Unsafe download file name: ${fileName}`,
+		);
+	});
+});
+
+describe("deleteDesktopReleaseObjects", () => {
+	// A suspension must withdraw the manifest on every list page, and only
+	// the top-level objects: the build folders come back as common prefixes.
+	it("deletes the top-level objects of every page and lists with the delimiter", async () => {
+		s3.send
+			.mockResolvedValueOnce({
+				CommonPrefixes: [{ Prefix: "desktop/p1/builds/" }],
+				Contents: [{ Key: "desktop/p1/latest.json" }],
+				IsTruncated: true,
+				NextContinuationToken: "page-2",
+			})
+			.mockResolvedValueOnce({})
+			.mockResolvedValueOnce({
+				Contents: [{ Key: "desktop/p1/stock-setup.exe" }],
+				IsTruncated: false,
+			})
+			.mockResolvedValueOnce({});
+
+		await expect(deleteDesktopReleaseObjects("p1")).resolves.toBe(2);
+
+		const inputs = s3.send.mock.calls.map((call) => call[0].input);
+		expect(inputs).toEqual([
+			{
+				Bucket: "bucket",
+				ContinuationToken: undefined,
+				Delimiter: "/",
+				Prefix: "desktop/p1/",
+			},
+			{ Bucket: "bucket", Key: "desktop/p1/latest.json" },
+			{
+				Bucket: "bucket",
+				ContinuationToken: "page-2",
+				Delimiter: "/",
+				Prefix: "desktop/p1/",
+			},
+			{ Bucket: "bucket", Key: "desktop/p1/stock-setup.exe" },
 		]);
 	});
 });

@@ -7,10 +7,12 @@
  * app page path on the signed preview URL. Two convert the spending limits
  * between the Settings fields and the API. One formats a USD amount of the
  * chat cost. Two serve the Thème sheet: the drop rule of its draft and the
- * brand color field. Called by the page, the More view and its nav, the
- * Settings panel, the chat cards, the Expo Go popover, the preview panel, the
- * web preview, the Thème sheet, the model menu, the model pick hook, and the
- * create flow.
+ * brand color field. One fits the phone or the desktop window into its stage.
+ * One tells the build queries that a live build ended. Called by the page,
+ * the More view and its nav, the Settings panel, the chat cards, the Expo Go
+ * popover, the preview panel, the web preview, the phone and desktop window
+ * stages, the Thème sheet, the model menu, the model pick hook, the mobile
+ * and desktop build queries, and the create flow.
  */
 
 import {
@@ -40,6 +42,7 @@ import {
 	type ProjectPanel,
 } from "./constants";
 import { chatLayoutSchema } from "./schemas";
+import type { ElementSize } from "./use-element-size";
 
 /** More panels the nav lists for a project kind, in nav order. Disabled panels are in the list. */
 export function panelsForKind(kind: AppProjectKind): MorePanel[] {
@@ -384,4 +387,48 @@ const BRAND_HEX_TEXT = /^#?([0-9a-f]{6})$/i;
 export function brandHexOf(text: string): `#${string}` | null {
 	const digits = BRAND_HEX_TEXT.exec(text.trim())?.[1];
 	return digits === undefined ? null : `#${digits.toLowerCase()}`;
+}
+
+/** Smallest scale of a fitted frame. A collapsed stage must not flip the frame with a negative scale. */
+const MIN_FRAME_SCALE = 0.1;
+
+/**
+ * Scale that fits a frame of fixed design size into a stage, with `paddingPx` free on each side.
+ * At most 1: the frame never grows past its design size. The phone and desktop window stages call it.
+ */
+export function fitFrameScale(
+	stageSize: ElementSize | null,
+	frameSize: ElementSize,
+	paddingPx: number,
+): number {
+	// A stage without a size (not laid out yet) keeps the design size.
+	if (stageSize === null || stageSize.width <= 0) return 1;
+	return Math.max(
+		Math.min(
+			1,
+			(stageSize.width - 2 * paddingPx) / frameSize.width,
+			(stageSize.height - 2 * paddingPx) / frameSize.height,
+		),
+		MIN_FRAME_SCALE,
+	);
+}
+
+/**
+ * True when a build that is live in the cached answer has ended in the fresh answer.
+ * The mobile and desktop build queries then refresh the credits: a build end settles or returns its held credits.
+ * No cached answer gives false.
+ */
+export function hasEndedLiveBuild<Status extends string>(
+	cachedBuilds: readonly { id: string; status: Status }[] | undefined,
+	freshBuilds: readonly { id: string; status: Status }[],
+	liveStatuses: ReadonlySet<Status>,
+): boolean {
+	const liveIds = new Set(
+		cachedBuilds
+			?.filter((build) => liveStatuses.has(build.status))
+			.map((build) => build.id),
+	);
+	return freshBuilds.some(
+		(build) => liveIds.has(build.id) && !liveStatuses.has(build.status),
+	);
 }

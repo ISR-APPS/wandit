@@ -48,6 +48,7 @@
 		"sandbox": "Temps de sandbox",
 		"mobile_build": "Build de l'app",
 		"mobile_preview": "Aperçu sur appareil",
+		"desktop_build": "Build d'app de bureau",
 		"topup_adjust": "Ajustement du solde"
 	},
 	"activityStatus": {

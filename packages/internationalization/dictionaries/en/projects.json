@@ -134,6 +134,10 @@
 			"mobile": {
 				"label": "Mobile app",
 				"description": "For iPhone and Android. Try it on your phone."
+			},
+			"desktop": {
+				"label": "Desktop app",
+				"description": "For Windows. The data stays on the computer."
 			}
 		},
 		"outputLabel": "Output",

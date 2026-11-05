@@ -1,4 +1,8 @@
-import { liveMobileBuildStatuses } from "@wandit/contracts";
+import {
+	desktopBuildStatuses,
+	liveDesktopBuildStatuses,
+	liveMobileBuildStatuses,
+} from "@wandit/contracts";
 import { getTableConfig, PgDialect } from "@wandit/db";
 import {
 	appBackendProvider,
@@ -9,6 +13,10 @@ import {
 	builderTurnStatus,
 	builderTurns,
 } from "@wandit/db/schema/builder-turns";
+import {
+	desktopBuildStatus,
+	desktopBuilds,
+} from "@wandit/db/schema/desktop-apps";
 import {
 	mobileBuildKind,
 	mobileBuildPlatform,
@@ -57,7 +65,11 @@ describe("v2 core schema", () => {
 
 	it("keeps project_engine and project_target_platform values", () => {
 		expect(projectEngine.enumValues).toEqual(["v1_page", "v2_app"]);
-		expect(projectTargetPlatform.enumValues).toEqual(["web", "mobile"]);
+		expect(projectTargetPlatform.enumValues).toEqual([
+			"web",
+			"mobile",
+			"desktop",
+		]);
 	});
 
 	it("keeps sandbox_session_status values", () => {
@@ -138,6 +150,26 @@ describe("v2 core schema", () => {
 			);
 		}
 		const liveStatusList = liveMobileBuildStatuses
+			.map((status) => `'${status}'`)
+			.join(", ");
+		expect(new PgDialect().sqlToQuery(liveWhere, "indexes").sql).toBe(
+			`"status" IN (${liveStatusList})`,
+		);
+	});
+
+	it("keeps the desktop build statuses and one live build per project in step with the contract", () => {
+		expect(desktopBuildStatus.enumValues).toEqual([...desktopBuildStatuses]);
+		const index = getTableConfig(desktopBuilds).indexes.find(
+			(candidate) => candidate.config.name === "desktop_builds_live_project_uq",
+		);
+		expect(index?.config.unique).toBe(true);
+		// A status missing from the WHERE clause lets two live builds of one
+		// project race for the same release number and the same CI run.
+		const liveWhere = index?.config.where;
+		if (!liveWhere) {
+			throw new Error("desktop_builds_live_project_uq has no WHERE clause");
+		}
+		const liveStatusList = liveDesktopBuildStatuses
 			.map((status) => `'${status}'`)
 			.join(", ");
 		expect(new PgDialect().sqlToQuery(liveWhere, "indexes").sql).toBe(

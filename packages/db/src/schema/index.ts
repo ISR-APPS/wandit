@@ -42,6 +42,8 @@ export * from "./connector-operation-events";
 export * from "./credits";
 // Deployment tables.
 export * from "./deployments";
+// V2 desktop apps: the identity, the Windows and macOS builds, and the built migrations.
+export * from "./desktop-apps";
 // Appetize device sessions of the V2 mobile preview.
 export * from "./device-sessions";
 // Domain tables.

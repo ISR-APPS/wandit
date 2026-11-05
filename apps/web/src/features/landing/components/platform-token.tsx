@@ -1,8 +1,9 @@
 /**
  * The platform word of the sentence "Build me a [mobile app]": a night pill
- * with a spark circle. A click flips mobile and web. The landing hero and the
- * dashboard prompt panel render it. All sizes are in em, so the pill follows
- * the font size of its parent.
+ * with a spark circle. A click moves to the next platform: web, mobile,
+ * desktop, then web again. The landing hero and the dashboard prompt panel
+ * render it and call nextTargetPlatform. All sizes are in em, so the pill
+ * follows the font size of its parent.
  */
 
 import { type TargetPlatform, targetPlatforms } from "@wandit/contracts";
@@ -12,24 +13,30 @@ import { motion } from "motion/react";
 
 import { useDictionary } from "@/lib/i18n";
 
+/** The platform after `platform` in the order of `targetPlatforms`. The last one goes back to the first. */
+export function nextTargetPlatform(platform: TargetPlatform): TargetPlatform {
+	const index = targetPlatforms.indexOf(platform);
+	return targetPlatforms[(index + 1) % targetPlatforms.length] ?? platform;
+}
+
 /** A button inside a heading or a sentence. The parent owns the platform state. */
 export function PlatformToken({
 	platform,
 	onFlip,
 }: {
 	platform: TargetPlatform;
-	/** Sets the other platform. The parent also updates what depends on it. */
+	/** Sets the platform of nextTargetPlatform. The parent also updates what depends on it. */
 	onFlip: () => void;
 }) {
 	const hero = useDictionary().landing.hero;
-	const otherPlatform = platform === "mobile" ? "web" : "mobile";
+	const platformIndex = targetPlatforms.indexOf(platform);
 
 	return (
 		<button
 			type="button"
 			onClick={onFlip}
 			// The name starts with the visible word, so voice control finds the token.
-			aria-label={`${hero.platforms[platform]}, ${hero.switchTo[otherPlatform]}`}
+			aria-label={`${hero.platforms[platform]}, ${hero.switchTo[nextTargetPlatform(platform)]}`}
 			// The vertical padding makes the hit area at least 44 px tall at 360 px.
 			className="group/token inline-grid cursor-pointer py-[0.05em] align-[-0.1em] outline-none"
 		>
@@ -43,7 +50,11 @@ export function PlatformToken({
 						option === platform
 							? { y: "0%", opacity: 1, scale: 1 }
 							: {
-									y: option === "mobile" ? "-40%" : "40%",
+									// A pill before the current one waits above it, a later pill waits below.
+									y:
+										targetPlatforms.indexOf(option) < platformIndex
+											? "-40%"
+											: "40%",
 									opacity: 0,
 									scale: 0.9,
 								}

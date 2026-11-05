@@ -24,6 +24,7 @@ import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { StorefrontIcon } from "@phosphor-icons/react/Storefront";
 import { UsersIcon } from "@phosphor-icons/react/Users";
+import { targetPlatforms } from "@wandit/contracts";
 
 import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
@@ -35,7 +36,10 @@ import type { AppProjectKind } from "../api/dto";
 export const BUILDER_VIEWS = ["preview", "code", "more"] as const;
 export type BuilderView = (typeof BUILDER_VIEWS)[number];
 
-/** Panels of the More view, in nav order. `domains` is web only, `appStores` is mobile only. */
+/**
+ * Panels of the More view, in nav order. `domains` is web only, `appStores` is
+ * mobile only. A desktop app lists neither `signIn` nor `payments`.
+ */
 export const MORE_PANELS = [
 	"analytics",
 	"signIn",
@@ -128,37 +132,39 @@ type MorePanelMeta = {
 	description: TranslationKey;
 };
 
-const ALL_KINDS: readonly AppProjectKind[] = ["web", "mobile"];
+// A desktop app has no backend and no network (docs/v2/desktop-apps.md, section 12).
+// So the sign-in methods and the payments of a hosted app do not apply to it.
+const HOSTED_KINDS: readonly AppProjectKind[] = ["web", "mobile"];
 
 /** Icon, visibility, and copy keys of each More panel. */
 export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 	analytics: {
 		icon: ChartLineUpIcon,
-		kinds: ALL_KINDS,
+		kinds: targetPlatforms,
 		title: "appBuilder.panels.analytics.title",
 		description: "appBuilder.panels.analytics.description",
 	},
 	signIn: {
 		icon: LockKeyIcon,
-		kinds: ALL_KINDS,
+		kinds: HOSTED_KINDS,
 		title: "appBuilder.panels.signIn.title",
 		description: "appBuilder.panels.signIn.description",
 	},
 	ai: {
 		icon: SparkleIcon,
-		kinds: ALL_KINDS,
+		kinds: targetPlatforms,
 		title: "appBuilder.panels.ai.title",
 		description: "appBuilder.panels.ai.description",
 	},
 	payments: {
 		icon: CreditCardIcon,
-		kinds: ALL_KINDS,
+		kinds: HOSTED_KINDS,
 		title: "appBuilder.panels.payments.title",
 		description: "appBuilder.panels.payments.description",
 	},
 	integrations: {
 		icon: PlugsConnectedIcon,
-		kinds: ALL_KINDS,
+		kinds: targetPlatforms,
 		title: "appBuilder.panels.integrations.title",
 		description: "appBuilder.panels.integrations.description",
 	},
@@ -176,13 +182,13 @@ export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 	},
 	security: {
 		icon: ShieldCheckIcon,
-		kinds: ALL_KINDS,
+		kinds: targetPlatforms,
 		title: "appBuilder.panels.security.title",
 		description: "appBuilder.panels.security.description",
 	},
 	settings: {
 		icon: GearSixIcon,
-		kinds: ALL_KINDS,
+		kinds: targetPlatforms,
 		title: "appBuilder.panels.settings.title",
 		description: "appBuilder.panels.settings.description",
 	},
