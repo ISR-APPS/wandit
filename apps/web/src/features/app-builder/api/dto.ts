@@ -11,6 +11,7 @@ import type {
 	CodeSnapshotResponse,
 	ProjectAccess,
 	ProjectEngine,
+	TargetPlatform,
 	TurnDataParts,
 	TurnPlanData,
 	TurnQuestionOption,
@@ -19,13 +20,16 @@ import type {
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
-/** What Wandit builds. Changes the preview frame, the More panels, and the publish targets. */
-export type AppProjectKind = "web" | "mobile";
+/**
+ * What Wandit builds: the `targetPlatform` values of the API. Changes the
+ * preview frame, the More panels, and the publish targets.
+ */
+export type AppProjectKind = TargetPlatform;
 
 export type AppProject = {
 	id: string;
 	name: string;
-	/** Set at creation from `targetPlatform`. It never changes, so Settings shows it as a badge. */
+	/** Set at creation from `targetPlatform`, or from the `desktop-app` framework. It never changes, so Settings shows it as a badge. */
 	kind: AppProjectKind;
 	/** Languages the agent builds the app in, from `projects.languages`. Settings lists them read-only. */
 	languages: AppLanguage[];

@@ -133,7 +133,7 @@ Capabilities:
 | Action | Needs |
 |---|---|
 | Open the project, chat history, code, versions, diff, theme, preview, wake the sandbox, publish status, stream turns, turn estimate, sharing state | viewer |
-| Prompt (start or cancel a turn), restore a version, edit the theme, publish, rollback, unpublish, secrets, Cloud, mobile builds, device sessions, rename | editor |
+| Prompt (start or cancel a turn), restore a version, edit the theme, publish, rollback, unpublish, secrets, Cloud, mobile builds, desktop builds and desktop releases, device sessions, rename | editor |
 | Invite or change Can edit / Can view people, set Workspace access to Can edit or Can view, project invite link, see pending invitations and the link token | editor |
 | Invite or change project admins | admin |
 | Cost caps: team project | admin |
@@ -270,12 +270,15 @@ Background paths:
 - Connector generation attempts write and read `payer_user_id`.
 - Mobile builds: `mobile_builds.user_id` stays the actor; the runtime takes the payer from
   the hold event row (same as builder-turn).
+- Desktop builds: `desktop_builds.user_id` holds the actor; the runtime takes the payer from
+  the hold event row. The 2-live-builds cap reads the payer from the project row.
+  `desktop_apps` owner columns hold the project owner; a move writes them.
 - Device sessions: `user_id` = actor; `payer_user_id` set; allowance and its lock use the
   payer; end and the per-person lock use the actor.
 - Backend provisioning, its plan slot, publish balance, set-secret host tool, lead sheet
   auto-sync: payer and scope from the project row.
-- Column rules: `builder_turns.user_id`, `app_builds.user_id`, `mobile_builds.user_id` hold
-  the actor. `app_backends`, `project_secrets`, `sandbox_sessions` owner columns hold the
+- Column rules: `builder_turns.user_id`, `app_builds.user_id`, `mobile_builds.user_id`,
+  `desktop_builds.user_id` hold the actor. `app_backends`, `project_secrets`, `sandbox_sessions` owner columns hold the
   project owner/payer.
 
 Views:
@@ -330,11 +333,11 @@ Project sharing (`packages/contracts/src/v2/sharing.ts`):
   keepCollaborators: boolean }` (workspace owner of the source; the caller can create
   projects in the destination). 409 `PROJECT_MOVE_BLOCKED` with a reason when: a builder
   turn is in any non-terminal status (also `waiting`), an `ai_usage_events` row of the
-  project is `reserved`, a publish or mobile build is in flight, a device session is
+  project is `reserved`, a publish, mobile build, or desktop build is in flight, a device session is
   active, a custom domain is attached, or the destination payer has no free backend slot.
   The backend slot count and the owner-column update run in one transaction under the
   destination payer's `app-backends` lock. The move updates the project owner columns and
-  the owner columns of `app_backends`, `project_secrets`, `sandbox_sessions`; resets
+  the owner columns of `app_backends`, `project_secrets`, `sandbox_sessions`, `desktop_apps`; resets
   `workspace_access` to `can_edit`; revokes the project link; deletes direct grants and
   pending invitations unless `keepCollaborators`.
 - `GET /v2/shared-projects`: projects with a direct grant for the caller, with role and

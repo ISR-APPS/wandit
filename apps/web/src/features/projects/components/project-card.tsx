@@ -14,6 +14,7 @@ import type { Icon } from "@phosphor-icons/react";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { BrowserIcon } from "@phosphor-icons/react/Browser";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";
 import { GlobeSimpleIcon } from "@phosphor-icons/react/GlobeSimple";
@@ -118,15 +119,17 @@ function StatusPill({ status }: { status: Project["status"] }) {
 	);
 }
 
-// The meta row shows a phone for a mobile app and a browser for a web app.
+// The meta row shows a phone for a mobile app, a browser for a web app, and a monitor for a desktop app.
 const PLATFORM_ICONS = {
 	web: BrowserIcon,
 	mobile: DeviceMobileIcon,
+	desktop: DesktopIcon,
 } as const satisfies Record<TargetPlatform, Icon>;
 
 /**
- * The platform of a V2 project in the card meta row: an icon, then "Web app"
- * or "Mobile app". A V1 page project has no platform, so it shows nothing.
+ * The platform of a V2 project in the card meta row: an icon, then "Web app",
+ * "Mobile app", or "Desktop app". A V1 page project has no platform, so it
+ * shows nothing.
  */
 export function PlatformBadge({
 	platform,
@@ -328,7 +331,7 @@ export function ProjectCard({ project }: { project: Project }) {
 								{previewImage}
 							</div>
 						) : showPreview ? (
-							// A web app or a V1 page: the preview sits in a browser window.
+							// A web app, a desktop app, or a V1 page: the preview sits in a browser window.
 							<div
 								aria-hidden
 								className="absolute inset-x-[8%] top-[20%] -bottom-3 overflow-hidden rounded-t-xl bg-white shadow-[0_14px_30px_-12px_rgb(11_16_51/0.35)] ring-1 ring-night/10 transition-transform duration-300 motion-safe:group-hover:-translate-y-1 dark:bg-card dark:ring-white/10"

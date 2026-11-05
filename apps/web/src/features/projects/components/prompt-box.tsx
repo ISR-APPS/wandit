@@ -2,7 +2,7 @@
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
- * mode menu picks the app type, web or mobile, through `platformChoice`,
+ * mode menu picks the app type, web, mobile, or desktop, through `platformChoice`,
  * the Plan chip of the app-builder feature sets `planChoice`, and its
  * model menu sets `modelChoice`.
  * Calls the attachments upload service and the voice dictation hook.
@@ -16,6 +16,7 @@ import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { CpuIcon } from "@phosphor-icons/react/Cpu";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
@@ -277,6 +278,7 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
 	{ id: "web", icon: BrowserIcon },
 	{ id: "mobile", icon: DeviceMobileIcon },
+	{ id: "desktop", icon: DesktopIcon },
 ];
 
 // The hero chips copy the landing pills. A chip at rest has a soft night tint.
@@ -1640,8 +1642,8 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
-	/** Set only for a V2 create. The mode menu then lists web app and mobile
-	 * app instead of the V1 modes, and the "+" menu shows no connectors. */
+	/** Set only for a V2 create. The mode menu then lists web app, mobile app,
+	 * and desktop app instead of the V1 modes, and the "+" menu shows no connectors. */
 	platformChoice?: {
 		/** App type of the new project. The caller owns this state. */
 		value: TargetPlatform;

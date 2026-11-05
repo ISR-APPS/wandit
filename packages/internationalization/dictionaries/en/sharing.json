@@ -88,6 +88,7 @@
 			"usage_reserved": "Credits are still held for this project. Try again in a few minutes.",
 			"publish_in_flight": "A publish is in progress. Try again when it ends.",
 			"mobile_build_in_flight": "A mobile build is in progress. Try again when it ends.",
+			"desktop_build_in_flight": "A desktop build is in progress. Try again when it ends.",
 			"device_session_active": "A phone preview session is open. Close it, then move the project.",
 			"custom_domain_attached": "A custom domain is connected. Remove it, then move the project.",
 			"backend_slot_unavailable": "The destination workspace has no free backend slot."

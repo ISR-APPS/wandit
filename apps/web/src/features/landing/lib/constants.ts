@@ -21,7 +21,7 @@ export const LANDING_NAV_LINK_IDS = [
  */
 export const IDEAS = [
 	{ id: "barber", platform: "mobile" },
-	{ id: "invoices", platform: "web" },
+	{ id: "invoices", platform: "desktop" },
 	{ id: "running", platform: "mobile" },
 	{ id: "yoga", platform: "web" },
 	{ id: "clinic", platform: "mobile" },
@@ -40,7 +40,8 @@ export type IdeaId = (typeof IDEAS)[number]["id"];
 /**
  * The ideas the hero types out and builds on a loop, in loop order. Each one
  * has a mini app in components/mini-apps.tsx and a build log in
- * landing.hero.log.<id>. The loop alternates mobile and web on purpose.
+ * landing.hero.log.<id>. The loop shows every platform on purpose: mobile,
+ * desktop, mobile, then web. The platform token needs one app per platform.
  */
 export const HERO_IDEA_IDS = [
 	"barber",

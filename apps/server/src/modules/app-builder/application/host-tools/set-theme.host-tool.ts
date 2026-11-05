@@ -1,6 +1,6 @@
 /**
  * The `set_theme` host tool of the builder turn: the agent changes the app theme on the user's words.
- * `BuilderHostToolRegistry` builds it once per build turn of a web-app@1.1.0+ project.
+ * `BuilderHostToolRegistry` builds it once per build turn of a web-app@1.1.0+ or desktop-app@1.0.0+ project.
  * It parses the input with parseThemePatch and applies it with applyThemePatch to the theme that the
  * runtime trusts. It writes src/styles/theme.json through app-theme-file.ts. A world source reads the V1 world registry.
  */

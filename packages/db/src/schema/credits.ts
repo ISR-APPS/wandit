@@ -56,6 +56,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"mobile_preview",
 	// One AI call of a V2 app through the app AI gateway, billed by tokens.
 	"app_ai_gateway",
+	// One desktop build of a V2 desktop app, Windows or macOS, at a fixed price.
+	"desktop_build",
 	"topup_adjust",
 ]);
 

@@ -151,6 +151,7 @@ import {
 import {
 	profileForFramework,
 	TEMPLATE_PROFILES,
+	type TemplateProfile,
 } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
 import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
@@ -179,6 +180,10 @@ const CHECKPOINT_STEP_USD_MICROS = 250_000;
 // screen rules; the design-worlds-mobile skill holds the looks.
 const MOBILE_APP_INSTRUCTION =
 	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
+// The platform sentence of a desktop app. The template CLAUDE.md holds the
+// data rules; the host tool holds the migration allow list.
+const DESKTOP_APP_INSTRUCTION =
+	"This is a desktop app for Windows and macOS (Tauri) with a local SQLite database and no cloud backend: follow CLAUDE.md, read and write data only through src/lib/db.ts, and change the schema only with the add_local_migration tool.";
 // 100 ms between two in-flight reads while the settle waits for the
 // proxy rows of the run.
 const PROXY_ROWS_POLL_MS = 100;
@@ -222,6 +227,25 @@ const BACKEND_WAKE_TIMEOUT_MS = 180_000;
  */
 function mobileWorldsInstruction(projectId: string): string {
 	return `The design world order of this project is: ${worldOrder(projectId, mobileWorldCards).join(", ")}. On the first build, ask for the design world with the app language, as the design-worlds-mobile skill says; without that skill, ignore it.`;
+}
+
+/**
+ * The platform sentences of one project, one branch per template profile.
+ * Desktop gets the web recipe sentence. The sentence tells the agent to ignore it
+ * when the template has no app-dashboard skill.
+ */
+function platformInstructionOf(
+	profile: Readonly<TemplateProfile>,
+	projectId: string,
+): string {
+	if (profile === TEMPLATE_PROFILES.mobile) {
+		return `${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`;
+	}
+	if (profile === TEMPLATE_PROFILES.desktop) {
+		return `${DESKTOP_APP_INSTRUCTION} ${appRecipeInstruction(projectId)}`;
+	}
+	// TEMPLATE_PROFILES.web: `profileForFramework` refuses a framework without a profile.
+	return appRecipeInstruction(projectId);
 }
 
 /** Why the turn stopped on its own. */
@@ -1578,8 +1602,11 @@ export async function runBuilderTurn(
 		// The dev command and port come from the template. An unknown
 		// framework throws here, before any sandbox work.
 		const templateProfile = profileForFramework(project.framework);
-		// Only web-app@1.1.0+ has src/styles/theme.json and the theme features.
+		// Only web-app@1.1.0+ and desktop-app have src/styles/theme.json and the theme features.
 		const hasAppTheme = supportsAppTheme(project.templateVersion);
+		// A desktop app keeps its data in a local SQLite file. It has no cloud
+		// backend to wake, to put in .env, to allow in the egress, or to name.
+		const hasCloudBackend = templateProfile !== TEMPLATE_PROFILES.desktop;
 
 		const sessionRow = await deps.sessions.findByChatId(chatId);
 		// jsonb returns unknown; the envelope schema is the boundary.
@@ -1854,7 +1881,9 @@ export async function runBuilderTurn(
 		// still sends the token of the paused turn; the binding bills it here.
 		await deps.counters.bindChat(chatId, billing, LLM_PROXY_TOKEN_TTL_SECONDS);
 
-		let backend = await deps.backends.findByProjectId(projectId);
+		let backend = hasCloudBackend
+			? await deps.backends.findByProjectId(projectId)
+			: null;
 		// A paused backend wakes before the env is built, so the app has its
 		// database in this turn. A Cloud tab restore leaves `restoring`; the
 		// wake waits for that one too.
@@ -1885,7 +1914,7 @@ export async function runBuilderTurn(
 		// Without an active row here, getOrCreate builds the policy with no
 		// backend host. The `.env` re-read after it writes only the file, so it
 		// keeps this flag.
-		backendHostMissing = supabase === null;
+		backendHostMissing = hasCloudBackend && supabase === null;
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
@@ -1924,9 +1953,9 @@ export async function runBuilderTurn(
 		// the sandbox row is not `running` yet, so its own write skips this
 		// sandbox. So the turn reads the row again here.
 		try {
-			const envBackend = activeBackendEnvOf(
-				await deps.backends.findByProjectId(projectId),
-			);
+			const envBackend = hasCloudBackend
+				? activeBackendEnvOf(await deps.backends.findByProjectId(projectId))
+				: null;
 			if (envBackend !== null) {
 				await syncBackendEnvFile(sandbox, envBackend);
 			}
@@ -2011,8 +2040,11 @@ export async function runBuilderTurn(
 						result.tool === "ask_user" || result.tool === "present_plan",
 				) === true);
 
-		// The note applies only when no active backend row exists.
-		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
+		// The note applies only when a project with a backend has no active row.
+		const backendNote =
+			hasCloudBackend && supabase === null
+				? "Backend not ready yet"
+				: undefined;
 		// The card says "Starting the session" only for a cold session. A
 		// stored session resumes with no status; `startSession` writes one
 		// when the resume fails and a fresh session starts instead.
@@ -2022,6 +2054,7 @@ export async function runBuilderTurn(
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
+			framework: project.framework,
 			holdEventId: holdId,
 			mode: spec.mode,
 			organizationId: input.organizationId,
@@ -2084,8 +2117,9 @@ export async function runBuilderTurn(
 			env: sandboxEnv,
 			hostTools,
 			// The product rules for every project, plus the platform sentences:
-			// the Expo rule and the design world order for a mobile app, the app
-			// design recipe for a web app. A project keeps the CLAUDE.md of its
+			// the Expo rule and the design world order for a mobile app, the
+			// desktop data rule and the app design recipe for a desktop app, the
+			// app design recipe for a web app. A project keeps the CLAUDE.md of its
 			// template version, so a rule that must reach old projects goes here.
 			// The template CLAUDE.md in the workspace root holds every other rule.
 			// projects.languages holds the wandit UI locale at creation, not a
@@ -2097,7 +2131,7 @@ export async function runBuilderTurn(
 				"After the first build, ask only when you cannot decide yourself. Ask the app language on the first build (CLAUDE.md), unless the user says not to ask. Put every question of one step in ONE call. " +
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
-				"End with a short answer in plain words: at most 100 words, plus the test account. " +
+				"End with a short answer in plain words: at most 100 words, plus the test account when this turn created one. " +
 				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
 				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
 				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +
@@ -2107,10 +2141,8 @@ export async function runBuilderTurn(
 				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine. " +
 				// Wandit is an Algerian company. A Morocco option can hurt it, because of the political tension between the two countries.
 				"Most wandit users are in Algeria. When a question, an option, or sample data needs a country, a city, a currency, or a phone format, use Algeria first: its wilayas and cities, DZD, and +213. " +
-				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first." +
-				(templateProfile === TEMPLATE_PROFILES.mobile
-					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
-					: ` ${appRecipeInstruction(projectId)}`),
+				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first. " +
+				platformInstructionOf(templateProfile, projectId),
 			mode: spec.mode,
 			model,
 			sandbox,
@@ -2757,7 +2789,7 @@ async function copyAnswerFile(
 	}
 }
 
-/** What the theme file steps of a web-app@1.1.0+ turn need from the run. */
+/** What the theme file steps of a web-app@1.1.0+ or desktop-app turn need from the run. */
 type ThemeFileContext = {
 	logger: BuilderTurnLogger;
 	projectId: string;

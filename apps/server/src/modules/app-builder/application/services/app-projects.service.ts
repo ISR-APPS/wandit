@@ -128,8 +128,8 @@ export class AppProjectsService {
 		body: CreateAppProjectRequest,
 		request: { countryCode: string | null },
 	): Promise<CreateAppProjectResponse> {
-		// First, before any row: a server without the mobile template answers
-		// 503 MOBILE_TEMPLATE_UNAVAILABLE for a mobile create.
+		// First, before any row: a server without the mobile or desktop
+		// template answers 503 for a create of that platform.
 		const templateVersion = this.templateVersion.versionFor(
 			body.targetPlatform,
 		);
@@ -183,7 +183,8 @@ export class AppProjectsService {
 		// D18 and D3: a V2 project gets one backend at creation when the
 		// payer's plan has a free slot. A failure here must not lose the
 		// project — the `app_backends` row stays `error` or absent and the
-		// first turn still runs.
+		// first turn still runs. `BackendsService` gives a desktop project no
+		// backend.
 		try {
 			await this.backends.provisionBackend(projectId, {
 				countryCode: request.countryCode,

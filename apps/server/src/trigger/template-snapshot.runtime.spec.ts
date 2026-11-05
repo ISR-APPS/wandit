@@ -64,7 +64,11 @@ function setup(
 		},
 		versions: {
 			versionFor: (platform: TargetPlatform) =>
-				platform === "web" ? "web-app@1.0.0" : "mobile-app@1.1.0",
+				({
+					desktop: "desktop-app@1.0.0",
+					mobile: "mobile-app@1.1.0",
+					web: "web-app@1.0.0",
+				})[platform],
 		},
 	};
 	return { calls, deps, harness, logger };
@@ -73,6 +77,7 @@ function setup(
 describe("runTemplateSnapshotBuild", () => {
 	it("ensures a snapshot per platform with the harness key and counts the outcomes", async () => {
 		const { calls, deps, harness } = setup({
+			"desktop-app": "exists",
 			"mobile-app": "exists",
 			"web-app": "built",
 		});
@@ -81,7 +86,7 @@ describe("runTemplateSnapshotBuild", () => {
 
 		expect(result).toEqual({
 			built: 1,
-			existing: 1,
+			existing: 2,
 			failed: 0,
 			missingEnv: [],
 		});
@@ -97,6 +102,13 @@ describe("runTemplateSnapshotBuild", () => {
 					templateVersion: "mobile-app@1.1.0",
 				},
 			},
+			{
+				harnessKey: FAKE_HARNESS_BOOTSTRAP_KEY,
+				template: {
+					framework: "desktop-app",
+					templateVersion: "desktop-app@1.0.0",
+				},
+			},
 		]);
 		// Only the build installs the harness.
 		expect(harness.preparedSandboxIds).toEqual(["fake-template-builder"]);
@@ -104,6 +116,7 @@ describe("runTemplateSnapshotBuild", () => {
 
 	it("logs a failed platform, builds the next one, then fails the run", async () => {
 		const { calls, deps, harness, logger } = setup({
+			"desktop-app": "exists",
 			"mobile-app": "built",
 			"web-app": new Error("install failed"),
 		});
@@ -115,6 +128,7 @@ describe("runTemplateSnapshotBuild", () => {
 		expect(calls.map((call) => call.template.framework)).toEqual([
 			"web-app",
 			"mobile-app",
+			"desktop-app",
 		]);
 		expect(harness.preparedSandboxIds).toHaveLength(1);
 		expect(logger.error).toHaveBeenCalledWith(

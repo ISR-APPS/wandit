@@ -1,9 +1,10 @@
 /**
  * The sentence of the hero: "Build me a [mobile app]" in giant type, then the
  * prompt box that holds the rest of the sentence. The platform word is a
- * button that flips between mobile and web. hero.tsx owns all state and the
- * form. This file draws the sentence, the box, the ghost text of the idle
- * loop, and the build button.
+ * button that moves to the next platform: web, mobile, desktop, then web
+ * again (nextTargetPlatform). hero.tsx owns all state and the form. This
+ * file draws the sentence, the box, the ghost text of the idle loop, and the
+ * build button.
  */
 
 import type { TargetPlatform } from "@wandit/contracts";
@@ -30,7 +31,7 @@ type HeroGhost = {
 
 type HeroSentenceProps = {
 	platform: TargetPlatform;
-	/** Flips the platform word. hero.tsx also swaps the app on the stage. */
+	/** Moves the platform word to the next platform. hero.tsx also swaps the app on the stage. */
 	onFlipPlatform: () => void;
 	/** Text the visitor wrote in the box, after the platform word. */
 	value: string;

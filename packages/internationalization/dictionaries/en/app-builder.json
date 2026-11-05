@@ -4,7 +4,8 @@
 	},
 	"kind": {
 		"web": "Web app",
-		"mobile": "Mobile app"
+		"mobile": "Mobile app",
+		"desktop": "Desktop app"
 	},
 	"topBar": {
 		"backToDashboard": "Back to dashboard",
@@ -801,6 +802,95 @@
 			"artifact_missing": "The build ended without an APK file. Try again.",
 			"timeout": "The build took too long and stopped. Try again.",
 			"internal": "An error occurred during the build. Try again."
+		}
+	},
+	"desktopBuilds": {
+		"title": "Desktop app",
+		"empty": "Build an installer for Windows 10 and 11",
+		"emptyBoth": "Build an installer for Windows 10 and 11, or for macOS 15 and later",
+		"productName": "App name",
+		"productNameHint": "It names the window and the installed app on Windows and macOS. You cannot change it later.",
+		"productNameInvalid": "Use 2 to 40 letters, digits, spaces, dots, dashes, or underscores. Start and end with a letter or a digit.",
+		"notes": "Release notes (optional)",
+		"notesHint": "Installed apps show these notes when they offer the update.",
+		"platformLabel": "Platform",
+		"platforms": {
+			"windows": "Windows",
+			"macos": "macOS"
+		},
+		"build": {
+			"one": "Build installer · {count} credit",
+			"other": "Build installer · {count} credits"
+		},
+		"retry": {
+			"one": "Build again · {count} credit",
+			"other": "Build again · {count} credits"
+		},
+		"cancel": "Cancel",
+		"cancelSigning": "Wandit signs the installer now. This step cannot stop, and it ends in a few minutes.",
+		"liveHint": "A build takes 8 to 25 minutes. It continues when you close this panel.",
+		"download": "Download version {version}",
+		"release": "Release",
+		"rebuild": "Rebuild",
+		"current": "Current",
+		"history": "Builds",
+		"downloadLink": "Download link",
+		"copyLink": "Copy the download link",
+		"linkCopied": "Link copied",
+		"smartScreen": "Windows SmartScreen shows a warning on the first download, because the installer has no publisher signature. Click “More info”, then “Run anyway”.",
+		"gatekeeper": "macOS shows “Not Opened” on the first start, because Apple did not notarize the app. First, move the app to the Applications folder. Open it, then click “Done”. Open System Settings > Privacy & Security, click “Open Anyway”, and enter your password. The button stays for about one hour. The app needs a Mac with Apple silicon and macOS 15 or later.",
+		"releaseTitle": "Release version {version}?",
+		"rebuildTitle": "Rebuild version {version}?",
+		"releaseBody": "Installed apps update to version {version} at their next start. The download link gives this version from now on.",
+		"rebuildBody": {
+			"one": "Installed apps accept only a newer version. Wandit builds the code of version {version} again, with a new version number. This costs {count} credit. Release the new build when it is ready.",
+			"other": "Installed apps accept only a newer version. Wandit builds the code of version {version} again, with a new version number. This costs {count} credits. Release the new build when it is ready."
+		},
+		"confirmCancel": "Cancel",
+		"released": "Version {version} is live. Installed apps update at their next start.",
+		"findingsTitle": "The safety check stopped this build",
+		"findingsHint": "Ask Wandit in the chat to fix these problems, then build again.",
+		"status": {
+			"queued": "Waiting to start",
+			"preparing": "Preparing",
+			"building": "Building",
+			"signing": "Signing",
+			"ready": "Ready",
+			"failed": "Failed",
+			"canceled": "Canceled",
+			"blocked": "Blocked"
+		},
+		"errors": {
+			"start_failed": "The build did not start. Try again.",
+			"unconfigured": "Desktop builds are not available now. Try again later.",
+			"sandbox_failed": "The build could not open the code of your app. Try again.",
+			"frontend_build_failed": "Your app did not build. Ask Wandit in the chat to fix it, then build again.",
+			"output_invalid": "The build made files that an installer cannot hold. Ask Wandit in the chat to fix the build.",
+			"gate_unavailable": "The safety check could not run. Try again in a few minutes.",
+			"ci_start_failed": "The build service did not start the build. Try again.",
+			"ci_failed": "The build failed. Try again.",
+			"self_test_failed": "The app did not open its data in the build test. Ask Wandit in the chat to fix the migrations, then build again.",
+			"artifact_invalid": "The build ended without a valid installer. Try again.",
+			"signing_failed": "The update signature could not be made. Try again.",
+			"upload_failed": "The upload of the installer failed. Try again.",
+			"timeout": "The build took too long and stopped. Try again.",
+			"internal": "An error occurred during the build. Try again."
+		},
+		"rules": {
+			"migration_name_invalid": "A migration file has a wrong name.",
+			"migration_duplicate_version": "Two migration files have the same number.",
+			"migration_too_large": "A migration file, or the migrations folder, is too large.",
+			"migration_empty": "A migration file holds no statement.",
+			"migration_released_changed": "A migration of an earlier build changed. Installed apps already ran the old text.",
+			"migration_released_missing": "A migration of an earlier build is missing.",
+			"migration_version_order": "A new migration has a number below the last built migration.",
+			"migration_statement_refused": "A migration holds a statement that can lose saved data.",
+			"migration_dry_run_failed": "The migrations fail on test data or on a new install.",
+			"migration_check_failed": "A check in a migration did not confirm its result on test data or on a new install.",
+			"migration_replaces_invalid": "A replacement migration names a migration that it cannot replace.",
+			"migration_replaces_schema_differs": "A replacement migration makes other tables or columns than the migration that it replaces.",
+			"migration_schema_removed": "The new migrations remove a table or a column of an earlier build.",
+			"secret_in_frontend": "The app holds a secret, for example an API key. Each person with the installer can read it."
 		}
 	},
 	"versions": {

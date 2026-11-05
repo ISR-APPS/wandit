@@ -34,6 +34,7 @@ async function setup() {
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId: null,
 		// Like the runtime: the last host write is the file that the host trusts.
 		knownThemeFile: () => written.at(-1) ?? null,

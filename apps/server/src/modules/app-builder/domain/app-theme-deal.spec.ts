@@ -59,6 +59,8 @@ describe("theme deal", () => {
 		// A later major counts, also with minor 0.
 		["web-app@2.0.0", true],
 		["mobile-app@1.1.0", false],
+		// The desktop template has theme.json from its first version.
+		["desktop-app@1.0.0", true],
 		["web-app@1.1", false],
 	])("gates the theme features of %s: %s", (templateVersion, expected) => {
 		expect(supportsAppTheme(templateVersion)).toBe(expected);

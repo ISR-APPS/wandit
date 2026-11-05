@@ -81,6 +81,7 @@ import {
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
 import { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import {
 	type BackendRef,
 	projectStatusOrRemoved,
@@ -804,7 +805,12 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		projectId: string,
 	): Promise<ScopedAppProject> {
 		const project = await this.appCommits.findScopedProject(scope, projectId);
-		if (project === null || project.engine !== "v2_app") {
+		// A desktop app has no cloud backend: every Cloud route answers 404, as for a V1 project.
+		if (
+			project === null ||
+			project.engine !== "v2_app" ||
+			project.framework === TEMPLATE_PROFILES.desktop.framework
+		) {
 			throw new NotFoundException();
 		}
 		return project;

@@ -49,6 +49,7 @@
 		"mobile_build": "App build",
 		"mobile_preview": "Device preview",
 		"app_ai_gateway": "App AI call",
+		"desktop_build": "Desktop app build",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {

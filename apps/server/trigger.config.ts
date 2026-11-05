@@ -2,8 +2,9 @@
  * Trigger.dev config of the server worker. `trigger.dev dev` and
  * `trigger.dev deploy` (trigger-deploy.yml) read it. It sets the retries,
  * installs Chromium, git, eas-cli, and pnpm, and uploads Sentry source maps.
- * It also copies the template archives, the base schema, and the trusted
- * mobile template files of the `mobile-build` task into the worker image.
+ * It also copies the template archives, the base schema, the trusted
+ * mobile template files of the `mobile-build` task, and the trusted desktop
+ * shell of the `desktop-build` task into the worker image.
  */
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
@@ -105,14 +106,18 @@ export default defineConfig({
 			aptGet({ packages: ["git"] }),
 			mobileBuildTools(),
 			// The deployed worker has no repo checkout. This copies every packed
-			// template archive (web-app, mobile-app) and the base schema next to
-			// the bundle. The leading "../.." is dropped, so all land under
-			// `<build>/templates/`, the first folder `resolveTemplateArchiveDir`
-			// tries. The deploy workflow runs `templates/pack-all.mjs` first; the
-			// archives are not in git. The base schema serves both templates.
+			// template archive (web-app, mobile-app, desktop-app) and the base
+			// schema next to the bundle. The leading "../.." is dropped, so all
+			// land under `<build>/templates/`, the first folder
+			// `resolveTemplateArchiveDir` tries. The deploy workflow runs
+			// `templates/pack-all.mjs` first; the archives are not in git. The base
+			// schema serves the web-app and mobile-app templates.
 			// The `template-snapshot` task reads each `template_version` file.
 			// The six mobile-app files are the trusted install and eas.json of
 			// the `mobile-build` task; it never uses the user copies.
+			// The desktop-shell glob takes every file of `src-tauri/` except the
+			// `target/` and `gen/` output of a local build. The `desktop-build`
+			// task puts these trusted files into the build input of the Windows CI.
 			additionalFiles({
 				files: [
 					"../../templates/*-*.tar.gz",
@@ -124,6 +129,7 @@ export default defineConfig({
 					"../../templates/mobile-app/.npmrc",
 					"../../templates/mobile-app/eas.json",
 					"../../templates/mobile-app/native-modules.json",
+					"../../templates/desktop-shell/src-tauri/!(target|gen)/**",
 					// The Claude Code bridge fork; `readForkRunTurn` reads it under the
 					// working directory of the deployed worker.
 					"./src/modules/app-builder/application/harness/claude-code-bridge/persistent-run-turn.mjs",
@@ -150,6 +156,8 @@ export default defineConfig({
 		// Inside the bundle that URL names the bundle file, which has no
 		// `bridge/` folder, so the first `createSession` fails. External keeps
 		// the package in node_modules, where the folder exists.
-		external: ["playwright", "sharp", "@ai-sdk/harness-claude-code"],
+		// sql.js loads `sql-wasm.wasm` from its own dist folder at runtime.
+		// The desktop migration gate needs it, so the package stays in node_modules.
+		external: ["playwright", "sharp", "@ai-sdk/harness-claude-code", "sql.js"],
 	},
 });

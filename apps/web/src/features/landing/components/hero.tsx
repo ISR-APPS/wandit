@@ -6,7 +6,11 @@
  * The visitor writes their own idea; useLandingCreate starts the project.
  */
 
-import { projectPromptMaxLength, type TargetPlatform } from "@wandit/contracts";
+import {
+	projectPromptMaxLength,
+	type TargetPlatform,
+	targetPlatforms,
+} from "@wandit/contracts";
 import { cn } from "@wandit/ui/lib/utils";
 import { AnimatePresence, useInView, useReducedMotion } from "motion/react";
 import {
@@ -30,6 +34,7 @@ import { DeviceFrame } from "./device-frame";
 import { FitScreen } from "./fit-screen";
 import { HeroSentence } from "./hero-sentence";
 import { MINI_APP_PLATFORM, MINI_APP_SIZE, MiniApp } from "./mini-apps";
+import { nextTargetPlatform } from "./platform-token";
 import { WandSweep } from "./wand-sweep";
 
 /** An idea the ideas wall puts into the hero prompt box. */
@@ -57,10 +62,10 @@ const SELECTED_MS = 420;
 /** Log delay of a build that the visitor starts (token or ideas wall), in ms. It lets the morph finish. */
 const MANUAL_LOG_DELAY_MS = 550;
 
-/** Address in the browser bar of each web app. Mobile apps have no bar. */
-const WEB_APP_URL = {
+/** Text in the top bar of each app: the address of a web app, the window title of a desktop app. Mobile apps have no bar. */
+const DEVICE_BAR_TEXT = {
 	barber: undefined,
-	invoices: "ledgerly.wandit.app",
+	invoices: "Ledgerly",
 	running: undefined,
 	yoga: "studiosol.wandit.app",
 } as const satisfies Record<HeroIdeaId, string | undefined>;
@@ -72,6 +77,7 @@ const WEB_APP_URL = {
 const LOG_POSITION_CLASS = {
 	mobile: "-start-8 -bottom-8 sm:-start-24 lg:-start-32 lg:bottom-10",
 	web: "start-3 -bottom-20 sm:-start-6 lg:-bottom-24",
+	desktop: "start-3 -bottom-20 sm:-start-6 lg:-bottom-24",
 } as const satisfies Record<TargetPlatform, string>;
 
 /** One step of the idle loop. "building" also covers the hold after the sweep. */
@@ -143,10 +149,11 @@ export function Hero({ prefill }: HeroProps) {
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		useLandingCreate(platform);
 
-	// The full prompt must fit the server limit with the longer platform word.
+	// The full prompt must fit the server limit with the longest platform word.
 	const promptPrefixLength = Math.max(
-		`${hero.leadStart} ${hero.platforms.mobile} `.length,
-		`${hero.leadStart} ${hero.platforms.web} `.length,
+		...targetPlatforms.map(
+			(option) => `${hero.leadStart} ${hero.platforms[option]} `.length,
+		),
 	);
 	const maxLength = projectPromptMaxLength - promptPrefixLength;
 
@@ -241,7 +248,7 @@ export function Hero({ prefill }: HeroProps) {
 
 	function flipPlatform() {
 		setIsTakenOver(true);
-		const nextPlatform = platform === "mobile" ? "web" : "mobile";
+		const nextPlatform = nextTargetPlatform(platform);
 		startBuild(nextStageFor(nextPlatform, build.stageId), MANUAL_LOG_DELAY_MS);
 	}
 
@@ -335,7 +342,7 @@ export function Hero({ prefill }: HeroProps) {
 					>
 						<DeviceFrame
 							platform={platform}
-							url={WEB_APP_URL[build.stageId]}
+							barText={DEVICE_BAR_TEXT[build.stageId]}
 							className="w-full"
 						>
 							<FitScreen width={screenSize.width} height={screenSize.height}>

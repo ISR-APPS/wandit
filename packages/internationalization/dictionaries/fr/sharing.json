@@ -88,6 +88,7 @@
 			"usage_reserved": "Des crédits sont encore réservés pour ce projet. Réessayez dans quelques minutes.",
 			"publish_in_flight": "Une publication est en cours. Réessayez quand elle est terminée.",
 			"mobile_build_in_flight": "Un build mobile est en cours. Réessayez quand il est terminé.",
+			"desktop_build_in_flight": "Un build d'app de bureau est en cours. Réessayez quand il est terminé.",
 			"device_session_active": "Un aperçu sur téléphone est ouvert. Fermez-le, puis déplacez le projet.",
 			"custom_domain_attached": "Un domaine personnalisé est connecté. Retirez-le, puis déplacez le projet.",
 			"backend_slot_unavailable": "L'espace de travail de destination n'a plus d'emplacement backend libre."

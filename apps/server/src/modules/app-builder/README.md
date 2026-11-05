@@ -365,10 +365,11 @@ then marks the live app deployment `unpublished`. The backend step
 (WANDIT-184) moves the `app_backends` row
 to `deleting`, pauses a running Supabase project, and deletes the
 `project_secrets` rows; the pause sweep deletes the Supabase project after
-the grace window. Then it drains the three `v2ProjectPrefixes` and deletes
+the grace window. Then it drains the five `v2ProjectPrefixes` and deletes
 the code.storage repository. The prefixes are `git/<id>/`,
-`sites/<id>/assets/`, and `published/<id>/builds/` (the stored publish
-outputs), never the whole `published/<id>/` root.
+`sites/<id>/assets/`, `published/<id>/builds/` (the stored publish
+outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
+(the build input and staged installer), never the whole `published/<id>/` root.
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
@@ -837,8 +838,8 @@ The `mobile-build` task (queue `mobile-builds`, `concurrencyKey` = project,
 one attempt, idempotency key `mobile-build:<buildId>`):
 
 1. Claims the row (`queued` → `building`). A canceled or replayed run skips.
-2. Leases the hold (`LEASE_TTL_MS`, 40 min), so the stale-hold sweep skips
-   it during the build.
+2. Leases the hold (`LEASE_TTL_MS`, 40 min, in `build-credit-hold.ts`), so
+   the stale-hold sweep skips it during the build.
 3. Prepares the workspace in a temp folder (`prepareMobileBuildWorkspace`):
    a read-only credential, `git fetch` of the commit (fallback: `main`), the
    app.json checks, the wandit EAS identity, the trusted `eas.json` with the
@@ -857,6 +858,53 @@ one attempt, idempotency key `mobile-build:<buildId>`):
 A run that Trigger stops from outside (OOM, `maxDuration`) leaves the row
 `building`. The user Cancel is the exit, and the sweep refunds the hold when
 the lease expires. The operator steps are in `docs/v2/runbook.md`.
+
+## Desktop apps
+
+The desktop card of the publish popover builds and releases a `desktop-app`
+project for Windows (setup exe) or macOS (disk image and update archive).
+One build makes the files of one platform. macOS builds stay off until
+`DESKTOP_MACOS_BUILDS_ENABLED` is true. The contract of every part is
+`docs/v2/desktop-apps.md`.
+
+- `application/services/desktop-builds.service.ts`: overview, create,
+  cancel, and release. It holds the credits, starts the task, and writes
+  `latest.json` (Windows) or `latest-macos.json` (macOS) on R2.
+- `presentation/http/controllers/desktop-builds.controller.ts`: the routes
+  under `/api/v2/projects/:projectId/desktop`. Each needs the project role
+  `editor`, as the mobile builds do.
+- `infrastructure/persistence/desktop-builds.repository.ts`: `desktop_apps`
+  and `desktop_builds`. Each status change is a compare-and-set.
+- `infrastructure/persistence/desktop-migrations.repository.ts`: reads the
+  frozen `desktop_migrations` rows.
+- `domain/desktop-build.ts`: the status machine, the version, the
+  identifier, the binary name, and the hold key.
+- `domain/desktop-migrations.ts`: the gate rules for file names, sizes,
+  frozen files, and the statement allow list.
+- `infrastructure/sqlite/desktop-migration-gate.ts`:
+  `checkDesktopMigrations`, the sql.js dry run of the gate.
+- `application/host-tools/add-local-migration.host-tool.ts`: the
+  `add_local_migration` host tool.
+- `infrastructure/desktop/github-desktop-build-runner.ts`: dispatches,
+  polls, and cancels `build.yml` (Windows) or `build-macos.yml` (macOS) in
+  `DESKTOP_BUILD_REPO`.
+- `infrastructure/desktop/updater-signature.ts`: the Ed25519 key pair of an
+  app and the minisign signature of each update file.
+- `infrastructure/desktop/desktop-build-input.ts`: writes
+  `desktop-input.tar.gz`, the input of the CI, and exports the tar writer.
+- `infrastructure/desktop/macos-update-archive.ts`: checks the `.app.tar.gz`
+  of the macOS CI with strict ustar rules and re-packs it. The server signs
+  only its own re-pack.
+- `infrastructure/desktop/theme-fonts.ts`: puts the theme fonts into
+  `dist/wandit-fonts/` of the app.
+- `infrastructure/trigger/trigger-desktop-build-task-starter.ts`: queues the
+  `desktop-build` task by id.
+- `infrastructure/secrets/rotate-desktop-updater-keys.ts`: re-encrypts the
+  updater keys in `pnpm secrets:rotate`.
+- `src/trigger/desktop-build.task.ts` and `desktop-build.runtime.ts`: the
+  `desktop-build` task, from the sandbox build to the signed build files.
+- `src/trigger/build-credit-hold.ts`: the lease, heartbeat, settle, and
+  refund of the desktop and mobile holds. It takes the payer from the hold row.
 
 ## Builder turn
 

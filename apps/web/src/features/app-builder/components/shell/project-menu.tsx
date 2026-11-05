@@ -9,6 +9,7 @@
 import type { Icon } from "@phosphor-icons/react";
 import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
@@ -45,6 +46,7 @@ const ROW_NAME_CLASS = "min-w-0 truncate";
 const KIND_ICONS: Record<AppProjectKind, Icon> = {
 	web: GlobeIcon,
 	mobile: DeviceMobileIcon,
+	desktop: DesktopIcon,
 };
 
 export type ProjectMenuProps = {
@@ -168,8 +170,8 @@ function ProjectList({ project, onClose }: ProjectListProps) {
 						</p>
 					) : (
 						otherProjects.map((candidate) => {
-							const kind =
-								candidate.targetPlatform === "mobile" ? "mobile" : "web";
+							// A V1 page project has no platform. It counts as web, like toUiAppProject.
+							const kind = candidate.targetPlatform ?? "web";
 							return (
 								<CommandItem
 									key={candidate.id}
@@ -262,7 +264,7 @@ function KindMedallion({
 	);
 }
 
-/** The soft "Web app" or "Mobile app" chip of the trigger. */
+/** The soft "Web app", "Mobile app", or "Desktop app" chip of the trigger. */
 function KindChip({
 	kind,
 	className,

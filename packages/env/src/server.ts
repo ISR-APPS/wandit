@@ -361,7 +361,7 @@ export const env = createEnv({
 		VERCEL_TEAM_ID: z.string().min(1).optional(),
 		VERCEL_PROJECT_ID: z.string().min(1).optional(),
 		VERCEL_SANDBOX_IMAGE: z.string().min(1).optional(),
-		// Folder with the `web-app-<version>.tar.gz` template archives. Unset
+		// Folder with the `<framework>-<version>.tar.gz` template archives. Unset
 		// in dev: the code finds the repo `templates/` folder from the cwd.
 		TEMPLATE_ARCHIVE_DIR: z.string().min(1).optional(),
 		ANTHROPIC_API_KEY: z.string().min(1).optional(),
@@ -420,6 +420,29 @@ export const env = createEnv({
 		// Name of the wandit Expo organization that owns every EAS project of a
 		// user app (WANDIT-194), for example "wandit".
 		EXPO_ACCOUNT: z.string().min(1).optional(),
+		// Fine-grained GitHub token with "Actions: read and write" on the
+		// desktop builder repo only. Only the API and the `desktop-build` task
+		// read it; it never enters a sandbox or the CI run.
+		DESKTOP_BUILD_GITHUB_TOKEN: z.string().min(1).optional(),
+		// "<owner>/<repo>" of the private repo that runs the desktop build
+		// workflows (`build.yml`, `build-macos.yml`) of tooling/desktop-builder,
+		// for example "ISR-APPS/wandit-desktop-builder".
+		DESKTOP_BUILD_REPO: z
+			.string()
+			.regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+			.optional(),
+		// https base URL that serves the `desktop/` keys of the R2 bucket, for
+		// example "https://updates.wandit.app". Every installer holds the
+		// updater URL built on it, so never change it after the first release.
+		// Unset means R2_PUBLIC_BASE_URL.
+		DESKTOP_UPDATES_BASE_URL: z.url({ protocol: /^https$/ }).optional(),
+		// "true" lets the API start macOS desktop builds (D36). Staging sets it;
+		// production keeps "false" until the macOS staging checks pass. It is also
+		// the kill switch for macOS: Windows builds do not read it.
+		DESKTOP_MACOS_BUILDS_ENABLED: z
+			.enum(["true", "false"])
+			.default("false")
+			.transform((value) => value === "true"),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
 		// Appetize app ids of the store Expo Go builds (WANDIT-196). The upload
 		// script prints them; the device-session route answers them to the browser.

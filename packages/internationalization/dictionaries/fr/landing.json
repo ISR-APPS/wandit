@@ -25,11 +25,13 @@
 		"leadStart": "Crée-moi une",
 		"platforms": {
 			"mobile": "app mobile",
-			"web": "app web"
+			"web": "app web",
+			"desktop": "app de bureau"
 		},
 		"switchTo": {
 			"mobile": "Passer à une app mobile",
-			"web": "Passer à une app web"
+			"web": "Passer à une app web",
+			"desktop": "Passer à une app de bureau"
 		},
 		"inputLabel": "Décris ton app",
 		"sub": "Wandit dessine les écrans, écrit le code et installe la connexion et la base de données. Essaie-la sur ton téléphone en quelques minutes.",
@@ -47,8 +49,8 @@
 			"invoices": [
 				"Création du tableau de bord",
 				"Création des clients et des factures",
-				"Ajout de la connexion par e-mail",
-				"En ligne sur ledgerly.wandit.app"
+				"Enregistrement des données sur l'ordinateur",
+				"Ledgerly-setup.exe est prêt"
 			],
 			"running": [
 				"Création de 5 écrans",
@@ -144,7 +146,8 @@
 		"useButton": "Utiliser cette idée",
 		"platforms": {
 			"mobile": "App mobile",
-			"web": "App web"
+			"web": "App web",
+			"desktop": "App de bureau"
 		},
 		"items": {
 			"barber": {
@@ -153,7 +156,7 @@
 			},
 			"invoices": {
 				"name": "Factures",
-				"text": "qui envoie des factures et suit qui a payé"
+				"text": "qui crée des factures et suit qui a payé"
 			},
 			"running": {
 				"name": "Club de course",

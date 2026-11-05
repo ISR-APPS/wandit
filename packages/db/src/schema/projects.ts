@@ -62,6 +62,7 @@ export const projectWorkspaceAccess = pgEnum("project_workspace_access", [
 export const projectTargetPlatform = pgEnum("project_target_platform", [
 	"web",
 	"mobile",
+	"desktop",
 ]);
 
 // Main workspace table.
@@ -107,7 +108,7 @@ export const projects = pgTable(
 		workspaceAccess: projectWorkspaceAccess("workspace_access")
 			.notNull()
 			.default("can_edit"),
-		// App template of a V2 project, `web-app` or `mobile-app`: the prefix of
+		// App template of a V2 project, `web-app`, `mobile-app`, or `desktop-app`: the prefix of
 		// the archive `templates/<framework>-<semver>.tar.gz`.
 		framework: text("framework"),
 		// Version of the app template the project was created from.

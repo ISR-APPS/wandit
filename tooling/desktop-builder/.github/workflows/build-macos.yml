@@ -1,0 +1,307 @@
+# Builds the macOS disk image and the update archive of one Wandit desktop app
+# (docs/v2/desktop-apps.md, section 9). The `desktop-build` Trigger task dispatches it
+# through the GitHub API with the 5 inputs below, for a build with platform `macos`.
+# It downloads the server-made input and compiles the trusted Tauri shell for Apple silicon,
+# with an ad-hoc signature. It runs the self-test from the disk image. Then it uploads a .dmg
+# and a .app.tar.gz to presigned URLs. It holds no secret. It reads the repo variable
+# DESKTOP_BUILD_BUCKET_URLS (tooling/desktop-builder/README.md of the Wandit repo, Setup step 9).
+name: Desktop build (macOS)
+run-name: Desktop build macOS ${{ inputs.build_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Id of the desktop_builds row (uuid). Only the run name and the concurrency group use it.
+        type: string
+        required: true
+      input_url:
+        description: Presigned R2 GET URL of desktop-temp/<project id>/inputs/<build id>-<random>.tar.gz. It expires after 2 h.
+        type: string
+        required: true
+      input_sha256:
+        description: SHA-256 of desktop-input.tar.gz, 64 hex digits.
+        type: string
+        required: true
+      output_url:
+        description: Presigned R2 PUT URL of desktop-temp/<project id>/staging/<build id>-<random>.dmg. It expires after 2 h.
+        type: string
+        required: true
+      update_url:
+        description: Presigned R2 PUT URL of desktop-temp/<project id>/staging/<build id>-<random>.app.tar.gz. It expires after 2 h.
+        type: string
+        required: true
+
+# The job reads no repo content and calls no GitHub API, so its token gets no scope.
+permissions: {}
+
+# A second dispatch of the same build waits for the first run, so two runs never upload to one URL.
+concurrency:
+  group: desktop-build-${{ inputs.build_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Apple silicon, 3 vCPU. cargo builds for the host, so the app runs only on Apple silicon.
+    # The label fixes the macOS major version of the runner.
+    runs-on: macos-15
+    # A cold build takes about 10 to 25 minutes (ESTIMATE). A failed run costs at most
+    # 45 x $0.062 = $2.79. The task polls this run for at most 70 minutes, so the job must stop first.
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 4 values equal in the warm-macos job of warm-cache.yml. The cache key and the cache paths use them.
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      # The crate version of @tauri-apps/cli 2.12.4. Both come from one release.
+      TAURI_CLI_VERSION: "2.12.4"
+      TAURI_CLI_ROOT: /Users/runner/desktop-build/tools
+      CARGO_TARGET_DIR: /Users/runner/desktop-build/target
+    steps:
+      - name: Mask and check the URLs
+        env:
+          # The R2 bucket URL of each environment that dispatches here, one per line. Not a secret.
+          BUCKET_URLS: ${{ vars.DESKTOP_BUILD_BUCKET_URLS }}
+        run: |
+          # A step header shows the env of its step. So this step reads the URLs from the
+          # event file, and masks them before a later step header can show them.
+          $dispatchInputs = (Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json).inputs
+          foreach ($url in @($dispatchInputs.input_url, $dispatchInputs.output_url, $dispatchInputs.update_url)) {
+            # A line break ends the mask command early, and the rest of the URL shows.
+            if ([string]::IsNullOrEmpty($url) -or $url -match '[\r\n]') {
+              throw 'A URL input is empty or holds a line break.'
+            }
+            Write-Output "::add-mask::$url"
+          }
+          # Security: a stolen dispatch token must not choose the input, because CI compiles its src-tauri.
+          # Only a presigned URL of a temp key that the API made passes (r2.ts, desktopInputKey and
+          # desktopStagingKey). Only the API has the R2 keys that write and sign such a URL.
+          if ([string]::IsNullOrWhiteSpace($env:BUCKET_URLS)) {
+            throw 'The repo variable DESKTOP_BUILD_BUCKET_URLS is empty. Read tooling/desktop-builder/README.md of the Wandit repo, Setup step 9.'
+          }
+          $bucketUrls = @(-split $env:BUCKET_URLS)
+          foreach ($bucketUrl in $bucketUrls) {
+            # The virtual-hosted URL that the S3 client of r2.ts signs. R2 bucket names hold no dot.
+            if ($bucketUrl -cnotmatch '^https://[a-z0-9-]+\.[0-9a-f]{32}\.r2\.cloudflarestorage\.com\z') {
+              throw "DESKTOP_BUILD_BUCKET_URLS holds '$bucketUrl'. Expected https://<R2_BUCKET>.<R2_ACCOUNT_ID>.r2.cloudflarestorage.com."
+            }
+          }
+          $bucket = '(?:' + (@($bucketUrls | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')'
+          $uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+          # The key is desktop-temp/<project id>/<folder>/<build id>-<32 hex>.<extension>. The SigV4
+          # query that follows holds no '/', '#', or '@', so it cannot change the host or the key.
+          $tempKey = '^' + $bucket + '/desktop-temp/' + $uuid + '/'
+          $query = '\?[A-Za-z0-9%=&._~-]+\z'
+          if ($dispatchInputs.input_url -cnotmatch ($tempKey + 'inputs/' + $uuid + '-[0-9a-f]{32}\.tar\.gz' + $query)) {
+            throw 'input_url is not a presigned URL of a desktop-temp input key in DESKTOP_BUILD_BUCKET_URLS.'
+          }
+          if ($dispatchInputs.output_url -cnotmatch ($tempKey + 'staging/' + $uuid + '-[0-9a-f]{32}\.dmg' + $query)) {
+            throw 'output_url is not a presigned URL of a desktop-temp staging key in DESKTOP_BUILD_BUCKET_URLS.'
+          }
+          if ($dispatchInputs.update_url -cnotmatch ($tempKey + 'staging/' + $uuid + '-[0-9a-f]{32}\.app\.tar\.gz' + $query)) {
+            throw 'update_url is not a presigned URL of a desktop-temp staging key in DESKTOP_BUILD_BUCKET_URLS.'
+          }
+
+      - name: Check, download, and extract the input
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          INPUT_URL: ${{ inputs.input_url }}
+          INPUT_SHA256: ${{ inputs.input_sha256 }}
+        run: |
+          # A native command (tar) with a non-zero exit code stops the step.
+          $PSNativeCommandUseErrorActionPreference = $true
+          # \z, not $: a value with a trailing line break fails the check.
+          if ($env:BUILD_ID -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') {
+            throw 'build_id is not a uuid.'
+          }
+          if ($env:INPUT_SHA256 -notmatch '^[0-9a-f]{64}\z') {
+            throw 'input_sha256 is not 64 hex digits.'
+          }
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'desktop-input.tar.gz'
+          # The progress bar makes Invoke-WebRequest much slower.
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri $env:INPUT_URL -OutFile $archive
+          $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          # -ine ignores case: Get-FileHash answers upper case, the server sends lower case.
+          if ($actualSha256 -ine $env:INPUT_SHA256) {
+            throw "The input SHA-256 is $actualSha256, not $env:INPUT_SHA256."
+          }
+          # macOS tar (bsdtar) refuses absolute paths, '..' parts, and a write through a symlink.
+          & /usr/bin/tar -xzf $archive -C $env:GITHUB_WORKSPACE
+          Remove-Item -LiteralPath $archive
+          # The input holds 3 folders only. A root .cargo/config.toml could make cargo run a command.
+          $unexpected = @(Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force -Name | Where-Object { $_ -notin 'src-tauri', 'dist', 'migrations' })
+          if ($unexpected.Count -gt 0) {
+            throw "The input holds unexpected entries: $($unexpected -join ', ')."
+          }
+
+      - name: Install the Rust toolchain
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The runner image has rustup. RUSTUP_TOOLCHAIN makes every cargo call use this version.
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          # cargo finds the `tauri` subcommand (cargo-tauri) on PATH. The cache restores it.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value "$env:TAURI_CLI_ROOT/bin"
+
+      # Restore only. The warm-macos job of warm-cache.yml on the default branch saves this cache,
+      # so a user build never writes one.
+      - name: Restore the cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in the warm-macos job. The cache version is a hash of these paths.
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          # Exact key only, no restore-keys: a build never takes the cache of another Cargo.lock.
+          # The "macos-arm64" part keeps it apart from the Windows key of build.yml.
+          key: desktop-cargo-v1-macos-arm64-rust-${{ env.RUSTUP_TOOLCHAIN }}-tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install tauri-cli
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # --locked uses the lock file that tauri-cli publishes. A separate target folder keeps
+          # the tauri-cli build out of the shell build folder.
+          cargo install tauri-cli --version $env:TAURI_CLI_VERSION --locked --root $env:TAURI_CLI_ROOT --target-dir "$env:RUNNER_TEMP/tauri-cli-target"
+
+      - name: Build the app and the disk image
+        working-directory: src-tauri
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The cache can hold the bundles of the warm-up build. An old file breaks the one-file checks.
+          $bundleDir = "$env:CARGO_TARGET_DIR/release/bundle"
+          if (Test-Path -LiteralPath $bundleDir) {
+            Remove-Item -LiteralPath $bundleDir -Recurse -Force
+          }
+          # tauri.macos.conf.json adds the ad-hoc signature "-" and the minimum macOS version.
+          # Never add --no-sign: it removes the signature, and Apple silicon then refuses the app.
+          # The arguments after '--' go to cargo build. --locked stops when Cargo.lock does not match Cargo.toml.
+          # The DMG script skips Finder only when CI is true. GitHub sets CI=true in every job.
+          cargo tauri build --ci --bundles app,dmg --config tauri.desktop.json -- --locked
+
+      - name: Check the signatures and mount the disk image
+        id: mount-dmg
+        # hdiutil and codesign take seconds. A hang must not use the 45-minute job.
+        timeout-minutes: 5
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The bundle names the executable after mainBinaryName. The server checked the name, and
+          # this check keeps the path inside the app.
+          $configPath = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/tauri.desktop.json'
+          $binaryName = (Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).mainBinaryName
+          if ($binaryName -cnotmatch '^[a-z0-9]+(?:-[a-z0-9]+)*\z') {
+            throw 'mainBinaryName in tauri.desktop.json is not a lowercase kebab-case name.'
+          }
+          $appDir = "$env:CARGO_TARGET_DIR/release/bundle/macos"
+          $apps = @(Get-ChildItem -LiteralPath $appDir -Filter '*.app' -Directory)
+          if ($apps.Count -ne 1) {
+            throw "Expected 1 app in $appDir, found $($apps.Count)."
+          }
+          # A bundle with only the linker signature fails here. After a browser download it shows
+          # "damaged" with no Open Anyway button.
+          codesign --verify --deep --strict --verbose=2 $apps[0].FullName
+          $dmgDir = "$env:CARGO_TARGET_DIR/release/bundle/dmg"
+          $images = @(Get-ChildItem -LiteralPath $dmgDir -Filter '*.dmg' -File)
+          if ($images.Count -ne 1) {
+            throw "Expected 1 disk image in $dmgDir, found $($images.Count)."
+          }
+          # The image stays mounted until the job ends. The runner VM ends with the job, so no step detaches it.
+          $mountPoint = Join-Path $env:RUNNER_TEMP 'wandit-dmg'
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint $mountPoint $images[0].FullName
+          $mountedApps = @(Get-ChildItem -LiteralPath $mountPoint -Filter '*.app' -Directory)
+          if ($mountedApps.Count -ne 1) {
+            throw "Expected 1 app in the disk image, found $($mountedApps.Count)."
+          }
+          # The image is HFS+, which stores names in another Unicode form. This finds a seal that breaks there.
+          codesign --verify --deep --strict --verbose=2 $mountedApps[0].FullName
+          $appBinary = Join-Path $mountedApps[0].FullName "Contents/MacOS/$binaryName"
+          # A missing executable is a platform fault, so it fails this step, not the self-test.
+          if (-not (Test-Path -LiteralPath $appBinary -PathType Leaf)) {
+            throw "The disk image holds no $appBinary."
+          }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "app-binary=$appBinary"
+          # The archive step names the root of the update archive after the binary.
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "binary-name=$binaryName"
+          # The archive and upload steps read the 2 counted paths. The product name in them holds
+          # no line break (desktopProductNameSchema), so each value stays on one output line.
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "app-path=$($apps[0].FullName)"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "dmg-path=$($images[0].FullName)"
+
+      # The task reads the conclusion of this step by its name, through the GitHub jobs API.
+      # A failure stores `self_test_failed`, any other failure `ci_failed`. Keep the name equal to
+      # SELF_TEST_STEP in apps/server/src/modules/app-builder/infrastructure/desktop/github-desktop-build-runner.ts
+      # of the Wandit repo, and equal to the step of build.yml. On macOS, "installed" means the
+      # app inside the disk image that users get.
+      - name: Self-test the installed app
+        # The test takes seconds. A hang must not use the 45-minute job.
+        timeout-minutes: 5
+        env:
+          # The mount step checked that this executable exists in the mounted app.
+          APP_BINARY: ${{ steps.mount-dmg.outputs.app-binary }}
+        run: |
+          $outFile = Join-Path $env:RUNNER_TEMP 'self-test-out.txt'
+          $errFile = Join-Path $env:RUNNER_TEMP 'self-test-err.txt'
+          # The output goes to files, so the log shows it only after the stop-commands line below.
+          $selfTest = Start-Process -FilePath $env:APP_BINARY -ArgumentList '--wandit-self-test' -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+          # Security: the result line can hold the SQL of the user. The runner reads no command in it.
+          $stopToken = [guid]::NewGuid().ToString('N')
+          Write-Output "::stop-commands::${stopToken}"
+          Get-Content -LiteralPath $outFile, $errFile
+          Write-Output "::${stopToken}::"
+          if ($selfTest.ExitCode -ne 0) {
+            throw "The self-test ended with exit code $($selfTest.ExitCode). Read the wandit-self-test line above."
+          }
+
+      - name: Make and check the update archive
+        env:
+          # The mount step checked this name against the kebab-case pattern.
+          BINARY_NAME: ${{ steps.mount-dmg.outputs.binary-name }}
+          # The one app of the bundle folder. The mount step checked its signature.
+          APP_PATH: ${{ steps.mount-dmg.outputs.app-path }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The server takes only the root <binaryName>.app with ASCII names (macos-update-archive.ts
+          # of the Wandit repo). The updater drops the root name, so the installed app keeps its name.
+          # ditto with these flags copies only the file data, and the app still verifies after it.
+          $updateDir = Join-Path $env:RUNNER_TEMP 'update'
+          New-Item -ItemType Directory -Path $updateDir | Out-Null
+          ditto --norsrc --noextattr --noqtn --noacl $env:APP_PATH (Join-Path $updateDir "$env:BINARY_NAME.app")
+          # Without these flags, macOS tar adds AppleDouble files and xattr, ACL, flag, and pax
+          # headers. The updater unpacks them as files, and the seal breaks. The server refuses
+          # every header that is not plain ustar.
+          $env:COPYFILE_DISABLE = '1'
+          $archive = Join-Path $env:RUNNER_TEMP 'update.app.tar.gz'
+          /usr/bin/tar -C $updateDir --no-mac-metadata --no-xattrs --no-acls --no-fflags --format ustar -czf $archive "$env:BINARY_NAME.app"
+          # tar drops a name that ustar cannot hold and still exits 0. So unpack the archive and
+          # check the seal of the files that the updater gets. Never remove these 4 lines.
+          $checkDir = Join-Path $env:RUNNER_TEMP 'update-check'
+          New-Item -ItemType Directory -Path $checkDir | Out-Null
+          /usr/bin/tar -xzf $archive -C $checkDir
+          codesign --verify --deep --strict --verbose=2 (Join-Path $checkDir "$env:BINARY_NAME.app")
+
+      - name: Upload the disk image and the update archive
+        env:
+          OUTPUT_URL: ${{ inputs.output_url }}
+          UPDATE_URL: ${{ inputs.update_url }}
+          # The one disk image of the bundle folder. The mount step counted it and checked the app in it.
+          DMG_PATH: ${{ steps.mount-dmg.outputs.dmg-path }}
+        run: |
+          $uploads = @(
+            @{ Path = $env:DMG_PATH; Url = $env:OUTPUT_URL },
+            @{ Path = (Join-Path $env:RUNNER_TEMP 'update.app.tar.gz'); Url = $env:UPDATE_URL }
+          )
+          # The progress bar makes Invoke-WebRequest much slower.
+          $ProgressPreference = 'SilentlyContinue'
+          foreach ($upload in $uploads) {
+            $file = Get-Item -LiteralPath $upload.Path
+            # An operator compares the disk image hash with desktop_builds.installer_sha256 (docs/v2/runbook.md).
+            # The server re-packs the archive, so the signed archive differs from this one.
+            $sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            Write-Output "$($file.Name): $($file.Length) bytes, SHA-256 $sha256"
+            Invoke-WebRequest -Uri $upload.Url -Method Put -InFile $file.FullName -ContentType 'application/octet-stream' | Out-Null
+          }

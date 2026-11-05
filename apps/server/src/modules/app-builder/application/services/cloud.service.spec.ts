@@ -342,13 +342,23 @@ describe("CloudService scope and backend gates", () => {
 		expect(requests).toHaveLength(0);
 	});
 
-	it("answers 404 for a V1 project", async () => {
-		const { service } = fixture({ project: { ...PROJECT, engine: "v1_page" } });
+	it.each<[string, Partial<ScopedAppProject>]>([
+		["a V1 project", { engine: "v1_page" }],
+		// A desktop app has no cloud backend: no Supabase project and no plan slot.
+		["a desktop project", { framework: "desktop-app" }],
+	])("answers 404 and provisions nothing for %s", async (_name, overrides) => {
+		const { service, provisionCalls } = fixture({
+			project: { ...PROJECT, ...overrides },
+		});
 
 		expect(await rejection(service.getBackend(SCOPE, PROJECT_ID))).toEqual({
 			code: null,
 			status: 404,
 		});
+		expect(
+			await rejection(service.ensureBackend(SCOPE, PROJECT_ID, null)),
+		).toEqual({ code: null, status: 404 });
+		expect(provisionCalls).toEqual([]);
 	});
 
 	it("answers 409 BACKEND_PAUSED on a panel route while the backend is paused", async () => {

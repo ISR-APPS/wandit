@@ -14,7 +14,10 @@ import {
 	Logger,
 	NotFoundException,
 } from "@nestjs/common";
-import type { McpApplyChangesInput } from "@wandit/contracts";
+import {
+	DESKTOP_MIGRATIONS_DIR,
+	type McpApplyChangesInput,
+} from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
@@ -49,6 +52,7 @@ import {
 	applyGuardedWrites,
 	stageGuardedWrites,
 } from "../../infrastructure/sandbox/guarded-file-writes";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { TurnPromoter } from "./turn-promotion";
 import { VERSION_OBJECTS, type VersionsObjectStore } from "./versions.service";
 
@@ -143,6 +147,16 @@ export class McpChangesService {
 		);
 		if (blocked !== undefined) {
 			throw pathNotAllowed(blocked.path);
+		}
+		// Security check: the builder writes migrations/ only through add_local_migration. The sandbox
+		// deny rules do not see these writes. The desktop-build gate checks every file again before CI.
+		if (project.framework === TEMPLATE_PROFILES.desktop.framework) {
+			const migration = input.changes.find(
+				(change) => change.path.split("/")[0] === DESKTOP_MIGRATIONS_DIR,
+			);
+			if (migration !== undefined) {
+				throw pathNotAllowed(migration.path);
+			}
 		}
 
 		// Product rule: an edit while a turn runs would commit next to the turn's git commands.

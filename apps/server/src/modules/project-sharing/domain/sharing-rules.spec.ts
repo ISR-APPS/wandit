@@ -114,6 +114,7 @@ describe("isInvitationRecipient", () => {
 describe("moveBlockedReason", () => {
 	const free: MoveFacts = {
 		customDomainAttached: false,
+		desktopBuildInFlight: false,
 		destinationHasBackendSlot: false,
 		deviceSessionActive: false,
 		mobileBuildInFlight: false,
@@ -129,6 +130,7 @@ describe("moveBlockedReason", () => {
 		[{ usageReserved: true }, "usage_reserved"],
 		[{ publishInFlight: true }, "publish_in_flight"],
 		[{ mobileBuildInFlight: true }, "mobile_build_in_flight"],
+		[{ desktopBuildInFlight: true }, "desktop_build_in_flight"],
 		[{ deviceSessionActive: true }, "device_session_active"],
 		[{ customDomainAttached: true }, "custom_domain_attached"],
 		[{ projectHasBackend: true }, "backend_slot_unavailable"],

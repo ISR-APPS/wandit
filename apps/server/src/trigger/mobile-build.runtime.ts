@@ -3,9 +3,9 @@
  * app on EAS and moves its `mobile_builds` row to a terminal status.
  * `mobile-build.task.ts` calls `runMobileBuild`; the spec runs it on fakes.
  * It calls the builds, backends, and project liveness repositories, the
- * metering service, the git store, the workspace preparer, and the EAS runner.
+ * credit hold of build-credit-hold.ts, the git store, the workspace preparer,
+ * and the EAS runner.
  */
-import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,19 +40,16 @@ import type {
 	MobileBuildsRepository,
 } from "../modules/app-builder/infrastructure/persistence/mobile-builds.repository";
 import type { ProjectLivenessRepository } from "../modules/app-builder/infrastructure/persistence/project-liveness.repository";
-import type { MeteringService } from "../modules/metering/application/services/metering.service";
-import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { MOBILE_BUILD_CREDITS } from "../modules/metering/domain/operation-registry";
+
+import {
+	type BuildCreditHoldInput,
+	createBuildCreditHold,
+} from "./build-credit-hold";
 
 // Security: the read credential lives only as long as the fetch of one
 // commit needs.
 const GIT_CREDENTIAL_TTL_SECONDS = 600;
-
-// 40 min. The longest step between two heartbeats is `prepareWorkspace`.
-// It runs up to five git commands of 5 min and one pnpm install of 10 min.
-// `runner.start` is the next longest: `eas init` 3 min plus `eas build` 15 min.
-// The stale-hold sweep refunds a 40-minute-old hold only when no live lease covers it.
-const LEASE_TTL_MS = 40 * 60_000;
 
 // One EAS status read every 30 s. A Trigger wait above 5 s frees the
 // machine, so the wait costs no compute.
@@ -83,15 +80,7 @@ export type MobileBuildDeps = {
 	/** Tells whether the project still has a row that is not soft-deleted. */
 	projects: Pick<ProjectLivenessRepository, "listLiveIds">;
 	/** Leases, settles, and refunds the `mobile_build:<buildId>` hold of the API. */
-	metering: Pick<
-		MeteringService,
-		| "acquireExecutionLease"
-		| "findByIdempotencyKeyAnyPayer"
-		| "heartbeatExecutionLease"
-		| "refund"
-		| "releaseExecutionLease"
-		| "settle"
-	>;
+	metering: BuildCreditHoldInput["metering"];
 	/** Mints the read-only code.storage credential of the clone. */
 	gitStore: Pick<GitStore, "issueCredential">;
 	/** The EAS runner and its account. Null when the worker env lacks EXPO_TOKEN or EXPO_ACCOUNT: the run fails `unconfigured`. */
@@ -139,19 +128,6 @@ const SKIPPED: MobileBuildResult = { outcome: "skipped", errorCode: null };
 const CANCELED: MobileBuildResult = { outcome: "canceled", errorCode: null };
 
 /**
- * True when `hold` is the `mobile_build` hold that the API reserved for this
- * row: the same project, actor, and team workspace. The hold names the payer.
- */
-function isHoldOfBuild(hold: AiUsageEvent, row: MobileBuildRow): boolean {
-	return (
-		hold.operation === "mobile_build" &&
-		hold.projectId === row.projectId &&
-		hold.userId === row.userId &&
-		hold.organizationId === row.organizationId
-	);
-}
-
-/**
  * Runs one build: claim the queued row, lease the credit hold, prepare the
  * workspace, start EAS, poll it, then settle or refund. Never throws for a
  * handled failure; every failure exit goes through `fail`.
@@ -186,13 +162,17 @@ export async function runMobileBuild(
 	}
 
 	// The hold row names its payer (workspaces-sharing.md 4): `user_id` of
-	// the build is the actor, so the run reads the hold with no payer check.
-	const holdKey = mobileBuildHoldKey(buildId);
-	// The hold's lease column is a uuid. One token per run: the heartbeat
-	// renews only the lease of this run.
-	const leaseToken = randomUUID();
-	// The id of the hold this run leased; null without a hold.
-	let holdId: string | null = null;
+	// the build is the actor, so the run passes only the row columns.
+	const hold = createBuildCreditHold({
+		billingDisabled: deps.billingDisabled,
+		build: row,
+		holdKey: mobileBuildHoldKey(buildId),
+		logFields,
+		logPrefix: "mobile-build",
+		logger: deps.logger,
+		metering: deps.metering,
+		operation: "mobile_build",
+	});
 	// Set once `eas build` answers, so a later failure can cancel EAS.
 	let easBuildId: string | null = null;
 	// Set once minted, so no stored message can hold it.
@@ -204,54 +184,13 @@ export async function runMobileBuild(
 			? text
 			: text.replaceAll(credentialPassword, "***");
 
-	/** The hold when it is still `reserved`, else null (logged). */
-	const findReservedHold = async (action: "settle" | "refund") => {
-		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(holdKey);
-		if (hold?.status !== "reserved") {
-			deps.logger.info("mobile-build.hold-not-reserved", {
-				...logFields,
-				action,
-				status: hold?.status ?? "missing",
-			});
-			return null;
-		}
-		return hold;
-	};
-
-	/** Refunds a still-reserved hold. A failure only logs: the stale-hold sweep refunds it later. */
-	const refundHold = async (
-		reason: "mobile_build_failed" | "mobile_build_canceled",
-	): Promise<void> => {
-		if (holdId === null) {
-			return;
-		}
-		try {
-			const hold = await findReservedHold("refund");
-			if (hold !== null) {
-				await deps.metering.refund(hold.id, reason);
-			}
-		} catch (error) {
-			deps.logger.error("mobile-build.refund-failed", {
-				...logFields,
-				error: getErrorMessage(error),
-			});
-		}
-	};
-
 	/**
 	 * Settles a still-reserved hold at the fixed price. The row is already
 	 * `finished`, so a failed settle is logged and captured, never thrown.
 	 */
 	const settleHold = async (finishedEasBuildId: string): Promise<void> => {
-		if (holdId === null) {
-			return;
-		}
 		try {
-			const hold = await findReservedHold("settle");
-			if (hold === null) {
-				return;
-			}
-			await deps.metering.settle(hold.id, {
+			await hold.settle({
 				costUsdMicros: null,
 				finalCredits: MOBILE_BUILD_CREDITS,
 				pricing: "direct",
@@ -272,48 +211,6 @@ export async function runMobileBuild(
 				...logFields,
 				error: getErrorMessage(error),
 			});
-		}
-	};
-
-	/**
-	 * Renews the lease so the stale-hold sweep skips the hold. "lost" means
-	 * the hold left `reserved`, or another token holds the lease; a fresh
-	 * acquire tells which. Throws when the hold is gone: no unpaid build.
-	 */
-	const heartbeat = async (): Promise<void> => {
-		if (holdId === null) {
-			return;
-		}
-		// `heartbeatExecutionLease` never throws; "error" keeps the lease.
-		const lease = await deps.metering.heartbeatExecutionLease(
-			holdId,
-			leaseToken,
-			LEASE_TTL_MS,
-		);
-		if (lease !== "lost") {
-			return;
-		}
-		let leased: boolean;
-		try {
-			leased =
-				(await deps.metering.acquireExecutionLease(
-					holdId,
-					leaseToken,
-					LEASE_TTL_MS,
-				)) !== null;
-		} catch (error) {
-			// A failed DB call does not prove a lost hold. The next heartbeat
-			// tries again.
-			deps.logger.warn("mobile-build.lease-renew-failed", {
-				...logFields,
-				error: getErrorMessage(error),
-			});
-			return;
-		}
-		if (!leased) {
-			// Like builder-turn: the sweep or an API cancel refunded the hold,
-			// so the outer catch cancels EAS and fails the row.
-			throw new Error("the credit hold left reserved during the build");
 		}
 	};
 
@@ -355,7 +252,7 @@ export async function runMobileBuild(
 			: await deps.builds.transition(buildId, { to: "canceled" });
 		// A lost compare-and-set means the API ended the row and refunded.
 		if (rowGone || canceled !== null) {
-			await refundHold("mobile_build_canceled");
+			await hold.refund("mobile_build_canceled");
 		}
 		deps.logger.info("mobile-build.project-deleted", logFields);
 		return CANCELED;
@@ -380,7 +277,7 @@ export async function runMobileBuild(
 			deps.logger.info("mobile-build.fail-lost", { ...logFields, errorCode });
 			return CANCELED;
 		}
-		await refundHold("mobile_build_failed");
+		await hold.refund("mobile_build_failed");
 		// Sentry keeps the original stack, unless the text holds the credential.
 		deps.captureException(
 			errorMessage === getErrorMessage(error) ? error : new Error(errorMessage),
@@ -391,35 +288,15 @@ export async function runMobileBuild(
 	};
 
 	try {
-		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(holdKey);
-		if (hold === null || !isHoldOfBuild(hold, row)) {
-			// Money check, same rule as builder-turn: with billing on, the build
-			// runs only on the hold that the API reserved for this row. Else it
-			// runs free or bills the wrong pool.
-			if (!deps.billingDisabled) {
-				return await fail(
-					"internal",
-					new Error("credit hold is missing or does not match the build"),
-				);
-			}
-			// With billing off the API made no hold. A foreign hold stays untouched.
-			deps.logger.info("billing.off", logFields);
-		} else {
-			// The sweep refunds a hold that waited too long in the queue. A
-			// build without its hold would run for free, so it fails here.
-			if (hold.status !== "reserved") {
-				return await fail("internal", new Error("credit hold is not reserved"));
-			}
-			// The lease marks the hold as live, so the sweep skips it.
-			const leased = await deps.metering.acquireExecutionLease(
-				hold.id,
-				leaseToken,
-				LEASE_TTL_MS,
+		const lease = await hold.lease();
+		if (lease === "hold_mismatch") {
+			return await fail(
+				"internal",
+				new Error("credit hold is missing or does not match the build"),
 			);
-			if (leased === null) {
-				return await fail("internal", new Error("credit hold is not reserved"));
-			}
-			holdId = hold.id;
+		}
+		if (lease === "not_reserved") {
+			return await fail("internal", new Error("credit hold is not reserved"));
 		}
 
 		// A soft-deleted project gets no build: nobody can see, cancel, or
@@ -462,7 +339,7 @@ export async function runMobileBuild(
 					new Error(workspace.errorMessage),
 				);
 			}
-			await heartbeat();
+			await hold.heartbeat();
 			try {
 				started = await runner.start({
 					buildId,
@@ -501,7 +378,7 @@ export async function runMobileBuild(
 			});
 			return CANCELED;
 		}
-		await heartbeat();
+		await hold.heartbeat();
 
 		const easStartedAt = deps.now();
 		let build = started;
@@ -545,7 +422,7 @@ export async function runMobileBuild(
 					to: "canceled",
 				});
 				if (canceled !== null) {
-					await refundHold("mobile_build_canceled");
+					await hold.refund("mobile_build_canceled");
 				}
 				return CANCELED;
 			}
@@ -587,7 +464,7 @@ export async function runMobileBuild(
 				});
 				return CANCELED;
 			}
-			await heartbeat();
+			await hold.heartbeat();
 			try {
 				build = await runner.view(build.id);
 			} catch (error) {
@@ -606,10 +483,7 @@ export async function runMobileBuild(
 		}
 		return await fail("internal", error);
 	} finally {
-		// `releaseExecutionLease` never throws: it logs its own failure.
-		if (holdId !== null) {
-			await deps.metering.releaseExecutionLease(holdId, leaseToken);
-		}
+		await hold.release();
 	}
 }
 

@@ -345,3 +345,655 @@ Check these facts on the first real build (UNVERIFIED):
   and checks out the sha.
 - The first non-interactive build creates the Android keystore on EAS
   (eas-cli 18.2 and later).
+
+## Desktop apps
+
+A desktop build runs in three places: the `desktop-build` Trigger task, a
+sandbox for the frontend build, and a workflow of the private builder repo:
+`build.yml` for Windows, `build-macos.yml` for macOS. The contract is
+`docs/v2/desktop-apps.md`. Security notes: section 14 of
+`docs/v2/security.md`. The macOS steps are in "macOS desktop builds" below.
+
+### Setup
+
+1. Set up the builder repo and the token: `tooling/desktop-builder/README.md`,
+   section "Setup".
+   - Step 9 of that section adds the repository variable
+     `DESKTOP_BUILD_BUCKET_URLS` to the builder repo. It holds one line for
+     each environment that dispatches to it:
+     `https://<R2_BUCKET>.<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`.
+   - A builder repo that exists already needs this variable before its
+     `build.yml` gets the URL check. Else every build fails with
+     `ci_failed` in the step "Mask and check the URLs". Add the variable
+     first. Then copy `tooling/desktop-builder/.github/workflows/build.yml`
+     to the builder repo with a pull request to `main`.
+   - When an environment changes `R2_BUCKET` or `R2_ACCOUNT_ID`, change
+     the variable first.
+2. Set these values on the API service in Railway and in the Trigger.dev
+   environment, for staging first:
+   - `DESKTOP_BUILD_REPO`: `<owner>/<repo>` of the builder repo.
+   - `DESKTOP_BUILD_GITHUB_TOKEN`: the fine-grained token.
+   - `DESKTOP_UPDATES_BASE_URL`: optional. Unset means `R2_PUBLIC_BASE_URL`.
+     Every installer holds the updater URL built on it. Set it before the
+     first release, and then never change it without a redirect from the
+     old host.
+3. Check `GET /api/v2/health`: it reports the three names. Without the repo
+   or the token, the create route answers 503 `V2_ENV_MISSING`, and a
+   queued build fails with `unconfigured`.
+4. The Trigger deploy puts the desktop template and the shell copy into the
+   worker image. A desktop project create that answers 503
+   `DESKTOP_TEMPLATE_UNAVAILABLE` means that the server had no
+   `templates/desktop-app/template_version` at boot. Deploy again with the
+   templates packed.
+5. Add the R2 lifecycle rule of the temporary build objects, on the bucket
+   `R2_BUCKET` of each environment:
+   `npx wrangler r2 bucket lifecycle add <R2_BUCKET> desktop-temp desktop-temp/ --expire-days 1`.
+   Check it with `npx wrangler r2 bucket lifecycle list <R2_BUCKET>`. The rule
+   deletes each object under `desktop-temp/` 1 day after its upload. A build
+   ends in less than 2 hours, so no live build loses an object. See "Orphan
+   build objects".
+
+### First staging test of desktop apps
+
+Do this test on staging before the first production release, and after each
+change of the migration runner. You need a Windows 10 or 11 PC (x64) and a
+staging account with credits. Do the steps of "Setup" first.
+
+1. Create a desktop project. Ask the agent for a notes app with one `notes`
+   table. Build it, and release it when it is `ready`. This is v1 (`1.0.1`).
+2. On the PC, download the installer from the download link and run it.
+   SmartScreen warns about the unsigned installer (D34): select "More info",
+   then "Run anyway".
+3. Open the app and add 3 notes. Close the app.
+4. In the chat, ask for a `pinned` column with `DEFAULT 0`, plus this check
+   query in the same migration:
+   `SELECT (SELECT count(*) FROM notes WHERE pinned = 0) = (SELECT count(*) FROM notes);`
+   Build v2.
+5. Open the CI run of v2. The step "Self-test the installed app" must show
+   `wandit-self-test: ok`. Release v2.
+6. Open the app on the PC, and click Install in the update dialog. The app
+   starts again as v2.
+7. Make sure that the 3 notes are there and that Help > About shows `1.0.2`.
+   `%LOCALAPPDATA%\<identifier>\backups\` must hold a
+   `before-update-1.0.1-...` file and a `before-1.0.2-...` file.
+8. Roll back by rebuild: the v1 build shows Rebuild, not Release. Click
+   Rebuild and confirm the credits. The new build is v3 (`1.0.3`): the
+   frontend of v1 with every migration of v2. Check the self-test line of
+   step 5 again, and release v3. On the PC, click Help > Check for updates
+   and install `1.0.3`.
+9. Make sure that the app opens with the 3 notes and shows no "The data did
+   not open" dialog. The v1 frontend runs on the database with the
+   `pinned` column.
+10. In the chat, ask the agent to replace the migration of step 4. The new
+    file has `-- wandit:replaces NNNN` on line 1, with the version of the
+    step 4 file. It keeps the ALTER statement byte for byte and adds the
+    check `SELECT (SELECT count(*) FROM notes WHERE pinned IS NULL) = 0;`.
+11. Build v4. Check the self-test line of step 5 again, and release v4.
+12. On the PC, install the update to v4. Make sure that the app opens with
+    the 3 notes. The PC ran the step 4 file, so the replacement does not run.
+13. Uninstall the app with "Delete the application data" selected. Install
+    v4 from the download link. Make sure that the app opens with no notes.
+    The replacement ran in place of the step 4 file.
+14. Optional: open `%LOCALAPPDATA%\<identifier>\data\app.db` in a SQLite
+    viewer and run `SELECT version, status FROM wandit_migrations;`. After
+    step 12, the replacement is `skipped`. After step 13, the step 4 file is
+    `replaced` and the replacement is `applied`.
+
+### Staging checks of the security fixes
+
+Do these checks once on staging, after the first staging test. They prove
+the fixes of `security.md` section 14 that no unit test can prove. A
+release build has no devtools, so put each test page or query in the app
+UI. Ask the agent for it, or change the frontend by hand in a test
+project.
+
+Windows, installed app (WebView2):
+
+1. The app opens. The assets, the theme fonts, and the 4 database commands
+   work. Help > Check for updates, File > Back up now, Export data, and
+   Import data work.
+2. Release a newer build: it installs. Then call the release route for an
+   older build: it answers 409 `DESKTOP_BUILD_OLDER_THAN_CURRENT`. Write
+   the `latest.json` of an older build to R2 by hand: Help > Check for
+   updates says that the installed version is the newest. Release the
+   newest build again after the test.
+3. A test page with `<a href="/favicon.svg" download>`: a click writes
+   nothing to the Downloads folder.
+4. WebRTC: in the app UI, create this connection:
+   ```js
+   new RTCPeerConnection({
+     iceServers: [
+       { urls: "stun:stun.l.google.com:19302" },
+       { urls: "turn:<public IP>:3478", username: "x", credential: "y" },
+     ],
+   });
+   ```
+   Then call `createDataChannel`, `createOffer`, and
+   `setLocalDescription`, and show each `onicecandidate` event in the UI.
+   Expect no candidate. In Wireshark or pktmon, expect no UDP or TCP to
+   these hosts and no DNS query for `stun.l.google.com`.
+5. DNS prefetch: a page with
+   `<link rel="dns-prefetch" href="//wandit-test-<random>.example.com">`.
+   Expect no DNS query (Wireshark, or `ipconfig /displaydns`). This also
+   proves that WebView2 gets the quoted `--host-resolver-rules` value in
+   one piece.
+6. A dedicated worker from a `.js` file of `dist/` runs
+   `fetch("https://example.com")`: the CSP blocks it.
+7. A query that never ends answers `sql_error` after about 10 s, and the
+   UI stays usable:
+   ```sql
+   WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c)
+   SELECT count(*) FROM c
+   ```
+8. One long function call, sent once, while a timer in the UI sends a
+   `db_select` every 200 ms:
+   `SELECT printf('%.*c',400000,'a') LIKE ('%'||printf('%.*c',40000,'a')||'b')`.
+   While it runs, Help > Check for updates shows the update. Install
+   writes `before-update-<version>-<time>.db` in the backups folder, and
+   the installer starts.
+9. Normal use after these changes: the app loads, many queries run at the
+   same time, and the answers are correct.
+
+CI of the builder repo:
+
+10. A real build passes "Mask and check the URLs". This confirms the
+    virtual-hosted URL shape and the 32 hex digits of the account id.
+11. "Download and check the WebView2 bootstrapper" passes. The log of
+    "Build the installer" shows no second bootstrapper download.
+12. "Self-test the installed app" runs the exe of the step output `app-exe`
+    and prints `wandit-self-test: ok`.
+13. Optional: a manual dispatch with an `https` `input_url` outside the
+    bucket fails in the first step.
+
+Builds and the gate:
+
+14. A third live build of one payer, in another project, answers 409
+    `DESKTOP_BUILD_LIMIT_REACHED`, and the credits come back.
+15. Cancel during `signing` shows a toast. The build ends `ready` and keeps
+    its charge.
+16. The installer answers show `Cache-Control: no-cache`, and the installer
+    URL has the random part.
+17. Ten parallel releases do not block the API.
+18. `add_local_migration` with a normal migration answers in well under
+    1 s. A large legal folder answers in well under 30 s. Optional: a check
+    that cross joins 12 copies of a table with rows answers `refused`. The
+    finding says "The dry run stopped after 30 s". The next call on the
+    same machine works.
+
+### Cache warm-up after a shell dependency change
+
+Do this when `Cargo.toml` or `Cargo.lock` of `templates/desktop-shell`
+changes, and when you change the Rust or tauri-cli pin.
+
+1. Merge the shell change in this repo.
+2. Run `node tooling/desktop-builder/sync-shell.mjs <builder checkout>`,
+   and merge the change of `shell/` to `main` of the builder repo.
+3. Wait for the green "Desktop cache warm-up" run in the Actions tab of the
+   builder repo. Both jobs, `warm` (Windows) and `warm-macos` (macOS), must
+   be green. Actions > Caches then shows the new `desktop-cargo-v1-rust-...`
+   key and the new `desktop-cargo-v1-macos-arm64-...` key.
+4. Then deploy the API and the Trigger worker. Until a key exists, each
+   build of its platform is cold. A cold Windows build takes about 35
+   minutes (ESTIMATE), below the 60-minute job limit. A cold macOS build
+   takes about 10 to 25 minutes (ESTIMATE), below the 45-minute job limit.
+5. GitHub deletes a cache that no run used for 7 days. The warm-up runs
+   each day at 03:17 UTC and makes a deleted cache again. To skip the wait,
+   start it by hand: Actions > Desktop cache warm-up > Run workflow.
+
+### A stuck or failed build
+
+1. Find the builds of the project:
+   ```sql
+   SELECT id, status, version, error_code, error_message, ci_run_id,
+          trigger_run_id, created_at, updated_at, completed_at
+   FROM desktop_builds
+   WHERE project_id = '<project id>'
+   ORDER BY created_at DESC
+   LIMIT 5;
+   ```
+2. Open the CI run: `https://github.com/<DESKTOP_BUILD_REPO>/actions/runs/<ci_run_id>`.
+   The run name holds the build id. Open the Trigger run with
+   `trigger_run_id` in the Trigger dashboard.
+3. Read the status:
+   - `queued`: Trigger.dev did not start the task yet.
+   - `preparing`: the sandbox builds the frontend, and the gate runs.
+   - `building`: the CI run compiles the installer.
+   - `signing`: the task checks, signs, and uploads the installer.
+   - `canceled` with no user cancel: staff suspended the project, or the
+     owner deleted it. The Trigger log line `desktop-build.stopped` holds
+     the reason. `suspension_lifted`: the `ready` write saw a suspension
+     that staff lifted a moment later. The owner builds again.
+4. A live build that does not move: the task polls CI every 20 s for at
+   most 70 minutes and then fails with `timeout`. To stop it earlier, the
+   user clicks Cancel. Cancel stops the CI run and releases the credit
+   hold. Cancel does not stop a build in `signing`: the web shows a toast,
+   and the build normally ends in minutes. After 90 minutes in `signing`,
+   only a crashed run stays there, and Cancel then stops it. Do not set the
+   status with SQL: the hold then stays.
+5. `blocked`: the `findings` column lists the gate rules and the files.
+   Ask the user to give the finding to the agent in the chat. The finding
+   "The dry run stopped after 30 s" on `migrations/` means a slow
+   statement. When the folder looks legal, the machine can be too slow for
+   the deadline: tell engineering (`desktop-apps.md` section 12).
+6. `failed`: read `error_code`.
+   - `start_failed`: the API could not start the Trigger task. Read the
+     API log and the Sentry event, and check the Trigger.dev deploy.
+   - `unconfigured`: a `DESKTOP_*` value or the shell copy is missing on
+     the worker. See "Setup".
+   - `sandbox_failed`, `frontend_build_failed`, `output_invalid`: read the
+     Trigger run log. The user asks the agent to fix the build.
+   - `gate_unavailable`: the gate could not run. Read the Trigger run log.
+   - `ci_start_failed`: the dispatch failed. Check the token expiry and the
+     repo name.
+   - `ci_failed`: read the failed step of the CI run. A cold build that
+     hits the 60-minute limit needs the cache warm-up above. A failure in the
+     steps "Install the app on the runner" or "Uninstall the app" is a
+     problem of the shell or the runner, not of the app. The install step
+     also fails for a bad `mainBinaryName` or a missing exe. The task also
+     stores `ci_failed` when the GitHub jobs read fails after a failed run.
+     The Trigger log then holds `desktop-build.ci-jobs-read-failed`.
+     - "Mask and check the URLs": the repo variable
+       `DESKTOP_BUILD_BUCKET_URLS` is empty or wrong. Or a bucket changed,
+       and the variable does not show it. An empty variable prints the
+       path `tooling/desktop-builder/README.md of the Wandit repo, Setup
+       step 9`. Fix the variable, then build again.
+     - "Download and check the WebView2 bootstrapper": the file has a bad
+       signature. Or Microsoft changed the file or the signer name. Every
+       build fails until an engineer changes the step. Read the status and
+       the signer in the error line.
+   - `self_test_failed`: the step "Self-test the installed app" failed. The
+     step prints `wandit-self-test: failed: <reason>` when the migrations
+     fail on a new database on Windows. A retry fails again. The user sees
+     only "fix the migrations", so give the reason line to the user for the
+     agent. A new file can change. A file of an earlier ready build needs a
+     replacement file. A step timeout is a problem of the shell.
+   - `artifact_invalid`: the CI run ended, but the staged file is missing,
+     larger than 300 MB, or does not start with `MZ`.
+   - `signing_failed`, `upload_failed`, `internal`: read the Trigger run
+     log and the Sentry event.
+7. The installed app shows a fallback font instead of the theme font. The
+   build bundles the theme fonts, and a font failure only logs a warning.
+   Search the Trigger run log for `desktop-build.theme-unreadable`,
+   `desktop-build.font-css-failed`, `desktop-build.font-file-failed`, and
+   `desktop-build.font-count-cap`. The Trigger worker must reach
+   `fonts.googleapis.com`, `fonts.gstatic.com`, `api.fontshare.com`, and
+   `cdn.fontshare.com`.
+8. The CI log prints `Installer <name>: <bytes> bytes, SHA-256 <hash>` in
+   the step "Upload the installer". The hash must equal `installer_sha256`
+   of the row (ignore the case). A different hash means that the staged
+   file changed between CI and the task. Do not release that build, and
+   treat it as an incident.
+
+API errors of the desktop routes:
+
+- `DESKTOP_BUILD_ACTIVE`: the project has a live build. Wait, or cancel it.
+- `DESKTOP_BUILD_LIMIT_REACHED`: the payer already has 2 live builds in
+  all its projects. The payer is the organization of a team project, else
+  the owner of a personal project, also when a shared member or a
+  collaborator asks. So a member with no build of their own can get it. Wait for a build to end. The hold comes back.
+- `DESKTOP_BUILD_NO_VERSION`: `main` has no commit yet. The user sends a
+  first message in the chat.
+- `DESKTOP_BUILD_NOT_READY`: a release of a build that is not `ready`, or
+  that has no installer, or a rebuild of a build that is not `ready`. A
+  suspend removes every installer.
+- `DESKTOP_BUILD_OLDER_THAN_CURRENT`: a release of a build older than the
+  current one. Installed apps accept only a newer version. The owner
+  clicks Rebuild on that build (D35).
+- `PROJECT_SUSPENDED` (403): staff suspended the project. See "Suspend and
+  delete".
+- `DESKTOP_TEMPLATE_UNAVAILABLE`: see "Setup", step 4.
+- `V2_ENV_MISSING`: see "Setup", step 3.
+
+### An installed app shows "The data did not open"
+
+The app stops in the `migration_failed` state. Its data stays as it was
+before the update: all pending files run in one transaction, and a failure
+rolls back all of them. The dialog names the reason, for example a statement
+or a check query that failed on the saved rows.
+
+1. Ask the owner to give the dialog text to the agent. The failed file is
+   frozen, so the agent writes a replacement file with
+   `-- wandit:replaces NNNN` on line 1. The owner builds and releases the
+   new build. The replacement runs in place of the failed file on each PC
+   that did not run it.
+2. Do not rebuild an older build for this. A rebuild embeds every frozen
+   file, the failed file too, so the app fails again. Until the fixed build
+   installs, the app stays in this state and its data does not change.
+3. The backups of the user stay in `%LOCALAPPDATA%\<identifier>\backups\`.
+
+### Key rotation
+
+- Rotate `APP_SECRETS_ENCRYPTION_KEY` with the steps of "Rotate
+  `APP_SECRETS_ENCRYPTION_KEY`" above. `pnpm secrets:rotate` also
+  re-encrypts `desktop_apps.updater_private_key_ciphertext`. After step 4,
+  check with `SELECT updater_key_version, count(*) FROM desktop_apps GROUP
+  BY 1` that only the new version remains.
+- A rotation changes only the encryption of the updater keys. The updater
+  key pair of an app stays: its public key is in every installer.
+- After a leak of the database and of `APP_SECRETS_ENCRYPTION_KEY`, the
+  holder knows the updater private keys. A bad update also needs a write
+  to `desktop/<project id>/latest.json` (Windows) or
+  `desktop/<project id>/latest-macos.json` (macOS). Rotate the R2 keys
+  too. No path changes the key pair of an installed app today
+  (`security.md` section 14, "Open items").
+- Rotate `DESKTOP_BUILD_GITHUB_TOKEN` before it expires: make a new token
+  (builder README, step 8), set it on the API and the Trigger worker, and
+  then delete the old token.
+
+### Suspend and delete
+
+- A staff suspend clears both current-build pointers
+  (`current_windows_build_id`, `current_macos_build_id`), every
+  `installer_key`, and every `update_archive_key`. Then it deletes all of
+  `desktop/<project id>/` in R2. Old download links stop working.
+  Installed apps find no update and keep their version. Wandit cannot stop
+  or delete an app on a user machine.
+- After an unsuspend, the owner builds again. An unsuspend restores no
+  installer, and the release route refuses a build without one.
+- A suspend with a KV or R2 error answers 502
+  `SUSPENSION_HOSTS_NOT_UPDATED`. The desktop withdraw runs after the KV
+  write, so after a 502 the withdraw can be incomplete. Send the same action
+  again.
+- While the project is suspended, the create and release routes answer 403
+  `PROJECT_SUSPENDED`. A live build stops at its next check: the task
+  cancels CI, deletes its objects, moves the row to `canceled`, and refunds
+  the hold.
+- A project delete is a soft delete. The `delete-app-project` task drains
+  the `desktop/<project id>/` prefix: both manifests (`latest.json`,
+  `latest-macos.json`), the stable files, and all build files go. It also
+  drains `desktop-temp/<project id>/`, the build inputs and the staged
+  files.
+  So no update reaches those installs again. Installed apps keep working
+  with their local data. The `desktop-build` task stops a build of the
+  project at its next check, moves the row to `canceled`, and refunds its
+  hold.
+- The `delete-app-project` task deletes the `desktop_apps` row with the
+  encrypted updater key. The `desktop_builds` and `desktop_migrations` rows
+  stay.
+- If the row delete fails, the task logs
+  `app-project.delete.desktop-app-failed` and continues. The encrypted
+  updater key then stays. Read the project id in that log line, then delete
+  the row: `DELETE FROM desktop_apps WHERE project_id = '<project id>';`.
+  No row references `desktop_apps`.
+
+### Orphan build objects
+
+- The task deletes the input archive and the staged installer at each exit.
+  A CI upload can still arrive after that exit, because its presigned URL
+  stays valid for 2 hours. Example: a cancel or a project delete during the
+  CI step "Upload the installer". The object then stays at
+  `desktop-temp/<project id>/staging/<build id>-<random>.exe`. A worker
+  crash can also leave `desktop-temp/<project id>/inputs/<build id>-<random>.tar.gz`.
+- The lifecycle rule of "Setup", step 5, deletes these objects. R2 deletes
+  an object within 24 hours after the 1 day of the rule.
+- When `npx wrangler r2 bucket lifecycle list <R2_BUCKET>` does not show the
+  `desktop-temp` rule, add it again with the command of "Setup", step 5.
+  The rule also deletes the objects that are already older than 1 day.
+
+### macOS desktop builds
+
+A macOS build makes a disk image (`.dmg`) and an update archive
+(`.app.tar.gz`) for Apple silicon, macOS 15 or later (D36). The app has an
+ad-hoc signature and no notarization. The contract is
+`docs/v2/desktop-apps.md` sections 3, 9, and 10.
+
+#### Deploy order
+
+Use this order for the first macOS release. Use it again for each later
+change of the shell, its `Cargo.toml`, or its `Cargo.lock`.
+
+1. In the builder repo, open a pull request to `main` with these files:
+   - `tooling/desktop-builder/.github/workflows/build-macos.yml` (new).
+   - `tooling/desktop-builder/.github/workflows/warm-cache.yml` (it now has
+     the job `warm-macos` and a daily schedule).
+   - `shell/`: run `node tooling/desktop-builder/sync-shell.mjs <builder checkout>`.
+2. Merge the pull request. Wait until both warm-up jobs, `warm` and
+   `warm-macos`, are green for that exact `Cargo.lock`. The Windows job also
+   proves that the shell still compiles on Windows.
+3. Only then deploy the API and the Trigger worker. The worker image holds
+   its own copy of the shell (`apps/server/trigger.config.ts`), and every
+   Windows build uses it too.
+
+Why: a shell that does not compile fails every Windows build after the
+deploy. A `Cargo.lock` with no warm cache makes every build cold. Staging
+and production share the builder repo, so this order holds for both.
+
+#### The flag `DESKTOP_MACOS_BUILDS_ENABLED`
+
+Only the API reads the flag (`desktop-builds.service.ts`). The Trigger
+worker does not read it. An unset flag means false
+(`packages/env/src/server.ts`).
+
+1. Staging: set `DESKTOP_MACOS_BUILDS_ENABLED=true` on the API service in
+   Railway. Do the deploy order above first.
+2. Production: keep the flag `false` until every staging check below passes
+   or Zack accepts it. Then set it to `true`.
+3. Kill switch: set the flag to `false` on the API service. Railway then
+   deploys the API again.
+   - A live macOS build finishes.
+   - A new macOS create answers 403 `DESKTOP_PLATFORM_UNAVAILABLE`, and the
+     web hides the macOS choice.
+   - Release and cancel still work, so a fixed build still reaches Mac apps.
+   - The Gatekeeper note stays while a macOS download link exists.
+
+Use the kill switch when Apple removes the WebRTC key (check 6), or when the
+weekly cost check below grows.
+
+#### Weekly check of refunded macOS failures
+
+A failed build refunds its hold, but GitHub bills the runner minutes. A
+macOS minute costs $0.062. One payer has at most 2 live builds, so one payer
+can cost about $7.44 per hour (`desktop-apps.md` section 11).
+
+1. Each Monday, run this query on the production database. The payer comes
+   from `projects`: `desktop_builds.user_id` holds the user who asked.
+   ```sql
+   SELECT coalesce(p.organization_id, p.user_id) AS payer, b.error_code, count(*)
+   FROM desktop_builds b
+   JOIN projects p ON p.id = b.project_id
+   WHERE b.platform = 'macos'
+     AND b.status = 'failed'
+     AND b.completed_at > now() - interval '7 days'
+   GROUP BY 1, 2
+   ORDER BY 3 DESC;
+   ```
+2. Look for a payer with many failures of one code, for example
+   `self_test_failed` again and again.
+3. Count the `ci_failed` rows whose run failed in "Check the signatures and
+   mount the disk image" with `hdiutil` "Resource busy". Record the rate.
+4. When the cost grows, set the flag to `false` (kill switch above), and tell
+   Zack.
+
+#### Cache
+
+GitHub deletes a cache after 7 days without access. A build run only
+restores. The warm-up runs each day at 03:17 UTC, so a deleted cache comes
+back within 1 day. To skip the wait, start "Desktop cache warm-up" by hand.
+
+#### A failed macOS build
+
+Use "A stuck or failed build" first. These lines add the macOS cases:
+
+- `ci_failed` in "Check the signatures and mount the disk image": a
+  signature check failed, or the disk image did not mount. Or the binary is
+  missing. `hdiutil` "Resource busy" is a runner fault. A new build can
+  pass.
+- `ci_failed` in "Make and check the update archive": a name was too long
+  for ustar, or the seal broke after the unpack. Tell engineering.
+- `ci_failed` after 45 minutes: the job timeout. Check that the cache key
+  exists (see "Cache").
+- `self_test_failed`: the step "Self-test the installed app" ran the app in
+  the mounted disk image. Read the `wandit-self-test: failed` line, as for
+  Windows.
+- `artifact_invalid`: `error_message` holds the reason. The staged disk
+  image is missing or has no `koly` trailer. Or the staged archive is
+  missing, is not gzip, or breaks a rule of `macos-update-archive.ts`. A
+  broken rule means that CI changed its tar output. Tell engineering. Do
+  not make the parser less strict.
+- `timeout`: the task stops 70 minutes after the dispatch, also while
+  GitHub queues the job. GitHub Free, Pro, and Team run at most 5 macOS
+  jobs at the same time for the whole account. Look for queued jobs in the
+  Actions tab.
+
+#### Support: check a disk image
+
+1. Open the CI run of the build. In the step "Upload the disk image and the
+   update archive", read the line `<file name>: <bytes> bytes, SHA-256 <hash>`
+   of the `.dmg`.
+2. Compare the hash with `desktop_builds.installer_sha256` (ignore the
+   case). A different hash means that the staged file changed between CI
+   and the task. Do not release that build, and treat it as an incident.
+3. Do not compare the hash of the archive. The task writes the archive
+   again, so the signed archive (`update_archive_key`) differs on purpose.
+
+Limit: this check does not cover the update archive. A person with
+`update_url` can replace the staged archive before the task re-packs and
+signs it. Every installed Mac app then takes that file at the release of
+the build. The task keeps no hash of the staged archive, so you cannot
+compare it with the CI log line (`security.md`, "macOS builds").
+
+Orphan objects: a late CI upload can leave
+`desktop-temp/<project id>/staging/<build id>-<random>.dmg` or `.app.tar.gz`.
+The lifecycle rule of "Setup", step 5, deletes them.
+
+#### After each new macOS major release
+
+1. Install the new macOS version on a test Mac.
+2. Run checks 3, 6, and 8 below on it.
+3. If check 6 shows `RTCPeerConnection`, or the window does not open, set
+   the flag to `false`. Then tell engineering: Apple changed the WebRTC key.
+
+#### Desktop migration number
+
+The desktop migration is `packages/db/src/migrations/0092_desktop-apps.sql`.
+Before the merge with `dev`, it was `0088_desktop-apps.sql` with the journal
+`when` 1793877910625. No remote branch holds that file, so only a local
+database can have its row. To find the row, run
+`select 1 from drizzle.__drizzle_migrations where created_at = 1793877910625;`.
+
+Drizzle applies only the files that are newer than the newest row. So a
+database with this row skips dev's 0088 to 0091. It then fails on 0092 with
+`type "desktop_build_status" already exists`. Drop and create that database
+again, then run `pnpm db:migrate`. A drop of the desktop tables is not
+sufficient: Postgres cannot remove the enum values `desktop_build` and
+`desktop` that 0092 adds, so 0092 fails again.
+
+#### macOS staging checks
+
+Do these checks on staging before production turns the flag on. Use a Mac
+with macOS 15 and a Mac with macOS 26. Use macOS 27 when it ships. Record
+each result on the "Result" line: the date, the macOS version, and pass or
+fail.
+
+1. Builder repo. Do the deploy order above. Open Actions > Caches.
+   - Pass: both warm-up jobs are green. Caches shows a
+     `desktop-cargo-v1-macos-arm64-...` entry and a Windows entry.
+   - Result: not run.
+2. Build time. Set the staging flag to `true`. Delete the
+   `desktop-cargo-v1-macos-arm64-...` entry in Actions > Caches. Build macOS
+   for a test project (cold). Run `warm-cache.yml` by hand. Build again
+   (cached).
+   - Pass: both builds reach `ready`. Record the job minutes from the run
+     pages. A cold build over 40 minutes needs a new `timeout-minutes`
+     (D36, 45 now).
+   - Result: not run.
+3. First start. Download the disk image with Safari from the stable link.
+   Open it, drag the app to Applications, and open the app.
+   - Pass: the alert "Not Opened" shows. Click Done. Open System Settings >
+     Privacy & Security > Open Anyway, and enter the password. The app
+     opens.
+   - Result: not run.
+4. Window and menu. Try About, Hide, and Cmd+Q. Try Cmd+C and Cmd+V in a
+   text field. Try File > Back up now, Export data, and Import data. Try
+   Help > Check for updates. Try Cmd+W.
+   - Pass: each item works, and each dialog shows. Cmd+W closes the window,
+     and the app quits.
+   - Result: not run.
+5. Second start. Run `open -n /Applications/<App>.app`.
+   - Pass: the first window comes to the front. No second window opens.
+   - Result: not run.
+6. Network probe. Make a test project whose frontend shows
+   `typeof RTCPeerConnection`. It also runs `fetch("https://example.com")`,
+   a fetch from a Worker, a remote `<img>`,
+   `<link rel=preconnect href="https://<probe host>">`, and
+   `<link rel=dns-prefetch href="//<probe host>">`. Run
+   `sudo tcpdump -n -i any 'udp or port 53'` while the app starts.
+   - Pass: `RTCPeerConnection` is `undefined`. Each fetch and the image
+     fail. tcpdump shows no packet to the probe host and no STUN.
+   - A DNS query for the probe host fails the check. Then a WebKit content
+     rule list must block it before production. Write the result in
+     `security.md` section 14, "Open items".
+   - Result: not run.
+7. CSP header. The probe app loads a Worker script and an `.svg` page. Each
+   one tries an inline script.
+   - Pass: the inline script does not run. The shell adds the CSP to these
+     answers (`add_missing_csp`).
+   - Result: not run.
+8. Update. Release a second macOS build. In the old app, click Help > Check
+   for updates > Install.
+   - Pass: the app starts again in the new version with no Gatekeeper
+     alert. About shows the new version. The re-pack writes time 0 on each
+     file, so this also proves that the time does not matter.
+   - Record the output of `xattr -l /Applications/<App>.app`,
+     `spctl -a -vv /Applications/<App>.app`, and
+     `log show --predicate 'process == "syspolicyd"' --last 5m`.
+   - Result: not run.
+9. App Management. Do the update of check 8 with the app in Applications.
+   - Pass: no notice "was prevented from modifying apps" shows.
+   - Result: not run.
+10. Standard user. An admin installs the app in Applications. A standard
+    (non-admin) user installs an update.
+    - Pass: a prompt asks for an admin password. After it, the update
+      installs.
+    - Result: not run.
+11. Translocation. Open the app from Downloads (not moved). Try an update.
+    Then open the app from the mounted disk image, and try an update again.
+    - Pass: "Update failed" shows, with the line "Open the app from the
+      Applications folder, then try again."
+    - Result: not run.
+12. Independence. Release Windows, then macOS, then Windows.
+    - Pass: after each step, `latest.json` holds only the Windows keys, and
+      `latest-macos.json` holds only the darwin keys.
+      `current_windows_build_id` and `current_macos_build_id` change only
+      for their own platform.
+    - Result: not run.
+13. Suspension. Staff suspend the project.
+    - Pass: `latest.json`, `latest-macos.json`, and both stable files answer
+      404. The installed Mac app finds no update.
+    - Result: not run.
+14. Texts. Read the card and the Gatekeeper note in en, fr, and ar. Set a
+    Mac to French, then to Arabic, and compare the macOS labels.
+    - Pass: the labels of the note match the labels of the system.
+    - Result: not run.
+15. Data. Open `~/Library/Application Support/app.wandit.p<hex>/`. Export
+    the data on the Mac, and import the file into the Windows app.
+    - Pass: `data/app.db` and `backups/` exist. The import passes.
+    - Result: not run.
+16. Flag off. Set the staging flag to `false`. Open the card. Send a macOS
+    create with a tool such as curl.
+    - Pass: the card shows no macOS choice. The create answers 403
+      `DESKTOP_PLATFORM_UNAVAILABLE`.
+    - Result: not run.
+17. Intel Mac, if one exists. Open the app from the disk image.
+    - Pass: macOS refuses to open it. The Gatekeeper note says Apple
+      silicon.
+    - Result: not run.
+18. Product names. Build macOS for 2 test projects named "Gestion Café" and
+    "متجر أحمد". Install, open, and update each one, as in checks 3 and 8.
+    - Pass: both builds reach `ready`. Both apps open after Open Anyway and
+      update.
+    - Result: not run.
+19. Cancel. Start a macOS build. Cancel it while it is `building`.
+    - Pass: the GitHub run stops. The build is `canceled`, and the hold
+      comes back. No object of the build stays under
+      `desktop-temp/<project id>/staging/` or `desktop/<project id>/builds/`.
+      A late CI upload can leave a staged file until the lifecycle rule
+      deletes it ("Orphan build objects").
+    - Result: not run.
+20. Mixed platforms. Release a Windows build. Then send a create with
+    `platform: "macos"` and `rebuildOfBuildId` of that Windows build. The
+    web Rebuild button keeps the platform of the old build, so use a tool
+    such as curl. Release the macOS build.
+    - Pass: the macOS build passes the migration gate with the frozen
+      files and gets the next version. The Windows app finds no update.
+    - Result: not run.

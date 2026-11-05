@@ -1,20 +1,24 @@
 /**
- * A premium device around a mini app screen: a phone for a mobile app and a
- * browser window for a web app. When `platform` changes, the frame morphs
- * between the two (motion layout) and the content crossfades. The hero,
- * how-it-works and languages sections put a FitScreen inside it.
+ * A premium device around a mini app screen: a phone for a mobile app, a
+ * browser window for a web app, and a Windows window for a desktop app. When
+ * `platform` changes, the frame morphs between the phone and the windows
+ * (motion layout) and the content crossfades. The hero, how-it-works and
+ * languages sections put a FitScreen inside it.
  */
 
 import type { TargetPlatform } from "@wandit/contracts";
 import { cn } from "@wandit/ui/lib/utils";
-import { Lock } from "lucide-react";
+import { Lock, Minus, Square, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useState } from "react";
 
 type DeviceFrameProps = {
 	platform: TargetPlatform;
-	/** Address in the browser bar, like "ledgerly.wandit.app". The phone ignores it. */
-	url?: string;
+	/**
+	 * Text of the top bar: the address of a web app, like "studiosol.wandit.app",
+	 * or the window title of a desktop app, like "Ledgerly". The phone ignores it.
+	 */
+	barText?: string;
 	/** Sets the frame width, for example "w-[300px]". The height follows the screen. */
 	className?: string;
 	/** The screen, usually a FitScreen with a MiniApp inside. */
@@ -42,10 +46,10 @@ const MORPH_TRANSITION = {
 const SCREEN_IN = { duration: 0.32, delay: 0.34, ease: "easeOut" } as const;
 const SCREEN_OUT = { duration: 0.14, ease: "easeIn" } as const;
 
-/** A phone or a browser window that sizes itself from its width and morphs when `platform` changes. */
+/** A phone or a window that sizes itself from its width and morphs when `platform` changes. */
 export function DeviceFrame({
 	platform,
-	url,
+	barText,
 	className,
 	children,
 }: DeviceFrameProps) {
@@ -102,11 +106,13 @@ export function DeviceFrame({
 						// The content is the size container, so an exiting body keeps its own cqw units.
 						className="@container"
 					>
-						{isMobile ? (
-							<PhoneBody>{children}</PhoneBody>
-						) : (
-							<BrowserBody url={url}>{children}</BrowserBody>
-						)}
+						{isMobile ? <PhoneBody>{children}</PhoneBody> : null}
+						{platform === "web" ? (
+							<BrowserBody url={barText}>{children}</BrowserBody>
+						) : null}
+						{platform === "desktop" ? (
+							<WindowBody title={barText}>{children}</WindowBody>
+						) : null}
 					</motion.div>
 				</AnimatePresence>
 			</motion.div>
@@ -143,6 +149,38 @@ function BrowserBody({ url, children }: { url?: string; children: ReactNode }) {
 					<span dir="ltr" className="truncate">
 						{url}
 					</span>
+				</span>
+			</div>
+			{children}
+		</>
+	);
+}
+
+/** A Windows 11 title bar: the app name at the start and the three caption buttons at the end. */
+function WindowBody({
+	title,
+	children,
+}: {
+	/** Window title, the name of the app. */
+	title?: string;
+	children: ReactNode;
+}) {
+	return (
+		<>
+			{/* The bar has the height of the browser bar, so a morph between the two keeps the screen size. */}
+			<div className="flex h-[clamp(26px,6cqw,42px)] items-center border-night/8 border-b bg-[#f3f4f8] ps-[2.4cqw] font-medium text-[clamp(8px,1.55cqw,12.5px)] text-night/70">
+				{/* A plain square stands in for the app icon of the title bar. */}
+				<span className="me-[1cqw] size-[clamp(8px,1.6cqw,13px)] shrink-0 rounded-[0.25cqw] bg-ember" />
+				<span className="min-w-0 flex-1 truncate">{title}</span>
+				{/* Windows draws each caption button about twice as wide as it is tall. */}
+				<span className="grid h-full w-[6cqw] place-items-center">
+					<Minus className="size-[1.1em]" strokeWidth={1.6} />
+				</span>
+				<span className="grid h-full w-[6cqw] place-items-center">
+					<Square className="size-[0.9em]" strokeWidth={1.6} />
+				</span>
+				<span className="grid h-full w-[6cqw] place-items-center">
+					<X className="size-[1.1em]" strokeWidth={1.6} />
 				</span>
 			</div>
 			{children}

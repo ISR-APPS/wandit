@@ -462,6 +462,7 @@ function fakeProjectRow(over?: Partial<TurnProjectRow>): TurnProjectRow {
 		languages: ["en"],
 		networkAllowedHosts: [],
 		organizationId: null,
+		suspendedReasonCode: null,
 		templateVersion: "web-app@1.0.0",
 		userId: "user_1",
 		...over,
@@ -3912,6 +3913,33 @@ describe("runBuilderTurn", () => {
 		expect(instructions).toContain("Expo Go");
 		expect(instructions).toContain("ask_user tool");
 		expect(instructions).not.toContain("app-dashboard");
+	});
+
+	it("gives a desktop project the desktop sentence and the recipe, and no backend note", async () => {
+		const world = makeWorld({
+			backend: null,
+			project: fakeProjectRow({
+				framework: "desktop-app",
+				templateVersion: "desktop-app@1.0.0",
+			}),
+		});
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain("add_local_migration");
+		expect(instructions).toContain("app-dashboard");
+		expect(instructions).not.toContain("Expo");
+		// A desktop app has no cloud backend, so no status says that it is not ready.
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		expect(statuses).toContainEqual({ phase: "session_starting" });
+		expect(statuses).not.toContainEqual(
+			expect.objectContaining({ message: "Backend not ready yet" }),
+		);
 	});
 
 	it("writes a data-thought part with the duration after each reasoning block", async () => {

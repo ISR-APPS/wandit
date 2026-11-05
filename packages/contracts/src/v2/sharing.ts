@@ -195,6 +195,7 @@ export const projectMoveBlockedReasons = [
 	"usage_reserved",
 	"publish_in_flight",
 	"mobile_build_in_flight",
+	"desktop_build_in_flight",
 	"device_session_active",
 	"custom_domain_attached",
 	// The destination payer has no free backend slot for this project's backend.

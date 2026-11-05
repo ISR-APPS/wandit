@@ -30,6 +30,7 @@ import { AppCommitsRepository } from "../modules/app-builder/infrastructure/pers
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { DesktopMigrationsRepository } from "../modules/app-builder/infrastructure/persistence/desktop-migrations.repository";
 import { LlmProxyRequestsRepository } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import { ProjectGithubLinksRepository } from "../modules/app-builder/infrastructure/persistence/project-github-links.repository";
@@ -200,6 +201,7 @@ export async function createBuilderTurnDeps(
 				audit,
 				backends,
 				client: supabase,
+				desktopMigrations: new DesktopMigrationsRepository(db),
 				imageEditModel: BUILDER_IMAGE_EDIT_MODEL,
 				imageModel: BUILDER_IMAGE_MODEL,
 				logger,

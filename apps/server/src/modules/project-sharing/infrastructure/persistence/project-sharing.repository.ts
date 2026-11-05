@@ -7,6 +7,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
 	type BillingPlanId,
 	liveAppBuildStatuses,
+	liveDesktopBuildStatuses,
 	liveMobileBuildStatuses,
 	type ProjectMember,
 	type ProjectMemberRole,
@@ -20,6 +21,7 @@ import { appBuilds } from "@wandit/db/schema/app-builds";
 import { user } from "@wandit/db/schema/auth";
 import { builderTurns } from "@wandit/db/schema/builder-turns";
 import { aiUsageEvents } from "@wandit/db/schema/credits";
+import { desktopApps, desktopBuilds } from "@wandit/db/schema/desktop-apps";
 import { deviceSessions } from "@wandit/db/schema/device-sessions";
 import { domains } from "@wandit/db/schema/domains";
 import { mobileBuilds } from "@wandit/db/schema/mobile-builds";
@@ -72,7 +74,7 @@ const MEMBER_COLUMNS = {
 /** Backend statuses that serve no app and hold no plan slot (schema comment of `app_backend_status`). */
 const RELEASED_BACKEND_STATUSES = ["deleting", "error"] as const;
 
-/** Reads and writes through Drizzle only. The move also writes the owner columns of three child tables. */
+/** Reads and writes through Drizzle only. The move also writes the owner columns of four child tables. */
 @Injectable()
 export class ProjectSharingRepository {
 	constructor(
@@ -301,6 +303,18 @@ export class ProjectSharingRepository {
 						.where(eq(domains.projectId, projectId))
 						.limit(1),
 				),
+				desktopBuildInFlight: await has(
+					tx
+						.select({ id: desktopBuilds.id })
+						.from(desktopBuilds)
+						.where(
+							and(
+								eq(desktopBuilds.projectId, projectId),
+								inArray(desktopBuilds.status, [...liveDesktopBuildStatuses]),
+							),
+						)
+						.limit(1),
+				),
 				destinationHasBackendSlot: assertBackendEntitlement(
 					input.destinationPlan,
 					await this.backends.countActiveForOwner(destinationPayer, tx),
@@ -404,6 +418,11 @@ export class ProjectSharingRepository {
 				.update(sandboxSessions)
 				.set(owner)
 				.where(eq(sandboxSessions.projectId, projectId));
+			// `desktop_builds` rows keep the pool that paid them, like `mobile_builds`.
+			await tx
+				.update(desktopApps)
+				.set(owner)
+				.where(eq(desktopApps.projectId, projectId));
 			await this.inviteLinks.revokeProjectLink(projectId, tx);
 			if (input.keepCollaborators) {
 				// The owner is never a grant, like after a transfer. Else the Share dialog shows the owner twice.

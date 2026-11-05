@@ -100,6 +100,8 @@ export type MoveFacts = {
 	usageReserved: boolean;
 	publishInFlight: boolean;
 	mobileBuildInFlight: boolean;
+	/** A `desktop_builds` row of the project is live: its hold and CI run belong to the source payer. */
+	desktopBuildInFlight: boolean;
 	deviceSessionActive: boolean;
 	customDomainAttached: boolean;
 	/** The project has a backend that the source payer's plan counts. */
@@ -120,6 +122,7 @@ export function moveBlockedReason(
 		[facts.usageReserved, "usage_reserved"],
 		[facts.publishInFlight, "publish_in_flight"],
 		[facts.mobileBuildInFlight, "mobile_build_in_flight"],
+		[facts.desktopBuildInFlight, "desktop_build_in_flight"],
 		[facts.deviceSessionActive, "device_session_active"],
 		[facts.customDomainAttached, "custom_domain_attached"],
 		[

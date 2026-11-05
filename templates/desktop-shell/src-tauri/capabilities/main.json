@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "The webview of the main window may call the 4 database commands of the shell and nothing else: no core default, no plugin permission.",
+  "windows": ["main"],
+  "permissions": ["allow-db-select", "allow-db-execute", "allow-db-batch", "allow-app-info"]
+}

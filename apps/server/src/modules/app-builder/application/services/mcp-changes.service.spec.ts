@@ -83,6 +83,8 @@ type ProjectState = {
 	turnWaits?: boolean;
 	/** "none": the project has no running sandbox. */
 	sandbox?: "running" | "none";
+	/** `projects.framework`. Default: `web-app`. */
+	framework?: string;
 };
 
 async function setup(state: ProjectState = {}) {
@@ -97,7 +99,10 @@ async function setup(state: ProjectState = {}) {
 	const inserted: NewAppCommit[] = [];
 	const appCommits = {
 		findBranch: async () => ({ headSha: HEAD }),
-		findScopedProject: async () => PROJECT,
+		findScopedProject: async () => ({
+			...PROJECT,
+			framework: state.framework ?? PROJECT.framework,
+		}),
 		insert: async (row: NewAppCommit): Promise<AppCommitRow> => {
 			inserted.push(row);
 			return { ...row, createdAt: new Date(0), id: "row-1" };
@@ -243,6 +248,29 @@ describe("McpChangesService.apply", () => {
 			"a path is on the deny list",
 			{},
 			{ ...INPUT, changes: [{ content: "KEY=1\n", path: "src/.env" }] },
+			null,
+			"PATH_NOT_ALLOWED",
+		],
+		// The builder writes desktop migrations only through add_local_migration and its gate.
+		[
+			"a desktop project writes a migration file",
+			{ framework: "desktop-app" },
+			{
+				...INPUT,
+				changes: [
+					{ content: "DROP TABLE notes;\n", path: "migrations/0002_x.sql" },
+				],
+			},
+			null,
+			"PATH_NOT_ALLOWED",
+		],
+		[
+			"a desktop project deletes a frozen migration file",
+			{ framework: "desktop-app" },
+			{
+				...INPUT,
+				changes: [{ delete: true, path: "migrations/0001_init.sql" }],
+			},
 			null,
 			"PATH_NOT_ALLOWED",
 		],
