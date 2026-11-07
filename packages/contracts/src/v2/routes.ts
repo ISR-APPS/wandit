@@ -22,6 +22,9 @@ export const appBuilderRoutes = {
 	// GET the SSE stream of the project's currently running turn, if any.
 	activeTurnStream: (projectId: string) =>
 		`/api/v2/projects/${projectId}/turns/active/stream`,
+	// GET the running turn id and the main head; the builder page polls it.
+	activeTurn: (projectId: string) =>
+		`/api/v2/projects/${projectId}/turns/active`,
 	// GET one page of the stored chat, newest page first; `?cursor=&limit=`.
 	messages: (projectId: string) => `/api/v2/projects/${projectId}/messages`,
 	// POST cancel a builder turn.

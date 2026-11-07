@@ -279,6 +279,7 @@ function setup(
 		audit,
 		backends,
 		credits,
+		{ findBranch: vi.fn(async () => null) },
 	);
 
 	return {

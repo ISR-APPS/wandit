@@ -23,6 +23,7 @@ import { ScrollIcon } from "@phosphor-icons/react/Scroll";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { StorefrontIcon } from "@phosphor-icons/react/Storefront";
+import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { UsersIcon } from "@phosphor-icons/react/Users";
 import { targetPlatforms } from "@wandit/contracts";
 
@@ -46,6 +47,7 @@ export const MORE_PANELS = [
 	"ai",
 	"payments",
 	"integrations",
+	"mcp",
 	"domains",
 	"appStores",
 	"security",
@@ -161,6 +163,13 @@ export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 		kinds: targetPlatforms,
 		title: "appBuilder.panels.integrations.title",
 		description: "appBuilder.panels.integrations.description",
+	},
+	// An MCP client edits the files of the project, so every kind lists the panel.
+	mcp: {
+		icon: TerminalWindowIcon,
+		kinds: targetPlatforms,
+		title: "appBuilder.panels.mcp.title",
+		description: "appBuilder.panels.mcp.description",
 	},
 	domains: {
 		icon: GlobeIcon,

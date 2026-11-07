@@ -4,13 +4,15 @@
  * text, files, question answers, approval decisions, and the turn mode as
  * turn requests. A refused send leaves the chat, so the composer can show it
  * again. After a failed stream, `reconnect` replays the running turn.
+ * While no stream runs, it polls the running turn and the head. It then
+ * follows a turn or a commit of another client, such as a coding agent.
  * A 402 answer opens the credits dialog. Called by use-builder-thread.ts;
- * calls builder-chat-transport.ts, api/app-builder.services.ts, and the
- * billing dispatch.
+ * calls builder-chat-transport.ts, api/app-builder.queries.ts,
+ * api/app-builder.services.ts, and the billing dispatch.
  */
 
 import { useChat } from "@ai-sdk/react";
-import { hashKey, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
@@ -19,18 +21,26 @@ import {
 	type TurnApprovalAnswer,
 	type TurnEstimate,
 	type TurnQuestionAnswer,
+	turnDoneDataSchema,
 } from "@wandit/contracts";
 import type { ChatStatus, FileUIPart } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { dispatchBillingError } from "@/features/billing";
 import { creditsKeys } from "@/features/credits";
-import { appBuilderKeys } from "../api/app-builder.queries";
-import { cancelTurn } from "../api/app-builder.services";
+import {
+	activeTurnStateQuery,
+	appBuilderKeys,
+	chatHistoryQuery,
+} from "../api/app-builder.queries";
+import { cancelTurn, getActiveTurnState } from "../api/app-builder.services";
 import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage, TurnMessagePart } from "../api/dto";
 import { githubKeys } from "../api/github.queries";
-import { createBuilderChatTransport } from "./builder-chat-transport";
+import {
+	createBuilderChatTransport,
+	hydrateTurnMessages,
+} from "./builder-chat-transport";
 
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
@@ -56,14 +66,24 @@ export type BuilderChatSend = {
 
 /**
  * Injectable seams so specs pass fakes instead of mocking repo modules.
- * `fetch` reaches the SSE transport; `cancelTurn` is the POST cancel call.
+ * `fetch` reaches the SSE transport; `cancelTurn` is the POST cancel call;
+ * `getActiveTurnState` is the poll of the running turn and the head.
  */
 export type BuilderChatDeps = {
 	fetch: typeof globalThis.fetch;
 	cancelTurn: typeof cancelTurn;
+	getActiveTurnState: typeof getActiveTurnState;
 };
 
-const defaultDeps: BuilderChatDeps = { fetch: globalThis.fetch, cancelTurn };
+// The one field of the done frame that the head rule reads. The frame
+// crosses the HTTP boundary, so the schema checks it.
+const turnDoneCommitSchema = turnDoneDataSchema.pick({ outputCommitSha: true });
+
+const defaultDeps: BuilderChatDeps = {
+	fetch: globalThis.fetch,
+	cancelTurn,
+	getActiveTurnState,
+};
 
 /** Live state and actions of one project chat, as the page consumes them. */
 export type BuilderChat = {
@@ -97,7 +117,7 @@ export type BuilderChat = {
 	 * Runs after a failed request. GET turns/active/stream replays the running
 	 * turn from its first event, or answers 204 when no turn runs. The stored
 	 * history loads again without a replay, and after the replay of a refused
-	 * send. Does nothing unless the status is `error`.
+	 * send. Does nothing unless the status is `error`, and while a follow runs.
 	 */
 	reconnect: () => Promise<void>;
 };
@@ -149,6 +169,31 @@ export function useBuilderChat(
 		hasReplay: boolean;
 		hasFailed: boolean;
 	} | null>(null);
+	// The follow of another client's turn that runs now, or null. The created
+	// frame of its replay sets `hasReplay`; without it, the GET found no turn.
+	const followRef = useRef<{ hasReplay: boolean } | null>(null);
+	// What the poll rules know about one project. A project switch in place
+	// keeps this hook, so `followStateOf` starts the state of another project again.
+	const followStateRef = useRef<{
+		projectId: string;
+		/** Ids of the turns whose created frame this hook streamed, and of each followed turn. */
+		streamedTurnIds: Set<string>;
+		/** Head sha of the last poll answer. Undefined until an answer sets the baseline. */
+		headSha: string | null | undefined;
+	}>({ projectId, streamedTurnIds: new Set(), headSha: undefined });
+	const followStateOf = useCallback((id: string) => {
+		if (followStateRef.current.projectId !== id) {
+			followStateRef.current = {
+				projectId: id,
+				streamedTurnIds: new Set(),
+				headSha: undefined,
+			};
+		}
+		return followStateRef.current;
+	}, []);
+	// True when the created frame of the current stream had `queued: true`.
+	// That turn waited behind another turn, which can come from another client.
+	const isQueuedTurnRef = useRef(false);
 	// Stops and sends that wait for the turn id. `data-turn-created` resolves
 	// them with the id; the end of the request resolves them with null.
 	const turnIdWaitersRef = useRef<((turnId: string | null) => void)[]>([]);
@@ -243,11 +288,27 @@ export function useBuilderChat(
 					estimate: created.estimate ?? null,
 				});
 				resolveTurnIdWaiters(created.turnId);
+				// A later poll that still shows this id must not replay the turn.
+				followStateOf(projectId).streamedTurnIds.add(created.turnId);
+				isQueuedTurnRef.current = created.queued === true;
 				// A turn owns the chat now. A later error is a turn error, not the
 				// error of a refused send.
 				setRefusedSendChatId(null);
 				if (reconnectRef.current !== null) {
 					reconnectRef.current.hasReplay = true;
+				}
+				if (followRef.current !== null) {
+					followRef.current.hasReplay = true;
+				}
+			}
+			// The commit of this turn moves the head, and onFinish refreshes the
+			// caches. So the head rule takes this sha as its baseline. A queued
+			// turn ran after another turn, and the chat can lack the rows of that
+			// turn. Its sha is not the baseline, so the next poll sees a head move.
+			if (part.type === "data-turn-done") {
+				const { outputCommitSha } = turnDoneCommitSchema.parse(part.data);
+				if (outputCommitSha !== undefined && !isQueuedTurnRef.current) {
+					followStateOf(projectId).headSha = outputCommitSha;
 				}
 			}
 		},
@@ -286,6 +347,12 @@ export function useBuilderChat(
 	useEffect(() => {
 		statusRef.current = status;
 	}, [status]);
+	// A project switch in place builds a new Chat. A follow that waited for the
+	// history reads this ref, so it never resumes on the old Chat.
+	const chatIdRef = useRef(chatId);
+	useEffect(() => {
+		chatIdRef.current = chatId;
+	}, [chatId]);
 	// The newest history page, and the page of the last full reseed. A page
 	// that comes while the chat is not ready only merges. After a 204,
 	// `reconnect` compares the two and reseeds from the newest page.
@@ -394,10 +461,12 @@ export function useBuilderChat(
 
 	const reconnect = useCallback(async (): Promise<void> => {
 		// A second GET while one runs would abort the first, so the call drops.
+		// A follow also runs a GET, and it can start in `error`.
 		if (
 			chatId === undefined ||
 			status !== "error" ||
-			reconnectRef.current !== null
+			reconnectRef.current !== null ||
+			followRef.current !== null
 		) {
 			return;
 		}
@@ -461,6 +530,134 @@ export function useBuilderChat(
 		resumeStream,
 		queryClient,
 		projectId,
+		invalidateTurnData,
+	]);
+
+	// Opens the stream of a turn that another client started, as a reload
+	// does: the stored user row of the turn first, then the replayed reply.
+	const follow = useCallback(
+		async (turnId: string): Promise<void> => {
+			// Each turn follows once, also after a 204 or a send that comes first.
+			followStateOf(projectId).streamedTurnIds.add(turnId);
+			const attempt = { hasReplay: false };
+			followRef.current = attempt;
+			const historyKey = chatHistoryQuery(projectId).queryKey;
+			try {
+				// A failed load keeps the cached page, and the error row shows the failure.
+				await queryClient.refetchQueries({ queryKey: historyKey, exact: true });
+				// The user can send during the load. That send owns the chat then.
+				if (
+					statusRef.current === "submitted" ||
+					statusRef.current === "streaming" ||
+					chatIdRef.current !== chatId
+				) {
+					return;
+				}
+				// The reseed effect runs only after the next render, so the page
+				// comes from the cache. The user row then shows above the reply.
+				const newestPage = queryClient.getQueryData(historyKey)?.pages[0];
+				if (newestPage !== undefined) {
+					setMessages(hydrateTurnMessages(newestPage.items));
+				}
+				await resumeStream();
+			} finally {
+				followRef.current = null;
+			}
+			if (attempt.hasReplay) return;
+			// The GET answered 204 (the turn ended during the load) or failed.
+			// onFinish runs only for a stream, so the chat and the turn data load here.
+			// A 204 ends the error of a refused send, and a failed GET replaces it.
+			setRefusedSendChatId(null);
+			void queryClient.invalidateQueries({ queryKey: historyKey });
+			invalidateTurnData();
+		},
+		[
+			projectId,
+			chatId,
+			followStateOf,
+			queryClient,
+			setMessages,
+			resumeStream,
+			invalidateTurnData,
+		],
+	);
+
+	// The poll starts with the mount resume: after the chat id and the history.
+	// A stream of this page says more than the poll: its frames and its end
+	// refresh the chat and the caches. So the poll waits while one runs.
+	const activeTurnState = useQuery({
+		...activeTurnStateQuery(projectId, deps.getActiveTurnState),
+		enabled: chatId !== undefined && isHistorySettled && !isSending,
+	});
+	const polledTurnId = activeTurnState.data?.activeTurnId ?? null;
+	const polledHeadSha = activeTurnState.data?.headSha;
+
+	// A running turn that this hook did not stream comes from another client:
+	// the MCP tool `send_prompt`, or a teammate. The chat follows it when idle.
+	// Idle includes `error`. A failed turn or a refused send keeps that status
+	// until the next send. resumeStream works from it, as reconnect shows.
+	useEffect(() => {
+		if (
+			polledTurnId === null ||
+			chatId === undefined ||
+			!isHistorySettled ||
+			isSending
+		) {
+			return;
+		}
+		// A second resume GET aborts the first, so one resume runs at a time.
+		// The status stays `ready` during the mount resume GET. A follow then
+		// aborts that GET and streams the same turn.
+		if (followRef.current !== null || reconnectRef.current !== null) return;
+		if (followStateOf(projectId).streamedTurnIds.has(polledTurnId)) return;
+		void follow(polledTurnId);
+	}, [
+		polledTurnId,
+		chatId,
+		isHistorySettled,
+		isSending,
+		projectId,
+		followStateOf,
+		follow,
+	]);
+
+	// A head move while no stream runs comes from another client: the MCP tool
+	// `apply_changes`, a restore in another tab, or a turn that ended while
+	// this tab was hidden. A Stop of this page also moves it: the wip commit
+	// lands while its row still cancels. The turn caches load again.
+	useEffect(() => {
+		if (polledHeadSha === undefined) return;
+		const followState = followStateOf(projectId);
+		const previousHeadSha = followState.headSha;
+		followState.headSha = polledHeadSha;
+		// The first answer only sets the baseline. A stream of this page
+		// refreshes the caches when it ends. The status comes from the ref, so
+		// the end of a stream does not run this rule again on an old answer.
+		const isStreaming =
+			statusRef.current === "submitted" || statusRef.current === "streaming";
+		if (
+			previousHeadSha === undefined ||
+			previousHeadSha === polledHeadSha ||
+			isStreaming
+		) {
+			return;
+		}
+		// The history hides the reply of an active turn. During a Stop, a reseed
+		// from it drops the stopped reply. The follow loads the chat of an active
+		// turn of another client. So the chat loads here only when no turn is active.
+		// LIMIT: a turn of another client can run only between two polls, as in a hidden tab. It shows after a reload when it changes no file or the chat is in `error`. Upgrade: the newest turn id in the poll answer, and a follow of that turn.
+		if (polledTurnId === null) {
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.chatHistory(projectId),
+			});
+		}
+		invalidateTurnData();
+	}, [
+		polledHeadSha,
+		polledTurnId,
+		projectId,
+		followStateOf,
+		queryClient,
 		invalidateTurnData,
 	]);
 

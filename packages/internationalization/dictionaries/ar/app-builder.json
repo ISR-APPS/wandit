@@ -231,6 +231,10 @@
 			"title": "التكاملات",
 			"description": "GitHub، ولاحقًا الخدمات الأخرى التي يتواصل معها تطبيقك."
 		},
+		"mcp": {
+			"title": "MCP",
+			"description": "اربط Claude Code أو Codex أو Cursor أو VS Code لتعديل هذا التطبيق من وكيل البرمجة الخاص بك."
+		},
 		"domains": {
 			"title": "النطاقات",
 			"description": "أين يعيش تطبيق الويب. نطاق Wandit مجاني؛ اربط نطاقك أو اشترِ واحدًا."

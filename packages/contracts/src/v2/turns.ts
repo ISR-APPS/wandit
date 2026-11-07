@@ -16,7 +16,7 @@ import {
 	presentPlanHostToolInputSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
-import { appCommitNumstatEntrySchema } from "./versions";
+import { appCommitNumstatEntrySchema, commitShaSchema } from "./versions";
 
 /**
  * Every status a `builder_turns` row can hold, in lifecycle order. Matches
@@ -250,6 +250,23 @@ export const cancelTurnResponseSchema = z.object({
 
 /** TypeScript cancel-turn response. */
 export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
+
+/**
+ * Answer of `GET /api/v2/projects/:id/turns/active`. The builder page polls
+ * it to show a turn or a commit of another client, such as a coding agent
+ * over MCP or a teammate.
+ */
+export const activeTurnStateResponseSchema = z.object({
+	// The turn that holds the project slot: queued, running, or cancelling. Null when no turn runs.
+	activeTurnId: uuidSchema.nullable(),
+	// `app_branches(main).head_sha`. Null before the first commit of the project.
+	headSha: commitShaSchema.nullable(),
+});
+
+/** TypeScript poll answer of the builder page. */
+export type ActiveTurnStateResponse = z.infer<
+	typeof activeTurnStateResponseSchema
+>;
 
 /**
  * Coarse phases the task reports between AI SDK chunks (D20: one box for

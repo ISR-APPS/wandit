@@ -7,7 +7,9 @@
  */
 
 import {
+	type ActiveTurnStateResponse,
 	type AppProject as ApiAppProject,
+	activeTurnStateResponseSchema,
 	appBuilderRoutes,
 	appProjectSchema,
 	type BuilderModelsResponse,
@@ -164,6 +166,20 @@ export async function cancelTurn(
 		appBuilderRoutes.cancelTurn(projectId, turnId),
 	);
 	return cancelTurnResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/turns/active` answers the id of the running turn
+ * and the `main` head sha. use-builder-chat.ts polls it to follow a turn or
+ * a commit of another client, such as a coding agent over MCP.
+ */
+export async function getActiveTurnState(
+	projectId: string,
+): Promise<ActiveTurnStateResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.activeTurn(projectId),
+	);
+	return activeTurnStateResponseSchema.parse(data);
 }
 
 /**

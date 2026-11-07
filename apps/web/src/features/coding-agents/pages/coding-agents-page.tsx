@@ -2,12 +2,10 @@
  * The /coding-agents account page: the connect steps per coding agent and the connected agents with Revoke.
  * routes/_auth/coding-agents.tsx renders it, only when V2 is open. It renders inside DashboardShell.
  */
-import { mcpRoutes } from "@wandit/contracts";
 import { cn } from "@wandit/ui/lib/utils";
 
 import { DashboardShell } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import { getServerUrl } from "@/lib/server-url";
 import { ConnectSnippets } from "../components/connect-snippets";
 import { ConnectedAgents } from "../components/connected-agents";
 
@@ -18,8 +16,6 @@ const CARD_CLASS =
 /** A grant belongs to the user, not to a workspace, so every workspace shows the same agents here. */
 export default function CodingAgentsPage() {
 	const { t } = useTranslation();
-	// The API origin serves MCP, never the web origin: vercel.json sends /api/* of every web deploy to production.
-	const mcpUrl = new URL(mcpRoutes.endpoint, getServerUrl()).toString();
 	return (
 		<DashboardShell titleKey="auth.codingAgents.title">
 			<div className="mx-auto w-full max-w-3xl px-4 pb-16 md:px-6">
@@ -32,7 +28,7 @@ export default function CodingAgentsPage() {
 					</p>
 				</div>
 				<section className={cn(CARD_CLASS, "mt-6 p-5 sm:p-6")}>
-					<ConnectSnippets mcpUrl={mcpUrl} />
+					<ConnectSnippets />
 				</section>
 				<section className={cn(CARD_CLASS, "mt-4 p-5 sm:p-6")}>
 					<ConnectedAgents />

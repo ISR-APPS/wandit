@@ -1,9 +1,10 @@
 /**
- * The connect steps of the /coding-agents page: the server URL, then one tab per coding agent.
- * coding-agents-page.tsx renders it with the MCP URL on the API origin.
+ * The connect steps of a coding agent: the server URL, then one tab per coding agent.
+ * coding-agents-page.tsx and project-connect-steps.tsx render it. It reads the API origin from getServerUrl.
  * The snippets hold no secret: each agent runs the OAuth sign-in itself.
  */
 import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { mcpRoutes } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tabs,
@@ -14,6 +15,7 @@ import {
 import { toast } from "sonner";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { getServerUrl } from "@/lib/server-url";
 
 /** One step of a guide: a sentence, then an optional file path and an optional text to copy. */
 type GuideStep = {
@@ -93,13 +95,11 @@ function agentGuides(mcpUrl: string): AgentGuide[] {
 }
 
 /** The server URL with a copy button, then the guide of each agent in tabs. */
-export function ConnectSnippets({
-	mcpUrl,
-}: {
-	/** `<VITE_SERVER_URL>/api/mcp`: the MCP endpoint and the OAuth resource of the API. */
-	mcpUrl: string;
-}) {
+export function ConnectSnippets() {
 	const { t } = useTranslation();
+	// `<VITE_SERVER_URL>/api/mcp`: the MCP endpoint and the OAuth resource of the API.
+	// The API origin serves MCP, never the web origin: vercel.json sends /api/* of every web deploy to production.
+	const mcpUrl = new URL(mcpRoutes.endpoint, getServerUrl()).toString();
 	const guides = agentGuides(mcpUrl);
 	return (
 		<div className="flex flex-col gap-6">
@@ -153,8 +153,8 @@ export function ConnectSnippets({
 	);
 }
 
-/** A code block with a copy button. */
-function CopyableCode({ code }: { code: string }) {
+/** A code block with a copy button. A failed copy shows an error toast. The MCP panel of a project shows the project id in it. */
+export function CopyableCode({ code }: { code: string }) {
 	const { t } = useTranslation();
 	const copy = async () => {
 		try {
