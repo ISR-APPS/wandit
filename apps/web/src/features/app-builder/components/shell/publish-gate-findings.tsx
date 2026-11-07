@@ -197,8 +197,8 @@ function findingText(finding: PublishGateFinding, t: Translate): string {
 
 /**
  * The "Ask the AI to fix" message: the intro in the UI language, then one
- * technical line per finding for the agent. It stays within
- * `projectPromptMaxLength`, because the turn route refuses a longer message.
+ * technical line per finding for the agent. It stays within the short V1
+ * limit `projectPromptMaxLength` (2,000 chars), so the fix request stays short.
  */
 function askFixMessage(intro: string, findingLines: string[]): string {
 	const lines = [intro];
