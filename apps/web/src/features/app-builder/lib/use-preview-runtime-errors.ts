@@ -111,8 +111,9 @@ export function tryToFixMessage(
 			.replaceAll("```", "'''");
 		return `${index + 1}. ${text.slice(0, ERROR_TEXT_MAX_LENGTH)}`;
 	});
-	// The turn route refuses a longer message. The app text or a cut can hold
-	// half of a UTF-16 pair; Postgres refuses it, so each one becomes U+FFFD.
+	// The report keeps the short V1 limit, so a crash loop sends no huge turn.
+	// The app text or a cut can hold half of a UTF-16 pair; Postgres refuses
+	// it, so each one becomes U+FFFD.
 	return `${intro}\n\n\`\`\`\n${blocks.join("\n\n")}\n\`\`\``
 		.slice(0, projectPromptMaxLength)
 		.replace(/\p{Cs}/gu, "\uFFFD");
