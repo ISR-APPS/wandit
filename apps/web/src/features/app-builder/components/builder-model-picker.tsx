@@ -1,5 +1,5 @@
 /**
- * The model menu of a V2 prompt box: a chip with the model name, a list of
+ * The model menu of a V2 prompt box: an icon chip, a list of
  * every priced model with its input and output price, and a lightning toggle
  * for the Fast variant. The builder composer and the dashboard prompt box
  * (features/projects, through the barrel) render it. useBuilderModelPick owns
@@ -54,7 +54,7 @@ export const PROMPT_CHIP_CLASS =
 /**
  * A chip that opens the model list, and a lightning toggle while the picked
  * model has a Fast variant. A pick applies from the next send. The chip
- * shrinks and cuts the name in a narrow composer row.
+ * names the model only in its aria-label.
  */
 export function BuilderModelPicker({
 	pick,
@@ -64,7 +64,7 @@ export function BuilderModelPicker({
 	const { t, locale } = useTranslation();
 	const models = pick.models;
 	if (models === undefined) return null;
-	// The chip and the menu show the base model, also while its Fast variant runs.
+	// The chip aria-label and the menu check use the base model, also while its Fast variant runs.
 	const baseModelId =
 		pick.modelId === undefined
 			? undefined
@@ -102,7 +102,7 @@ export function BuilderModelPicker({
 						aria-label={t("appBuilder.chat.model.chip", { model: label })}
 						className={cn(
 							PROMPT_CHIP_CLASS,
-							"min-w-0 shrink gap-1.5",
+							"gap-1.5",
 							// The kit `sm` size pads a button with an svg child through `has-[>svg]`, so the padding uses the same variant.
 							size === "md"
 								? "h-9 text-[13.5px] has-[>svg]:ps-3 has-[>svg]:pe-3"
@@ -110,7 +110,7 @@ export function BuilderModelPicker({
 						)}
 					>
 						<CpuIcon weight="bold" className="size-4 shrink-0" aria-hidden />
-						<span className="min-w-0 truncate">{label}</span>
+						{/* Product rule: the chip shows no model name, so a screen recording of the prompt box keeps the model private. */}
 						<CaretDownIcon
 							weight="bold"
 							className="size-3 shrink-0 transition-transform duration-200 group-aria-expanded/trigger:rotate-180 motion-reduce:transition-none"

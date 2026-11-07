@@ -1,3 +1,8 @@
+/**
+ * Credit balance, ledger, and activity schemas, and the paths of the credits routes.
+ * The credits API parses and answers with them. The web credits feature reads them.
+ * `creditActivityOperations` mirrors the db enum `ai_usage_operation`, so a new operation goes into both.
+ */
 import { z } from "zod";
 import {
 	paginatedResultSchema,
@@ -139,7 +144,8 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // `mobile_preview` records Appetize device minutes at zero credits inside
 // the plan allowance (WANDIT-196); `app_ai_gateway` is one AI call of a
 // V2 app through the app AI gateway, billed by tokens; `desktop_build` is
-// one desktop build, Windows or macOS, of a V2 desktop app.
+// one desktop build, Windows or macOS, of a V2 desktop app; `theme_design`
+// is one AI theme design of the builder Thème sheet.
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -155,6 +161,7 @@ export const creditActivityOperations = [
 	"mobile_preview",
 	"app_ai_gateway",
 	"desktop_build",
+	"theme_design",
 	"topup_adjust",
 ] as const;
 

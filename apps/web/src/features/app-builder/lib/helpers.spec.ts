@@ -3,6 +3,7 @@
 import type { BuilderModelsResponse } from "@wandit/contracts";
 import {
 	APP_THEME_TEMPLATE_SELECTION,
+	type AppThemeSource,
 	buildAppThemeFile,
 } from "@wandit/contracts/v2/app-theme";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +20,7 @@ import {
 	costCapToDraft,
 	fastModelOf,
 	formatUsdMicros,
+	isSameThemeSource,
 	isThemeDraftStale,
 	panelsForKind,
 	previewSrcFor,
@@ -398,6 +400,37 @@ describe("isThemeDraftStale", () => {
 		expect(isThemeDraftStale({ draft, savedTheme, isTurnRunning })).toBe(
 			isStale,
 		);
+	});
+});
+
+describe("isSameThemeSource", () => {
+	const seeds = {
+		kind: "seeds",
+		background: "#ffffff",
+		foreground: "#111111",
+		primary: "#1f6098",
+	} satisfies AppThemeSource;
+	const ardoise: AppThemeSource = { kind: "look", look: "ardoise" };
+	// A wrong answer keeps an old name after a new look, or drops the AI name after a radius change.
+	it.each<[string, boolean, AppThemeSource, AppThemeSource]>([
+		["the same look", true, ardoise, { kind: "look", look: "ardoise" }],
+		["another look", false, ardoise, { kind: "look", look: "brume" }],
+		[
+			"the same world",
+			true,
+			{ kind: "world", world: "promenade" },
+			{ kind: "world", world: "promenade" },
+		],
+		["equal seeds", true, seeds, { ...seeds }],
+		[
+			"seeds with another primary",
+			false,
+			seeds,
+			{ ...seeds, primary: "#aa0000" },
+		],
+		["a look after seeds", false, seeds, ardoise],
+	])("with %s, keeps the name: %s", (_case, isSame, current, next) => {
+		expect(isSameThemeSource(current, next)).toBe(isSame);
 	});
 });
 

@@ -58,6 +58,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"app_ai_gateway",
 	// One desktop build of a V2 desktop app, Windows or macOS, at a fixed price.
 	"desktop_build",
+	// One AI theme design of the builder Thème sheet, billed from the model tokens.
+	"theme_design",
 	"topup_adjust",
 ]);
 

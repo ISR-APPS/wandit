@@ -24,6 +24,7 @@ import { AppAiGatewayService } from "./application/services/app-ai-gateway.servi
 import { AppAiKeysService } from "./application/services/app-ai-keys.service";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
+import { AppThemeDesignService } from "./application/services/app-theme-design.service";
 import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
 import { ChatHistoryService } from "./application/services/chat-history.service";
@@ -255,6 +256,7 @@ export function createCloudSupabaseClient(
 		AppProjectsService,
 		AppPublishRepository,
 		AppThemeService,
+		AppThemeDesignService,
 		AuditEventsRepository,
 		BackendsService,
 		BuilderSessionsRepository,

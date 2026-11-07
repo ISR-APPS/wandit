@@ -940,11 +940,66 @@
 		"brandColorInvalid": "Write 6 hex digits, for example #1f6098.",
 		"brandColorPicker": "Pick a brand color",
 		"borderValue": "{value} px",
+		"design": {
+			"label": "Design with AI",
+			"placeholder": "Describe your business and the style you want. For example: a calm dental clinic, mint and white.",
+			"generate": "Generate",
+			"generating": "Designing…",
+			"hint": "Each design uses a few credits. It shows in the preview, and Save writes it to your app.",
+			"designed": "Theme designed: {name}",
+			"examples": {
+				"clinic": "Calm dental clinic, mint and white",
+				"hotel": "Luxury hotel, dark and gold",
+				"school": "Playful kids school",
+				"law": "Serious law firm"
+			},
+			"errors": {
+				"failed": "The designer could not make a theme from this text. Try again, or change the words.",
+				"unavailable": "The theme designer is not available now. Try again later."
+			}
+		},
+		"industry": "Industry",
+		"allIndustries": "All industries",
 		"families": {
 			"soft": "Soft",
 			"crisp": "Crisp",
 			"warm": "Warm",
-			"pop": "Pop"
+			"pop": "Pop",
+			"luxe": "Luxe",
+			"editorial": "Editorial",
+			"brutal": "Brutal",
+			"mono": "Mono",
+			"midnight": "Midnight",
+			"industrial": "Industrial",
+			"corporate": "Corporate",
+			"medina": "Medina"
+		},
+		"categories": {
+			"medical": "Health and medical",
+			"beauty": "Beauty and wellness",
+			"fitness": "Fitness and sport",
+			"restaurant": "Restaurants and food",
+			"real-estate": "Real estate",
+			"construction": "Construction",
+			"automotive": "Automotive",
+			"services": "Local services",
+			"education": "Education",
+			"creative-agency": "Creative agency",
+			"ecommerce": "E-commerce",
+			"travel": "Travel",
+			"events": "Events",
+			"tech-saas": "Tech and SaaS",
+			"finance": "Finance",
+			"logistics": "Logistics",
+			"hr": "Human resources",
+			"crm": "CRM and sales",
+			"inventory": "Inventory",
+			"dev-tools": "Developer tools",
+			"legal": "Legal",
+			"hospitality": "Hotels and hospitality",
+			"agriculture": "Agriculture",
+			"nonprofit": "Nonprofit",
+			"media": "Media and publishing"
 		},
 		"fontGroups": {
 			"display": "Heading faces",

@@ -150,7 +150,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
     The host adds 3 look cards and a "You choose" button.
   - `<category>` is the closest of: medical, beauty, fitness, restaurant, real-estate, construction, automotive,
     services, education, creative-agency, ecommerce, travel, events, tech-saas, finance, logistics, hr, crm,
-    inventory, dev-tools, other.
+    inventory, dev-tools, legal, hospitality, agriculture, nonprofit, media, other.
   - The host writes the look before you continue. The answer says "Theme set: <name>" or "Theme kept: <name>".
     Then call `set_theme` only for a change that the user typed in the answer. Send only the changed fields.
     For example, "but in dark": `mode: "dark"`. No typed change: do not call `set_theme`.

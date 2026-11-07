@@ -940,11 +940,66 @@
 		"brandColorInvalid": "Écris 6 chiffres hex, par exemple #1f6098.",
 		"brandColorPicker": "Choisir une couleur de marque",
 		"borderValue": "{value} px",
+		"design": {
+			"label": "Créer avec l’IA",
+			"placeholder": "Décris ton activité et le style que tu veux. Par exemple : un cabinet dentaire calme, menthe et blanc.",
+			"generate": "Générer",
+			"generating": "Création…",
+			"hint": "Chaque création utilise quelques crédits. Elle s’affiche dans l’aperçu, et Enregistrer l’écrit dans ton app.",
+			"designed": "Thème créé : {name}",
+			"examples": {
+				"clinic": "Cabinet dentaire calme, menthe et blanc",
+				"hotel": "Hôtel de luxe, sombre et doré",
+				"school": "École ludique pour enfants",
+				"law": "Cabinet d’avocats sérieux"
+			},
+			"errors": {
+				"failed": "Le designer n’a pas pu créer de thème avec ce texte. Réessaie, ou change les mots.",
+				"unavailable": "Le designer de thèmes n’est pas disponible pour le moment. Réessaie plus tard."
+			}
+		},
+		"industry": "Secteur",
+		"allIndustries": "Tous les secteurs",
 		"families": {
 			"soft": "Doux",
 			"crisp": "Nets",
 			"warm": "Chaleureux",
-			"pop": "Pop"
+			"pop": "Pop",
+			"luxe": "Luxe",
+			"editorial": "Éditoriaux",
+			"brutal": "Brutalistes",
+			"mono": "Mono",
+			"midnight": "Nuit",
+			"industrial": "Industriels",
+			"corporate": "Institutionnels",
+			"medina": "Médina"
+		},
+		"categories": {
+			"medical": "Santé et médical",
+			"beauty": "Beauté et bien-être",
+			"fitness": "Fitness et sport",
+			"restaurant": "Restauration",
+			"real-estate": "Immobilier",
+			"construction": "Construction et BTP",
+			"automotive": "Automobile",
+			"services": "Services de proximité",
+			"education": "Éducation",
+			"creative-agency": "Agence créative",
+			"ecommerce": "E-commerce",
+			"travel": "Voyage",
+			"events": "Événementiel",
+			"tech-saas": "Tech et SaaS",
+			"finance": "Finance",
+			"logistics": "Logistique",
+			"hr": "Ressources humaines",
+			"crm": "CRM et ventes",
+			"inventory": "Gestion de stock",
+			"dev-tools": "Outils pour développeurs",
+			"legal": "Juridique",
+			"hospitality": "Hôtellerie",
+			"agriculture": "Agriculture",
+			"nonprofit": "Associations",
+			"media": "Médias et édition"
 		},
 		"fontGroups": {
 			"display": "Polices de titre",

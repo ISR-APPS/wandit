@@ -17,6 +17,7 @@ import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { MegaphoneIcon } from "@phosphor-icons/react/Megaphone";
 import { MicrophoneIcon } from "@phosphor-icons/react/Microphone";
 import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
+import { PaletteIcon } from "@phosphor-icons/react/Palette";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { ScalesIcon } from "@phosphor-icons/react/Scales";
@@ -49,6 +50,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	mobile_preview: DeviceMobileIcon,
 	app_ai_gateway: SparkleIcon,
 	desktop_build: DesktopIcon,
+	theme_design: PaletteIcon,
 	topup_adjust: ScalesIcon,
 };
 

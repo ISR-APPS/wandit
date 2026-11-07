@@ -31,7 +31,7 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; `app-theme-design.ts`, the prompts and the answer rules of the AI theme designer; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json`; D29: `guarded-file-writes.ts`, the symlink-safe file writes of `apply_changes` |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -1213,7 +1213,10 @@ Write on it to the agent. The writers:
    "Theme kept: <name>.", then "Do not edit src/styles/theme.json."
 3. The `set_theme` host tool (`applyThemePatch`). A business-only call
    never replaces a theme that the user picked. A reroll keeps the mode
-   of a theme that the user picked.
+   of a theme that the user picked. A call that keeps the same source
+   keeps the file name, so the name of an AI theme survives "make it dark".
+   A name with a control character takes the default name, because the
+   commit message "Theme: <name>" must not get a fake git trailer.
 4. The turn-end guard (`restoreThemeFile`). Before each commit (success,
    stop, and cancel) and at the end of a failed turn that is not stale,
    the runtime compares the file with the last file that the host knows in
@@ -1224,7 +1227,8 @@ Write on it to the agent. The writers:
    commits only `src/styles/theme.json` (source `wip`, message
    "Theme: <name>"). So the next pre-turn fallback keeps that theme.
 5. The Save of the builder Thème sheet: `PUT /api/v2/projects/:id/theme`
-   (`AppThemeService.save`) with `{ selection, expectedHeadSha }`. It takes
+   (`AppThemeService.save`) with `{ selection, expectedHeadSha, name? }`.
+   `name` is the name of an AI theme draft. It takes
    the turn lock (holder `restore:theme-<uuid>`, so a turn submit answers
    409), builds the file with origin `user`, writes it, and commits only
    `src/styles/theme.json` (`commitTurn` with `paths`) with source `theme`
@@ -1235,6 +1239,22 @@ Write on it to the agent. The writers:
    resets HEAD to `expectedHeadSha` and writes the old file back. After a
    later failure, code.storage can hold the commit, so the sandbox keeps the
    commit and the new file. 10 saves per user per minute (`@RateLimit`).
+6. The AI theme designer of the Thème sheet:
+   `POST /api/v2/projects/:id/theme/design` (`AppThemeDesignService`) with
+   `{ prompt, current: { name, selection } }`. One `generateObject` call on
+   `AI_THEME_MODEL` (LLM task `theme_design`) answers three seeds, two
+   fonts, and the style axes (`appThemeDesignSchema`).
+   `domain/app-theme-design.ts` holds the prompts and turns the answer into
+   a seeds selection (the structure axes stay the user's) and a safe name.
+   The route answers `{ theme }`, a draft with origin `user`, and writes
+   nothing: the Save above commits it. Each design holds
+   `THEME_DESIGN_RESERVE_FLOOR_CREDITS` (usage operation `theme_design`,
+   token-priced) and settles from the tokens. A failed design costs the
+   user 0: a call that ended settles at 0 with a `refunded_failure` ref,
+   and a hold with no call is refunded. Answers: 404 (scope, V1, or before
+   web-app@1.1.0), 503 `THEME_DESIGN_UNAVAILABLE` (no provider key), 402
+   `INSUFFICIENT_CREDITS`, 502 `THEME_DESIGN_FAILED`, 429 above 10 designs
+   per user per minute.
 
 `GET /api/v2/projects/:id/theme` answers `{ theme, world, headSha,
 editable }`. It reads the file and HEAD of the running sandbox, else the

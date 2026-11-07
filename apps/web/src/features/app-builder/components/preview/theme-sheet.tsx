@@ -1,22 +1,28 @@
 /**
  * The Thème sheet of a web project. It edits src/styles/theme.json with no agent turn.
- * web-preview.tsx lazy-loads it, because it holds the contracts look catalog (about 74 kB).
- * Each change resolves the theme in the browser with buildAppThemeFile and gives the draft to WebPreview.
- * WebPreview passes the draft to PreviewPanel, which posts it to the preview iframe.
- * Save calls the theme PUT through theme.mutations.ts.
+ * web-preview.tsx lazy-loads it, because it holds the large contracts look catalog.
+ * A control change resolves the theme in the browser with buildAppThemeFile. "Design with AI" asks the design route.
+ * Both give the draft to WebPreview, and PreviewPanel posts it to the preview iframe.
+ * Save calls the theme PUT, and Generate calls the theme design POST, through theme.mutations.ts.
  */
 
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ShuffleIcon } from "@phosphor-icons/react/Shuffle";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import {
 	APP_BODY_FONT_IDS,
 	APP_DISPLAY_FONT_IDS,
 	APP_LOOK_IDS,
 	APP_THEME_OPTIONS,
 	type AppLookId,
+	type AppThemeCategory,
 	type AppThemeFile,
+	type AppThemePalette,
 	type AppThemeSelection,
+	appThemeNameSchema,
 	buildAppThemeFile,
+	coherentSelection,
+	designAppThemeBodySchema,
 	type GetAppThemeResponse,
 	randomSelection,
 } from "@wandit/contracts/v2/app-theme";
@@ -25,6 +31,7 @@ import {
 	APP_HUES,
 	APP_LOOK_FAMILIES,
 	APP_LOOKS,
+	APP_THEME_CATEGORIES,
 } from "@wandit/contracts/v2/app-theme-catalog";
 import { parseColor, toHex } from "@wandit/contracts/v2/app-theme-color";
 import { Sentry } from "@wandit/observability/browser";
@@ -47,14 +54,21 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@wandit/ui/components/sheet";
+import { Textarea } from "@wandit/ui/components/textarea";
 import { cn } from "@wandit/ui/lib/utils";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import {
+	type KeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useId,
+	useState,
+} from "react";
 import { toast } from "sonner";
 
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import { useSaveAppTheme } from "../../api/theme.mutations";
-import { brandHexOf } from "../../lib/helpers";
+import { useDesignAppTheme, useSaveAppTheme } from "../../api/theme.mutations";
+import { brandHexOf, isSameThemeSource } from "../../lib/helpers";
 import {
 	PANEL_INPUT_CLASS,
 	PANEL_PRIMARY_BUTTON_CLASS,
@@ -80,11 +94,27 @@ export type ThemeSheetProps = {
 	isReadOnly: boolean;
 };
 
-/** The look ids of each family, in catalog order. The Look row shows one group per family. */
+/** The look ids of each family, in catalog order. The Look select shows one group per family. */
 const LOOKS_BY_FAMILY = APP_LOOK_FAMILIES.map((family) => ({
 	family,
 	lookIds: APP_LOOK_IDS.filter((id) => APP_LOOKS[id].family === family),
 }));
+
+/**
+ * The choices of the industry filter of the Look row. "other" is the fallback of the deal, not an industry.
+ * The catalog spec gives each category 4 looks or more, so no choice shows an empty list.
+ */
+const INDUSTRY_FILTERS = APP_THEME_CATEGORIES.filter(
+	(category): category is Exclude<AppThemeCategory, "other"> =>
+		category !== "other",
+);
+
+/** The example briefs of "Design with AI". A chip puts its localized text in the field. */
+const DESIGN_EXAMPLES = ["clinic", "hotel", "school", "law"] as const;
+
+/** The prompt limit of the design route body. The field stops there, so a long brief never gets a 400. */
+const DESIGN_PROMPT_MAX_LENGTH =
+	designAppThemeBodySchema.shape.prompt.maxLength ?? undefined;
 
 /** The choices of the Font row: the look font, then the body faces. */
 const FONT_CHOICES = ["look", ...APP_BODY_FONT_IDS] as const;
@@ -108,11 +138,43 @@ export default function ThemeSheet({
 }: ThemeSheetProps) {
 	const { t, locale } = useTranslation();
 	const save = useSaveAppTheme(projectId);
+	const design = useDesignAppTheme(projectId);
 	const current = draft ?? saved.theme;
 	const { selection } = current;
 	const palette = current.resolved[selection.mode];
 	const saveError =
 		save.error === null ? null : saveErrorText(save.error, draft !== null, t);
+	const designError =
+		design.error === null ? null : designErrorText(design.error, t);
+	// The controls lock during a save and during a design. A change then would be lost under the answer.
+	const isLocked = isReadOnly || save.isPending || design.isPending;
+	const [prompt, setPrompt] = useState("");
+	const designHintId = useId();
+	const canDesign = !isLocked && prompt.trim() !== "";
+	// The industry of the Look row filter. "all" shows every look.
+	const [industry, setIndustry] = useState<AppThemeCategory | "all">("all");
+	// A family with no look of the industry hides.
+	// `some` and not `includes`: each look keeps its own literal `fits` list, so on their union `includes` takes `never`.
+	const shownFamilies = LOOKS_BY_FAMILY.map(({ family, lookIds }) => ({
+		family,
+		lookIds: lookIds.filter(
+			(id) =>
+				industry === "all" ||
+				APP_LOOKS[id].fits.some((fit) => fit === industry),
+		),
+	})).filter(({ lookIds }) => lookIds.length > 0);
+	// The look of the selection. A world or a seeds source has none.
+	const selectedLook =
+		selection.source.kind === "look" ? selection.source.look : undefined;
+	// The Look select trigger: the resolved palette with the primary of the user, and the theme name.
+	const currentTheme = (
+		<>
+			<LookPreview palette={palette} />
+			<span dir="auto" className="truncate">
+				{current.name}
+			</span>
+		</>
+	);
 
 	// A close drops the draft, so a reopen must not show the error of its last save.
 	// A pending save settles first: its success still clears the draft and shows the toast.
@@ -120,15 +182,27 @@ export default function ThemeSheet({
 		if (!open && !save.isPending) save.reset();
 	}, [open, save.isPending, save.reset]);
 
+	// A close or a turn drops the draft. A design that ends after it must not make a draft or a toast.
+	// The reset removes the success callback of the pending design. The credits still refetch.
+	useEffect(() => {
+		if (!open || isReadOnly) design.reset();
+	}, [open, isReadOnly, design.reset]);
+
 	function applySelection(next: AppThemeSelection) {
-		// A new change makes the error of the last save old.
+		// A new change makes the errors of the last save and of the last design old.
 		save.reset();
+		design.reset();
 		let file: AppThemeFile;
 		try {
 			file = buildAppThemeFile({
 				selection: next,
 				origin: "user",
 				world: saved.world ?? undefined,
+				// The same source keeps the name, for example a name of the AI designer, after a radius change.
+				// A new source takes its default name: the look name, the world name, or "Brand colors".
+				name: isSameThemeSource(selection.source, next.source)
+					? current.name
+					: undefined,
 			});
 		} catch (error) {
 			// Only a world source without its world card throws. The GET sends the card, so this is a server bug.
@@ -147,23 +221,35 @@ export default function ThemeSheet({
 
 	function pickLook(lookId: AppLookId) {
 		const { defaults } = APP_LOOKS[lookId];
-		// A look shows as designed: its colors, fonts, corners, border, and shadow. The mode and the layout stay.
-		change({
-			source: { kind: "look", look: lookId },
-			primary: "look",
-			font: "look",
-			displayFont: "look",
-			radius: defaults.radius,
-			border: defaults.border,
-			shadow: defaults.shadow,
-			shadowStyle: defaults.shadowStyle,
-		});
+		// A look shows as designed, as its icon in the Look select: its mode, colors, fonts, corners, border, and shadow.
+		// The layout stays. coherentSelection fixes a layout value that clashes with the new mode, as a contrast sidebar on a dark page.
+		applySelection(
+			coherentSelection({
+				...selection,
+				source: { kind: "look", look: lookId },
+				mode: defaults.mode,
+				primary: "look",
+				font: "look",
+				displayFont: "look",
+				radius: defaults.radius,
+				border: defaults.border,
+				shadow: defaults.shadow,
+				shadowStyle: defaults.shadowStyle,
+			}),
+		);
 	}
 
 	function saveDraft() {
 		if (draft === null) return;
+		// Only a seeds theme (from the AI designer or a brand) has its own name. A look or a world keeps its catalog name.
+		// The PUT refuses control characters, which the file schema allows. The server then writes "Brand colors".
+		const name =
+			draft.selection.source.kind === "seeds" &&
+			appThemeNameSchema.safeParse(draft.name).success
+				? draft.name
+				: undefined;
 		save.mutate(
-			{ selection: draft.selection, expectedHeadSha: saved.headSha },
+			{ selection: draft.selection, expectedHeadSha: saved.headSha, name },
 			{
 				onSuccess: (answer) => {
 					onDraftChange(null);
@@ -173,6 +259,40 @@ export default function ThemeSheet({
 				},
 			},
 		);
+	}
+
+	function designTheme() {
+		if (!canDesign) return;
+		// A new design makes the error of the last save old. The new mutation clears the old design error.
+		save.reset();
+		design.mutate(
+			{
+				prompt: prompt.trim(),
+				current: { name: current.name, selection },
+			},
+			{
+				onSuccess: (answer) => {
+					// The field keeps its text, so the user can edit the brief and generate again.
+					onDraftChange(answer.theme);
+					toast.success(
+						t("appBuilder.theme.design.designed", { name: answer.theme.name }),
+					);
+				},
+			},
+		);
+	}
+
+	function onPromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+		// Cmd+Enter or Ctrl+Enter generates. A plain Enter writes a new line. Enter that ends an IME composition does nothing.
+		if (
+			event.key !== "Enter" ||
+			!(event.metaKey || event.ctrlKey) ||
+			event.nativeEvent.isComposing
+		) {
+			return;
+		}
+		event.preventDefault();
+		designTheme();
 	}
 
 	const resolvedPrimary = parseColor(palette.primary);
@@ -224,38 +344,148 @@ export default function ThemeSheet({
 				) : null}
 				<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 					{/* A disabled fieldset disables every control inside it, also the segmented groups. */}
-					{/* The controls also lock during a save. A change resets the mutation, and then its success never runs. */}
+					{/* The controls also lock during a save and a design. A change resets the save, and then its success never runs. */}
 					<fieldset
-						disabled={isReadOnly || save.isPending}
+						disabled={isLocked}
 						className={cn(
 							"flex min-w-0 flex-col gap-5 transition-opacity",
 							isReadOnly && "opacity-55",
 						)}
 					>
+						<div className="rounded-[18px] border border-night/[0.08] bg-night/[0.02] p-3.5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+							<Row label={t("appBuilder.theme.design.label")}>
+								<Textarea
+									aria-label={t("appBuilder.theme.design.label")}
+									aria-describedby={designHintId}
+									// The user writes the brief in any language.
+									dir="auto"
+									rows={3}
+									value={prompt}
+									maxLength={DESIGN_PROMPT_MAX_LENGTH}
+									placeholder={t("appBuilder.theme.design.placeholder")}
+									onChange={(event) => setPrompt(event.target.value)}
+									onKeyDown={onPromptKeyDown}
+									className={cn(
+										PANEL_INPUT_CLASS,
+										"h-auto max-h-40 min-h-20 resize-none rounded-[16px] py-2.5 text-[13px] leading-snug md:text-[13px]",
+									)}
+								/>
+								<div className="flex flex-wrap gap-1.5">
+									{DESIGN_EXAMPLES.map((example) => {
+										const brief = t(
+											`appBuilder.theme.design.examples.${example}`,
+										);
+										return (
+											<button
+												key={example}
+												type="button"
+												onClick={() => setPrompt(brief)}
+												className="rounded-full border border-night/[0.1] bg-white px-2.5 py-1 font-grotesk font-medium text-[11.5px] text-night/70 outline-none transition-colors duration-150 hover:border-night/25 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground/70 dark:hover:border-white/30 dark:hover:text-foreground"
+											>
+												{brief}
+											</button>
+										);
+									})}
+								</div>
+								<Button
+									disabled={!canDesign}
+									onClick={designTheme}
+									className={cn(PANEL_PRIMARY_BUTTON_CLASS, "mt-1")}
+								>
+									<SparkleIcon aria-hidden weight="fill" />
+									{design.isPending
+										? t("appBuilder.theme.design.generating")
+										: t("appBuilder.theme.design.generate")}
+								</Button>
+								<p
+									id={designHintId}
+									className="text-[12px] text-night/50 leading-snug dark:text-foreground/50"
+								>
+									{t("appBuilder.theme.design.hint")}
+								</p>
+								{designError !== null ? (
+									<p
+										role="alert"
+										className="font-sans text-[12.5px] text-destructive leading-snug"
+									>
+										{designError}
+									</p>
+								) : null}
+							</Row>
+						</div>
 						<Row label={t("appBuilder.theme.fields.look")}>
-							<div className="flex flex-col gap-3">
-								{LOOKS_BY_FAMILY.map(({ family, lookIds }) => (
-									<div key={family}>
-										<p className="mb-1.5 font-grotesk font-medium text-[11.5px] text-night/45 dark:text-foreground/45">
-											{t(`appBuilder.theme.families.${family}`)}
-										</p>
-										<div className="grid grid-cols-5 gap-1.5">
+							<Select
+								value={industry}
+								// The fieldset does not lock a Radix Select. Radix opens it on pointerdown, and its list is a portal.
+								disabled={isLocked}
+								onValueChange={(value) =>
+									setIndustry(
+										INDUSTRY_FILTERS.find((category) => category === value) ??
+											"all",
+									)
+								}
+							>
+								<SelectTrigger
+									aria-label={t("appBuilder.theme.industry")}
+									className={SELECT_TRIGGER_CLASS}
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent position="popper">
+									<SelectItem value="all">
+										{t("appBuilder.theme.allIndustries")}
+									</SelectItem>
+									{INDUSTRY_FILTERS.map((category) => (
+										<SelectItem key={category} value={category}>
+											{t(`appBuilder.theme.categories.${category}`)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								// A world or a seeds theme has no look: the empty value shows the placeholder.
+								value={selectedLook ?? ""}
+								disabled={isLocked}
+								onValueChange={(value) => {
+									const lookId = APP_LOOK_IDS.find((id) => id === value);
+									if (lookId !== undefined) pickLook(lookId);
+								}}
+							>
+								<SelectTrigger
+									aria-label={t("appBuilder.theme.fields.look")}
+									className={cn(SELECT_TRIGGER_CLASS, "h-11 ps-2")}
+								>
+									{/* The trigger draws the theme on screen itself: its look can be outside the industry filter, */}
+									{/* and a world or a seeds theme has no item. */}
+									<SelectValue placeholder={currentTheme}>
+										{currentTheme}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent
+									position="popper"
+									className="max-h-[min(28rem,var(--radix-select-content-available-height))]"
+								>
+									{shownFamilies.map(({ family, lookIds }) => (
+										<SelectGroup key={family}>
+											<SelectLabel>
+												{t(`appBuilder.theme.families.${family}`)}
+											</SelectLabel>
 											{lookIds.map((lookId) => (
-												<LookTile
-													key={lookId}
-													lookId={lookId}
-													mode={selection.mode}
-													isSelected={
-														selection.source.kind === "look" &&
-														selection.source.look === lookId
-													}
-													onClick={() => pickLook(lookId)}
-												/>
+												<SelectItem key={lookId} value={lookId}>
+													<LookPreview
+														palette={
+															APP_LOOKS[lookId].palette[
+																APP_LOOKS[lookId].defaults.mode
+															]
+														}
+													/>
+													{APP_LOOKS[lookId].name}
+												</SelectItem>
 											))}
-										</div>
-									</div>
-								))}
-							</div>
+										</SelectGroup>
+									))}
+								</SelectContent>
+							</Select>
 						</Row>
 						<SegmentRow
 							label={t("appBuilder.theme.fields.mode")}
@@ -292,7 +522,7 @@ export default function ThemeSheet({
 							<Select
 								value={selection.font}
 								// The fieldset does not lock a Radix Select. Radix opens it on pointerdown, and its list is a portal.
-								disabled={isReadOnly || save.isPending}
+								disabled={isLocked}
 								onValueChange={(value) => {
 									const font = FONT_CHOICES.find((choice) => choice === value);
 									if (font !== undefined) change({ font });
@@ -319,7 +549,7 @@ export default function ThemeSheet({
 						<Row label={t("appBuilder.theme.fields.displayFont")}>
 							<Select
 								value={selection.displayFont}
-								disabled={isReadOnly || save.isPending}
+								disabled={isLocked}
 								onValueChange={(value) => {
 									const displayFont = DISPLAY_FONT_CHOICES.find(
 										(choice) => choice === value,
@@ -486,7 +716,7 @@ export default function ThemeSheet({
 							<Select
 								value={selection.icons}
 								// The fieldset does not lock a Radix Select. Radix opens it on pointerdown, and its list is a portal.
-								disabled={isReadOnly || save.isPending}
+								disabled={isLocked}
 								onValueChange={(value) => {
 									const icons = APP_THEME_OPTIONS.icons.find(
 										(option) => option === value,
@@ -532,7 +762,7 @@ export default function ThemeSheet({
 					<div className="flex gap-2">
 						<Button
 							variant="outline"
-							disabled={isReadOnly || save.isPending}
+							disabled={isLocked}
 							onClick={() => applySelection(randomSelection(Math.random))}
 							className={cn(PANEL_SECONDARY_BUTTON_CLASS, "flex-1")}
 						>
@@ -541,9 +771,10 @@ export default function ThemeSheet({
 						</Button>
 						<Button
 							variant="outline"
-							disabled={isReadOnly || save.isPending || draft === null}
+							disabled={isLocked || draft === null}
 							onClick={() => {
 								save.reset();
+								design.reset();
 								onDraftChange(null);
 							}}
 							className={cn(PANEL_SECONDARY_BUTTON_CLASS, "flex-1")}
@@ -553,7 +784,7 @@ export default function ThemeSheet({
 						</Button>
 					</div>
 					<Button
-						disabled={isReadOnly || save.isPending || draft === null}
+						disabled={isLocked || draft === null}
 						onClick={saveDraft}
 						className={PANEL_PRIMARY_BUTTON_CLASS}
 					>
@@ -567,7 +798,7 @@ export default function ThemeSheet({
 	);
 }
 
-/** The pill trigger of the two font selects, in the look of the panel fields. */
+/** The pill trigger of the selects of the sheet, in the look of the panel fields. */
 const SELECT_TRIGGER_CLASS =
 	"h-9 w-full rounded-full border-night/[0.12] bg-white px-4 font-grotesk font-medium text-[13px] shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]";
 
@@ -597,6 +828,25 @@ function saveErrorText(
 				return t("appBuilder.theme.errors.previewNotRunning");
 			case "THEME_HEAD_MOVED":
 				return t("appBuilder.theme.errors.headMoved");
+		}
+	}
+	return getApiErrorMessage(error);
+}
+
+/**
+ * The clear message of a failed design. The two codes of the design route get the words of the sheet.
+ * Any other error gets the shared API message. A 402 also opens the billing modal in BaseService.
+ */
+function designErrorText(
+	error: Error,
+	t: ReturnType<typeof useTranslation>["t"],
+): string {
+	if (isApiClientError(error)) {
+		switch (error.code) {
+			case "THEME_DESIGN_FAILED":
+				return t("appBuilder.theme.design.errors.failed");
+			case "THEME_DESIGN_UNAVAILABLE":
+				return t("appBuilder.theme.design.errors.unavailable");
 		}
 	}
 	return getApiErrorMessage(error);
@@ -668,68 +918,38 @@ function SegmentRow<Value extends string>({
 }
 
 /**
- * One look of the Look row: a small screen of the look in the current mode (canvas, a card, a
- * text line, and a primary bar) with the look name under it.
+ * The icon of one look in the Look select: a small screen of the palette (canvas, a card, a text
+ * line, and a primary bar). Spans only, because Radix puts it inside the item text span.
  */
-function LookTile({
-	lookId,
-	mode,
-	isSelected,
-	onClick,
+function LookPreview({
+	palette,
 }: {
-	lookId: AppLookId;
-	/** The mode of the selection. The tile shows the palette of that mode. */
-	mode: AppThemeSelection["mode"];
-	isSelected: boolean;
-	onClick: () => void;
+	/** The palette of the current mode: a catalog look, or the resolved palette of a world or seeds theme. */
+	palette: AppThemePalette;
 }) {
-	const look = APP_LOOKS[lookId];
-	const palette = look.palette[mode];
 	return (
-		<button
-			type="button"
-			aria-pressed={isSelected}
-			onClick={onClick}
-			className="group flex min-w-0 flex-col gap-1 text-start outline-none"
+		<span
+			aria-hidden
+			className="flex h-[26px] w-9 shrink-0 rounded-[7px] border border-night/[0.12] p-[3px] dark:border-white/[0.14]"
+			style={{ background: palette.canvas }}
 		>
 			<span
-				aria-hidden
-				className={cn(
-					"flex h-11 w-full rounded-[10px] border p-1.5 transition-[border-color,box-shadow] duration-150 group-focus-visible:ring-2 group-focus-visible:ring-ember/30",
-					isSelected
-						? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
-						: "border-night/[0.1] group-hover:border-night/25 dark:border-white/[0.12] dark:group-hover:border-white/30",
-				)}
-				style={{ background: palette.canvas }}
+				className="flex flex-1 flex-col justify-between rounded-[4px] px-[3px] py-[3px]"
+				style={{
+					background: palette.card,
+					border: `1px solid ${palette.border}`,
+				}}
 			>
 				<span
-					className="flex flex-1 flex-col justify-between rounded-[5px] p-1"
-					style={{
-						background: palette.card,
-						border: `1px solid ${palette.border}`,
-					}}
-				>
-					<span
-						className="block h-[3px] w-3/5 rounded-full"
-						style={{ background: palette.foreground }}
-					/>
-					<span
-						className="block h-[5px] w-1/2 rounded-full"
-						style={{ background: palette.primary }}
-					/>
-				</span>
+					className="block h-[2px] w-3/5 rounded-full"
+					style={{ background: palette.foreground }}
+				/>
+				<span
+					className="block h-[4px] w-1/2 rounded-full"
+					style={{ background: palette.primary }}
+				/>
 			</span>
-			<span
-				className={cn(
-					"truncate font-grotesk text-[11px] leading-tight",
-					isSelected
-						? "font-semibold text-night dark:text-foreground"
-						: "font-medium text-night/65 dark:text-foreground/65",
-				)}
-			>
-				{look.name}
-			</span>
-		</button>
+		</span>
 	);
 }
 

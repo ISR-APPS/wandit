@@ -309,7 +309,7 @@ describe("ChatMessageView", () => {
 		expect(onRetry).toHaveBeenCalledOnce();
 	});
 
-	it("renders the receipt line with credits, tokens, the cache, and the model label", () => {
+	it("renders the receipt line with credits, tokens, and the cache, but no model name", () => {
 		renderMessage({
 			id: "a9",
 			role: "assistant",
@@ -330,7 +330,7 @@ describe("ChatMessageView", () => {
 		});
 		expect(
 			screen.getByText(
-				"2 credits · 1,500 tokens · cache: 3,000 read, 200 written · Claude Sonnet 5",
+				"2 credits · 1,500 tokens · cache: 3,000 read, 200 written",
 			),
 		).toBeTruthy();
 	});

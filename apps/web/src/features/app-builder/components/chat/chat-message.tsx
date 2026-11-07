@@ -29,7 +29,6 @@ import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import { getModelLabel } from "@/lib/model-labels";
 import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
 import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
@@ -366,9 +365,7 @@ function MessagePartView({
 								write: formatNumber(part.data.cacheWriteTokens, locale),
 							})}`
 						: null}
-					{part.data.modelId !== null
-						? ` · ${getModelLabel(part.data.modelId)}`
-						: null}
+					{/* Product rule: the receipt shows no model name, so a screen recording of the chat keeps the model private. */}
 				</p>
 			);
 		default:

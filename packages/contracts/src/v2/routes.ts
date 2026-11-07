@@ -40,6 +40,9 @@ export const appBuilderRoutes = {
 		`/api/v2/projects/${projectId}/versions/${sha}/restore`,
 	// GET the theme.json of a project; PUT saves a selection as a "theme" commit.
 	theme: (projectId: string) => `/api/v2/projects/${projectId}/theme`,
+	// POST asks the theme designer model for a new theme. It answers a draft and saves nothing.
+	themeDesign: (projectId: string) =>
+		`/api/v2/projects/${projectId}/theme/design`,
 	// GET and PUT the monthly and per-turn credit caps of a project.
 	costCaps: (projectId: string) => `/api/v2/projects/${projectId}/cost-caps`,
 	// GET the models the builder dropdown offers, with their prices.

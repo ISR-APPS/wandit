@@ -3,6 +3,7 @@
  * builder-turn.runtime.ts deals the 3 cards of a theme question and writes the card of the answer.
  * AppThemeService answers the fallback selection for a project with no readable theme.json.
  * The set_theme host tool parses the agent input with parseThemePatch and applies it with applyThemePatch.
+ * The theme services gate their routes with isThemeEditable.
  * The coherence rules come from "@wandit/contracts/v2/app-theme", the looks from "/v2/app-theme-catalog".
  */
 import type {
@@ -81,6 +82,20 @@ export function supportsAppTheme(templateVersion: string): boolean {
 	// Compare numbers, not text: "1.10.0" is later than "1.2.0".
 	return (
 		major > 1 || (major === 1 && Number(version.minor) >= firstThemedMinor)
+	);
+}
+
+/**
+ * True when the theme routes may read and write theme.json. A project with no template version answers false.
+ * AppThemeService and AppThemeDesignService call it on the scoped project row.
+ */
+export function isThemeEditable(project: {
+	/** The `projects.template_version` column, for example "web-app@1.1.0". The column is nullable. */
+	templateVersion: string | null;
+}): boolean {
+	return (
+		project.templateVersion !== null &&
+		supportsAppTheme(project.templateVersion)
 	);
 }
 

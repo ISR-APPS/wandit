@@ -1,7 +1,7 @@
 /**
  * Display names for gateway model ids, and the dev model and reasoning pickers.
- * The prompt box, the V1 model indicator, the V2 chat message, the V2 model
- * menu, and the V2 chat cost line read it.
+ * The prompt box, the V1 model indicator, the V2 model menu, and the V2 chat
+ * cost line read it.
  * The picker choices persist in localStorage.
  */
 const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {

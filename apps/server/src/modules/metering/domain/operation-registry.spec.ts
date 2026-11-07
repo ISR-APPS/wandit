@@ -35,6 +35,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"lead-scrape",
 	"transcription",
 	"legacy-worker-chat",
+	"theme-design",
 	"project-title-helper",
 	"higgsfield-prompt-refine-helper",
 	"video-director-helper",
@@ -129,6 +130,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateText",
 		source:
 			"apps/server/src/modules/projects/application/services/project-title.service.ts",
+	},
+	{
+		count: 1,
+		name: "generateObject",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-theme-design.service.ts",
 	},
 	{
 		count: 1,
