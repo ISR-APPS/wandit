@@ -299,6 +299,7 @@ async function setup(
 		},
 		sandboxes,
 		sitesDomain: "wandit.app",
+		sitesSlugSuffix: undefined,
 		storage: {
 			get: vi.fn(async (key: string) => stored.get(key) ?? null),
 			put: vi.fn(async (key: string, bytes: Uint8Array) => {

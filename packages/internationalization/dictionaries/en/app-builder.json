@@ -670,8 +670,6 @@
 	},
 	"publish": {
 		"cta": "Publish",
-		"soon": "Soon",
-		"comingSoon": "Publishing is coming soon.",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} change",

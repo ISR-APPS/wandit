@@ -59,8 +59,9 @@ pnpm --filter edge check-types
 `.github/workflows/edge-deploy.yml` deploys the Worker through the reusable
 `.github/workflows/worker-deploy.yml`:
 
-- A push to `staging` deploys `wandit-edge-staging` (env `staging`): a test
-  host on `workers.dev`, the `wandit-staging` bucket, no route.
+- A push to `staging` deploys `wandit-edge-staging` (env `staging`): the
+  `wandit-staging` bucket and the route `*-stg.wandit.app/*`. Staging slugs
+  end with `-stg` (`SITES_SLUG_SUFFIX`), so staging sites open there.
 - A push to `main` deploys `wandit-edge` (env `production`) with the `*/*`
   route on the `wandit.app` zone.
 - A pull request runs the tests and a deploy dry run of env `production`.

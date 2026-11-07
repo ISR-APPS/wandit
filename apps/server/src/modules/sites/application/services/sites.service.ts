@@ -68,7 +68,7 @@ import {
 	assertNoEditorArtifacts,
 	injectPixels,
 } from "../../domain/pixel-injector";
-import { pickFreeSlug } from "../../domain/slugify";
+import { pickFreeSlug, slugForRequest } from "../../domain/slugify";
 import {
 	type DeploymentRow,
 	DeploymentsRepository,
@@ -129,12 +129,16 @@ export class SitesService {
 	): Promise<SlugAvailabilityResponse> {
 		await this.deploymentsRepository.getAccessibleProject(scope, projectId);
 
-		if (isReservedSlug(slug)) {
+		// Check the slug that a publish would really use (staging adds "-stg").
+		const publishSlug = slugForRequest(slug, env.SITES_SLUG_SUFFIX);
+
+		// Production refuses a "-stg" slug: the staging route catches that host.
+		if (publishSlug === null || isReservedSlug(slug)) {
 			return { available: false, reason: "reserved", slug };
 		}
 
 		const taken = await this.deploymentsRepository.isSlugTakenByOther(
-			slug,
+			publishSlug,
 			projectId,
 		);
 
@@ -482,26 +486,39 @@ export class SitesService {
 	): Promise<string> {
 		// Explicit choice > current live slug > generated from the name.
 		if (requestedSlug) {
-			this.assertSlugUsable(requestedSlug, project.id, { strict: true });
+			// Staging adds "-stg". Production refuses a "-stg" slug: the staging route would catch it.
+			const slug = slugForRequest(requestedSlug, env.SITES_SLUG_SUFFIX);
 
-			if (
-				await this.deploymentsRepository.isSlugTakenByOther(
-					requestedSlug,
-					project.id,
-				)
-			) {
-				throw new SlugTakenError(requestedSlug);
+			// The reserved list holds names without "-stg", so check the slug the user typed.
+			if (slug === null || isReservedSlug(requestedSlug)) {
+				throw new SlugReservedError(requestedSlug);
 			}
 
-			return requestedSlug;
+			this.assertSlugUsable(slug, project.id, { strict: true });
+
+			if (
+				await this.deploymentsRepository.isSlugTakenByOther(slug, project.id)
+			) {
+				throw new SlugTakenError(slug);
+			}
+
+			return slug;
 		}
 
-		if (liveSlug) {
+		// A staging site that went live before the "-stg" rule gets a new slug once.
+		// The pipeline then deletes the pointer of the old slug.
+		if (
+			liveSlug &&
+			slugForRequest(liveSlug, env.SITES_SLUG_SUFFIX) === liveSlug
+		) {
 			return liveSlug;
 		}
 
-		return pickFreeSlug(project.name, (candidate) =>
-			this.deploymentsRepository.isSlugTakenByOther(candidate, project.id),
+		return pickFreeSlug(
+			project.name,
+			(candidate) =>
+				this.deploymentsRepository.isSlugTakenByOther(candidate, project.id),
+			env.SITES_SLUG_SUFFIX,
 		);
 	}
 

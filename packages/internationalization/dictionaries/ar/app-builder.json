@@ -718,8 +718,6 @@
 	},
 	"publish": {
 		"cta": "نشر",
-		"soon": "قريبًا",
-		"comingSoon": "النشر قادم قريبًا.",
 		"version": "v{version}",
 		"changes": {
 			"zero": "لا تغييرات",
