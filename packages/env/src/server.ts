@@ -96,16 +96,18 @@ export const env = createEnv({
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+		// The theme designer of the builder Thème sheet: one structured call per design.
+		AI_THEME_MODEL: z.string().min(1).default("anthropic/claude-sonnet-5"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Default provider for LLM traffic (chat, page builds, titles, marketing,
-		// and prompt refinement). Image generation and transcription models always
+		// prompt refinement, and theme design). Image generation and transcription models always
 		// stay on the Vercel gateway. "openrouter" needs
 		// OPENROUTER_API_KEY; model ids keep the Vercel `creator/model` form and
 		// are translated at the provider boundary.
 		AI_PROVIDER: z.enum(["openrouter", "vercel"]).default("vercel"),
 		// Per-task exceptions to AI_PROVIDER, e.g.
 		// "page_build=openrouter,project_title=openrouter". Tasks: chat,
-		// marketing, page_build, project_title, prompt_refine. A task
+		// marketing, page_build, project_title, prompt_refine, theme_design. A task
 		// named here runs on the given provider; every other task follows AI_PROVIDER.
 		AI_PROVIDER_OVERRIDES: z
 			.string()

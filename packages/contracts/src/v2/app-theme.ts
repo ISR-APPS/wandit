@@ -3,7 +3,8 @@
  * Its pure functions resolve a selection into palettes, fonts, and voice.
  * The host writes the file with buildAppThemeFile. The builder Thème sheet calls resolveAppTheme in the
  * browser. The template parses the file with a copy of these schemas. Looks come from app-theme-catalog.ts.
- * It also holds the body and answer schemas of the theme GET and PUT routes of the API.
+ * It also holds the body and answer schemas of the theme GET, PUT, and design routes of the API,
+ * and the answer schema of the theme designer model.
  * index.ts does not export this file: import "@wandit/contracts/v2/app-theme", in a lazy chunk on the web.
  */
 import { z } from "zod";
@@ -174,7 +175,8 @@ export type AppLook = {
 	/** The values the look is designed with. The deal and the Reset button of the Thème sheet start from them. */
 	defaults: {
 		mode: AppThemeOption<"mode">;
-		radius: "md" | "lg" | "xl";
+		// sm (6px) only in a family whose rules list it. No look is square.
+		radius: "sm" | "md" | "lg" | "xl";
 		border: AppThemeOption<"border">;
 		shadow: AppThemeOption<"shadow">;
 		shadowStyle: AppThemeOption<"shadowStyle">;
@@ -190,7 +192,7 @@ export type AppLook = {
 export type AppThemeWorld = Pick<WorldCard, "id" | "name" | "preview">;
 
 /** Every look id, in catalog order. The Look row of the Thème sheet and the set_theme tool list them. */
-// SAFETY: Object.keys returns the own keys of the APP_LOOKS literal, and the catalog has 20 looks.
+// SAFETY: Object.keys returns the own keys of the APP_LOOKS literal, and the catalog has 60 looks.
 export const APP_LOOK_IDS = Object.keys(APP_LOOKS) as [
 	AppLookId,
 	...AppLookId[],
@@ -424,6 +426,12 @@ export const getAppThemeResponseSchema = z.object({
 export type GetAppThemeResponse = z.infer<typeof getAppThemeResponseSchema>;
 
 /**
+ * A theme name that a user sends. The file schema also allows a line break. A save puts the name in the
+ * commit message "Theme: <name>", where a line break could add a fake git trailer. So control characters fail.
+ */
+export const appThemeNameSchema = z.string().regex(/^[^<>{};\p{Cc}]{1,40}$/u);
+
+/**
  * Body of `PUT /api/v2/projects/:id/theme`. The server resolves the selection and writes the file.
  * A stale `expectedHeadSha` answers 409 THEME_HEAD_MOVED.
  */
@@ -431,6 +439,8 @@ export const putAppThemeBodySchema = z.object({
 	selection: appThemeSelectionSchema,
 	/** The `headSha` of the last theme GET. Compare-and-swap input. */
 	expectedHeadSha: commitShaSchema,
+	/** The name of a designed theme. Without it, the server uses the look name, the world name, or "Brand colors". */
+	name: appThemeNameSchema.optional(),
 });
 
 /** TypeScript theme PUT body. */
@@ -444,6 +454,69 @@ export const putAppThemeResponseSchema = z.object({
 
 /** TypeScript theme PUT response. */
 export type PutAppThemeResponse = z.infer<typeof putAppThemeResponseSchema>;
+
+/**
+ * Body of `POST /api/v2/projects/:id/theme/design`: the words of the user and the theme on screen.
+ * The designer reads `current` for a change such as "darker", and keeps its structure axes.
+ */
+export const designAppThemeBodySchema = z.object({
+	/** What the user wants, in any language. 600 characters hold a long brief and keep the prompt small. */
+	prompt: z.string().trim().min(1).max(600),
+	/** The theme of the sheet: the draft, else the saved theme. */
+	current: z.object({
+		name: appThemeFileSchema.shape.name,
+		selection: appThemeSelectionSchema,
+	}),
+});
+
+/** TypeScript theme design body. */
+export type DesignAppThemeBody = z.infer<typeof designAppThemeBodySchema>;
+
+/** Answer of the theme design route: a whole theme.json for the sheet draft. The route writes nothing. */
+export const designAppThemeResponseSchema = z.object({
+	theme: appThemeFileSchema,
+});
+
+/** TypeScript theme design response. */
+export type DesignAppThemeResponse = z.infer<
+	typeof designAppThemeResponseSchema
+>;
+
+/** A `#rrggbb` of the designer model. The model can write upper case, so the server lowers it. */
+const designHexSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+/**
+ * The answer of the theme designer model: three seed colors, two fonts, and the style axes.
+ * The server parses it, makes a seeds selection, and passes it through coherentSelection.
+ * The structure axes (scale, content, sidebarCollapse, sidebarStart, userMenu) stay the choice of the user.
+ */
+export const appThemeDesignSchema = z.object({
+	/** 1 to 3 words in the language of the user. The server removes markup and control characters. */
+	name: z.string().min(1).max(60),
+	mode: z.enum(APP_THEME_OPTIONS.mode),
+	/** The page ground of `mode`. deriveTokens keeps it near white or near black. */
+	background: designHexSchema,
+	/** The text ink of `mode`. */
+	foreground: designHexSchema,
+	/** The brand color: buttons, links, the focus ring. */
+	primary: designHexSchema,
+	font: z.enum(APP_BODY_FONT_IDS),
+	displayFont: z.enum(APP_DISPLAY_FONT_IDS),
+	radius: z.enum(APP_THEME_OPTIONS.radius),
+	border: z.enum(APP_THEME_OPTIONS.border),
+	shadow: z.enum(APP_THEME_OPTIONS.shadow),
+	shadowStyle: z.enum(APP_THEME_OPTIONS.shadowStyle),
+	sidebarStyle: z.enum(APP_THEME_OPTIONS.sidebarStyle),
+	sidebarTone: z.enum(APP_THEME_OPTIONS.sidebarTone),
+	activeItem: z.enum(APP_THEME_OPTIONS.activeItem),
+	header: z.enum(APP_THEME_OPTIONS.header),
+	frame: z.enum(APP_THEME_OPTIONS.frame),
+	icons: z.enum(APP_THEME_OPTIONS.icons),
+	navIcon: z.enum(APP_THEME_OPTIONS.navIcon),
+});
+
+/** The parsed answer of the theme designer model. */
+export type AppThemeDesign = z.infer<typeof appThemeDesignSchema>;
 
 /**
  * The palettes, fonts, and voice of a selection: the `resolved` part of theme.json.

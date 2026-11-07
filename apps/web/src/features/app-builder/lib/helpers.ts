@@ -6,13 +6,13 @@
  * variant for the model menu. One copies text to the clipboard. One puts an
  * app page path on the signed preview URL. Two convert the spending limits
  * between the Settings fields and the API. One formats a USD amount of the
- * chat cost. Two serve the Thème sheet: the drop rule of its draft and the
- * brand color field. One fits the phone or the desktop window into its stage.
- * One tells the build queries that a live build ended. Called by the page,
- * the More view and its nav, the Settings panel, the chat cards, the Expo Go
- * popover, the preview panel, the web preview, the phone and desktop window
- * stages, the Thème sheet, the model menu, the model pick hook, the mobile
- * and desktop build queries, and the create flow.
+ * chat cost. Three serve the Thème sheet: the drop rule of its draft, the
+ * brand color field, and the name rule. One fits the phone or the desktop
+ * window into its stage. One tells the build queries that a live build
+ * ended. Called by the page, the More view and its nav, the Settings panel,
+ * the chat cards, the Expo Go popover, the preview panel, the web preview,
+ * the phone and desktop window stages, the Thème sheet, the model menu, the
+ * model pick hook, the mobile and desktop build queries, and the create flow.
  */
 
 import {
@@ -24,7 +24,10 @@ import {
 	type UpdateProjectCostCapsRequest,
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
-import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
+import type {
+	AppThemeFile,
+	AppThemeSource,
+} from "@wandit/contracts/v2/app-theme";
 import type { Locale } from "@wandit/internationalization";
 
 import type { AppProjectKind } from "../api/dto";
@@ -367,6 +370,29 @@ export function isThemeDraftStale(input: {
 	isTurnRunning: boolean;
 }): boolean {
 	return input.isTurnRunning || input.draft.basedOn !== input.savedTheme;
+}
+
+/**
+ * True when two theme sources give the same palette: the same look, the same world, or the same three seeds.
+ * The Thème sheet keeps the theme name, for example a name of the AI designer, only while the source stays.
+ */
+export function isSameThemeSource(
+	current: AppThemeSource,
+	next: AppThemeSource,
+): boolean {
+	switch (current.kind) {
+		case "look":
+			return next.kind === "look" && next.look === current.look;
+		case "world":
+			return next.kind === "world" && next.world === current.world;
+		case "seeds":
+			return (
+				next.kind === "seeds" &&
+				next.background === current.background &&
+				next.foreground === current.foreground &&
+				next.primary === current.primary
+			);
+	}
 }
 
 /** Six hex digits, with or without the leading "#". Case does not matter. */
