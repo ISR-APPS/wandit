@@ -304,6 +304,11 @@ export const env = createEnv({
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
+		// Staging only. Every new slug ends with "-stg", so the staging edge route
+		// "*-stg.wandit.app/*" serves it (apps/edge/wrangler.jsonc). Production leaves
+		// it unset and refuses a slug that ends with "-stg". Same value as
+		// STAGING_SLUG_SUFFIX in apps/server/src/modules/sites/domain/slugify.ts.
+		SITES_SLUG_SUFFIX: z.literal("-stg").optional(),
 		// Publish preflight over the final bytes: relative asset URLs and
 		// provably-gone media (404/410/403) block the publish. "false" is the
 		// emergency bypass when an asset host flaps and blocks every publish.

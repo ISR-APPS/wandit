@@ -1,9 +1,9 @@
 name: Edge Worker
 
 # Deploys the edge Worker that serves every published site. The staging
-# branch deploys env staging (wandit-edge-staging, a test host on
-# workers.dev). The main branch deploys env production (wandit-edge with
-# the */* route). A pull request runs a dry run against env production.
+# branch deploys env staging (wandit-edge-staging with the route
+# *-stg.wandit.app/*). The main branch deploys env production (wandit-edge
+# with the */* route). A pull request runs a dry run against env production.
 # That dry run validates the exact config a merge to main deploys. The
 # steps live in the reusable worker-deploy.yml.
 on:

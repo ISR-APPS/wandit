@@ -83,7 +83,8 @@ Nothing in code applies these; they must be clicked once per environment.
 
 `.github/workflows/edge-deploy.yml` calls the reusable
 `.github/workflows/worker-deploy.yml`. A push to `staging` deploys
-`wandit-edge-staging` on `workers.dev`; a push to `main` deploys
+`wandit-edge-staging` with the route `*-stg.wandit.app/*` (staging slugs end
+with `-stg`, from `SITES_SLUG_SUFFIX`); a push to `main` deploys
 `wandit-edge` with the `*/*` route; a pull request runs a deploy dry run.
 The one GitHub secret is `CLOUDFLARE_V2_DEPLOY_TOKEN`; `SENTRY_DSN` stays a
 Worker secret set by hand per environment. The dashboard steps above
