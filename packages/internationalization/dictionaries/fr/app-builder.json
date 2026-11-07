@@ -223,6 +223,10 @@
 			"title": "Intégrations",
 			"description": "GitHub, et plus tard les autres services que ton app utilise."
 		},
+		"mcp": {
+			"title": "MCP",
+			"description": "Connecte Claude Code, Codex, Cursor ou VS Code pour modifier cette app depuis ton agent de code."
+		},
 		"domains": {
 			"title": "Domaines",
 			"description": "Où vit ton app web. Le domaine Wandit est gratuit ; connecte ou achète le tien."

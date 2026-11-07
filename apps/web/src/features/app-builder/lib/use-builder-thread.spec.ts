@@ -138,8 +138,15 @@ function createDeps(
 	const cancelTurn = vi.fn<BuilderChatDeps["cancelTurn"]>(
 		async (_projectId, turnId) => ({ turnId, status: "canceled" }),
 	);
+	// The poll route: no turn and no commit of another client.
+	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
+		async () => ({ activeTurnId: null, headSha: null }),
+	);
 
-	return { requests, deps: { fetch: fetchImpl, cancelTurn } };
+	return {
+		requests,
+		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+	};
 }
 
 // Starts a fetch of one query that rejects with `error`. The hook mounts

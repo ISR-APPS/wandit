@@ -1,5 +1,6 @@
 /**
- * HTTP routes for V2 builder turns: create, estimate, stream, cancel.
+ * HTTP routes for V2 builder turns: create, estimate, the poll of the
+ * builder page, stream, cancel.
  * `V2BuilderEnabledGuard` gates the whole controller; `RedisRateLimitGuard`
  * reads the per-route `@RateLimit` metadata. The global ProjectAccessGuard
  * checks the project role. Scope and engine checks live in `TurnsService`;
@@ -19,6 +20,7 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type ActiveTurnStateResponse,
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	createTurnRequestSchema,
@@ -121,6 +123,22 @@ export class TurnsController {
 		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<TurnEstimateResponse> {
 		return this.turns.estimate(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
+	}
+
+	// A read like the stream routes. No `@RateLimit`: every open builder tab
+	// polls it every 5 s, and the open-stream bucket counts only SSE slots.
+	@RequireProjectRole("viewer")
+	@Get("active")
+	activeTurnState(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+	): Promise<ActiveTurnStateResponse> {
+		return this.turns.activeTurnState(
 			projectScopeFromAccess(access, user.id),
 			projectId,
 		);

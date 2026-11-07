@@ -1,6 +1,7 @@
 /**
  * Orchestration behind the turn API: create, the pre-send estimate, cancel,
- * stream access checks, and the end-of-turn promotion trigger.
+ * stream access checks, the poll answer of the builder page, and the
+ * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
  * model price check, the monthly cap, and the per-actor turn limit, then
@@ -27,6 +28,7 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	type ActiveTurnStateResponse,
 	appBuilderRoutes,
 	builderTurnSpecSchema,
 	type CancelTurnResponse,
@@ -85,6 +87,7 @@ import {
 	WAKE_LOCK_HOLDER_PREFIX,
 } from "../../domain/turn-queue";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
+import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
 import {
 	type BuilderSessionRow,
 	BuilderSessionsRepository,
@@ -201,6 +204,9 @@ export class TurnsService {
 		/** The payer pool balance of the estimate answer. */
 		@Inject(CreditsService)
 		private readonly credits: Pick<CreditsService, "getSettledBalance">,
+		/** The `main` head of the poll answer. */
+		@Inject(AppCommitsRepository)
+		private readonly commits: Pick<AppCommitsRepository, "findBranch">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -740,6 +746,20 @@ export class TurnsService {
 		}
 
 		return this.turns.findActiveForProject(projectId);
+	}
+
+	/**
+	 * `GET /v2/projects/:id/turns/active`. The builder page polls it every 5 s
+	 * to show a turn or a commit of another client, such as the MCP tools.
+	 * The same 404 as `findActiveTurn` comes before the head read.
+	 */
+	async activeTurnState(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ActiveTurnStateResponse> {
+		const turn = await this.findActiveTurn(scope, projectId);
+		const branch = await this.commits.findBranch(projectId);
+		return { activeTurnId: turn?.id ?? null, headSha: branch?.headSha ?? null };
 	}
 
 	/**

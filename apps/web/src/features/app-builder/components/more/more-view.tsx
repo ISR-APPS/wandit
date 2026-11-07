@@ -4,12 +4,15 @@
  * which draws its title; a Cloud panel renders through
  * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
- * A project viewer gets a note in place of the AI panel.
+ * A project viewer gets a note in place of the AI panel. The MCP panel body
+ * comes from the coding-agents feature.
  */
 
 import { InfoIcon } from "@phosphor-icons/react/Info";
+import { cn } from "@wandit/ui/lib/utils";
 import { type ReactNode, useState } from "react";
 
+import { ProjectConnectSteps } from "@/features/coding-agents";
 import { hasProjectRole } from "@/features/project-sharing";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
@@ -27,7 +30,7 @@ import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
 import { IntegrationsPanel } from "./integrations-panel";
 import { MoreNav } from "./more-nav";
-import { PanelMessage, PanelShell } from "./panel-shell";
+import { PANEL_CARD_CLASS, PanelMessage, PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
 import { SettingsPanel } from "./settings-panel";
 import { SignInPanel } from "./sign-in-panel";
@@ -97,6 +100,12 @@ export function MoreView({
 				return <PaymentsPanel />;
 			case "integrations":
 				return <IntegrationsPanel project={project} isActive={isActive} />;
+			case "mcp":
+				return (
+					<section className={cn(PANEL_CARD_CLASS, "p-5 sm:p-6")}>
+						<ProjectConnectSteps projectId={project.id} />
+					</section>
+				);
 			case "domains":
 				return <DomainsPanel projectId={project.id} access={project.access} />;
 			case "appStores":
