@@ -1,15 +1,16 @@
 /**
  * Prompt box of the builder chat, a white card: the request tray slot, the
- * chips of the preview picks and of the files, the textarea, then the add
- * menu (a file or an image), the Plan chip, the model menu, the credit
- * estimate, dictation, and send. While the tray shows, send becomes the
- * answer pill of the tray.
- * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
- * uploaded files; a send that the API refuses puts them back. Uploads go
- * through the projects feature, with the dashboard limits.
+ * chips of the preview picks, the files, and the long pastes, the textarea,
+ * then the add menu (a file or an image), the Plan chip, the model menu, the
+ * credit estimate, dictation, and send. While the tray shows, send becomes
+ * the answer pill of the tray.
+ * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
+ * the pasted texts, and the uploaded files; a send that the API refuses puts
+ * them back. Uploads and pastes go through the projects feature.
  */
 
 import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
+import { ArticleIcon } from "@phosphor-icons/react/Article";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
@@ -21,8 +22,8 @@ import { StopIcon } from "@phosphor-icons/react/Stop";
 import { XIcon } from "@phosphor-icons/react/X";
 import {
 	ATTACHMENT_MEDIA_TYPES,
+	builderMessageMaxLength,
 	type PreviewTarget,
-	projectPromptMaxLength,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -36,22 +37,28 @@ import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
 import {
 	type ChangeEvent,
+	type ClipboardEvent,
 	type KeyboardEvent,
 	type ReactNode,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
 import {
 	ATTACHMENT_ACCEPT,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
+	describePastedText,
+	joinPastedText,
+	type PastedText,
+	readLongPaste,
 	uploadAttachment,
 	useVoiceDictation,
 } from "@/features/projects";
-import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { formatNumber, type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
@@ -68,8 +75,11 @@ export type ComposerSubmitOverride = {
 	label: string;
 	/** True while the answer is incomplete; the empty draft does not decide it. */
 	disabled: boolean;
-	/** Takes the current draft; the composer clears the draft after the call. */
-	onSubmit: (text: string) => void;
+	/**
+	 * Takes the current draft joined to the pasted texts. The composer clears
+	 * both, and puts them back when this resolves false (the API refused the answer).
+	 */
+	onSubmit: (text: string) => Promise<boolean>;
 };
 
 export type ComposerProps = {
@@ -81,13 +91,13 @@ export type ComposerProps = {
 	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
-	/** Sends the message. Resolves false when the API admitted no turn: the text and the files then come back. */
+	/** Sends the message. Resolves false when the API admitted no turn: the text, the files, and the pasted texts then come back. */
 	onSend: (input: SendBuilderMessageInput) => Promise<boolean>;
 	/** Content at the top of the card, above the textarea: the request tray. */
 	topSlot?: ReactNode;
 	/** Set while the request tray shows: Enter and the button answer the tray. */
 	submitOverride?: ComposerSubmitOverride | null;
-	/** Gets every draft change; the tray reads the typed answer from it. */
+	/** Gets the trimmed draft joined to the pasted texts on each change; the tray reads the typed answer from it. */
 	onDraftChange?: (text: string) => void;
 	/** Textarea hint. chat-pane.tsx picks it from the Plan toggle and the open plan card. */
 	placeholder: string;
@@ -139,8 +149,8 @@ const SEND_CLASS =
 	"rounded-full bg-primary text-primary-foreground shadow-[0_1px_0_rgb(11_16_51/0.08),0_4px_12px_-4px_rgb(209_96_34/0.55)] transition-colors duration-150 hover:bg-ember-deep disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
 
 /**
- * The chat prompt box. Enter sends the trimmed draft and the uploaded files,
- * Shift+Enter adds a line. With `submitOverride` set, Enter and the pill
+ * The chat prompt box. Enter sends the trimmed draft joined to the pasted
+ * texts, and the uploaded files. Shift+Enter adds a line. With `submitOverride` set, Enter and the pill
  * answer the tray.
  */
 export function Composer({
@@ -157,15 +167,22 @@ export function Composer({
 	onPlanModeChange,
 	modelPick,
 }: ComposerProps) {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	const [draft, setDraftState] = useState("");
 	// The answer of a send comes after its render, so the restore reads the
-	// draft here. Dictation can write into it while the send waits.
+	// draft and the pasted texts here. Dictation can write into the draft while the send waits.
 	const draftRef = useRef("");
+	const [pastedTexts, setPastedTextsState] = useState<PastedText[]>([]);
+	const pastedTextsRef = useRef<PastedText[]>([]);
 	const setDraft = (text: string) => {
 		draftRef.current = text;
 		setDraftState(text);
-		onDraftChange?.(text);
+		onDraftChange?.(joinPastedText(text, pastedTextsRef.current));
+	};
+	const setPastedTexts = (next: PastedText[]) => {
+		pastedTextsRef.current = next;
+		setPastedTextsState(next);
+		onDraftChange?.(joinPastedText(draftRef.current, next));
 	};
 	const [files, setFiles] = useState<ComposerFile[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -195,6 +212,7 @@ export function Composer({
 	);
 
 	const trimmed = draft.trim();
+	const message = joinPastedText(draft, pastedTexts);
 	const readyParts = files.flatMap((file) =>
 		file.part === null ? [] : [file.part],
 	);
@@ -203,9 +221,12 @@ export function Composer({
 	// an empty draft. A message waits for its uploads.
 	const canSend = submitOverride
 		? !submitOverride.disabled && !isSending
-		: (trimmed.length > 0 || readyParts.length > 0) &&
+		: (message.length > 0 || readyParts.length > 0) &&
 			!isUploading &&
 			!isSending;
+	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
+		max: formatNumber(builderMessageMaxLength, locale),
+	});
 
 	function updateFile(id: string, patch: Partial<ComposerFile>) {
 		setFiles((current) =>
@@ -268,29 +289,58 @@ export function Composer({
 		setFiles((current) => current.filter((file) => file.id !== id));
 	}
 
+	function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+		const text = readLongPaste(event);
+		if (text === null) return;
+		event.preventDefault();
+		const next = [...pastedTextsRef.current, { id: crypto.randomUUID(), text }];
+		// The turn route refuses a message over the limit, so the paste stops here.
+		if (
+			joinPastedText(draftRef.current, next).length > builderMessageMaxLength
+		) {
+			toast.error(tooLongText);
+			return;
+		}
+		setPastedTexts(next);
+	}
+
 	function send() {
 		if (!canSend) return;
+		// The textarea can grow after the chips came, so the send checks the whole message again.
+		if (message.length > builderMessageMaxLength) {
+			toast.error(tooLongText);
+			return;
+		}
+		const sentPastedTexts = pastedTexts;
+		// The API refused the send. The typed text and the pasted texts come
+		// back in front of the ones added while it waited.
+		const restoreText = () => {
+			setPastedTexts([...sentPastedTexts, ...pastedTextsRef.current]);
+			setDraft(
+				draftRef.current === "" ? trimmed : `${trimmed}\n${draftRef.current}`,
+			);
+		};
 		if (submitOverride) {
 			// The tray answer takes text only; the files wait for the next message.
-			submitOverride.onSubmit(trimmed);
+			void submitOverride.onSubmit(message).then((isAccepted) => {
+				if (!isAccepted) restoreText();
+			});
 		} else {
 			const sentFiles = files;
-			void onSend({ text: trimmed, files: readyParts }).then((isAccepted) => {
+			void onSend({ text: message, files: readyParts }).then((isAccepted) => {
 				if (isAccepted) {
 					revokePreviews(sentFiles);
 					return;
 				}
-				// The API refused the send. The message comes back in front of the
-				// text and the files added while it waited.
+				// The files come back in front of the files added while it waited.
 				const restoredFiles = [...sentFiles, ...filesRef.current];
 				revokePreviews(restoredFiles.slice(MAX_FILES));
 				setFiles(restoredFiles.slice(0, MAX_FILES));
-				setDraft(
-					draftRef.current === "" ? trimmed : `${trimmed}\n${draftRef.current}`,
-				);
+				restoreText();
 			});
 			setFiles([]);
 		}
+		setPastedTexts([]);
 		setDraft("");
 	}
 
@@ -331,7 +381,7 @@ export function Composer({
 						))}
 					</div>
 				) : null}
-				{files.length > 0 ? (
+				{files.length > 0 || pastedTexts.length > 0 ? (
 					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
 						{files.map((file) => (
 							<FileChip
@@ -340,19 +390,33 @@ export function Composer({
 								onRemove={() => removeFile(file.id)}
 							/>
 						))}
+						{pastedTexts.map((pasted) => (
+							<PastedTextChip
+								key={pasted.id}
+								text={pasted.text}
+								onRemove={() =>
+									setPastedTexts(
+										pastedTextsRef.current.filter(
+											(entry) => entry.id !== pasted.id,
+										),
+									)
+								}
+							/>
+						))}
 					</div>
 				) : null}
 				{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
 				<Textarea
 					rows={1}
 					// The turn route refuses a longer message or typed answer.
-					maxLength={projectPromptMaxLength}
+					maxLength={builderMessageMaxLength}
 					dir="auto"
 					value={draft}
 					placeholder={placeholder}
 					disabled={isSending}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={onKeyDown}
+					onPaste={onPaste}
 					className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
 				/>
 				<input
@@ -545,6 +609,44 @@ function FileChip({
 						{t(UPLOAD_ERROR_KEYS[file.error])}
 					</span>
 				) : null}
+			</span>
+			<IconAction label={t("projects.promptBox.attachments.remove")}>
+				<button
+					type="button"
+					onClick={onRemove}
+					className="grid size-5 shrink-0 place-items-center rounded-full text-night/50 outline-none transition-colors hover:bg-night/[0.08] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/50 dark:hover:bg-white/[0.1] dark:hover:text-foreground"
+				>
+					<XIcon weight="bold" className="size-3" aria-hidden />
+				</button>
+			</IconAction>
+		</span>
+	);
+}
+
+/** One long paste of the next message: an icon, the start of the text, its size, and a remove button. */
+function PastedTextChip({
+	text,
+	onRemove,
+}: {
+	/** The full pasted text; the chip shows only its start. */
+	text: string;
+	/** Drops the chip; the text is then not sent. */
+	onRemove: () => void;
+}) {
+	const { t, locale } = useTranslation();
+	const { preview, size } = describePastedText(text, locale);
+	return (
+		<span className="inline-flex h-9 max-w-full items-center gap-2 rounded-[12px] bg-night/[0.05] ps-1.5 pe-1 font-grotesk text-[12px] text-night dark:bg-white/[0.06] dark:text-foreground">
+			<span className="grid size-6 shrink-0 place-items-center rounded-[8px] bg-white text-night/50 dark:bg-white/[0.08] dark:text-foreground/50">
+				<ArticleIcon weight="duotone" className="size-3.5" aria-hidden />
+			</span>
+			<span className="min-w-0">
+				<span dir="auto" className="block max-w-36 truncate font-medium">
+					{preview}
+				</span>
+				<span className="block text-[10px] text-night/50 dark:text-foreground/50">
+					{t("projects.promptBox.attachments.pastedText", { size })}
+				</span>
 			</span>
 			<IconAction label={t("projects.promptBox.attachments.remove")}>
 				<button

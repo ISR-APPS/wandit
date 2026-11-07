@@ -9,7 +9,6 @@ import { z } from "zod";
 import { askUserKindSchema, worldCardSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
-import { projectPromptMaxLength } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import {
 	askUserHostToolActionSchema,
@@ -56,6 +55,15 @@ export const builderTurnModeSchema = z.enum(builderTurnModes);
 /** `plan` or `build`; see `builderTurnModes`. */
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
+/**
+ * Max length of a V2 user message or typed answer, in UTF-16 chars. About
+ * 12K to 15K tokens. One field of this length stays under the 1 MiB JSON
+ * body limit of Fastify (apps/server/src/main.ts). V1, native, and MCP keep
+ * `projectPromptMaxLength`.
+ */
+// LIMIT: 8 answers of 50K chars can pass the 1 MiB body limit. Upgrade: a total cap per round.
+export const builderMessageMaxLength = 50_000;
+
 /** The answer to a `data-approval` card: the card id and the decision. */
 export const turnApprovalAnswerSchema = z.object({
 	approvalId: z.string().min(1),
@@ -81,7 +89,7 @@ export const turnQuestionAnswerSchema = z.object({
 	// Ids of the picked options; empty for a typed, delegated, or skipped answer.
 	optionIds: z.array(z.string().min(1).max(64)).max(6),
 	// The text the user typed as the answer; "" when none.
-	text: z.string().max(projectPromptMaxLength),
+	text: z.string().max(builderMessageMaxLength),
 	// Uploaded files that answer an `attachments` question.
 	files: z.array(fileRefSchema).max(6),
 });
@@ -98,7 +106,7 @@ export type TurnQuestionAnswer = z.infer<typeof turnQuestionAnswerSchema>;
 export const createTurnRequestSchema = z
 	.object({
 		chatId: uuidSchema,
-		message: z.string().max(projectPromptMaxLength),
+		message: z.string().max(builderMessageMaxLength),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		composer: composerMetadataSchema.optional(),
 		// The model the user picked; absent means the deploy default. Any
