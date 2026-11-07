@@ -1,0 +1,104 @@
+/* Entry CSS of the generated app. src/main.tsx imports it first. Components read the semantic names, never raw colors.
+   It imports Tailwind, tw-animate, and engine.css. engine.css maps src/styles/theme.json to the role tokens.
+   This file holds the Tailwind names of the tokens, the label utility, and the base layer. Add an app utility here.
+   Only the host writes theme.json. engine.css ships with the template, and the agent may not edit it.
+   check-theme.mjs fails on a theme token, a raw color, capital text, or a fixed Tailwind color, radius, shadow, or font value in this file. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./engine.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-canvas: var(--canvas);
+	--color-contrast: var(--contrast);
+	--color-contrast-foreground: var(--contrast-foreground);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-info: var(--info);
+	/* Multiplicative steps: a --radius of 0 gives square corners everywhere. */
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.333);
+	--radius-2xl: calc(var(--radius) * 1.667);
+	/* Role tokens of engine.css as utilities: rounded-control, shadow-surface, and the others. */
+	--radius-control: var(--control-radius);
+	--radius-field: var(--field-radius);
+	--radius-overlay: var(--overlay-radius);
+	--radius-badge: var(--badge-radius);
+	--radius-nav: var(--nav-item-radius);
+	--radius-surface: var(--surface-radius);
+	--shadow-surface: var(--surface-shadow);
+	--shadow-control: var(--control-shadow);
+	--shadow-field: var(--field-shadow);
+	--shadow-overlay: var(--overlay-shadow);
+	--font-numeric: var(--numeral-font);
+}
+
+/* Small labels: table heads and sidebar group titles. Tailwind puts a multi-property utility first,
+   so a font-semibold class on the same element wins. 0 tracking keeps small text open. */
+@utility label-text {
+	font-weight: 500;
+	letter-spacing: 0;
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	html {
+		@apply font-sans;
+		/* Tight Latin tracking. Arabic resets it below. */
+		letter-spacing: -0.02em;
+	}
+	body {
+		@apply bg-background text-foreground antialiased;
+	}
+	h1,
+	h2,
+	h3,
+	h4 {
+		@apply font-display;
+	}
+	/* Some display faces have one weight. A heavier weight class must not draw a false bold. */
+	:is(h1, h2, h3, h4, .font-display) {
+		font-synthesis-weight: none;
+	}
+	:lang(ar) {
+		/* Negative Latin tracking mangles connected Arabic script. */
+		letter-spacing: 0;
+	}
+}

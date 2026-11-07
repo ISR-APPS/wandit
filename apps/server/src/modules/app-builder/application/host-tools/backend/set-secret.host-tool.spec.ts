@@ -85,9 +85,10 @@ describe("set_secret", () => {
 			ip: null,
 			scope: {
 				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-1",
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-1",
 			},
 		});
 		expect(JSON.parse(fixture.requests[0]?.body ?? "null")).toEqual([
@@ -111,7 +112,13 @@ describe("set_secret", () => {
 
 		expect(fixture.secretSets[0]?.actor).toEqual({
 			ip: null,
-			scope: { kind: "personal", userId: "user-1" },
+			scope: {
+				actorIsLimitExempt: false,
+				actorRoles: ["owner"],
+				actorUserId: "user-1",
+				kind: "personal",
+				ownerUserId: "user-1",
+			},
 		});
 	});
 

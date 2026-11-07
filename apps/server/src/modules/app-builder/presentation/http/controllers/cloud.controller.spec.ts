@@ -6,7 +6,7 @@ import {
 import { lastValueFrom, of, throwError } from "rxjs";
 import { describe, expect, it } from "vitest";
 
-import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { PROJECT_ROLE_KEY } from "../../../../projects";
 import { CloudRateLimitedException } from "../../../application/services/cloud.service";
 import {
 	RATE_LIMIT_OPTIONS,
@@ -25,10 +25,11 @@ describe("CloudController", () => {
 		]);
 	});
 
-	it("requires project:update on the whole controller", () => {
-		expect(
-			Reflect.getMetadata(WORKSPACE_PERMISSION_KEY, CloudController),
-		).toEqual({ actions: ["update"], resource: "project" });
+	it("needs the editor role on the whole controller", () => {
+		expect(Reflect.getMetadata(PROJECT_ROLE_KEY, CloudController)).toEqual({
+			anyEngine: false,
+			role: "editor",
+		});
 	});
 
 	it("rate-limits the SQL route per user and no other route", () => {

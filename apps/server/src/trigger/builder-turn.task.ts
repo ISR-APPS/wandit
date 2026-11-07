@@ -30,7 +30,6 @@ export const builderTurnTask = schemaTask({
 	// idempotency key already dedupe, so one attempt is the whole contract.
 	retry: { maxAttempts: 1 },
 	schema: z.object({
-		actorIsLimitExempt: z.boolean().optional(),
 		actorUserId: z.string().min(1),
 		// Absent on a run queued before the field existed.
 		apiCreateMs: z.int().nonnegative().nullable().optional(),
@@ -53,9 +52,6 @@ export const builderTurnTask = schemaTask({
 				{
 					actorUserId: payload.actorUserId,
 					apiCreateMs: payload.apiCreateMs ?? null,
-					...(payload.actorIsLimitExempt === undefined
-						? {}
-						: { actorIsLimitExempt: payload.actorIsLimitExempt }),
 					organizationId: payload.organizationId,
 					projectId: payload.projectId,
 					runId: ctx.run.id,

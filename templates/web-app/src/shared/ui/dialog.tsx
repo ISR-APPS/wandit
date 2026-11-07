@@ -1,10 +1,11 @@
 // shadcn-style modal dialog on the Radix dialog primitive.
 // Confirmations and focused forms use these parts.
+// The panel reads the --overlay-* role tokens of src/styles/engine.css.
 
-import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
+import { XIcon } from "~/shared/ui/icons";
 
 function Dialog({
 	...props
@@ -38,7 +39,8 @@ function DialogOverlay({
 		<DialogPrimitive.Overlay
 			data-slot="dialog-overlay"
 			className={cn(
-				"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=open]:animate-in",
+				// A scrim of the page color dims the page in light and in dark. Black is a raw color.
+				"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-background/80 data-[state=closed]:animate-out data-[state=open]:animate-in",
 				className,
 			)}
 			{...props}
@@ -46,6 +48,7 @@ function DialogOverlay({
 	);
 }
 
+/** The centered modal panel, with a dimmed page behind it and a close button at the end corner. */
 function DialogContent({
 	className,
 	children,
@@ -58,13 +61,13 @@ function DialogContent({
 				data-slot="dialog-content"
 				className={cn(
 					// In RTL, start-1/2 places the right edge at the center, so the X shift turns positive.
-					"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed start-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border bg-background p-6 shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in rtl:translate-x-1/2",
+					"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 border-(length:--overlay-border-width) fixed start-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-(--overlay-radius) border-(--overlay-border-color) bg-background p-6 shadow-(--overlay-shadow) duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in rtl:translate-x-1/2",
 					className,
 				)}
 				{...props}
 			>
 				{children}
-				<DialogPrimitive.Close className="absolute end-4 top-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0">
+				<DialogPrimitive.Close className="absolute end-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0">
 					<XIcon />
 					<span className="sr-only">Close</span>
 				</DialogPrimitive.Close>

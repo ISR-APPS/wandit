@@ -1,3 +1,8 @@
+/**
+ * Background connector (MCP) generation attempts, for example a Higgsfield video.
+ * The chat agent queues a row. A Trigger.dev task runs the MCP call and settles the row.
+ * Metering rebuilds the payer from the user, org, and payer columns.
+ */
 import { relations, sql } from "drizzle-orm";
 import {
 	index,
@@ -39,6 +44,12 @@ export const connectorGenerationAttempts = pgTable(
 		// settlement rebuild the metering subject from this column.
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "set null",
+		}),
+		// Payer snapshot of a shared personal workspace: the user whose personal
+		// pool paid, when it is not `userId`. Recovery and settlement rebuild
+		// the metering subject from it. NULL: `organizationId` or `userId` pays.
+		payerUserId: text("payer_user_id").references(() => user.id, {
+			onDelete: "restrict",
 		}),
 		// Chat that queued the generation. set null (not cascade): losing the
 		// conversation must not erase the generation history. NULL disables the

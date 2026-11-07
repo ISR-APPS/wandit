@@ -3,11 +3,14 @@
  * `wandit/<projectId>`. All credentials are ES256 JWTs minted locally with
  * the org's private key — no platform-wide token ever leaves this class.
  * Called by `commitTurn`, the restorer, and the project-create flow. The
- * `mobile-build` task gets a "read" credential here to fetch one commit.
+ * `mobile-build` task gets a "read" credential here to fetch one commit,
+ * and the `github-sync` task gets the "push-github-mirror" credential.
+ * The theme service reads one committed file through `readFile`.
  */
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type {
 	GitCredentialAccess,
+	GitFileReader,
 	GitStore,
 } from "../../domain/ports/git-store";
 import { requireV2Env, V2_ENV, type V2EnvSource } from "../env/v2-env";
@@ -54,6 +57,9 @@ export type CodeStorageGitStoreOptions = {
 const REQUEST_TIMEOUT_MS = 30_000;
 // A repo write is a control-plane call; 300 s covers the API round trip.
 const REPO_WRITE_TOKEN_TTL_SECONDS = 300;
+// One read token serves every retry: 4 attempts of up to 30 s and 3 waits
+// of up to 60 s fit in 300 s. The token never leaves the API process.
+const FILE_READ_TOKEN_TTL_SECONDS = 300;
 // At most 4 attempts per call: one try plus three retries.
 const MAX_ATTEMPTS = 4;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
@@ -74,10 +80,19 @@ const PUSH_MAIN_REFS: CodeStorageRefRule[] = [
 	["refs/heads/main", ["no-force-push"]],
 	["*", ["no-push"]],
 ];
+// Security: the GitHub mirror token of the worker may move `github/main` in
+// any way, because GitHub history can be rewritten. It must never push
+// `main`, another branch, or a tag. The docs say that a rule with no ops
+// permits its ref: https://code.storage/docs/repos/ref-policies.md
+// The docs show no empty `[]` list, so test one mirror push on staging.
+const GITHUB_MIRROR_REFS: CodeStorageRefRule[] = [
+	["refs/heads/github/main", []],
+	["*", ["no-push"]],
+];
 
 /** `GitStore` over the code.storage REST API. */
 @Injectable()
-export class CodeStorageGitStore implements GitStore {
+export class CodeStorageGitStore implements GitStore, GitFileReader {
 	private readonly logger = new Logger(CodeStorageGitStore.name);
 
 	constructor(
@@ -119,6 +134,7 @@ export class CodeStorageGitStore implements GitStore {
 	 * Mints a git JWT without an API call. "read" access carries only
 	 * `git:read`, so the token cannot push. "push-main" adds `git:write` and
 	 * the `refs` claim `PUSH_MAIN_REFS`. Its LIMIT says what the claim allows.
+	 * "push-github-mirror" adds `git:write` and the claim `GITHUB_MIRROR_REFS`.
 	 */
 	async issueCredential(
 		projectId: string,
@@ -131,17 +147,13 @@ export class CodeStorageGitStore implements GitStore {
 		remoteUrl: string;
 	}> {
 		const now = new Date();
-		// A push needs both scopes: `git:read` for fetch/clone, `git:write`
-		// for push. One scope never includes the other.
-		const password = await this.mint(
-			access === "read" ? ["git:read"] : ["git:read", "git:write"],
-			{
-				repoName: codeStorageRepoName(projectId),
-				ttlSeconds,
-				now,
-				refs: access === "read" ? undefined : PUSH_MAIN_REFS,
-			},
-		);
+		const claims = credentialClaims(access);
+		const password = await this.mint(claims.scopes, {
+			repoName: codeStorageRepoName(projectId),
+			ttlSeconds,
+			now,
+			refs: claims.refs,
+		});
 		return {
 			username: CODE_STORAGE_GIT_USERNAME,
 			password,
@@ -166,6 +178,34 @@ export class CodeStorageGitStore implements GitStore {
 				response.detail,
 			);
 		}
+	}
+
+	/**
+	 * `GET /repos/file` with a `git:read` JWT: the token cannot change the
+	 * repository. A 404 means no repository or no file at `ref`.
+	 */
+	async readFile(
+		projectId: string,
+		ref: string,
+		path: string,
+	): Promise<Uint8Array | null> {
+		const token = await this.mint(["git:read"], {
+			repoName: codeStorageRepoName(projectId),
+			ttlSeconds: FILE_READ_TOKEN_TTL_SECONDS,
+		});
+		const query = new URLSearchParams({ path, ref });
+		const response = await this.request("GET", `/repos/file?${query}`, token);
+		if (response.status === 404) {
+			return null;
+		}
+		if (!response.ok || response.body === null) {
+			throw new GitStoreError(
+				`code.storage file read failed (${response.status})`,
+				response.status,
+				response.detail,
+			);
+		}
+		return response.body;
 	}
 
 	/** `iss`/`sub` fixed claims plus the org's signing key from env. */
@@ -209,14 +249,20 @@ export class CodeStorageGitStore implements GitStore {
 	 * One API call with retries. A 429 waits `Retry-After` (capped at 60 s)
 	 * or the backoff when the header is missing; a 5xx or a network error
 	 * waits 1 s, 2 s, then 4 s. After 4 attempts the call throws a
-	 * `GitStoreError` whose detail never carries the JWT.
+	 * `GitStoreError` whose detail never carries the JWT. `body` holds the
+	 * bytes of a successful GET, else null.
 	 */
 	private async request(
-		method: "POST" | "DELETE",
+		method: "GET" | "POST" | "DELETE",
 		path: string,
 		token: string,
 		init?: { body: string },
-	): Promise<{ ok: boolean; status: number; detail: string | null }> {
+	): Promise<{
+		ok: boolean;
+		status: number;
+		detail: string | null;
+		body: Uint8Array | null;
+	}> {
 		const url = `${this.apiBaseUrl()}${path}`;
 		let lastError: GitStoreError | null = null;
 
@@ -231,10 +277,15 @@ export class CodeStorageGitStore implements GitStore {
 					body: init?.body,
 					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 				});
-				const detail = await readProblemDetail(response);
+				// A successful GET answers file bytes. Every other answer can carry a problem body.
+				const body =
+					method === "GET" && response.ok
+						? new Uint8Array(await response.arrayBuffer())
+						: null;
+				const detail = body === null ? await readProblemDetail(response) : null;
 				// A 429 or a 5xx is retryable; anything else is a final answer.
 				if (response.status !== 429 && response.status < 500) {
-					return { ok: response.ok, status: response.status, detail };
+					return { body, detail, ok: response.ok, status: response.status };
 				}
 				lastError = new GitStoreError(
 					`code.storage ${method} ${path} answered ${response.status}`,
@@ -291,6 +342,28 @@ export class CodeStorageGitStore implements GitStore {
 			return this.options.sleep(ms);
 		}
 		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+}
+
+// The scopes and the refs claim of one access. The `never` default makes a
+// new access value fail the compile. It never gets the claim of another
+// access. A push needs both scopes: `git:read` for fetch, `git:write` for
+// push. One scope never includes the other.
+function credentialClaims(access: GitCredentialAccess): {
+	scopes: CodeStorageScope[];
+	refs: CodeStorageRefRule[] | undefined;
+} {
+	switch (access) {
+		case "read":
+			return { scopes: ["git:read"], refs: undefined };
+		case "push-main":
+			return { scopes: ["git:read", "git:write"], refs: PUSH_MAIN_REFS };
+		case "push-github-mirror":
+			return { scopes: ["git:read", "git:write"], refs: GITHUB_MIRROR_REFS };
+		default: {
+			const unknownAccess: never = access;
+			throw new Error(`Unknown git credential access: ${unknownAccess}`);
+		}
 	}
 }
 

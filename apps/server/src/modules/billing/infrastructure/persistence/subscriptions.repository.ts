@@ -63,11 +63,14 @@ export type AdminManualSubscriptionRow = {
 	};
 };
 
+/** The user and the optional org of a manual plan grant. The grant service reads it. */
 export type ManualBillingOwnerRow = {
 	organization: {
 		id: string;
 		name: string;
 		slug: string;
+		/** Set: the org is this user's personal workspace. NULL: a team workspace. */
+		personalOwnerUserId: string | null;
 	} | null;
 	user: {
 		email: string;
@@ -294,6 +297,7 @@ export class SubscriptionsRepository {
 				organization: {
 					id: organization.id,
 					name: organization.name,
+					personalOwnerUserId: organization.personalOwnerUserId,
 					slug: organization.slug,
 				},
 				user: {

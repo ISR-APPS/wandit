@@ -3,6 +3,7 @@ import { appBranches, appCommits } from "@wandit/db/schema/app-versions";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import {
 	AppCommitsRepository,
 	type NewAppCommit,
@@ -390,7 +391,7 @@ describe("AppCommitsRepository.findScopedProject", () => {
 		);
 
 		await repository.findScopedProject(
-			{ kind: "personal", userId: "user-1" },
+			projectScopeFrom(undefined, "user-1"),
 			"p-1",
 		);
 
@@ -410,9 +411,10 @@ describe("AppCommitsRepository.findScopedProject", () => {
 		await repository.findScopedProject(
 			{
 				actorIsLimitExempt: false,
+				actorRoles: ["member"],
 				kind: "org",
 				organizationId: "org-1",
-				userId: "user-1",
+				actorUserId: "user-1",
 			},
 			"p-1",
 		);

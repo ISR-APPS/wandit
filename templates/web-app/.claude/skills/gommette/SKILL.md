@@ -48,7 +48,7 @@ Warm French that talks to parents with a wink — short lines, honest facts, one
 - THE BACK COVER: exactly ONE full-bleed ink (#23201C) slab per page — the footer. Ink may run full-bleed; sticker colors never. On the back cover, halos and drops stay (stickers glued on the back of the book), text flips to sheet.
 - Gradients exist NOWHERE — not in art, not in text, not in a hover, not as light. Alpha exists only in the two drop-shadow recipes and the ghost dash.
 
-FIXED TOKEN MAP — SHEET→--background · INK→--foreground · LEAD STICKER COLOR→--primary · INK→--primary-foreground · WHITE→--secondary · second sticker color→--accent · GHOST GREY→--muted · ink at 15%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, tint or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: Baloo 2 (600–800) or Sniglet (800) — ONE per site. Chubby, rounded, warm. Sentence case by default; uppercase only on mini info-stickers and badges. Tracking 0 to −0.01em. Never below 1.1rem.

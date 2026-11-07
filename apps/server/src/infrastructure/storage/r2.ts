@@ -9,12 +9,14 @@
  * All R2_* env vars are optional (the server boots before credentials
  * exist), so callers MUST check isR2Configured() before touching storage.
  */
-import { createWriteStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { rm, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
+	CopyObjectCommand,
 	DeleteObjectCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
@@ -23,6 +25,8 @@ import {
 	PutObjectCommand,
 	S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { DesktopPlatform } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
 // True only when every credential needed to reach the bucket is present.
@@ -190,6 +194,108 @@ export function feedbackScreenshotKey(
 	extension: "png" | "jpg",
 ): string {
 	return `feedback/${feedbackId}/screenshot.${extension}`;
+}
+
+/**
+ * Updater manifest that installed desktop apps of one platform read
+ * (docs/v2/desktop-apps.md section 10). One manifest per platform, because
+ * the updater signs one version per file. A release rewrites it; a staff
+ * suspension deletes it.
+ * desktop/{project_id}/latest.json (Windows) or latest-macos.json (macOS)
+ */
+export function desktopManifestKey(
+	projectId: string,
+	platform: DesktopPlatform,
+): string {
+	return platform === "windows"
+		? `desktop/${projectId}/latest.json`
+		: `desktop/${projectId}/latest-macos.json`;
+}
+
+/**
+ * File name of the stable download of one platform: `<binary>-setup.exe` on
+ * Windows, `<binary>.dmg` on macOS. The release also puts it in the download header.
+ */
+export function desktopStableFileName(
+	binaryName: string,
+	platform: DesktopPlatform,
+): string {
+	return platform === "windows"
+		? `${binaryName}-setup.exe`
+		: `${binaryName}.dmg`;
+}
+
+/**
+ * Stable download link of one platform: a copy of its current download file,
+ * rewritten on each release of that platform.
+ * desktop/{project_id}/{desktopStableFileName}
+ */
+export function desktopStableInstallerKey(
+	projectId: string,
+	binaryName: string,
+	platform: DesktopPlatform,
+): string {
+	return `desktop/${projectId}/${desktopStableFileName(binaryName, platform)}`;
+}
+
+/**
+ * Folder of the signed files of one build. The runtime appends the file
+ * names. Each call answers a new folder. The random part keeps the public
+ * objects unknown until the `ready` row stores their keys, so a build that
+ * stops before `ready` leaks no file (audit A1). It stays under
+ * `desktop/{project_id}/`, which a suspend and a delete remove.
+ * desktop/{project_id}/builds/{build_id}-{random}
+ */
+export function desktopBuildFolderKey(
+	projectId: string,
+	buildId: string,
+): string {
+	return `desktop/${projectId}/builds/${buildId}-${unguessableSuffix()}`;
+}
+
+// 128 random bits. The bucket is public, so only an unguessable key keeps
+// the build input, the staged files, and an unreleased build private.
+function unguessableSuffix(): string {
+	return randomBytes(16).toString("hex");
+}
+
+// The prefix of the temporary build objects. An R2 lifecycle rule on it
+// deletes each object 1 day after its upload (runbook, desktop "Setup"). So
+// a late CI upload or a crashed task leaves no object for good.
+const DESKTOP_TEMP_PREFIX = "desktop-temp";
+
+/**
+ * Build input archive that the CI downloads with a presigned GET.
+ * Each call answers a new key.
+ * desktop-temp/{project_id}/inputs/{build_id}-{random}.tar.gz
+ */
+export function desktopInputKey(projectId: string, buildId: string): string {
+	return `${DESKTOP_TEMP_PREFIX}/${projectId}/inputs/${buildId}-${unguessableSuffix()}.tar.gz`;
+}
+
+/**
+ * Unsigned file that the CI uploads with a presigned PUT. The task checks
+ * and signs it, then deletes it. Each call answers a new key. The URL check
+ * of build.yml and build-macos.yml matches these names.
+ * desktop-temp/{project_id}/staging/{build_id}-{random}.{extension}
+ */
+export function desktopStagingKey(
+	projectId: string,
+	buildId: string,
+	/** `exe`: the Windows setup. `dmg`: the macOS disk image. `app.tar.gz`: the macOS update archive. */
+	extension: "exe" | "dmg" | "app.tar.gz",
+): string {
+	return `${DESKTOP_TEMP_PREFIX}/${projectId}/staging/${buildId}-${unguessableSuffix()}.${extension}`;
+}
+
+/**
+ * Public URL of a `desktop/` key on the updates host:
+ * DESKTOP_UPDATES_BASE_URL, else R2_PUBLIC_BASE_URL. Null when both are
+ * unset. Every installed app holds the manifest URL, so the base never changes.
+ */
+export function desktopUpdatesUrl(key: string): string | null {
+	const base = env.DESKTOP_UPDATES_BASE_URL ?? env.R2_PUBLIC_BASE_URL;
+	return base === undefined ? null : `${base.replace(/\/+$/, "")}/${key}`;
 }
 
 // Narrower renditions of an image object live BESIDE it, in the same
@@ -388,6 +494,140 @@ export async function putSiteFile(
 			ContentType: contentType,
 			Key: key,
 		}),
+	);
+}
+
+/** HTTP headers that R2 stores with an object and sends on every GET. */
+export type ObjectHeaders = {
+	cacheControl: string;
+	contentType: string;
+	/** `attachment; filename="..."` makes the browser save the file. Unset: the browser decides. */
+	contentDisposition?: string;
+};
+
+/** What `putObject` uploads: a text in memory, or a local file streamed from disk. */
+export type ObjectBody =
+	| { kind: "text"; text: string }
+	| { kind: "file"; filePath: string };
+
+// Header injection guard: the file name goes inside a quoted header value.
+const DOWNLOAD_FILE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
+
+// The content type of each desktop build file, by the end of its name.
+const DESKTOP_DOWNLOAD_CONTENT_TYPES = [
+	{
+		contentType: "application/vnd.microsoft.portable-executable",
+		suffix: ".exe",
+	},
+	{ contentType: "application/x-apple-diskimage", suffix: ".dmg" },
+	{ contentType: "application/gzip", suffix: ".app.tar.gz" },
+] as const;
+
+/**
+ * Headers of a desktop build file (setup exe, disk image, or update
+ * archive): always a download, never a page, and never cached. Throws for a
+ * file name with a quote, a space, or a control character, and for any
+ * other file type.
+ */
+export function desktopDownloadHeaders(fileName: string): ObjectHeaders {
+	const known = DESKTOP_DOWNLOAD_CONTENT_TYPES.find(({ suffix }) =>
+		fileName.endsWith(suffix),
+	);
+	if (!DOWNLOAD_FILE_NAME_PATTERN.test(fileName) || known === undefined) {
+		throw new Error(`Unsafe download file name: ${fileName.slice(0, 120)}`);
+	}
+	return {
+		// A staff takedown deletes the object. An edge copy would keep the
+		// file downloadable after it (security audit A7).
+		cacheControl: "no-cache",
+		contentDisposition: `attachment; filename="${fileName}"`,
+		contentType: known.contentType,
+	};
+}
+
+/**
+ * Uploads one object with explicit headers. A file body streams from disk
+ * with its size, so a 300 MB installer never sits in memory.
+ */
+export async function putObject(
+	key: string,
+	body: ObjectBody,
+	headers: ObjectHeaders,
+): Promise<void> {
+	const payload =
+		body.kind === "text"
+			? { Body: body.text }
+			: {
+					Body: createReadStream(body.filePath),
+					// The SDK needs the length of a stream body before it sends it.
+					ContentLength: (await stat(body.filePath)).size,
+				};
+	await r2Client().send(
+		new PutObjectCommand({
+			...payload,
+			Bucket: env.R2_BUCKET,
+			CacheControl: headers.cacheControl,
+			ContentDisposition: headers.contentDisposition,
+			ContentType: headers.contentType,
+			Key: key,
+		}),
+	);
+}
+
+/**
+ * Copies one object inside the bucket with new headers. R2 copies the
+ * bytes on its side; nothing passes through this process.
+ */
+export async function copyObject(
+	sourceKey: string,
+	destinationKey: string,
+	headers: ObjectHeaders,
+): Promise<void> {
+	await r2Client().send(
+		new CopyObjectCommand({
+			Bucket: env.R2_BUCKET,
+			CacheControl: headers.cacheControl,
+			ContentDisposition: headers.contentDisposition,
+			ContentType: headers.contentType,
+			// S3 reads the source as `<bucket>/<key>`, URL-encoded per segment.
+			CopySource: `${env.R2_BUCKET}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+			Key: destinationKey,
+			// REPLACE: the copy takes the headers above, not those of the source.
+			MetadataDirective: "REPLACE",
+		}),
+	);
+}
+
+/**
+ * Presigned GET URL of one object, valid for `expiresInSeconds` (SigV4
+ * allows at most 7 days). The URL is a credential: never log it.
+ */
+export function presignedGetUrl(
+	key: string,
+	expiresInSeconds: number,
+): Promise<string> {
+	return getSignedUrl(
+		r2Client(),
+		new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		{ expiresIn: expiresInSeconds },
+	);
+}
+
+/**
+ * Presigned PUT URL of one object, valid for `expiresInSeconds`. The URL
+ * signs no content type. The CI upload steps in
+ * tooling/desktop-builder/.github/workflows/build.yml and build-macos.yml send
+ * `application/octet-stream`. If you sign a content type, use that value.
+ * Never log the URL.
+ */
+export function presignedPutUrl(
+	key: string,
+	expiresInSeconds: number,
+): Promise<string> {
+	return getSignedUrl(
+		r2Client(),
+		new PutObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		{ expiresIn: expiresInSeconds },
 	);
 }
 
@@ -605,21 +845,62 @@ function isAwsNotFoundError(
 /**
  * R2 prefixes one `v2_app` project owns. Writers: the `commit-turn.ts`
  * patches under `git/`, the generate_image host tool of WANDIT-169 under
- * `sites/<id>/assets/`, and the `publish-app` task (WANDIT-178) under
- * `published/<id>/builds/`. Never the whole `published/<id>/` prefix: the
- * V1 page files of a migrated project live there too.
+ * `sites/<id>/assets/`, the `publish-app` task (WANDIT-178) under
+ * `published/<id>/builds/`, the desktop release under `desktop/<id>/`, and
+ * the desktop build under `desktop-temp/<id>/`. Never the whole
+ * `published/<id>/` prefix: the V1 page files of a migrated project live
+ * there too.
  */
 export function v2ProjectPrefixes(projectId: string): string[] {
 	return [
 		`git/${projectId}/`,
 		`sites/${projectId}/assets/`,
 		`published/${projectId}/builds/`,
+		`desktop/${projectId}/`,
+		`${DESKTOP_TEMP_PREFIX}/${projectId}/`,
 	];
 }
 
 /**
+ * Deletes the objects directly under `desktop/<projectId>/`: `latest.json`,
+ * `latest-macos.json`, and the stable files of both platforms. Installed
+ * apps then find no update. The build files under `builds/` stay.
+ * `DesktopBuildsService.release` calls it when a suspension lands during its
+ * writes; the suspension deletes the rest.
+ */
+export async function deleteDesktopReleaseObjects(
+	projectId: string,
+): Promise<number> {
+	let deleted = 0;
+	let continuationToken: string | undefined;
+	do {
+		// The "/" delimiter lists only the top-level objects. The `builds/`
+		// folder comes back as a common prefix.
+		const page = await r2Client().send(
+			new ListObjectsV2Command({
+				Bucket: env.R2_BUCKET,
+				ContinuationToken: continuationToken,
+				Delimiter: "/",
+				Prefix: `desktop/${projectId}/`,
+			}),
+		);
+		for (const item of page.Contents ?? []) {
+			if (item.Key) {
+				await deleteObject(item.Key);
+				deleted += 1;
+			}
+		}
+		continuationToken = page.IsTruncated
+			? page.NextContinuationToken
+			: undefined;
+	} while (continuationToken !== undefined);
+	return deleted;
+}
+
+/**
  * Deletes every object under `prefix` and answers the count.
- * The `delete-app-project` runtime calls it; a spec passes a fake `io`.
+ * The `delete-app-project` runtime and the staff suspend of a desktop app
+ * call it; a spec passes a fake `io`.
  */
 export async function deleteObjectsByPrefix(
 	prefix: string,

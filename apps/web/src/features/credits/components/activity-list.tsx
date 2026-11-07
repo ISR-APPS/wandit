@@ -6,6 +6,7 @@
 import type { Icon } from "@phosphor-icons/react";
 import { ChatCircleIcon } from "@phosphor-icons/react/ChatCircle";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
@@ -16,9 +17,11 @@ import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { MegaphoneIcon } from "@phosphor-icons/react/Megaphone";
 import { MicrophoneIcon } from "@phosphor-icons/react/Microphone";
 import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
+import { PaletteIcon } from "@phosphor-icons/react/Palette";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { ScalesIcon } from "@phosphor-icons/react/Scales";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import type {
@@ -45,6 +48,9 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	sandbox: HardDrivesIcon,
 	mobile_build: DeviceMobileIcon,
 	mobile_preview: DeviceMobileIcon,
+	app_ai_gateway: SparkleIcon,
+	desktop_build: DesktopIcon,
+	theme_design: PaletteIcon,
 	topup_adjust: ScalesIcon,
 };
 

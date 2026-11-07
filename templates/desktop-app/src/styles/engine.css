@@ -1,0 +1,831 @@
+/* Theme engine: it maps src/styles/theme.json to the role tokens that the UI kit reads. Only the host writes theme.json.
+   tokens.css imports this file after Tailwind. src/root-layout.tsx puts the theme on <html> with the helpers of theme.ts.
+   An inline style holds the source variables: --theme-light-*, --theme-dark-*, and --theme-font-*. The dark class sets the dark mode.
+   One data-* attribute holds each CSS axis, for example data-radius. AppShell reads the sidebar and user menu axes.
+   The icons axis is no CSS: src/root-layout.tsx gives it to the Phosphor IconContext.
+   Three voice attributes set the titles and the figures: data-heading-weight, data-heading-tracking, and data-numerals. The agent may not edit this file. */
+
+/* ---- palette: the light colors on :root, the dark colors on .dark. ----
+   The schema of theme.ts makes the 24 required keys present, so only the optional keys have a fallback.
+   The sources sit on <html>, so a .dark element inside a light page maps the dark colors again. */
+
+:root {
+	--background: var(--theme-light-background);
+	--foreground: var(--theme-light-foreground);
+	--card: var(--theme-light-card);
+	--card-foreground: var(--theme-light-card-foreground);
+	--popover: var(--theme-light-popover);
+	--popover-foreground: var(--theme-light-popover-foreground);
+	--primary: var(--theme-light-primary);
+	--primary-foreground: var(--theme-light-primary-foreground);
+	--secondary: var(--theme-light-secondary);
+	--secondary-foreground: var(--theme-light-secondary-foreground);
+	--muted: var(--theme-light-muted);
+	--muted-foreground: var(--theme-light-muted-foreground);
+	--accent: var(--theme-light-accent);
+	--accent-foreground: var(--theme-light-accent-foreground);
+	--destructive: var(--theme-light-destructive);
+	--destructive-foreground: var(--theme-light-destructive-foreground);
+	--border: var(--theme-light-border);
+	--input: var(--theme-light-input);
+	--ring: var(--theme-light-ring);
+	--success: var(--theme-light-success);
+	--warning: var(--theme-light-warning);
+	--info: var(--theme-light-info);
+	--canvas: var(--theme-light-canvas);
+	--shadow-color: var(--theme-light-shadow-color);
+	--chart-1: var(--theme-light-chart-1, var(--primary));
+	--chart-2: var(--theme-light-chart-2, var(--chart-ramp-2));
+	--chart-3: var(--theme-light-chart-3, var(--chart-ramp-3));
+	--chart-4: var(--theme-light-chart-4, var(--chart-ramp-4));
+	--chart-5: var(--theme-light-chart-5, var(--chart-ramp-5));
+	--contrast: var(--theme-light-contrast, var(--foreground));
+	--contrast-foreground: var(
+		--theme-light-contrast-foreground,
+		var(--background)
+	);
+	/* The alpha of the two layers of a soft shadow. */
+	--soft-shadow-near: 5%;
+	--soft-shadow-far: 10%;
+}
+
+/* After :root: the two selectors tie, so the later block wins on a dark <html>. */
+.dark {
+	color-scheme: dark;
+	--background: var(--theme-dark-background);
+	--foreground: var(--theme-dark-foreground);
+	--card: var(--theme-dark-card);
+	--card-foreground: var(--theme-dark-card-foreground);
+	--popover: var(--theme-dark-popover);
+	--popover-foreground: var(--theme-dark-popover-foreground);
+	--primary: var(--theme-dark-primary);
+	--primary-foreground: var(--theme-dark-primary-foreground);
+	--secondary: var(--theme-dark-secondary);
+	--secondary-foreground: var(--theme-dark-secondary-foreground);
+	--muted: var(--theme-dark-muted);
+	--muted-foreground: var(--theme-dark-muted-foreground);
+	--accent: var(--theme-dark-accent);
+	--accent-foreground: var(--theme-dark-accent-foreground);
+	--destructive: var(--theme-dark-destructive);
+	--destructive-foreground: var(--theme-dark-destructive-foreground);
+	--border: var(--theme-dark-border);
+	--input: var(--theme-dark-input);
+	--ring: var(--theme-dark-ring);
+	--success: var(--theme-dark-success);
+	--warning: var(--theme-dark-warning);
+	--info: var(--theme-dark-info);
+	--canvas: var(--theme-dark-canvas);
+	--shadow-color: var(--theme-dark-shadow-color);
+	--chart-1: var(--theme-dark-chart-1, var(--primary));
+	--chart-2: var(--theme-dark-chart-2, var(--chart-ramp-2));
+	--chart-3: var(--theme-dark-chart-3, var(--chart-ramp-3));
+	--chart-4: var(--theme-dark-chart-4, var(--chart-ramp-4));
+	--chart-5: var(--theme-dark-chart-5, var(--chart-ramp-5));
+	--contrast: var(--theme-dark-contrast, var(--foreground));
+	--contrast-foreground: var(
+		--theme-dark-contrast-foreground,
+		var(--background)
+	);
+	/* A shadow on a dark page needs a higher alpha to show. */
+	--soft-shadow-near: 25%;
+	--soft-shadow-far: 45%;
+}
+
+/* The fallback chart colors: a ramp of the primary hue toward the text and the page colors.
+   :where() keeps specificity 0. A .dark element computes the ramp again from its dark colors. */
+:where(:root, .dark) {
+	--chart-ramp-2: color-mix(in oklch, var(--primary) 45%, var(--foreground));
+	--chart-ramp-3: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 50%, var(--foreground)) 60%,
+		var(--background)
+	);
+	--chart-ramp-4: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 50%, var(--foreground)) 75%,
+		var(--background)
+	);
+	--chart-ramp-5: color-mix(
+		in oklch,
+		color-mix(in oklch, var(--primary) 60%, var(--foreground)) 95%,
+		var(--background)
+	);
+}
+
+/* ---- fonts: the families of theme.json. ----
+   Not @theme inline: the utilities must emit var(--font-*), so the blocks below can swap the faces. */
+
+@theme {
+	--font-sans: var(--theme-font-sans), ui-sans-serif, system-ui, sans-serif;
+	/* The public pages use the poster face of a world when theme.json has one. */
+	--font-display:
+		var(--theme-font-public-display, var(--theme-font-display)), ui-sans-serif,
+		system-ui, sans-serif;
+}
+
+/* The area behind login keeps the app display face. AppShell sets data-surface="app".
+   :has() on the root also reaches the menus and the dialogs that render outside the shell. */
+:root:has([data-surface="app"]) {
+	--font-display:
+		var(--theme-font-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Arabic faces on every page. This block ties with the :has() block and comes after it, so it wins. */
+:root:lang(ar) {
+	--font-sans:
+		var(--theme-font-arabic-sans), ui-sans-serif, system-ui, sans-serif;
+	--font-display:
+		var(--theme-font-arabic-display), var(--theme-font-arabic-sans),
+		ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---- voice: the PageHeader h1 and the KPI figures. ---- */
+
+:root[data-heading-weight="500"] {
+	--heading-weight: 500;
+}
+
+:root[data-heading-weight="600"] {
+	--heading-weight: 600;
+}
+
+:root[data-heading-weight="700"] {
+	--heading-weight: 700;
+}
+
+:root[data-heading-weight="800"] {
+	--heading-weight: 800;
+}
+
+:root[data-heading-tracking="tight"] {
+	--heading-tracking: -0.03em;
+}
+
+:root[data-heading-tracking="snug"] {
+	--heading-tracking: -0.02em;
+}
+
+:root[data-heading-tracking="normal"] {
+	--heading-tracking: 0em;
+}
+
+/* Letter-spacing breaks the joined Arabic script. 0,3,0 wins over the tracking blocks (0,2,0). */
+:root[data-heading-tracking]:lang(ar) {
+	--heading-tracking: 0em;
+}
+
+:root[data-numerals="display"] {
+	--numeral-font: var(--font-display);
+}
+
+:root[data-numerals="sans"] {
+	--numeral-font: var(--font-sans);
+}
+
+/* ---- role tokens: the defaults that the kit reads. An axis block below replaces some of them. ----
+   The sizes follow --radius, --border-width, and --spacing on <html>. */
+
+:root {
+	/* Card and the inset page panel. 1.333 is the rounded-xl step of the radius scale in tokens.css. */
+	--surface-radius: calc(var(--radius) * 1.333);
+	--surface-border-width: var(--border-width);
+	/* Button and the Badge pill. 0.8 is the rounded-md step. */
+	--control-radius: calc(var(--radius) * 0.8);
+	--control-border-width: var(--border-width);
+	/* Input, Textarea, and the Select trigger. */
+	--field-radius: calc(var(--radius) * 0.8);
+	--field-border-width: var(--border-width);
+	/* Dialog, Sheet, the menus, the Select list, and the chart tooltip. */
+	--overlay-radius: var(--radius);
+	--overlay-border-width: var(--border-width);
+	--badge-radius: var(--control-radius);
+	--badge-border-width: var(--border-width);
+	/* Shell. 16rem is the shadcn sidebar width; the phone Sheet uses it too.
+	   The icon width is the size-8 button plus the p-2 of its group. The rail width (from isr-viraly) fits a short label. */
+	--sidebar-width: 16rem;
+	--sidebar-width-icon: calc(var(--spacing) * 12);
+	--sidebar-width-rail: calc(var(--spacing) * 22);
+	--sidebar-border-width: var(--border-width);
+	/* The margin around the inset page panel and the floating sidebar. */
+	--shell-gap: calc(var(--spacing) * 2);
+	--shell-panel-radius: var(--surface-radius);
+	/* The nav item and the tabs with no mark. A data-active-item block adds the mark. */
+	--nav-item-radius: calc(var(--radius) * 0.8);
+	--nav-active-weight: 500;
+	--nav-active-border-width: 0px;
+	--nav-indicator-width: 0px;
+	--tabs-list-radius: calc(var(--radius) * 0.8);
+	/* 3px is the gap of the shadcn segmented tabs between the strip and the active chip. */
+	--tabs-list-padding: 3px;
+	--tabs-active-border-width: 0px;
+	--tabs-indicator-height: 0px;
+}
+
+/* The color role tokens. :where() keeps specificity 0. A .dark section inside a light page matches it too,
+   so its edges, fields, and nav compute again from the dark palette. Each color axis block below adds a .dark selector. */
+:where(:root, .dark) {
+	--surface-border-color: var(--border);
+	/* The edge of a filled Button and a filled Badge. Only shadowStyle=hard draws it, in ink. */
+	--control-border-color: transparent;
+	/* The edge of a field and of the outline Button and Badge. --field-bg is the fill of a field. */
+	--field-border-color: var(--input);
+	--field-bg: var(--card);
+	--overlay-border-color: var(--border);
+	--shell-panel-border-color: var(--surface-border-color);
+	/* The sidebar colors of the canvas tone. A data-sidebar-tone block replaces some of them.
+	   The hover fill mixes 10% of the text color, so it shows on any tone, unlike the palette --accent. */
+	--sidebar: var(--canvas);
+	--sidebar-foreground: var(--foreground);
+	--sidebar-accent: color-mix(
+		in oklch,
+		var(--sidebar) 90%,
+		var(--sidebar-foreground)
+	);
+	--sidebar-accent-foreground: var(--sidebar-foreground);
+	--sidebar-border: var(--border);
+	--sidebar-primary: var(--primary);
+	--sidebar-primary-foreground: var(--primary-foreground);
+	--sidebar-ring: var(--ring);
+	/* The nav item and the tabs with no mark. */
+	--nav-active-bg: var(--sidebar-accent);
+	--nav-active-fg: var(--sidebar-accent-foreground);
+	--nav-active-border-color: transparent;
+	/* 0 0 #0000 removes a shadow here and below. none breaks a shadow list. */
+	--nav-active-shadow: 0 0 #0000;
+	--nav-indicator-color: transparent;
+	--nav-muted-fg: var(--sidebar-foreground);
+	--tabs-list-bg: var(--muted);
+	--tabs-active-bg: var(--background);
+	--tabs-active-fg: var(--foreground);
+	--tabs-active-shadow: var(--control-shadow);
+}
+
+/* ---- scale: the spacing step and the text sizes of product screens. ----
+   Every kit height is calc(var(--spacing) * n), so it follows the step. md has no block: it keeps the Tailwind steps.
+   The line heights of Tailwind are ratios, so they follow the size. */
+
+:root[data-scale="xs"] {
+	--spacing: 0.2rem;
+	--text-xs: 0.6875rem;
+	--text-sm: 0.75rem;
+	--text-base: 0.875rem;
+	--text-lg: 1rem;
+	--text-xl: 1.125rem;
+	--text-2xl: 1.25rem;
+}
+
+:root[data-scale="sm"] {
+	--spacing: 0.225rem;
+	--text-xs: 0.6875rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.9375rem;
+	--text-lg: 1.0625rem;
+	--text-xl: 1.1875rem;
+	--text-2xl: 1.375rem;
+}
+
+:root[data-scale="lg"] {
+	--spacing: 0.275rem;
+	--text-xs: 0.8125rem;
+	--text-sm: 0.9375rem;
+	--text-base: 1.0625rem;
+	--text-lg: 1.1875rem;
+	--text-xl: 1.3125rem;
+	--text-2xl: 1.625rem;
+}
+
+:root[data-scale="xl"] {
+	--spacing: 0.3rem;
+	--text-xs: 0.875rem;
+	--text-sm: 1rem;
+	--text-base: 1.125rem;
+	--text-lg: 1.25rem;
+	--text-xl: 1.375rem;
+	--text-2xl: 1.75rem;
+}
+
+/* ---- radius: the base corner. Every other radius is a multiple of it. ---- */
+
+:root[data-radius="none"] {
+	/* A length, not a bare 0: calc(0 * 1.333) is a number, and a radius rejects it. */
+	--radius: 0px;
+}
+
+:root[data-radius="sm"] {
+	--radius: 0.375rem;
+}
+
+:root[data-radius="md"] {
+	--radius: 0.625rem;
+}
+
+:root[data-radius="lg"] {
+	--radius: 0.75rem;
+}
+
+:root[data-radius="xl"] {
+	--radius: 1rem;
+}
+
+/* ---- border: one width for the surface, control, field, overlay, badge, and sidebar edges. ---- */
+
+:root[data-border="0.5"] {
+	--border-width: 0.5px;
+}
+
+:root[data-border="1"] {
+	--border-width: 1px;
+}
+
+:root[data-border="1.5"] {
+	--border-width: 1.5px;
+}
+
+:root[data-border="2"] {
+	--border-width: 2px;
+}
+
+:root[data-border="3"] {
+	--border-width: 3px;
+}
+
+/* ---- shadow: the size step. Both shadow styles scale with --shadow-offset; 0px removes the shadow. ---- */
+
+:root[data-shadow="none"] {
+	--shadow-offset: 0px;
+}
+
+:root[data-shadow="sm"] {
+	--shadow-offset: 2px;
+}
+
+:root[data-shadow="md"] {
+	--shadow-offset: 4px;
+}
+
+:root[data-shadow="lg"] {
+	--shadow-offset: 6px;
+}
+
+/* ---- shadow style: soft blurs or hard offsets. ---- */
+
+/* soft: two blurred layers of --shadow-color. On sm: 0 1px 2px, then 0 2px 6px -1px. */
+:root[data-shadow-style="soft"],
+:root[data-shadow-style="soft"] .dark {
+	--surface-shadow:
+		0 calc(var(--shadow-offset) * 0.5) var(--shadow-offset) 0
+		color-mix(
+			in oklch,
+			var(--shadow-color) var(--soft-shadow-near),
+			transparent
+		),
+		0 var(--shadow-offset) calc(var(--shadow-offset) * 3)
+		calc(var(--shadow-offset) * -0.5)
+		color-mix(in oklch, var(--shadow-color) var(--soft-shadow-far), transparent);
+	--control-shadow: 0 calc(var(--shadow-offset) * 0.5) var(--shadow-offset) 0
+		color-mix(
+			in oklch,
+			var(--shadow-color) var(--soft-shadow-near),
+			transparent
+		);
+	--control-shadow-pressed: var(--control-shadow);
+	--control-press: 0px;
+	--field-shadow: var(--control-shadow);
+	/* A menu floats over the page, so its step is at least md (4px), also on shadow=none. */
+	--overlay-offset: max(var(--shadow-offset), 4px);
+	--overlay-shadow:
+		0 calc(var(--overlay-offset) * 0.5) var(--overlay-offset) 0
+		color-mix(
+			in oklch,
+			var(--shadow-color) var(--soft-shadow-near),
+			transparent
+		),
+		0 calc(var(--overlay-offset) * 2) calc(var(--overlay-offset) * 6)
+		calc(var(--overlay-offset) * -1)
+		color-mix(in oklch, var(--shadow-color) var(--soft-shadow-far), transparent);
+}
+
+/* hard: ink edges in --foreground and 0-blur offset shadows (the isr-viraly steps: surface 1, control 0.75, field 0.5).
+   Ink is the text color, so it shows in light and in dark. A button moves into its shadow on :active. */
+:root[data-shadow-style="hard"],
+:root[data-shadow-style="hard"] .dark {
+	--surface-border-color: var(--foreground);
+	--control-border-color: var(--foreground);
+	--field-border-color: var(--foreground);
+	--overlay-border-color: var(--foreground);
+	--surface-shadow: var(--shadow-offset) var(--shadow-offset) 0 0
+		var(--foreground);
+	--control-shadow: calc(var(--shadow-offset) * 0.75)
+		calc(var(--shadow-offset) * 0.75) 0 0 var(--foreground);
+	--control-shadow-pressed: 0 0 0 0 var(--foreground);
+	/* The press distance equals the shadow offset, so the button lands on its shadow. */
+	--control-press: calc(var(--shadow-offset) * 0.75);
+	--field-shadow: calc(var(--shadow-offset) * 0.5)
+		calc(var(--shadow-offset) * 0.5) 0 0 var(--foreground);
+	--overlay-shadow: var(--shadow-offset) var(--shadow-offset) 0 0
+		var(--foreground);
+}
+
+/* ---- frame: the edge and the shadow of the inset page panel and of the floating sidebar. ---- */
+
+:root[data-frame="outlined"],
+:root[data-frame="outlined"] .dark {
+	--shell-panel-border-width: var(--border-width);
+	--shell-panel-shadow: var(--surface-shadow);
+}
+
+/* flat: only the tone step between the panel and the canvas shows the panel. */
+:root[data-frame="flat"] {
+	--shell-panel-border-width: 0px;
+	--shell-panel-shadow: 0 0 #0000;
+}
+
+/* ---- sidebar tone: the color of the nav surface. canvas is the default of the role tokens above. ---- */
+
+/* tint: 6% of the primary over the canvas, a light brand tint. */
+:root[data-sidebar-tone="tint"],
+:root[data-sidebar-tone="tint"] .dark {
+	--sidebar: color-mix(in oklch, var(--canvas) 94%, var(--primary));
+}
+
+/* contrast: the reverse surface. The active fill is the reverse of that surface,
+   because --primary is often too close to a light --contrast. */
+:root[data-sidebar-tone="contrast"],
+:root[data-sidebar-tone="contrast"] .dark {
+	--sidebar: var(--contrast);
+	--sidebar-foreground: var(--contrast-foreground);
+	--sidebar-accent: color-mix(
+		in oklch,
+		var(--contrast) 85%,
+		var(--contrast-foreground)
+	);
+	--sidebar-accent-foreground: var(--contrast-foreground);
+	--sidebar-border: color-mix(
+		in oklch,
+		var(--contrast) 82%,
+		var(--contrast-foreground)
+	);
+	--sidebar-primary: var(--contrast-foreground);
+	--sidebar-primary-foreground: var(--contrast);
+	--sidebar-ring: var(--contrast-foreground);
+}
+
+/* brand: the primary color. The hover fill and the active chip swap the pair: --primary-foreground fill, --primary text.
+   Their contrast is then the palette pair ratio, at least 4.5:1. A mix cannot do this:
+   the text on --primary is light in one look and dark in another. */
+:root[data-sidebar-tone="brand"],
+:root[data-sidebar-tone="brand"] .dark {
+	--sidebar: var(--primary);
+	--sidebar-foreground: var(--primary-foreground);
+	--sidebar-accent: var(--primary-foreground);
+	--sidebar-accent-foreground: var(--primary);
+	--sidebar-border: color-mix(
+		in oklch,
+		var(--primary) 80%,
+		var(--primary-foreground)
+	);
+	--sidebar-primary: var(--primary-foreground);
+	--sidebar-primary-foreground: var(--primary);
+	--sidebar-ring: var(--primary-foreground);
+}
+
+/* ---- active item: the mark of the current nav item, and of the active tab. ---- */
+
+/* pill: a full round fill of --sidebar-accent. 100 times the radius is a pill, except on radius=none. */
+:root[data-active-item="pill"] {
+	--nav-item-radius: calc(var(--radius) * 100);
+	--tabs-list-radius: calc(var(--radius) * 100);
+}
+
+/* bar: a 3px indicator in --sidebar-primary on the start side, on a light fill. Tabs are underlined. */
+:root[data-active-item="bar"],
+:root[data-active-item="bar"] .dark {
+	--nav-item-radius: calc(var(--radius) * 0.4);
+	/* Half of the hover fill: lighter than pill, so the indicator carries the state. */
+	--nav-active-bg: color-mix(
+		in oklch,
+		var(--sidebar-accent) 50%,
+		var(--sidebar)
+	);
+	--nav-active-fg: var(--sidebar-foreground);
+	--nav-active-weight: 600;
+	--nav-indicator-width: 3px;
+	--nav-indicator-color: var(--sidebar-primary);
+	--tabs-list-bg: transparent;
+	--tabs-list-radius: 0px;
+	--tabs-list-padding: 0px;
+	--tabs-active-bg: transparent;
+	--tabs-active-shadow: 0 0 #0000;
+	--tabs-indicator-height: 2px;
+}
+
+/* block: a solid --sidebar-primary fill. Tabs are a segmented control with a primary chip. */
+:root[data-active-item="block"],
+:root[data-active-item="block"] .dark {
+	--nav-active-bg: var(--sidebar-primary);
+	--nav-active-fg: var(--sidebar-primary-foreground);
+	--nav-active-weight: 600;
+	--tabs-active-bg: var(--primary);
+	--tabs-active-fg: var(--primary-foreground);
+	--tabs-active-shadow: 0 0 #0000;
+}
+
+/* outline: a card chip with the surface edge and the control shadow. Both follow the shadow style. */
+:root[data-active-item="outline"],
+:root[data-active-item="outline"] .dark {
+	--nav-active-bg: var(--card);
+	--nav-active-fg: var(--card-foreground);
+	--nav-active-weight: 600;
+	/* At least 1px: the edge is the only mark of this style. */
+	--nav-active-border-width: max(1px, var(--border-width));
+	--nav-active-border-color: var(--surface-border-color);
+	--nav-active-shadow: var(--control-shadow);
+	--tabs-list-bg: transparent;
+	--tabs-list-padding: 0px;
+	--tabs-active-bg: var(--card);
+	--tabs-active-fg: var(--card-foreground);
+	--tabs-active-border-width: max(1px, var(--border-width));
+}
+
+/* quiet: no fill. The active item is bold at full color; the other items are muted. */
+:root[data-active-item="quiet"],
+:root[data-active-item="quiet"] .dark {
+	--nav-active-bg: transparent;
+	--nav-active-fg: var(--sidebar-foreground);
+	--nav-active-weight: 700;
+	/* 70% keeps at least 6:1 on the canvas, tint, and contrast tones. */
+	--nav-muted-fg: color-mix(
+		in oklch,
+		var(--sidebar-foreground) 70%,
+		var(--sidebar)
+	);
+	--tabs-list-bg: transparent;
+	--tabs-list-padding: 0px;
+	--tabs-active-bg: transparent;
+	--tabs-active-shadow: 0 0 #0000;
+}
+
+/* On a brand fill, --primary-foreground can be near 4.5:1. A muted mix then fails, so the weight alone marks the item. */
+:root[data-active-item="quiet"][data-sidebar-tone="brand"],
+:root[data-active-item="quiet"][data-sidebar-tone="brand"] .dark {
+	--nav-muted-fg: var(--sidebar-foreground);
+}
+
+/* On a brand fill, half of the swapped chip is a mid tone under --primary-foreground text. So the indicator and the weight mark the item. */
+:root[data-active-item="bar"][data-sidebar-tone="brand"],
+:root[data-active-item="bar"][data-sidebar-tone="brand"] .dark {
+	--nav-active-bg: transparent;
+}
+
+/* On hard, the sidebar edge is ink too, whatever the tone. Two attributes win over a tone block.
+   It sits after every .dark block, so the specificity never goes down in the file. */
+:root[data-shadow-style="hard"][data-sidebar-tone],
+:root[data-shadow-style="hard"][data-sidebar-tone] .dark {
+	--sidebar-border: var(--foreground);
+}
+
+/* ---- header: the bar at the top of the page column (AppHeader, data-slot="app-header"). ----
+   plain has no block: the header scrolls with the page, with no fill and no rule.
+   --page-surface is the color of the page column. SidebarInset sets it. */
+
+/* bar: sticky, in the page color, with a bottom rule. */
+:root[data-header="bar"] [data-slot="app-header"] {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	border-bottom-width: var(--border-width);
+	background-color: var(--page-surface);
+}
+
+/* blur: sticky and translucent. The page shows through it with a blur. */
+:root[data-header="blur"] [data-slot="app-header"] {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	background-color: color-mix(in oklch, var(--page-surface) 72%, transparent);
+	backdrop-filter: blur(12px) saturate(1.5);
+}
+
+/* ---- content: the width of the page column. ---- */
+
+:root[data-content="full"] {
+	--content-max: none;
+}
+
+:root[data-content="centered"] {
+	--content-max: 72rem;
+}
+
+/* ---- nav icon: the tile behind each icon of the main nav, the rows of SidebarContent. plain has one block, for the icon collapse. ----
+   The tile is the svg itself, with a content-box padding, so the kit markup stays the same.
+   The brand row and the user menu sit in the sidebar header and footer, so they keep the plain glyph.
+   The blocks go from the lowest to the highest specificity, so each later block wins where it applies. */
+
+/* The frame of soft, solid, and color: a 4-step glyph (16px at md) in a 6-step tile (24px).
+   The negative start margin keeps the glyph where plain draws it. The rail and the icon blocks below center the tile. */
+:root:is(
+		[data-nav-icon="soft"],
+		[data-nav-icon="solid"],
+		[data-nav-icon="color"]
+	)
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	box-sizing: content-box;
+	/* The rail draws a 5-step glyph. A 4-step glyph keeps the tile at 6 steps. The rail row grows to fit the tile and the label. */
+	width: calc(var(--spacing) * 4);
+	height: calc(var(--spacing) * 4);
+	padding: var(--spacing);
+	margin-inline-start: calc(var(--spacing) * -1);
+	/* Half the base corner, and never more than the row corner: bar rows use 0.4. */
+	border-radius: min(calc(var(--radius) * 0.5), var(--nav-item-radius));
+}
+
+/* soft and solid: a faint tile of the text color. currentColor follows every tone, the hover, and both modes. */
+:root:is([data-nav-icon="soft"], [data-nav-icon="solid"])
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	background-color: color-mix(in oklch, currentColor 12%, transparent);
+}
+
+/* color: one hue tile per item with a white glyph, as in iOS Settings. The active item keeps its hue.
+   The glyph contrast is 3.42:1 or more in light and 4.42:1 or more in dark (WCAG non-text: 3:1). */
+:root[data-nav-icon="color"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	/* The fallback is the first hue: a menu button outside a SidebarMenuItem gets no nth-child hue. */
+	background-color: oklch(
+		0.62 var(--nav-icon-chroma, 0.15) var(--nav-icon-hue, 250)
+	);
+	color: oklch(1 0 0);
+}
+
+/* The rail centers the icon over its label. A start margin moves the tile off the middle. */
+:root[data-nav-icon]
+	[data-collapsible="rail"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	margin-inline-start: 0;
+}
+
+/* plain: the transparent border of the icon button pushes the glyph off the middle. The margin removes that width. */
+:root[data-nav-icon="plain"]
+	[data-collapsible="icon"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	margin-inline-start: calc(var(--nav-active-border-width) * -1);
+}
+
+/* The icon button has a transparent border of the active width. The margin also removes that width.
+   Then the tile is 1 step from each edge of the size-8 button. This holds for a border of up to 1 step. */
+:root:is(
+		[data-nav-icon="soft"],
+		[data-nav-icon="solid"],
+		[data-nav-icon="color"]
+	)
+	[data-collapsible="icon"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	margin-inline-start: calc(
+		var(--spacing) *
+		-1 -
+		var(--nav-active-border-width)
+	);
+}
+
+/* soft: the active tile takes a primary tint. */
+:root[data-nav-icon="soft"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: color-mix(
+		in oklch,
+		var(--sidebar-primary) 20%,
+		transparent
+	);
+}
+
+/* solid: the active tile is a solid primary chip. On the brand tone the sidebar tokens swap the pair,
+   so the tile takes the sidebar text color and the glyph takes the primary. */
+:root[data-nav-icon="solid"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: var(--sidebar-primary);
+	color: var(--sidebar-primary-foreground);
+}
+
+/* color on a dark page: a darker and calmer tile. */
+:root[data-nav-icon="color"].dark
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"]
+	> svg:first-child {
+	background-color: oklch(
+		0.56 calc(var(--nav-icon-chroma, 0.15) * 0.9) var(--nav-icon-hue, 250)
+	);
+}
+
+/* soft on a primary ground. On the brand and contrast tones, the sidebar primary is the text color.
+   A block row has --sidebar-primary as its fill.
+   A primary tint then melts into the row, so a stronger mix of the text color marks the active tile. */
+:root[data-nav-icon="soft"]:is(
+		[data-sidebar-tone="brand"],
+		[data-sidebar-tone="contrast"],
+		[data-active-item="block"]
+	)
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: color-mix(in oklch, currentColor 22%, transparent);
+}
+
+/* soft on an outline row: the chip is a card, so the tile takes 45% of the page primary.
+   20% of the sidebar primary looks almost the same as the inactive tiles there. */
+:root[data-nav-icon="soft"][data-active-item="outline"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: color-mix(in oklch, var(--primary) 45%, transparent);
+}
+
+/* solid on an outline row: the chip is a card, so the tile takes the page primary pair. */
+:root[data-nav-icon="solid"][data-active-item="outline"]
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: var(--primary);
+	color: var(--primary-foreground);
+}
+
+/* solid on a row filled with the sidebar primary: the tile swaps the pair, so it shows on the row. */
+:root[data-nav-icon="solid"]:is(
+		[data-active-item="block"],
+		[data-active-item="pill"][data-sidebar-tone="brand"]
+	)
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	background-color: var(--sidebar-primary-foreground);
+	color: var(--sidebar-primary);
+}
+
+/* A quiet row has no fill, edge, or bar, and the icon collapse hides its bold label. Then a ring marks the active tile:
+   a color tile keeps its hue, and soft on a primary ground only mixes more of the text color. */
+:root[data-active-item="quiet"]:is(
+		[data-nav-icon="color"],
+		[data-nav-icon="soft"][data-sidebar-tone="brand"],
+		[data-nav-icon="soft"][data-sidebar-tone="contrast"]
+	)
+	[data-sidebar="content"]
+	[data-sidebar="menu-button"][data-size="default"][data-active="true"]
+	> svg:first-child {
+	/* Half a step: the ring stays inside the 1-step gap around the tile in the size-8 icon button. */
+	box-shadow: 0 0 0 calc(var(--spacing) * 0.5) var(--sidebar-foreground);
+}
+
+/* The 8 hues of the color tiles, in a cycle down the nav. Two neighbors never share a hue family.
+   Each chroma stays inside sRGB at both lightness steps, so the contrast above holds on every screen. */
+[data-sidebar="menu-item"]:nth-child(8n + 1) {
+	--nav-icon-hue: 250;
+	--nav-icon-chroma: 0.15;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 2) {
+	--nav-icon-hue: 50;
+	--nav-icon-chroma: 0.14;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 3) {
+	--nav-icon-hue: 150;
+	--nav-icon-chroma: 0.14;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 4) {
+	--nav-icon-hue: 350;
+	--nav-icon-chroma: 0.22;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 5) {
+	--nav-icon-hue: 185;
+	--nav-icon-chroma: 0.09;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 6) {
+	--nav-icon-hue: 25;
+	--nav-icon-chroma: 0.22;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 7) {
+	--nav-icon-hue: 290;
+	--nav-icon-chroma: 0.21;
+}
+
+[data-sidebar="menu-item"]:nth-child(8n + 8) {
+	--nav-icon-hue: 80;
+	--nav-icon-chroma: 0.11;
+}

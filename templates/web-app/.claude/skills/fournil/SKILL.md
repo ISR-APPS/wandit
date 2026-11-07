@@ -35,7 +35,7 @@ The baker talking across the counter while wrapping something in paper. Proud of
 - The page closes on a solid fat edge-to-edge wordmark with a drawn wheat stalk across its baseline.
 
 ## Color physics (route the brief's palette through the fixed tokens — the physics is law)
-FIXED TOKEN MAP — FARINE→--background · ENCRE→--foreground · CROÛTE→--primary · FARINE→--primary-foreground · FARINE-SOFT→--secondary · CHARBON→--accent · ink at 56%→--muted · ink at 14%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, glow or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 Build EIGHT tonal roles from the fixed tokens, never a ninth hue.
 - FARINE (ground): the lightest warm pole, flour-tinted paper in the #F6EFE1 register. Never #fff, never #fafafa, never a cool off-white.
 - FARINE-SOFT: a second ground 3-6 RGB points darker and a notch warmer (#EFE4D0 register), ONLY for chapter alternation and the transactional chapter.

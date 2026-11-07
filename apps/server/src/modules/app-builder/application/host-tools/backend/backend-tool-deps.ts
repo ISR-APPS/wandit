@@ -1,8 +1,9 @@
 /**
  * Shared parts of the agent backend tools (WANDIT-186). It holds the
  * dependency type, the active-backend check, the Supabase error mapping,
- * and `runBackendTool`, the body of every tool `execute`. The seven tool
- * factories in this folder call them. `BuilderHostToolRegistry` passes the
+ * and `runBackendTool`, the body of every tool `execute`. The eight tool
+ * factories in this folder call them, and `AppAiKeysService` (the AI panel)
+ * calls `resolveActiveBackend`. `BuilderHostToolRegistry` passes the
  * deps. Nothing here starts a provisioning or a restore; a tool call on an
  * active backend stamps its activity for the pause sweep (WANDIT-184).
  */

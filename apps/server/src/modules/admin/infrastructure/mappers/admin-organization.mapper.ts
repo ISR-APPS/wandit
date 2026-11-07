@@ -1,3 +1,7 @@
+/**
+ * Maps admin organization repository rows to the admin API contract shapes.
+ * AdminOrganizationsService calls these pure functions. They convert centi-credits to credits.
+ */
 import {
 	type AdminOrganizationLedgerEntry,
 	type AdminOrganizationMember,
@@ -16,6 +20,7 @@ import type {
 } from "../persistence/admin-organizations.repository";
 import { normalizeCostProvenance } from "./ai-cost-provenance.mapper";
 
+/** One list or detail summary. `isPersonal` is true when the org is a user's personal workspace. */
 export function mapAdminOrganizationSummary(
 	row: AdminOrganizationSummaryRow,
 ): AdminOrganizationSummary {
@@ -30,6 +35,7 @@ export function mapAdminOrganizationSummary(
 		plan: normalizePlan(row.plan),
 		// Ledger sums are integer centi-credits; the API carries decimal credits.
 		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
+		isPersonal: row.personalOwnerUserId !== null,
 	};
 }
 

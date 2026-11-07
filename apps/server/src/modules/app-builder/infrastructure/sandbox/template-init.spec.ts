@@ -369,10 +369,23 @@ describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
 			),
 			"utf8",
 		);
-		// The file of commit cca4e62c is the current file without these three lines.
-		const old = current.replace(
-			'\t\t\t"Bash(git restore*)",\n\t\t\t"Bash(git stash*)",\n\t\t\t"Bash(git clean*)",\n',
-			"",
+		// The file of commit cca4e62c is the current file without these three lines
+		// and without the deny lines of the 4 theme files, which came later.
+		const old = [
+			"theme.json",
+			"theme.ts",
+			"theme-options.ts",
+			"engine.css",
+		].reduce(
+			(text, file) =>
+				text.replace(
+					`\t\t\t"Edit(src/styles/${file})",\n\t\t\t"Write(src/styles/${file})",\n`,
+					"",
+				),
+			current.replace(
+				'\t\t\t"Bash(git restore*)",\n\t\t\t"Bash(git stash*)",\n\t\t\t"Bash(git clean*)",\n',
+				"",
+			),
 		);
 		// An unchanged string makes the case pass with no replacement.
 		expect(old).not.toBe(current);

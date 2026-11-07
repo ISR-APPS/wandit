@@ -28,8 +28,8 @@ Breakdown part:
 1. Header: the title.
 2. Ranked rows: a bar behind each row, the name at the start, and the value at the end.
 
-- The style gives the panel, the bar corners, the grid, the axes, the sizes, and the weights.
-- The snippet shows the logic. Its row height, gaps, padding, corners, text size, and value weight are the no-style defaults.
+- The panel is a `Card`.
+- The snippet shows the logic. Keep its row height, gaps, padding, corners, text size, and value weight.
 - The trend plot takes a main height of SKILL.md. The ranked list takes a side height.
 - Each skeleton keeps the header, the tabs, the plot, and the rows in their final sizes.
 
@@ -37,9 +37,21 @@ Breakdown part:
 
 - `ChartContainer` from `~/shared/ui/chart` with a `ChartConfig`. The only color is `var(--chart-1)`.
 - `ChartContainer` has `aspect-video` by default. Add `aspect-auto` with the height class.
-- Bar corners: `radius={[r, r, 0, 0]}`, with `r` in px from the style. Bars are square when the style radius is 0.
+- Bar corners: `radius={[barRadius, barRadius, 0, 0]}`, in px: 0 for none, 2 for sm or md, 4 for lg or xl.
+  Read the radius with `useAppTheme()` in the chart component, as `src/shared/ui/sonner.tsx` reads the mode.
+  Never write a fixed number: the user can change the radius in the builder, with no turn.
+
+  ```tsx
+  import { type AppThemeFile, useAppTheme } from "~/styles/theme";
+
+  /** Bar corner in px for each radius of the theme. recharts takes a number, not a CSS variable. */
+  const BAR_RADIUS_PX = { none: 0, sm: 2, md: 2, lg: 4, xl: 4 } satisfies Record<AppThemeFile["selection"]["radius"], number>;
+
+  // In the chart component: the hook gives the radius of the live theme.
+  const barRadius = BAR_RADIUS_PX[useAppTheme().selection.radius];
+  ```
 - The view state is local: `useState<"perDay" | "runningTotal">`. The running total adds `current` day by day.
-- The grid and the axes follow the style. With no style rule: `<CartesianGrid vertical={false} />`,
+- The grid and the axes: `<CartesianGrid vertical={false} />`,
   and `tickLine={false} axisLine={false} tickMargin={8}` on both axes.
 - `day` is `YYYY-MM-DD` with no time. Format `` new Date(`${day}T00:00:00Z`) `` with
   `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })`.
@@ -54,7 +66,7 @@ Breakdown part:
 - `isAnimationActive={false}` on every series.
 - The plot has `role="img"` and an `aria-label`: the title, the last day, its value, and its change.
   The change compares with the same day one period earlier, only when that value is above 0.
-- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+- The period control shows only with `onDaysChange`. It is a `Select`. `Tabs` also fit: the theme draws them.
   The choices are `PERIOD_DAYS`, written with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
   It has `aria-label={t("chart.period")}`.
 - Empty trend: every day is 0 in both periods. The plot keeps its height and shows its dates. Hide the Y axis.
@@ -74,7 +86,6 @@ function RankedBars({ slices }: { slices: BreakdownSlice[] }) {
 	const { locale } = useT();
 	const number = new Intl.NumberFormat(locale);
 	const largest = Math.max(0, ...slices.map((slice) => slice.value));
-	// No-style defaults: h-8, the gaps, px-2.5, rounded-sm, text-sm, and font-medium. The style Anatomy replaces them.
 	return (
 		<ol className="grid gap-1.5">
 			{slices.map((slice) => (

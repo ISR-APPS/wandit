@@ -98,10 +98,12 @@ function propsWith(
 		onReload: () => {},
 		bootContext: idleBoot,
 		canStartTurn: true,
+		canEditTheme: true,
 		isSelecting: false,
 		onSelectingChange: vi.fn(),
 		onPickTarget: vi.fn(),
 		onTryToFix: vi.fn(),
+		isActive: true,
 		deps,
 	};
 }

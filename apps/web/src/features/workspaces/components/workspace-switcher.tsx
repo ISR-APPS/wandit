@@ -1,6 +1,8 @@
 /**
  * WorkspaceSwitcher — the dropdown that moves the whole app between the
- * personal workspace and the user's team workspaces (teams-workspaces.md §9).
+ * user's workspaces (workspaces-sharing.md 6): the own personal workspace
+ * (scope id `personal`, no header), team workspaces, then other users'
+ * personal workspaces (their org id as the header).
  * Selecting an entry flips the shared scope store, so every subsequent
  * request (axios + AI stream) carries the new scope automatically.
  */
@@ -29,21 +31,19 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { useState } from "react";
 import { useSession } from "@/features/auth";
-import { useWorkspaceCreditBalancesQuery } from "@/features/credits/api/credits.queries";
-import { formatCreditBalance } from "@/features/credits/lib/format-credits";
-import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import {
+	formatCreditBalance,
+	useWorkspaceCreditBalancesQuery,
+} from "@/features/credits";
+import { usePublicSettingsQuery } from "@/features/settings";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { initials } from "@/features/workspaces/lib/helpers";
+import {
+	useCollaborationGates,
+	useWorkspace,
+} from "@/features/workspaces/lib/workspace-provider";
+import { highestWorkspaceRole } from "@/features/workspaces/lib/workspace-roles";
 import { useTranslation } from "@/lib/i18n";
-
-function workspaceInitials(name: string): string {
-	return name
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((word) => word[0]?.toUpperCase() ?? "")
-		.join("");
-}
 
 // The row of the current workspace gets the spark tint, like the picked rows of the other menus.
 const ACTIVE_ROW_CLASS = "bg-spark/[0.14] focus:bg-spark/20";
@@ -71,23 +71,7 @@ function SettledBalanceValue({ value }: { value: string | null }) {
 	);
 }
 
-function roleLabelKey(
-	entry: WorkspaceSummary,
-):
-	| "workspaces.switcher.roleOwner"
-	| "workspaces.switcher.roleAdmin"
-	| "workspaces.switcher.roleMember" {
-	if (entry.roles.includes("owner")) {
-		return "workspaces.switcher.roleOwner";
-	}
-
-	if (entry.roles.includes("admin")) {
-		return "workspaces.switcher.roleAdmin";
-	}
-
-	return "workspaces.switcher.roleMember";
-}
-
+/** Rendered in the dashboard sidebar and the V1 builder header. Hidden while collaboration is off. */
 export function WorkspaceSwitcher({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
 	const [createOpen, setCreateOpen] = useState(false);
@@ -103,6 +87,8 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 		switchWorkspace,
 		workspaces,
 	} = useWorkspace();
+	const { showsCollaboration, showsLimits, showsPeople } =
+		useCollaborationGates();
 
 	// Each entry's settled credit pool, right-aligned and muted. Settled
 	// balances (holds added back) so a running generation never bounces the
@@ -115,24 +101,64 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 		return item ? formatCreditBalance(item.settledBalance, locale) : null;
 	};
 
-	// Ships dark: without the kill switch (or memberships) the switcher
-	// renders nothing and the app looks exactly like pre-teams.
-	const organizationsEnabled =
-		settingsQuery.data?.organizationsEnabled ?? false;
 	// Creating a workspace goes straight into a Business subscription
 	// checkout, so it also needs the paid-subscriptions switch — otherwise it
 	// creates an org whose checkout the server then rejects.
 	const canCreateWorkspace =
-		organizationsEnabled &&
-		settingsQuery.data?.paidSubscriptionsEnabled === true;
+		settingsQuery.data?.organizationsEnabled === true &&
+		settingsQuery.data.paidSubscriptionsEnabled;
 
-	if (!session || (!organizationsEnabled && workspaces.length === 0)) {
+	// Ships dark: without the kill switch (or another membership) the switcher
+	// renders nothing and the app looks exactly like pre-teams.
+	if (!session || !showsCollaboration) {
 		return null;
 	}
 
+	// An older API does not list the own personal workspace, so its name falls back to "Personal".
+	const ownPersonal = workspaces.find((entry) => entry.isOwnPersonal);
+	const ownPersonalName =
+		ownPersonal?.name ?? t("workspaces.switcher.personal");
+	const teamWorkspaces = workspaces.filter((entry) => entry.kind === "team");
+	const sharedPersonalWorkspaces = workspaces.filter(
+		(entry) => entry.kind === "personal" && !entry.isOwnPersonal,
+	);
 	const activeLabel = isPersonal
-		? t("workspaces.switcher.personal")
+		? ownPersonalName
 		: (activeWorkspace?.name ?? "…");
+
+	const roleLabel = (entry: WorkspaceSummary): string => {
+		const role = highestWorkspaceRole(entry.roles);
+
+		return role ? t(`workspaces.roles.${role}`) : entry.role;
+	};
+
+	const workspaceRow = (entry: WorkspaceSummary) => (
+		<DropdownMenuItem
+			key={entry.id}
+			onSelect={() => switchWorkspace(entry.id)}
+			className={cn(activeWorkspaceId === entry.id && ACTIVE_ROW_CLASS)}
+		>
+			<Avatar className="size-8">
+				{entry.logo ? <AvatarImage src={entry.logo} alt="" /> : null}
+				<AvatarFallback className="text-[10px]">
+					{/* A person icon marks another user's personal workspace. */}
+					{entry.kind === "personal" ? (
+						<UserIcon aria-hidden weight="duotone" className="size-4" />
+					) : (
+						initials(entry.name)
+					)}
+				</AvatarFallback>
+			</Avatar>
+			<span className="min-w-0 flex-1">
+				<span className="block truncate">{entry.name}</span>
+				<span className="block truncate font-normal font-sans text-muted-foreground text-xs">
+					{roleLabel(entry)}
+				</span>
+			</span>
+			<SettledBalanceValue value={settledBalanceFor(entry.id)} />
+			{activeWorkspaceId === entry.id ? <ActiveCheck /> : null}
+		</DropdownMenuItem>
+	);
 
 	return (
 		<DropdownMenu>
@@ -148,10 +174,10 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 						<AvatarImage src={activeWorkspace.logo} alt="" />
 					) : null}
 					<AvatarFallback className="text-[10px]">
-						{isPersonal ? (
+						{isPersonal || activeWorkspace?.kind === "personal" ? (
 							<UserIcon aria-hidden weight="duotone" className="size-3.5" />
 						) : (
-							workspaceInitials(activeLabel)
+							initials(activeLabel)
 						)}
 					</AvatarFallback>
 				</Avatar>
@@ -167,7 +193,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 			<DropdownMenuContent align="start" className="w-64">
 				<DropdownMenuLabel>{t("workspaces.switcher.label")}</DropdownMenuLabel>
 				<DropdownMenuItem
-					onSelect={() => switchWorkspace("personal")}
+					onSelect={() => switchWorkspace(PERSONAL_WORKSPACE)}
 					className={cn(isPersonal && ACTIVE_ROW_CLASS)}
 				>
 					<Avatar className="size-8">
@@ -176,55 +202,34 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 						</AvatarFallback>
 					</Avatar>
 					<span className="min-w-0 flex-1">
-						<span className="block truncate">
-							{t("workspaces.switcher.personal")}
-						</span>
+						<span className="block truncate">{ownPersonalName}</span>
 						<span className="block truncate font-normal font-sans text-muted-foreground text-xs">
-							{t("workspaces.switcher.personalDescription")}
+							{t("workspaces.roles.owner")}
 						</span>
 					</span>
 					<SettledBalanceValue value={settledBalanceFor(PERSONAL_WORKSPACE)} />
 					{isPersonal ? <ActiveCheck /> : null}
 				</DropdownMenuItem>
-				{workspaces.length > 0 ? <DropdownMenuSeparator /> : null}
-				{workspaces.map((entry) => (
-					<DropdownMenuItem
-						key={entry.id}
-						onSelect={() => switchWorkspace(entry.id)}
-						className={cn(activeWorkspaceId === entry.id && ACTIVE_ROW_CLASS)}
-					>
-						<Avatar className="size-8">
-							{entry.logo ? <AvatarImage src={entry.logo} alt="" /> : null}
-							<AvatarFallback className="text-[10px]">
-								{workspaceInitials(entry.name)}
-							</AvatarFallback>
-						</Avatar>
-						<span className="min-w-0 flex-1">
-							<span className="block truncate">{entry.name}</span>
-							<span className="block truncate font-normal font-sans text-muted-foreground text-xs">
-								{t(roleLabelKey(entry))}
-							</span>
-						</span>
-						<SettledBalanceValue value={settledBalanceFor(entry.id)} />
-						{activeWorkspaceId === entry.id ? <ActiveCheck /> : null}
+				{teamWorkspaces.length > 0 ? <DropdownMenuSeparator /> : null}
+				{teamWorkspaces.map(workspaceRow)}
+				{sharedPersonalWorkspaces.length > 0 ? <DropdownMenuSeparator /> : null}
+				{sharedPersonalWorkspaces.map(workspaceRow)}
+				{showsPeople || showsLimits ? <DropdownMenuSeparator /> : null}
+				{showsPeople ? (
+					<DropdownMenuItem asChild>
+						<Link to="/workspace/people">
+							<UsersThreeIcon aria-hidden weight="duotone" />
+							{t("workspaces.people.title")}
+						</Link>
 					</DropdownMenuItem>
-				))}
-				{!isPersonal ? (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem asChild>
-							<Link to="/workspace/members">
-								<UsersThreeIcon aria-hidden weight="duotone" />
-								{t("workspaces.members.title")}
-							</Link>
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild>
-							<Link to="/workspace/limits">
-								<GaugeIcon aria-hidden weight="duotone" />
-								{t("workspaces.limits.title")}
-							</Link>
-						</DropdownMenuItem>
-					</>
+				) : null}
+				{showsLimits ? (
+					<DropdownMenuItem asChild>
+						<Link to="/workspace/limits">
+							<GaugeIcon aria-hidden weight="duotone" />
+							{t("workspaces.limits.title")}
+						</Link>
+					</DropdownMenuItem>
 				) : null}
 				{canCreateWorkspace ? (
 					<>

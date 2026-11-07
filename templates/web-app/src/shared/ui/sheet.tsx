@@ -1,12 +1,13 @@
 // shadcn-style side sheet on the Radix dialog primitive.
 // Mobile menus and slide-in panels use these parts.
 // Sides use logical names so RTL flips them correctly.
+// The panel reads the --overlay-* role tokens of src/styles/engine.css. Only its inner edge gets the border and the corners.
 
 import { cva, type VariantProps } from "class-variance-authority";
-import { XIcon } from "lucide-react";
 import { Dialog as SheetPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
+import { XIcon } from "~/shared/ui/icons";
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
 	return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -38,7 +39,8 @@ function SheetOverlay({
 		<SheetPrimitive.Overlay
 			data-slot="sheet-overlay"
 			className={cn(
-				"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=open]:animate-in",
+				// A scrim of the page color dims the page in light and in dark. Black is a raw color.
+				"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-background/80 data-[state=closed]:animate-out data-[state=open]:animate-in",
 				className,
 			)}
 			{...props}
@@ -47,18 +49,18 @@ function SheetOverlay({
 }
 
 const sheetVariants = cva(
-	"fixed z-50 flex flex-col gap-4 bg-background shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-300 data-[state=open]:duration-500",
+	"fixed z-50 flex flex-col gap-4 bg-background shadow-(--overlay-shadow) transition ease-in-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-300 data-[state=open]:duration-500",
 	{
 		variants: {
 			side: {
-				top: "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 border-b",
+				top: "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top border-b-(length:--overlay-border-width) inset-x-0 top-0 rounded-b-(--overlay-radius) border-(--overlay-border-color)",
 				bottom:
-					"data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 border-t",
+					"data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom border-t-(length:--overlay-border-width) inset-x-0 bottom-0 rounded-t-(--overlay-radius) border-(--overlay-border-color)",
 				// "start" and "end" follow the document direction. Slide directions are
 				// physical in tw-animate-css, so each one pairs with its rtl: mirror.
 				start:
-					"data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left rtl:data-[state=closed]:slide-out-to-right rtl:data-[state=open]:slide-in-from-right inset-y-0 start-0 h-full w-3/4 border-e sm:max-w-sm",
-				end: "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right rtl:data-[state=closed]:slide-out-to-left rtl:data-[state=open]:slide-in-from-left inset-y-0 end-0 h-full w-3/4 border-s sm:max-w-sm",
+					"data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left rtl:data-[state=closed]:slide-out-to-right rtl:data-[state=open]:slide-in-from-right border-e-(length:--overlay-border-width) inset-y-0 start-0 h-full w-3/4 rounded-e-(--overlay-radius) border-(--overlay-border-color) sm:max-w-sm",
+				end: "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right rtl:data-[state=closed]:slide-out-to-left rtl:data-[state=open]:slide-in-from-left border-s-(length:--overlay-border-width) inset-y-0 end-0 h-full w-3/4 rounded-s-(--overlay-radius) border-(--overlay-border-color) sm:max-w-sm",
 			},
 		},
 		defaultVariants: {
@@ -67,6 +69,7 @@ const sheetVariants = cva(
 	},
 );
 
+/** The sliding panel. `side` picks the edge; the default is the end side. A close button sits at the end corner. */
 function SheetContent({
 	className,
 	children,
@@ -83,7 +86,7 @@ function SheetContent({
 				{...props}
 			>
 				{children}
-				<SheetPrimitive.Close className="absolute end-4 top-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0">
+				<SheetPrimitive.Close className="absolute end-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0">
 					<XIcon className="size-4" />
 					<span className="sr-only">Close</span>
 				</SheetPrimitive.Close>

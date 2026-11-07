@@ -171,6 +171,7 @@ function composeDeps(
 			env,
 		),
 		sitesDomain: env.SITES_DOMAIN,
+		sitesSlugSuffix: env.SITES_SLUG_SUFFIX,
 		storage: isR2Configured()
 			? {
 					get: getObjectBytes,

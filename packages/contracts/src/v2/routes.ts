@@ -22,6 +22,9 @@ export const appBuilderRoutes = {
 	// GET the SSE stream of the project's currently running turn, if any.
 	activeTurnStream: (projectId: string) =>
 		`/api/v2/projects/${projectId}/turns/active/stream`,
+	// GET the running turn id and the main head; the builder page polls it.
+	activeTurn: (projectId: string) =>
+		`/api/v2/projects/${projectId}/turns/active`,
 	// GET one page of the stored chat, newest page first; `?cursor=&limit=`.
 	messages: (projectId: string) => `/api/v2/projects/${projectId}/messages`,
 	// POST cancel a builder turn.
@@ -35,14 +38,36 @@ export const appBuilderRoutes = {
 	// POST restore one version as a new copy-forward commit.
 	restoreVersion: (projectId: string, sha: string) =>
 		`/api/v2/projects/${projectId}/versions/${sha}/restore`,
+	// GET the theme.json of a project; PUT saves a selection as a "theme" commit.
+	theme: (projectId: string) => `/api/v2/projects/${projectId}/theme`,
+	// POST asks the theme designer model for a new theme. It answers a draft and saves nothing.
+	themeDesign: (projectId: string) =>
+		`/api/v2/projects/${projectId}/theme/design`,
 	// GET and PUT the monthly and per-turn credit caps of a project.
 	costCaps: (projectId: string) => `/api/v2/projects/${projectId}/cost-caps`,
+	// GET the models the builder dropdown offers, with their prices.
+	models: "/api/v2/models",
+	// GET the full cost of one chat: USD, credits, tokens, per model.
+	chatCost: (projectId: string, chatId: string) =>
+		`/api/v2/projects/${projectId}/chats/${chatId}/cost`,
 	// Base path the in-sandbox agent reaches for LLM traffic (WANDIT-165).
 	llmProxyBase: "/api/v2/llm",
 	// POST Anthropic Messages API passthrough behind the run-token checks.
 	llmProxyMessages: "/api/v2/llm/v1/messages",
 	// POST Anthropic token counting behind the same proxy checks.
 	llmProxyCountTokens: "/api/v2/llm/v1/messages/count_tokens",
+	// Base path of the app AI gateway; an app's Edge Function gets it as
+	// WANDIT_AI_GATEWAY_URL and appends `/chat/completions`.
+	appAiBase: "/api/v2/ai/v1",
+	// POST OpenAI chat completions of a V2 app, behind its gateway key.
+	appAiChatCompletions: "/api/v2/ai/v1/chat/completions",
+	// GET the AI gateway state and the month usage of a project.
+	appAi: (projectId: string) => `/api/v2/projects/${projectId}/ai`,
+	// PUT turns the gateway on (keeps a live key); DELETE turns it off.
+	appAiKey: (projectId: string) => `/api/v2/projects/${projectId}/ai/key`,
+	// POST replaces the gateway key and pushes it to the backend.
+	appAiKeyRotate: (projectId: string) =>
+		`/api/v2/projects/${projectId}/ai/key/rotate`,
 	// GET the file tree of the running sandbox for the Code view.
 	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
 	// GET one file of the running sandbox; the caller adds `?path=<path>`.
@@ -64,4 +89,15 @@ export const appBuilderRoutes = {
 	// PUT sets or replaces one secret value; DELETE removes it.
 	secret: (projectId: string, name: string) =>
 		`/api/v2/projects/${projectId}/secrets/${name}`,
+	// GET the GitHub connection of the user and the App installations; DELETE disconnects.
+	githubAccount: "/api/v2/github/account",
+	// POST answers the GitHub URL that starts a connect or an App install.
+	githubAuthorize: "/api/v2/github/authorize",
+	// GET GitHub redirects here after the connect; public, answers a 302 to the builder.
+	githubCallback: "/api/v2/github/callback",
+	// GET the GitHub link and sync state; POST creates and links a repo; DELETE unlinks.
+	github: (projectId: string) => `/api/v2/projects/${projectId}/github`,
+	// POST merges the GitHub commits into the project as one "github" commit.
+	githubPull: (projectId: string) =>
+		`/api/v2/projects/${projectId}/github/pull`,
 } as const;

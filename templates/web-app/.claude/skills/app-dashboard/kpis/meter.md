@@ -22,16 +22,15 @@ Each figure shows its value as a share of a whole from the data, with a bar or a
 
 ## Anatomy
 
-1. Label: `item.label`, in the label look of the style (`label-text`).
+1. Label: `item.label`, in `label-text` (the small label style).
 2. Value line: the value, with `font-numeric tabular-nums`. For a whole of kind 1, 2, or 4, a muted " / whole" follows.
    Format both with `new Intl.NumberFormat(locale, item.format)`.
-3. Meter: a bar (`Progress` from `~/shared/ui/progress`), or the arc or ring that the style names.
+3. Meter: a bar (`Progress` from `~/shared/ui/progress`).
 4. Share line: the share and the words of the whole, for example "75% of all".
 5. Delta: a pill at the end of the value line, as in `kpis/delta.md`. A whole of kind 3 shows no pill.
 
-- The style gives the panel of a figure: a card, a ruled cell, a tile, a slip, or no box.
-- The style gives the meter shape, its thickness, the sizes, and the weights.
-- The snippet shows the logic. Its `Progress` bar and its text size are the no-style defaults.
+- The panel of a figure is a `Card`, unless the home slot says otherwise.
+- The snippet shows the logic. Its `Progress` bar and its text size are the defaults.
 - The skeleton keeps the label, the value, the meter, and the share line in their final sizes.
 
 ## Rules
@@ -46,7 +45,7 @@ Each figure shows its value as a share of a whole from the data, with a bar or a
   A kind-3 whole of 0 also shows the muted line "No earlier data". The first preview keeps the meter form.
 - An SVG arc or ring has `aria-hidden="true"`: the share line gives the facts.
   It fills from the start side. Mirror it with `rtl:-scale-x-100`.
-- The pill is a `Badge` or the status mark of the style, as `kpis/delta.md` says.
+- The pill is a `Badge`, as `kpis/delta.md` says.
   Good news is `success`, bad news is a tinted destructive pill, "0%" is `secondary`.
   Format the change with `signDisplay: "exceptZero"` and one decimal. A change under 0.05 % shows "0%" with no arrow.
 - The pill arrow mirrors with `rtl:-scale-x-100`, never with `rtl:rotate-180`. A rotation turns a rise into a fall.
@@ -67,7 +66,6 @@ function MeterShare({ item, whole }: { item: KpiItem; whole: number }) {
 	const share = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 });
 	const ratio = item.value / whole;
 	const words = WHOLE_WORDS[item.id];
-	// No-style defaults: the Progress bar and text-sm. The style Anatomy can give an arc or a ring.
 	return (
 		<>
 			<Progress value={item.value} max={whole} aria-label={item.label} />

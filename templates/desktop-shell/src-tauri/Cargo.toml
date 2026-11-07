@@ -1,0 +1,42 @@
+# Trusted native shell of every Wandit desktop app (docs/v2/desktop-apps.md, section 3).
+# The Windows and macOS CI compile it with `cargo tauri build ... -- --locked`, so every crate
+# is pinned with "=" and Cargo.lock is in the repo. Change a version only with a new Cargo.lock.
+
+[package]
+name = "wandit-desktop-shell"
+# Not the app version: tauri.desktop.json of each build sets the version.
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "wandit_desktop_shell"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+# build.rs writes the SHA-256 of each migration file into the binary.
+sha2 = "=0.10.9"
+
+[dependencies]
+# No "devtools" feature: a release build has no web inspector.
+# macos-proxy: the loopback proxy of the macOS window (lib.rs). It adds no crate.
+tauri = { version = "=2.12.5", features = ["macos-proxy"] }
+tauri-plugin-updater = "=2.14.1"
+tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-process = "=2.4.0"
+tauri-plugin-single-instance = "=2.5.5"
+# "bundled" compiles SQLite into the exe, so every install runs the same SQLite version.
+rusqlite = { version = "=0.41.1", features = ["bundled", "backup", "limits", "hooks"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+# macOS only: the WebKit configuration of the main window (lib.rs). Versions and
+# features are the ones wry already uses, so Cargo.lock gets no new crate.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSValue", "NSKeyValueCoding", "NSObject"] }
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = ["std", "WKWebViewConfiguration", "WKPreferences"] }
+
+[dev-dependencies]
+# The tests compute the SHA-256 of their migration texts like build.rs does.
+sha2 = "=0.10.9"

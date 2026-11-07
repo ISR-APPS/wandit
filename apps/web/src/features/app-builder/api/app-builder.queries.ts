@@ -1,16 +1,23 @@
 /**
  * TanStack Query options and keys of the app builder. queryFn delegates to
- * app-builder.services.ts. The route loader calls `ensureQueryData` with the
- * same options, so components read with `useSuspenseQuery` and never see a
- * loading state for the project.
+ * app-builder.services.ts, or to theme.services.ts for the theme. The route
+ * loader calls `ensureQueryData` with the same options, so components read
+ * with `useSuspenseQuery` and never see a loading state for the project.
  */
 
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import {
+	infiniteQueryOptions,
+	queryOptions,
+	skipToken,
+} from "@tanstack/react-query";
 
 import type { apiClient } from "@/lib/api-client";
 
 import {
+	type getActiveTurnState,
 	getAppProject,
+	getBuilderModels,
+	getChatCost,
 	getCodeFile,
 	getCodeSnapshot,
 	getCostCaps,
@@ -41,7 +48,70 @@ export const appBuilderKeys = {
 	// A sibling of `versions`, not a child: a list refresh must not refetch the immutable diffs.
 	versionDiff: (projectId: string, sha: string) =>
 		[...appBuilderKeys.all, "version-diff", projectId, sha] as const,
+	models: () => [...appBuilderKeys.all, "models"] as const,
+	chatCost: (projectId: string, chatId: string | undefined) =>
+		[...appBuilderKeys.all, "chat-cost", projectId, chatId] as const,
+	theme: (projectId: string) =>
+		[...appBuilderKeys.all, "theme", projectId] as const,
+	activeTurnState: (projectId: string) =>
+		[...appBuilderKeys.all, "active-turn-state", projectId] as const,
 };
+
+/** 5 s. A turn or a commit of another client shows within one poll. */
+const ACTIVE_TURN_POLL_MS = 5_000;
+
+/**
+ * The running turn and the `main` head of a project. use-builder-chat.ts
+ * polls it while its chat streams nothing, and follows what another client
+ * starts. `getState` is the test seam of BuilderChatDeps.
+ */
+export const activeTurnStateQuery = (
+	projectId: string,
+	getState: typeof getActiveTurnState,
+) =>
+	queryOptions({
+		queryKey: appBuilderKeys.activeTurnState(projectId),
+		queryFn: () => getState(projectId),
+		// The server pushes no project event, so the page asks. A hidden tab
+		// does not ask: `refetchIntervalInBackground` stays false.
+		// LIMIT: one poll per open builder tab every 5 s. Upgrade: a project event stream over Redis pub/sub and SSE.
+		refetchInterval: ACTIVE_TURN_POLL_MS,
+	});
+
+/**
+ * The saved theme.json of a web project, for the Thème button and sheet. A turn end and a restore
+ * mark it stale, because both can change the file. The queryFn imports the services on demand:
+ * they pull the 177 KB look catalog, which must stay out of the builder chunk.
+ */
+export const appThemeQuery = (projectId: string) =>
+	queryOptions({
+		queryKey: appBuilderKeys.theme(projectId),
+		queryFn: async () => {
+			const { getAppTheme } = await import("./theme.services");
+			return getAppTheme(projectId);
+		},
+	});
+
+/** The models of the model menu, with their prices, and the deploy default. */
+export const builderModelsQuery = () =>
+	queryOptions({
+		queryKey: appBuilderKeys.models(),
+		queryFn: getBuilderModels,
+		// The price table changes only with a server deploy, so one read per page load is enough.
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+
+/**
+ * The full cost of one chat, to compare models. It waits while `chatId` is
+ * undefined, as during the chat id lookup. A turn end marks it stale in
+ * use-builder-chat.ts, so the line shows the new total.
+ */
+export const chatCostQuery = (projectId: string, chatId: string | undefined) =>
+	queryOptions({
+		queryKey: appBuilderKeys.chatCost(projectId, chatId),
+		queryFn:
+			chatId === undefined ? skipToken : () => getChatCost(projectId, chatId),
+	});
 
 /** null data means the project does not exist. */
 export const appProjectQuery = (projectId: string) =>
@@ -50,11 +120,17 @@ export const appProjectQuery = (projectId: string) =>
 		queryFn: () => getAppProject(projectId),
 	});
 
-/** The cost of the next turn, before send. A turn end changes it, so use-builder-chat.ts marks it stale. */
+/**
+ * The cost of the next turn and the payer state, before send. A turn end and a
+ * 402 change it, so use-builder-chat.ts marks it stale.
+ */
 export const turnEstimateQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.turnEstimate(projectId),
 		queryFn: () => getTurnEstimate(projectId),
+		// The payer state locks the composer. Another person can add credits to
+		// the paying pool, so a focus refetch lifts the lock (the app default is false).
+		refetchOnWindowFocus: true,
 	});
 
 /**

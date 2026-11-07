@@ -13,7 +13,7 @@ import {
 	setSecretToolInputSchema,
 } from "@wandit/contracts";
 import { type Tool, tool } from "ai";
-
+import { systemProjectScope } from "../../../../projects/domain/project-scope";
 import type { HostToolContext } from "../../../domain/ports/host-tools";
 import { BackendSecretsService } from "../../services/backend-secrets.service";
 import type { SecretActor } from "../../services/project-secrets.service";
@@ -36,7 +36,7 @@ export function createSetSecretTool(
 			"first, so tell the user the secret name. `source: generate` creates a " +
 			"random 32-byte value (for example a signing key) when none exists and " +
 			"keeps an existing one. `name` uses A-Z, 0-9, and _, and starts with a " +
-			"letter. Names that start with `SUPABASE_` are reserved.",
+			"letter. Names that start with `SUPABASE_` or `WANDIT_` are reserved.",
 		inputSchema: setSecretToolInputSchema,
 		execute: (input) =>
 			runBackendTool(
@@ -85,19 +85,21 @@ export function createSetSecretTool(
 	});
 }
 
-// The turn's actor in the turn's workspace: `ProjectSecretsService.set`
-// checks the project against this scope. A task has no client IP.
-function secretActor(context: HostToolContext): SecretActor {
+/**
+ * The turn's actor in the turn's workspace: `ProjectSecretsService` checks
+ * the project against this scope. A task has no client IP. `enable_ai` uses it too.
+ * The payer of a personal project is its owner: `projects.user_id`.
+ */
+export function secretActor(context: HostToolContext): SecretActor {
 	return {
 		ip: null,
-		scope:
-			context.organizationId === null
-				? { kind: "personal", userId: context.actorUserId }
-				: {
-						actorIsLimitExempt: context.subject.actorIsLimitExempt ?? false,
-						kind: "org",
-						organizationId: context.organizationId,
-						userId: context.actorUserId,
-					},
+		scope: systemProjectScope(
+			{
+				organizationId: context.organizationId,
+				userId: context.subject.payerUserId ?? context.actorUserId,
+			},
+			context.actorUserId,
+			context.subject.actorIsLimitExempt ?? false,
+		),
 	};
 }

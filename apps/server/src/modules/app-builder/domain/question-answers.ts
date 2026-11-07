@@ -228,8 +228,14 @@ export function builtinQuestionResultOf(
 	};
 }
 
-/** One readable line for one answer; a fresh session reads it as text. */
+/** One readable line for one answer, with the host note after it; a fresh session reads it as text. */
 function answerLineOf(answer: AskUserAnswer): string {
+	const line = userAnswerLineOf(answer);
+	return answer.hostNote === undefined ? line : `${line}\n${answer.hostNote}`;
+}
+
+/** The answer of the user alone, as one line. */
+function userAnswerLineOf(answer: AskUserAnswer): string {
 	if (answer.action === "delegated") {
 		return `Answer to your question "${answer.question}": the user lets you decide.`;
 	}

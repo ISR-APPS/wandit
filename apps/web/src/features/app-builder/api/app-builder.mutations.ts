@@ -22,6 +22,7 @@ import {
 	updateCostCaps,
 	wakeSandbox,
 } from "./app-builder.services";
+import { githubKeys } from "./github.queries";
 
 /**
  * Creates a V2 app project from the dashboard prompt. The V1 project grid
@@ -89,7 +90,8 @@ export type RestoreVersionDeps = {
 /**
  * Restores one version as a new copy-forward commit. `expectedHeadSha` is
  * the head the user saw; the API compares and swaps on it. Success
- * invalidates the versions list and the project row.
+ * refreshes the versions list, the project row, the Code view, the theme,
+ * and the GitHub status.
  */
 export function useRestoreVersion(
 	projectId: string,
@@ -113,10 +115,17 @@ export function useRestoreVersion(
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.project(projectId),
 			});
-			// A restore rewrites the worktree, so the Code view tree and the
-			// open file refetch too.
+			// A restore rewrites the worktree, so the Code view tree, the
+			// open file, and the theme of the Thème sheet refetch too.
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.code(projectId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.theme(projectId),
+			});
+			// The restore moves the head. The GitHub Update sends the head of the status, so it refetches.
+			void queryClient.invalidateQueries({
+				queryKey: githubKeys.status(projectId),
 			});
 			deps.onRestored?.();
 		},

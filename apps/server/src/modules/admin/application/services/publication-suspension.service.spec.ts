@@ -20,6 +20,8 @@ type Write =
 	| { kind: "state"; suspension: AdminProjectSuspension | null }
 	| { kind: "host"; host: string; pointer: HostPointerValue }
 	| { kind: "domains"; pointer: HostPointerValue }
+	| { kind: "desktop-withdraw"; projectId: string }
+	| { kind: "desktop"; projectId: string }
 	| { kind: "audit"; event: AuditRecord };
 
 function appTarget(
@@ -80,13 +82,27 @@ function setup({
 				writes.push({ kind: "audit", event });
 			},
 		},
+		{
+			isConfigured: () => true,
+			remove: async (projectId) => {
+				writes.push({ kind: "desktop", projectId });
+				return 2;
+			},
+		},
+		{
+			withdrawRelease: async (projectId) => {
+				writes.push({ kind: "desktop-withdraw", projectId });
+			},
+		},
 	);
 
 	return { service, writes };
 }
 
 describe("PublicationSuspensionService", () => {
-	it("suspends: state first, then the suspended pointer on the slug host and every domain, then one audit row", async () => {
+	// The R2 delete must run after the database withdraw: the withdraw waits
+	// for a release in progress, so no release write lands after the delete.
+	it("suspends: state first, then the suspended pointers, then the desktop withdraw and the R2 delete, then one audit row", async () => {
 		const { service, writes } = setup({ target: appTarget() });
 
 		const result = await service.suspend(
@@ -100,6 +116,8 @@ describe("PublicationSuspensionService", () => {
 			"state",
 			"host",
 			"domains",
+			"desktop-withdraw",
+			"desktop",
 			"audit",
 		]);
 		expect(writes[0]).toMatchObject({
@@ -125,7 +143,11 @@ describe("PublicationSuspensionService", () => {
 				status: "suspended",
 			},
 		});
-		expect(writes[3]).toMatchObject({
+		expect(writes.slice(3, 5)).toEqual([
+			{ kind: "desktop-withdraw", projectId: PROJECT_ID },
+			{ kind: "desktop", projectId: PROJECT_ID },
+		]);
+		expect(writes[5]).toMatchObject({
 			event: {
 				action: "project.suspend",
 				actorUserId: "admin-1",
@@ -138,7 +160,7 @@ describe("PublicationSuspensionService", () => {
 		expect(result.suspension?.reasonCode).toBe("abuse_phishing");
 	});
 
-	it("unsuspends: clears the state and writes pointers without the suspended status", async () => {
+	it("unsuspends: clears the state and writes pointers without the suspended status, and restores no desktop release", async () => {
 		const { service, writes } = setup({
 			target: appTarget({ suspendedReasonCode: "abuse_phishing" }),
 		});

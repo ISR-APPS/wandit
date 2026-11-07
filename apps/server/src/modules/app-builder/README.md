@@ -15,7 +15,12 @@ PostHog flag `v2-builder`).
 - The harness is the Claude Code adapter of the AI SDK `HarnessAgent`
   (D17). `V2_HARNESS` selects it; OpenCode comes later without a code
   change.
-- The default model comes from `V2_DEFAULT_MODEL` (D10).
+- The default model comes from `V2_DEFAULT_MODEL` (D10). Since
+  2026-10-17 it can be the Paper Instruments model
+  `paperinstruments/ultramarine-1-flash`. A turn on a model that is not
+  Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
+  Claude Code call, also helper and subagent calls, to it. The harness
+  then turns off the experimental betas, tool search, and WebSearch.
 - The turn stream is the Trigger.dev stream `ui`, read by the API and
   relayed as SSE (D20 — one box for the whole stream).
 - The durable git store is code.storage (D21).
@@ -26,23 +31,24 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; `app-theme-design.ts`, the prompts and the answer rules of the AI theme designer; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
-| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
+| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json`; D29: `guarded-file-writes.ts`, the symlink-safe file writes of `apply_changes` |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter; WANDIT-178: the `publish-app` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService`; WANDIT-192: one version per platform (the web file is required at boot, the mobile file is optional) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository` |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository`; D29: `McpAccessRepository` (the token user, the consent, and the project owner of one MCP call) and `BuilderTurnsRepository.findCardParts` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
+| `infrastructure/langfuse/` | The OTLP exporter of the LLM proxy generations |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes |
-| `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService` |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost; D29: `McpController` (`POST /api/mcp`) and `McpTools`, the 12 MCP tools (docs/features/coding-agents-mcp.md) |
+| `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard`; D29: `McpTokenGuard`, the bearer token check of `/api/mcp`; the shared bucket constants and `findRateLimitDenial`, which the MCP tools also call |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService`; D29: `McpChangesService`, the `apply_changes` lock, write, and commit flow |
 
 ## Ports (`domain/ports/`)
 
@@ -58,7 +64,8 @@ PostHog flag `v2-builder`).
   (D20).
 - `TurnLock` — the per-project lock serializing turns.
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
-  back into a fresh sandbox (D21).
+  back into a fresh sandbox (D21). `GitFileReader` reads one committed
+  file for the theme GET.
 - `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
 - `MobileBuildTaskStarter` — queues the `mobile-build` Trigger task.
 
@@ -243,10 +250,11 @@ service checks the scope:
   500..250_000 cc and the per-turn cap. The `data-turn-created` part
   carries the estimate: `credits` in whole credits, `basis` (`fixed`
   or `history`), `modelId`, and `multiplier` (the output-rate ratio
-  over the default model). The optional `model` body field must be in
-  the payer's plan allow-list; a denied pick answers 400
-  `V2_MODEL_DENIED`, a picked or default model with no price row
-  answers 503 `V2_MODEL_UNPRICED` (a deploy error).
+  over the default model). The optional `model` body field can name any
+  model with a row in `LLM_MODEL_PRICES`; the plan does not limit it
+  (staging and local only, see `docs/v2/runbook.md`). Another id answers
+  400 `V2_MODEL_DENIED` (`assertPickableModel`). A default model with no
+  price row answers 503 `V2_MODEL_UNPRICED` (a deploy error).
   Two create-time stops refuse early: a project at its monthly cap
   answers 403 `PROJECT_CREDIT_CAP_REACHED` with `cap: "monthly"`, and a
   user holding three reserved `agent_session` events answers 429
@@ -285,6 +293,10 @@ defaults to 1_000_000 and accepts at most 250_000; `monthlyCapCredits` null
 means no monthly cap. `GET` answers the row or the plan defaults; `PUT`
 upserts and answers the row. A non-`v2_app` project answers 404.
 
+`GET /api/v2/models` (`ModelsController`, behind the same guard) answers
+`BuilderModelsResponse`: `defaultModel` (`V2_DEFAULT_MODEL` or null) and
+`models`, every row of `LLM_MODEL_PRICES`. The builder dropdown reads it.
+
 Wire format — the D20 envelope is unwrapped for the browser (the task
 keeps writing it on the `ui` stream): one `data:` line of JSON per frame,
 no `id:`/`event:` lines, `: heartbeat` comments, `data: [DONE]` to end. A
@@ -315,7 +327,7 @@ Rules the code pins:
 
 ## Projects (WANDIT-175)
 
-Two routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
+Three routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
 the same workspace permissions V1 uses (`project:create`, read = any
 member):
 
@@ -323,7 +335,8 @@ member):
   (WANDIT-192): when the API booted without
   `templates/mobile-app/template_version`, a mobile create answers 503
   `MOBILE_TEMPLATE_UNAVAILABLE` and writes nothing. The service reads the
-  files once, at boot. Then it checks attachments and the settled balance, and writes the project row (`engine = 'v2_app'`), the
+  files once, at boot. Then it checks attachments, the optional `model`
+  (the turn rule: 400 `V2_MODEL_DENIED` before any row), and the settled balance, and writes the project row (`engine = 'v2_app'`), the
   first chat, the first user message, and the `builder_sessions` row in
   one transaction. The first builder turn starts right after the commit
   and adopts that message row — a failed turn still answers 201 with
@@ -332,6 +345,14 @@ member):
   The title job and `v2_project_created` follow.
 - `GET /:projectId` answers the `AppProject` shape; a `v1_page` row in
   scope answers 404 like a missing one.
+- `GET /:projectId/chats/:chatId/cost` answers `ChatCostResponse`: the
+  full cost of one chat, so a user can compare models.
+  `LlmProxyRequestsRepository.sumByChat` sums the `llm_proxy_requests`
+  rows of the chat's `builder_turns`: `usdMicros`, the token counts, and
+  `byModel` (`usdMicros` and `requestCount` per model). `credits` is the
+  sum of the turns' `credits` (centi-credits), and `turnCount` their
+  count. The route runs the scope check of the turn routes. A chat out of
+  scope or of another project answers 404.
 
 Deletion rides the V1 route: a `v2_app` soft-delete queues the
 `delete-app-project` task. The task is idempotent on `projectId` and
@@ -344,10 +365,11 @@ then marks the live app deployment `unpublished`. The backend step
 (WANDIT-184) moves the `app_backends` row
 to `deleting`, pauses a running Supabase project, and deletes the
 `project_secrets` rows; the pause sweep deletes the Supabase project after
-the grace window. Then it drains the three `v2ProjectPrefixes` and deletes
+the grace window. Then it drains the five `v2ProjectPrefixes` and deletes
 the code.storage repository. The prefixes are `git/<id>/`,
-`sites/<id>/assets/`, and `published/<id>/builds/` (the stored publish
-outputs), never the whole `published/<id>/` root.
+`sites/<id>/assets/`, `published/<id>/builds/` (the stored publish
+outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
+(the build input and staged installer), never the whole `published/<id>/` root.
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
@@ -453,8 +475,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
-  refuses at the plan limit (`backendsPerPlan`; 1000 on every plan for
-  the staging tests) with 403 `BACKEND_LIMIT_REACHED`. The count and the
+  refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
+  business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
   backend.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
@@ -493,7 +515,8 @@ missing, out-of-scope, or V1 project, like the turn routes.
   a `user` row and answers 204. A `user` write over a `system` row
   answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
   upsert, so no read races the write. A name that starts with `SUPABASE_`
-  answers 400 (`userSecretNameSchema`): the Supabase keys use these names.
+  or `WANDIT_` answers 400 (`userSecretNameSchema`): the Supabase keys and
+  the app AI gateway key use these names.
 - `DELETE /:name` removes a `user` row and answers 204. A `system` row
   answers 409; a missing row answers 404.
 
@@ -513,7 +536,7 @@ Every set and delete writes one `audit_events` row (`secret.set`,
 name in `metadata`; never the value. The API request log carries no
 body. The Sentry `beforeSend` (`scrubEvent`) masks the `value` field of
 a captured body and replaces every string that holds `sk_live_`,
-`rk_live_`, `sb_secret_`, `service_role`, or `whsec_`.
+`rk_live_`, `sb_secret_`, `service_role`, `whsec_`, or `wnd_ai_`.
 
 ## Cloud tab API (WANDIT-187)
 
@@ -694,11 +717,8 @@ app, or a project of another workspace answers 404.
 Rate limits (WANDIT-181): `RedisRateLimitGuard` counts per user and, with
 `ipLimit`, per client IP that `TRUSTED_PROXY_CIDRS` confirms (the Better
 Auth rule; without a trusted IP the IP key is skipped). Project create:
-50 per user and 500 per IP per day. Turn create: 30 per user and 2000 per
-IP per 10 minutes. Publish: 300 per IP per hour. Staging sizes these caps
-for an event room behind one NAT IP. Production uses 10 per user and 30 per
-IP for project create, 90 per IP for turn create, and 30 per IP per hour for
-publish. A Redis error lets the request through with a Sentry
+10 per user and 30 per IP per day. Turn create: 30 per user and 90 per
+IP per 10 minutes. Publish: 10 per user and 30 per IP per hour. A Redis error lets the request through with a Sentry
 warning. Every audit row of these routes goes through `AuditEventsService`
 (`audit_events`, action names in `packages/contracts/src/v2/audit.ts`).
 
@@ -818,8 +838,8 @@ The `mobile-build` task (queue `mobile-builds`, `concurrencyKey` = project,
 one attempt, idempotency key `mobile-build:<buildId>`):
 
 1. Claims the row (`queued` → `building`). A canceled or replayed run skips.
-2. Leases the hold (`LEASE_TTL_MS`, 40 min), so the stale-hold sweep skips
-   it during the build.
+2. Leases the hold (`LEASE_TTL_MS`, 40 min, in `build-credit-hold.ts`), so
+   the stale-hold sweep skips it during the build.
 3. Prepares the workspace in a temp folder (`prepareMobileBuildWorkspace`):
    a read-only credential, `git fetch` of the commit (fallback: `main`), the
    app.json checks, the wandit EAS identity, the trusted `eas.json` with the
@@ -839,6 +859,53 @@ A run that Trigger stops from outside (OOM, `maxDuration`) leaves the row
 `building`. The user Cancel is the exit, and the sweep refunds the hold when
 the lease expires. The operator steps are in `docs/v2/runbook.md`.
 
+## Desktop apps
+
+The desktop card of the publish popover builds and releases a `desktop-app`
+project for Windows (setup exe) or macOS (disk image and update archive).
+One build makes the files of one platform. macOS builds stay off until
+`DESKTOP_MACOS_BUILDS_ENABLED` is true. The contract of every part is
+`docs/v2/desktop-apps.md`.
+
+- `application/services/desktop-builds.service.ts`: overview, create,
+  cancel, and release. It holds the credits, starts the task, and writes
+  `latest.json` (Windows) or `latest-macos.json` (macOS) on R2.
+- `presentation/http/controllers/desktop-builds.controller.ts`: the routes
+  under `/api/v2/projects/:projectId/desktop`. Each needs the project role
+  `editor`, as the mobile builds do.
+- `infrastructure/persistence/desktop-builds.repository.ts`: `desktop_apps`
+  and `desktop_builds`. Each status change is a compare-and-set.
+- `infrastructure/persistence/desktop-migrations.repository.ts`: reads the
+  frozen `desktop_migrations` rows.
+- `domain/desktop-build.ts`: the status machine, the version, the
+  identifier, the binary name, and the hold key.
+- `domain/desktop-migrations.ts`: the gate rules for file names, sizes,
+  frozen files, and the statement allow list.
+- `infrastructure/sqlite/desktop-migration-gate.ts`:
+  `checkDesktopMigrations`, the sql.js dry run of the gate.
+- `application/host-tools/add-local-migration.host-tool.ts`: the
+  `add_local_migration` host tool.
+- `infrastructure/desktop/github-desktop-build-runner.ts`: dispatches,
+  polls, and cancels `build.yml` (Windows) or `build-macos.yml` (macOS) in
+  `DESKTOP_BUILD_REPO`.
+- `infrastructure/desktop/updater-signature.ts`: the Ed25519 key pair of an
+  app and the minisign signature of each update file.
+- `infrastructure/desktop/desktop-build-input.ts`: writes
+  `desktop-input.tar.gz`, the input of the CI, and exports the tar writer.
+- `infrastructure/desktop/macos-update-archive.ts`: checks the `.app.tar.gz`
+  of the macOS CI with strict ustar rules and re-packs it. The server signs
+  only its own re-pack.
+- `infrastructure/desktop/theme-fonts.ts`: puts the theme fonts into
+  `dist/wandit-fonts/` of the app.
+- `infrastructure/trigger/trigger-desktop-build-task-starter.ts`: queues the
+  `desktop-build` task by id.
+- `infrastructure/secrets/rotate-desktop-updater-keys.ts`: re-encrypts the
+  updater keys in `pnpm secrets:rotate`.
+- `src/trigger/desktop-build.task.ts` and `desktop-build.runtime.ts`: the
+  `desktop-build` task, from the sandbox build to the signed build files.
+- `src/trigger/build-credit-hold.ts`: the lease, heartbeat, settle, and
+  refund of the desktop and mobile holds. It takes the payer from the hold row.
+
 ## Builder turn
 
 The `builder-turn` Trigger task (WANDIT-166) runs one turn end to end.
@@ -857,15 +924,20 @@ One run does this, in order:
    non-`v2_app` project or a missing framework/template version fails the
    turn before any sandbox work; a framework without a template profile
    fails it `project_template_unknown`. The model is `turn.model ??
-   V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
-2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
-   computes `capUsd` for the token claims from `perTurnCapCredits` — the
-   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (1_000_000 cc). The pre-start
-   stop rules throw into `failTurn`: the builder flag off →
+   V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`. A turn
+   that answers waiting cards runs on the session row `model` instead: it
+   continues the paused Claude Code process, which keeps its start model.
+2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan. The
+   pre-start stop rules throw into `failTurn`: the builder flag off →
    `stopped_disabled`, a settled balance at 0 → `stopped_no_credits`,
-   the monthly cap already reached → `stopped_project_cap`.
+   the monthly cap already reached → `stopped_project_cap`. Then it
+   computes `capUsd` for the token claims: the lower of
+   `perTurnCapCredits` (the row value or `DEFAULT_PER_TURN_CAP_CREDITS`,
+   1_000_000 cc) and the settled balance at the start. On a tie the
+   balance wins. With billing off, the per-turn cap only.
 3. Mints the scoped proxy token (`mintLlmProxyToken`) with the run, turn,
-   user, project, workspace, and plan claims.
+   user, project, workspace, plan, and model claims. The chat binding
+   carries the same claims.
 4. Wakes a `paused` or `restoring` backend first (WANDIT-184, a 180 s
    poll, see "Backend lifecycle"). Then it builds the allow-listed env
    (`buildSandboxEnv`): the run token becomes
@@ -895,9 +967,9 @@ One run does this, in order:
    version, so these rules reach it only here. A mobile project adds the
    Expo sentence. A web project adds the app design recipe (`domain/app-recipe.ts`): one stable
    sentence per project id, so the warm CLI and the prompt cache stay
-   valid. The sentence gives 3 ranked styles and 3 ranked homes, and one
-   accent, fonts, mode, shell, density, KPI form, and chart form. Claude
-   Code loads the template `CLAUDE.md` from the workspace root. The `session_starting` status is
+   valid. The sentence gives 3 ranked homes, one KPI form, and one chart
+   form. The theme is not in it: the host writes `src/styles/theme.json`
+   (see "Theme file"). Claude Code loads the template `CLAUDE.md` from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note
@@ -939,7 +1011,8 @@ One run does this, in order:
    `V2_RUN_CAP_REACHED` or `V2_DAILY_CAP_REACHED` before the next tick.
    So at the stream end and in the failure path, the task reads the
    first `cap_rejected` row of the turn. Reason `run_cap` stops the turn
-   on the cap. Reason `daily_cap` also stops it as
+   as `stopped_no_credits` when the balance set `capUsd`, else as
+   `stopped_project_cap`. Reason `daily_cap` also stops it as
    `stopped_project_cap`, but its `error` code is `daily_cap`: the web
    then shows the reset time at 00:00 UTC and no Retry.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
@@ -971,7 +1044,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@1"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@4"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
@@ -1056,7 +1129,8 @@ In Plan Mode the agent does not build. It interviews the user with
   - a plan turn gets the answers after the Plan Mode rules.
 - Process: the tool list is in the bridge query key, so a mode change
   starts a new Claude Code process on the same conversation. On the
-  harness host, a kept session serves only the turns of its own mode.
+  harness host, a kept session serves only the turns of its own mode and
+  its own model.
 - Cost: a plan turn pays its real LLM usage from the proxy rows, like each
   other turn. The hold rules do not change.
 
@@ -1105,8 +1179,96 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is
   `"not-applicable"` — it never asks.
+- `set_theme` changes the app theme on the user's words. Only a build
+  turn of a web-app@1.1.0+ project gets it (`supportsAppTheme`). It is
+  `"not-applicable"`. The input is all optional strings, parsed with
+  tolerance (`parseThemePatch`). A bad value changes nothing, and the result
+  text lists the allowed values. See "Theme file".
 - MCP connector tools are out of scope here: they need the Nest
   container, and the task has none (follow-up issue).
+
+## Theme file
+
+A web-app@1.1.0+ project keeps its theme in `src/styles/theme.json`. The
+template reads it at load and refuses a file that fails its schema. Only
+the host writes the file, always with `buildAppThemeFile` and
+`appThemeFileText` (JSON with tabs). The template settings deny Edit and
+Write on it to the agent. The writers:
+
+1. The pre-turn fallback (`ensureThemeFile` in `builder-turn.runtime.ts`).
+   After the sandbox is ready, it reads the disk file and the HEAD file
+   (`git show`). A theme.json in HEAD that parses wins over a different
+   disk file (a dead worker ran no guard). A HEAD file with origin
+   `template` gets card 1 of the deal for business `other`, with origin
+   `host`. With no HEAD file, a missing, broken, or `template` disk file
+   gets the same card.
+2. The theme question. An `ask_user` question with `theme: { business }`
+   and no options gets the 3 cards of `dealThemeCards` as options when the
+   turn pauses. Each tray option carries its whole file in `theme`. The
+   answer turn (`themeOfAnswer`) builds the picked card again from its
+   look id (the deal has no state) and writes it (origin `user`) before
+   the agent resumes. "You choose" writes card 1 (origin `host`). A skip,
+   or text without a pick, writes card 1 too, but keeps a theme with
+   origin `user`. The answer gets the host note "Theme set: <name>." or
+   "Theme kept: <name>.", then "Do not edit src/styles/theme.json."
+3. The `set_theme` host tool (`applyThemePatch`). A business-only call
+   never replaces a theme that the user picked. A reroll keeps the mode
+   of a theme that the user picked. A call that keeps the same source
+   keeps the file name, so the name of an AI theme survives "make it dark".
+   A name with a control character takes the default name, because the
+   commit message "Theme: <name>" must not get a fake git trailer.
+4. The turn-end guard (`restoreThemeFile`). Before each commit (success,
+   stop, and cancel) and at the end of a failed turn that is not stale,
+   the runtime compares the file with the last file that the host knows in
+   this turn. On a difference it writes the host file back and logs
+   `builder-turn.theme-file-restored`. This undoes a write from a script or
+   `biome --write` that the deny rules do not see. A failed turn has no
+   turn commit. When the host file differs from HEAD, the failed turn
+   commits only `src/styles/theme.json` (source `wip`, message
+   "Theme: <name>"). So the next pre-turn fallback keeps that theme.
+5. The Save of the builder Thème sheet: `PUT /api/v2/projects/:id/theme`
+   (`AppThemeService.save`) with `{ selection, expectedHeadSha, name? }`.
+   `name` is the name of an AI theme draft. It takes
+   the turn lock (holder `restore:theme-<uuid>`, so a turn submit answers
+   409), builds the file with origin `user`, writes it, and commits only
+   `src/styles/theme.json` (`commitTurn` with `paths`) with source `theme`
+   and the message "Theme: <name>". It never boots a sandbox. 409 codes:
+   `BUILDER_TURN_RUNNING` (lock held), `BUILDER_TURN_WAITING`,
+   `PREVIEW_NOT_RUNNING`, and `THEME_HEAD_MOVED` (the sandbox HEAD is not
+   `expectedHeadSha`, or the head CAS fails). A failed git command or push
+   resets HEAD to `expectedHeadSha` and writes the old file back. After a
+   later failure, code.storage can hold the commit, so the sandbox keeps the
+   commit and the new file. 10 saves per user per minute (`@RateLimit`).
+6. The AI theme designer of the Thème sheet:
+   `POST /api/v2/projects/:id/theme/design` (`AppThemeDesignService`) with
+   `{ prompt, current: { name, selection } }`. One `generateObject` call on
+   `AI_THEME_MODEL` (LLM task `theme_design`) answers three seeds, two
+   fonts, and the style axes (`appThemeDesignSchema`).
+   `domain/app-theme-design.ts` holds the prompts and turns the answer into
+   a seeds selection (the structure axes stay the user's) and a safe name.
+   The route answers `{ theme }`, a draft with origin `user`, and writes
+   nothing: the Save above commits it. Each design holds
+   `THEME_DESIGN_RESERVE_FLOOR_CREDITS` (usage operation `theme_design`,
+   token-priced) and settles from the tokens. A failed design costs the
+   user 0: a call that ended settles at 0 with a `refunded_failure` ref,
+   and a hold with no call is refunded. Answers: 404 (scope, V1, or before
+   web-app@1.1.0), 503 `THEME_DESIGN_UNAVAILABLE` (no provider key), 402
+   `INSUFFICIENT_CREDITS`, 502 `THEME_DESIGN_FAILED`, 429 above 10 designs
+   per user per minute.
+
+`GET /api/v2/projects/:id/theme` answers `{ theme, world, headSha,
+editable }`. It reads the file and HEAD of the running sandbox, else the
+file at the stored `main` head through `GitFileReader` (code.storage
+`GET /repos/file`, `git:read` token). A missing or broken file answers the
+pre-turn fallback file (`fallbackThemeSelection`). Without a sandbox and a
+stored head it answers 409 `PREVIEW_NOT_RUNNING`. `editable` is false before
+web-app@1.1.0; `theme` is then the template default
+(`APP_THEME_TEMPLATE_SELECTION`, origin `template`).
+
+A web-app@1.0.0 project has no theme file and gets none of these steps.
+`infrastructure/template/app-theme-drift.spec.ts` keeps the template
+`theme-options.ts` equal to `APP_THEME_OPTIONS` and the template
+`theme.json` equal to the host build of `APP_THEME_TEMPLATE_SELECTION`.
 
 Run a turn locally: from `apps/server`, start the worker with
 `npx trigger.dev@4.5.3 dev`, then create a turn through
@@ -1125,7 +1287,7 @@ port.
 
 ## Backend tools (WANDIT-186)
 
-Seven host tools act on the hidden Supabase project of the app. They live
+Eight host tools act on the hidden Supabase project of the app. They live
 in `application/host-tools/backend/` and run in the `builder-turn` task.
 They call the interactive `SupabaseManagementClient`: a full rate-limit
 bucket answers `rate_limited` with `retryAfterSeconds` at once. A
@@ -1133,8 +1295,8 @@ bucket answers `rate_limited` with `retryAfterSeconds` at once. A
 retry once, and the unique sha stops a second run. The schemas and
 `backendToolNames` live in
 `packages/contracts/src/v2/backend-tools.ts`. The worker needs
-`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` also
-needs `APP_SECRETS_ENCRYPTION_KEY`.
+`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` and
+`enable_ai` also need `APP_SECRETS_ENCRYPTION_KEY`.
 
 - No tool creates or wakes a backend. `resolveActiveBackend` answers
   `backend_paused` for a paused row and `backend_not_ready` for every other
@@ -1161,6 +1323,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
+| `enable_ai` | user-approval | Mints the app AI gateway key when it is absent and pushes `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`. See App AI gateway. | `secret.synced` (`name`, `source`) |
 
 Migration ledger: `wandit.migrations (name primary key, sha256 unique,
 applied_at)`, created on the first call. `apply_migration` sends the ledger
@@ -1266,9 +1429,10 @@ repository is the durable copy.
 `POST /api/v2/llm/v1/messages` and `POST /api/v2/llm/v1/messages/count_tokens`
 forward Anthropic Messages API traffic to the configured upstream. The
 sandbox holds only a run token; the real provider key never leaves the API.
-An OpenAI-compatible inbound route for OpenCode can reuse
-`LlmProxyService` unchanged — the token check, caps, and usage-row code
-live there, not in the controller.
+The token check, caps, and usage-row code live in `LlmProxyService`, not in
+the controller. The service reads the Anthropic Messages format and the run
+token only. The OpenAI-compatible route of the apps has its own service (see
+App AI gateway).
 
 Check order, per request:
 
@@ -1277,14 +1441,16 @@ Check order, per request:
    `base64url(json).base64url(hmac-sha256)`, signed with the first key of
    `LLM_PROXY_SIGNING_KEY`; verification accepts any key in the list, so
    rotation adds the new key, then swaps minting. Claims: `runId`,
-   `turnId`, `userId`, `projectId`, `workspaceId`, `plan`, `capUsd`, `exp`
+   `turnId`, `userId`, `projectId`, `workspaceId`, `plan`, `capUsd`,
+   `model` (the turn model; absent on an older token), `exp`
    (mint + 65 minutes: a 60-minute turn never loses its token). A bad or
    expired token gets 401 `V2_TOKEN_INVALID` and writes no row. A token
    whose run was revoked (`llm:revoked:run:{runId}` exists — the turn
    ended) gets the same 401 and also writes no row.
 2. **Model.** The body's `model` must be in `allowedLlmModels(plan)` —
    `V2_DEFAULT_MODEL` plus the plan's paid list in
-   `@wandit/contracts` (`llmProxyAllowedModels`). A dated bare id like
+   `@wandit/contracts` (`llmProxyAllowedModels`) — or be the token
+   `model`. A bound chat gives the model of the turn that runs now. A dated bare id like
    `claude-haiku-4-5-20251001` — what Claude Code sends for its aliases —
    is normalized to `anthropic/claude-haiku-4-5` before the check. An
    absent model means the default. A denied model gets 403
@@ -1293,17 +1459,24 @@ Check order, per request:
    60 s window, 120 requests per minute (ESTIMATE). Over the limit: 429
    `V2_RATE_LIMITED` with `retry-after: 60` and a `rate_limited` row.
 4. **Run cap.** Redis `llm:spend:run:{runId}` micros vs `capUsd`. Over:
-   402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row.
+   402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row. The runtime mints
+   `capUsd` as the lower of the per-turn cap and the payer's settled
+   balance at the turn start. When the balance is lower or equal, the turn stops
+   as `stopped_no_credits` at the first request over it, and the chat
+   shows the upgrade banner. Else it stops as `stopped_project_cap`.
    `GENERATION_BILLING_MODE=off` skips this check.
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
-   `LLM_PROXY_DAILY_USER_CAP_USD` ($50 in production, ESTIMATE until
-   WANDIT-174; $100,000 on staging, see `docs/v2/runbook.md`). Over:
+   `LLM_PROXY_DAILY_USER_CAP_USD` ($50, ESTIMATE until
+   WANDIT-174). Over:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
    runtime then stops the turn as `stopped_project_cap` with the failure
    code `daily_cap`. The chat shows the reset time and no Retry.
    `GENERATION_BILLING_MODE=off` skips this check.
 
-Then the forward. `upstreamFor(modelId, env)` picks the upstream and key:
+Then the forward. `upstreamFor(modelId, env)` picks the upstream and key.
+A `paperinstruments/` model always goes to `https://api.paperinstruments.com`
+with `PAPERINSTRUMENTS_API_KEY` (Bearer) and the id without the prefix,
+whatever `V2_LLM_UPSTREAM_BASE_URL` names. Other models get
 `AI_GATEWAY_API_KEY` when the upstream host is `ai-gateway.vercel.sh`,
 `OPENROUTER_API_KEY` for `openrouter/` model ids or an `openrouter.ai`
 host, `ANTHROPIC_API_KEY` otherwise. Anthropic gets `x-api-key`; the
@@ -1312,7 +1485,13 @@ gateway and OpenRouter get `Authorization: Bearer`. A missing key is a 503
 `anthropic-version`, `anthropic-beta`, `X-Wandit-Run`, the query string,
 and the body bytes unchanged — except `model`, rewritten to the upstream's
 id when the two differ (api.anthropic.com gets the bare id the client
-sent, a gateway gets the normalized `anthropic/...` id). The body
+sent, a gateway gets the normalized `anthropic/...` id). A Paper request
+also gets `x-session-id` when the Claude Code session id is a UUID (for
+cache reads). Each `document` (PDF), `thinking`, and `redacted_thinking`
+block, also one inside a `tool_result`, becomes a text block: Paper
+answers 400 to them, and they stay in the chat history. Paper answers an
+empty balance with 429 `insufficient_quota`; the proxy reports it to
+Sentry and answers 402, so Claude Code does not retry it. The body
 cap is 4 MiB, set in `main.ts` at the route level.
 
 The answer streams through without buffering; each chunk also feeds the
@@ -1326,6 +1505,9 @@ adds the price row of the default model before the first turn. The row
 lands before the Redis counters, so a failed insert never inflates
 spend. The rows are the billing source of truth for a turn; the
 `llm:spend:run:<runId>` counter only drives the mid-turn checkpoints.
+With the Langfuse keys set, the parser also rebuilds the answer, and
+`finish` sends one generation for each Messages call
+(`docs/observability.md`).
 
 Two sweeps maintain the money records. `reconcile-agent-sessions`
 (Trigger cron `*/15 * * * *` UTC, queue `meteringMaintenanceQueue`)
@@ -1353,11 +1535,155 @@ stream end.
 Env: `LLM_PROXY_SIGNING_KEY`, `V2_DEFAULT_MODEL`,
 `V2_LLM_UPSTREAM_BASE_URL` (unset → `https://api.anthropic.com`),
 `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENROUTER_API_KEY`,
-`REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
+`PAPERINSTRUMENTS_API_KEY` (API only), `REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
 checkpoints, the settle, and the proxy run and daily spend caps; the env
 schema refuses `off` when `NODE_ENV=production`), `AI_USD_PER_CREDIT` (0.032, the credit
-anchor the settle uses). Logs carry ids, tokens counts, micros, and
-status — never a body, a token, or a provider key.
+anchor the settle uses), `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
+(both unset: no Langfuse export), `LANGFUSE_BASE_URL` (unset →
+`https://cloud.langfuse.com`, the EU region). Logs carry ids, tokens
+counts, micros, and status — never a body, a token, or a provider key.
+Langfuse gets the bodies; logs still never do.
+
+## App AI gateway
+
+A V2 app can call AI models. The Supabase Edge Function of the app sends an
+OpenAI chat completions request to the API. The API checks the request,
+forwards it to the Vercel AI Gateway, streams the answer back, and bills the
+payer of the project (metering operation `app_ai_gateway`). The builder agent
+turns the feature on with the host tool `enable_ai`. The user sees the usage
+in the AI panel of the More view. The shared names and schemas are in
+`packages/contracts/src/v2/app-ai.ts`.
+
+### Key
+
+- Format: `wnd_ai_`, the project id as 32 hex digits without dashes, `_`,
+  and 32 random bytes as 43 base64url characters (`APP_AI_KEY_PATTERN`).
+  256 random bits stop a brute force. `domain/app-ai-key.ts` mints, parses,
+  and compares the key.
+- The key is one `system` row of `project_secrets` with the name
+  `WANDIT_AI_API_KEY`, encrypted like every secret. No other table holds it.
+  The gateway is on while the row exists.
+- `userSecretNameSchema` refuses the `WANDIT_` prefix, so a `user` row never
+  takes the name.
+- Enable inserts the row only when it is absent. Two concurrent enables then
+  agree on one key. A repeated enable keeps the key, so a running app never
+  breaks. Rotate replaces the row. Turn off deletes the row.
+- Each enable and rotate pushes `WANDIT_AI_API_KEY` and
+  `WANDIT_AI_GATEWAY_URL` to the Edge Function secrets in one
+  `bulkCreateSecrets` call. Then it writes one `secret.synced` audit row. The
+  URL is `/api/v2/ai/v1` on `V2_LLM_PROXY_PUBLIC_URL`, or on
+  `BETTER_AUTH_URL` when that is unset.
+- Enable and rotate need an `active` backend. The check runs before the mint,
+  so a paused or missing backend never gets a new key. When the push fails
+  after a rotate, the app keeps the old key, and the gateway refuses it. A
+  later enable pushes the stored key.
+- The key never goes to the sandbox env, the sandbox `.env`, the Worker
+  bindings, a tool answer, a log line, an audit value, or an HTTP answer.
+  The publish secret scan blocks it (rule `wandit_ai_api_key`, also in
+  `server/`). The Sentry scrubber replaces each string that holds `wnd_ai_`.
+- The pause sweep (`deleteAllForProject`) deletes the row with the backend.
+  A later `enable_ai` mints a new key.
+
+### Request flow
+
+`POST /api/v2/ai/v1/chat/completions` is `@Public()`: no session guard runs.
+No CORS rule allows it, because a browser never calls it. The body cap is
+4 MiB (`main.ts`), for images as data URLs. `AppAiGatewayService`
+(`application/services/app-ai-gateway.service.ts`) runs these steps:
+
+1. **Auth.** It parses the key, reads the `system` row of that project, and
+   compares the SHA-256 digests with `timingSafeEqual`. A bad format answers
+   401 before a database read. An unknown, deleted, or V1 project, or no row,
+   gets the same 401 `invalid_api_key`. No step writes a row before this.
+2. **Project.** A suspended project answers 403 `project_suspended`.
+3. **Body.** `appAiChatCompletionRequestSchema` keeps only the allowed
+   fields. It drops `models`, `providerOptions`, and `service_tier`: they
+   change the billed model or the price. A bad body answers 400
+   `invalid_request` with the issue paths, never the values. A content part
+   must be text or `image_url` (detail `auto`, `low`, or `high`): a file or
+   audio part bills a cost that the reserve cannot estimate. A model outside
+   `APP_AI_MODELS` answers 400 `model_not_allowed`. No model means
+   `APP_AI_DEFAULT_MODEL`.
+4. **Rate limit.** Redis fixed window `builder:rate:app-ai:<projectId>`
+   (`rateLimitKey` and the `RateLimitStore` of `RedisRateLimitGuard`), 60
+   requests per 60 s (ESTIMATE). Over: 429 `rate_limited` with `retry-after`. A Redis
+   error answers 503 `gateway_unavailable`: a money path fails closed.
+5. **Price and key.** `ModelPricingService.quoteTokenUsage` prices the
+   estimate: body bytes / 4 input tokens, plus 5,000 tokens for each image
+   part (ESTIMATE), plus the output cap. An unpriced model or no
+   `AI_GATEWAY_API_KEY` answers 503 `gateway_unavailable`.
+6. **Reserve.** `MeteringService.reserve("app_ai_gateway", ...)` for the
+   payer of the project, with the key `app-ai:<requestId>`, at least 1
+   centi-credit. No credits or the member credit limit answers 402
+   `insufficient_credits`. `GENERATION_BILLING_MODE=off` skips the reserve
+   and the settle.
+7. **Forward.** The upstream body is the parsed object. `model` is set,
+   `max_tokens` is clamped to `APP_AI_MAX_OUTPUT_TOKENS`, and a stream gets
+   `stream_options.include_usage: true`. Without it, a stream carries no
+   usage. Only our `authorization` and `content-type` go upstream, never an
+   inbound header. The timeout is 300 s.
+8. **Upstream error.** The reserve is refunded. 400, 404, 413, and 422 keep
+   their status as `invalid_request`, with the upstream message (at most 500
+   characters). 429 is `rate_limited`. 401, 402, and 403 (our account) are
+   503 `gateway_unavailable`. A 5xx or a network error is 502
+   `upstream_error`. Both go to Sentry.
+9. **Answer.** A JSON answer is buffered, and its `usage` is parsed. A
+   stream relays each chunk at once and parses `usage` from the SSE frames.
+   The last usage wins. When the client disconnects, the API stops the
+   writes. It still reads the upstream to its end, so the call is billed.
+   The controller closes a socket that is still open after 300 s, so a
+   client that stops reading cannot keep the hold open.
+10. **Settle.** With usage, `MeteringService.settle` bills the tokens.
+    `prompt_tokens` includes the cached tokens, and `cached_tokens` is the
+    cache read part, so no token is billed twice. Zero tokens: refund. A 2xx
+    answer without usage settles the reserved credits and goes to Sentry. A
+    settle error is logged and reported. The stranded-hold sweep refunds the
+    hold after 40 min, so that call is free.
+11. **Log.** One `app-ai.request` line: request id, project id, model,
+    status, token counts, credits, and latency. Never a body, a key, or a
+    header value.
+
+Each error body has the OpenAI shape `{ error: { message, type, code } }`,
+with `code` from `appAiErrorCodes`. The message is short English for the
+developer of the app.
+
+Accepted ceilings (`LIMIT:` marks in the service and in
+`domain/app-ai-request.ts`): each call takes the payer
+lock twice (reserve and settle). The reserve stacking floor and the rate
+limit bound the overdraft of concurrent calls. An image data URL counts
+twice: its bytes count, and its image part adds 5,000 tokens. A lost settle (a DB
+error, or an API restart during the call) becomes a free call. A client
+that stops reading can make the upstream timeout end the drain, and the call
+then costs its full hold.
+
+### Tool and panel
+
+- `enable_ai` (`application/host-tools/backend/enable-ai.host-tool.ts`)
+  needs `user-approval`: the user agrees that the app spends credits. It
+  mints the key when it is absent, pushes both secrets, and answers
+  `enabled` with `defaultModel` and `models`. It never answers the key. Its
+  description teaches the agent the Edge Function rules, so old projects
+  learn them too. New projects also get the `## AI features` section of
+  the template `CLAUDE.md`.
+- `AppAiKeys` and `AppAiKeysService` (`application/services/app-ai-keys.service.ts`)
+  hold the mint, rotate, push, and turn-off code. The tool and the panel
+  routes both use them.
+- The panel routes live under `/api/v2/projects/:projectId/ai`, behind
+  `V2BuilderEnabledGuard` and the project role `editor`, like the secrets
+  routes. A foreign, V1, or deleted project answers 404.
+  - `GET /` answers `AppAiStatus`: `enabled`, `keyUpdatedAt`, and the
+    `monthCredits` (centi-credits) and `monthRequests` of the billed
+    `app_ai_gateway` events since the UTC month start.
+  - `PUT /key` turns the gateway on and keeps a live key. `POST /key/rotate`
+    makes a new key. Both push and answer the status. No active backend
+    answers 409 `BACKEND_NOT_READY` or `BACKEND_PAUSED`, like the Cloud tab.
+  - `DELETE /key` deletes the row and answers 204, also when no row exists.
+  - The three writes share one limit: 10 per user per 10 minutes.
+
+Env: `AI_GATEWAY_API_KEY` (the upstream key, API only),
+`V2_LLM_PROXY_PUBLIC_URL` (the host of `WANDIT_AI_GATEWAY_URL`; unset →
+`BETTER_AUTH_URL`), `REDIS_URL`, `GENERATION_BILLING_MODE`,
+`APP_SECRETS_ENCRYPTION_KEY`, and `SUPABASE_PLATFORM_TOKEN` (the push).
 
 ## Preview
 
@@ -1443,8 +1769,8 @@ minute), and `@RequireWorkspacePermission("project", "update")`.
 1. The project is a V2 `mobile-app` project in scope, else 404.
 2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
    503 `V2_ENV_MISSING`.
-3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`;
-   100000 on every plan for the staging tests, see `docs/v2/runbook.md`),
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
+   starter 0, pro 60, business 180),
    else 402 `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count
    their billed minutes, or their elapsed minutes before the bill.
 4. The user holds no open session: Redis `SET NX PX` on

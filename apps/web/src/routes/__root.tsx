@@ -1,3 +1,8 @@
+/**
+ * The root route of the web app: the page head, and the providers around every page.
+ * TanStack Router builds the route tree from this file. It wraps every route in
+ * React Query, i18n, theme, auth modal, workspace, and billing modal providers.
+ */
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
@@ -10,6 +15,7 @@ import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
+import { useGithubReturnToast } from "@/features/app-builder";
 import { AuthModalProvider } from "@/features/auth";
 import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
 import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
@@ -55,7 +61,8 @@ function RootComponent() {
 					<RootProviders />
 				</AppI18nProvider>
 			</QueryClientProvider>
-			<TanStackRouterDevtools position="bottom-left" />
+			{/* Dev builds only. On the left it covers the cost line under the V2 chat composer. */}
+			<TanStackRouterDevtools position="bottom-right" />
 		</>
 	);
 }
@@ -63,6 +70,7 @@ function RootComponent() {
 function RootProviders() {
 	const { dir } = useI18n();
 	useConnectReturnToast();
+	useGithubReturnToast();
 
 	return (
 		<ThemeProvider

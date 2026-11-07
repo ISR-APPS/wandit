@@ -160,7 +160,9 @@ export class MobileBuildsService {
 		let insert: InsertQueuedResult;
 		try {
 			insert = await this.builds.insertQueued({
-				...projectOwnerColumns(scope),
+				// `mobile_builds.user_id` holds the actor (workspaces-sharing.md 4).
+				organizationId: projectOwnerColumns(scope).organizationId,
+				userId: scope.actorUserId,
 				commitSha,
 				id: buildId,
 				kind: "apk",
@@ -205,7 +207,7 @@ export class MobileBuildsService {
 
 		await this.auditEvents.insert({
 			action: "mobile_build.started",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { commitSha, platform: body.platform },
 			organizationId: projectOwnerColumns(scope).organizationId,
@@ -280,7 +282,7 @@ export class MobileBuildsService {
 		await this.refundCanceledHold(scope, buildId);
 		await this.auditEvents.insert({
 			action: "mobile_build.canceled",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			ip,
 			metadata: { platform: canceled.platform },
 			organizationId: projectOwnerColumns(scope).organizationId,

@@ -47,10 +47,22 @@ export const projectSuspendedReason = pgEnum("project_suspended_reason", [
 	"manual_review",
 ]);
 
+/**
+ * The "Workspace access" row of a project: what workspace members get by
+ * their workspace role. `restricted` leaves only the workspace owner, the
+ * creator, and direct `project_members` grants (workspaces-sharing.md 2.2).
+ */
+export const projectWorkspaceAccess = pgEnum("project_workspace_access", [
+	"can_edit",
+	"can_view",
+	"restricted",
+]);
+
 /** Device family a V2 app project targets. Null on V1 page projects. */
 export const projectTargetPlatform = pgEnum("project_target_platform", [
 	"web",
 	"mobile",
+	"desktop",
 ]);
 
 // Main workspace table.
@@ -91,7 +103,12 @@ export const projects = pgTable(
 		engine: projectEngine("engine").notNull().default("v1_page"),
 		// Device family the app targets. Null on V1 page projects.
 		targetPlatform: projectTargetPlatform("target_platform"),
-		// App template of a V2 project, `web-app` or `mobile-app`: the prefix of
+		// What workspace members get on this project. A move to another
+		// workspace resets it to `can_edit`.
+		workspaceAccess: projectWorkspaceAccess("workspace_access")
+			.notNull()
+			.default("can_edit"),
+		// App template of a V2 project, `web-app`, `mobile-app`, or `desktop-app`: the prefix of
 		// the archive `templates/<framework>-<semver>.tar.gz`.
 		framework: text("framework"),
 		// Version of the app template the project was created from.

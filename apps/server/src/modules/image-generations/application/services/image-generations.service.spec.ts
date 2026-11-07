@@ -12,7 +12,10 @@ import {
 } from "../../../../infrastructure/storage/r2";
 import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
@@ -47,8 +50,8 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
-const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
-const PLACEMENT_SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user_1");
+const PLACEMENT_SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 
 function attemptRow(
 	overrides: Partial<ImageGenerationAttemptRow> = {},
@@ -207,7 +210,7 @@ describe("ImageGenerationsService stale recovery billing", () => {
 		});
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			`image:${STALE_ROW.id}`,
-			{ actorUserId: "user_1" },
+			{ actorIsLimitExempt: true, actorUserId: "user_1" },
 		);
 		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_image",
@@ -237,9 +240,10 @@ describe("ImageGenerationsService stale recovery billing", () => {
 			});
 		const scope: ProjectScope = {
 			actorIsLimitExempt: false,
+			actorRoles: ["member"],
 			kind: "org",
 			organizationId: "org_1",
-			userId: "polling_member_2",
+			actorUserId: "polling_member_2",
 		};
 
 		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
@@ -261,9 +265,10 @@ describe("ImageGenerationsService stale recovery billing", () => {
 			setupStaleRecovery({ usageActorUserId: "legacy_queue_actor_1" });
 		const scope: ProjectScope = {
 			actorIsLimitExempt: false,
+			actorRoles: ["member"],
 			kind: "org",
 			organizationId: "org_1",
-			userId: "polling_member_2",
+			actorUserId: "polling_member_2",
 		};
 
 		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
@@ -284,9 +289,10 @@ describe("ImageGenerationsService stale recovery billing", () => {
 			setupStaleRecovery({ hasUsageEvent: false });
 		const scope: ProjectScope = {
 			actorIsLimitExempt: false,
+			actorRoles: ["member"],
 			kind: "org",
 			organizationId: "org_1",
-			userId: "polling_member_2",
+			actorUserId: "polling_member_2",
 		};
 
 		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
@@ -657,6 +663,7 @@ describe("ImageGenerationsService attempt placement", () => {
 
 		expect(attempt.placement).toEqual({ status: "failed" });
 		expect(findByIdempotencyKey).toHaveBeenCalledWith(`image:${ATTEMPT_ID}`, {
+			actorIsLimitExempt: true,
 			actorUserId: "user-1",
 		});
 		expect(refund).toHaveBeenCalledWith(

@@ -16,7 +16,7 @@ import {
 	presentPlanHostToolInputSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
-import { appCommitNumstatEntrySchema } from "./versions";
+import { appCommitNumstatEntrySchema, commitShaSchema } from "./versions";
 
 /**
  * Every status a `builder_turns` row can hold, in lifecycle order. Matches
@@ -101,8 +101,9 @@ export const createTurnRequestSchema = z
 		message: z.string().max(projectPromptMaxLength),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		composer: composerMetadataSchema.optional(),
-		// A paid model the user picked; absent means the deploy default. The
-		// plan allow-list decides which ids are legal.
+		// The model the user picked; absent means the deploy default. Any
+		// model with a price row is legal (`GET /api/v2/models` lists them).
+		// Another id answers 400 `V2_MODEL_DENIED`.
 		model: z.string().min(1).optional(),
 		// The Plan toggle of the composer; absent means `build`.
 		mode: builderTurnModeSchema.optional(),
@@ -162,10 +163,57 @@ export type TurnEstimate = z.infer<typeof turnEstimateSchema>;
  */
 export const turnEstimateResponseSchema = z.object({
 	estimate: turnEstimateSchema.nullable(),
+	// The pool that pays for this project's turns, which can differ from the
+	// header pool (workspaces-sharing.md 4). The composer reads it to lock
+	// and to sell credits. Optional: older servers omit it.
+	payer: z
+		.object({
+			// True when the caller's own pool pays.
+			isActor: z.boolean(),
+			// True when the payer pool has no credits for a new turn.
+			outOfCredits: z.boolean(),
+		})
+		.optional(),
 });
 
 /** TypeScript estimate answer. */
 export type TurnEstimateResponse = z.infer<typeof turnEstimateResponseSchema>;
+
+/**
+ * Answer of `GET /api/v2/projects/:projectId/chats/:chatId/cost`: the full
+ * cost of one chat, so a user can compare models. The money and token sums
+ * come from the `llm_proxy_requests` rows of the chat's turns.
+ */
+export const chatCostResponseSchema = z.object({
+	// Provider cost in USD micros (1 USD = 1,000,000 micros), all priced rows.
+	usdMicros: z.int().nonnegative(),
+	// Centi-credits (1 credit = 100 cc): the sum of the turns' settled cost so far.
+	credits: z.int().nonnegative(),
+	// Count of `builder_turns` rows of the chat, in every status.
+	turnCount: z.int().nonnegative(),
+	// Fresh input tokens, summed over the proxy rows.
+	inputTokens: z.int().nonnegative(),
+	// Output tokens, summed over the proxy rows.
+	outputTokens: z.int().nonnegative(),
+	// Prompt-cache read tokens, summed over the proxy rows.
+	cacheReadTokens: z.int().nonnegative(),
+	// Prompt-cache write tokens, summed over the proxy rows.
+	cacheWriteTokens: z.int().nonnegative(),
+	// One entry per model the proxy sent requests to, ordered by model id.
+	byModel: z.array(
+		z.object({
+			// Model id sent upstream, in allow-list form.
+			model: z.string().min(1),
+			// Provider cost of this model in USD micros.
+			usdMicros: z.int().nonnegative(),
+			// Count of proxy requests sent to this model.
+			requestCount: z.int().nonnegative(),
+		}),
+	),
+});
+
+/** TypeScript chat-cost answer. */
+export type ChatCostResponse = z.infer<typeof chatCostResponseSchema>;
 
 /**
  * `data` of the first browser frame `data-turn-created` on the create
@@ -202,6 +250,23 @@ export const cancelTurnResponseSchema = z.object({
 
 /** TypeScript cancel-turn response. */
 export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
+
+/**
+ * Answer of `GET /api/v2/projects/:id/turns/active`. The builder page polls
+ * it to show a turn or a commit of another client, such as a coding agent
+ * over MCP or a teammate.
+ */
+export const activeTurnStateResponseSchema = z.object({
+	// The turn that holds the project slot: queued, running, or cancelling. Null when no turn runs.
+	activeTurnId: uuidSchema.nullable(),
+	// `app_branches(main).head_sha`. Null before the first commit of the project.
+	headSha: commitShaSchema.nullable(),
+});
+
+/** TypeScript poll answer of the builder page. */
+export type ActiveTurnStateResponse = z.infer<
+	typeof activeTurnStateResponseSchema
+>;
 
 /**
  * Coarse phases the task reports between AI SDK chunks (D20: one box for
@@ -414,12 +479,18 @@ export const turnDoneDataPartSchema = z.object({
 /**
  * One option of a `data-question` card. `card` is the preview of the
  * design world the option names; the tray then shows a world card.
+ * `theme` is the theme.json of a theme card; the tray then draws its mockup.
  */
 export const turnQuestionOptionSchema = z.object({
 	id: z.string(),
 	label: z.string(),
 	description: z.string().optional(),
 	card: worldCardSchema.optional(),
+	// The whole AppThemeFile of "@wandit/contracts/v2/app-theme". This file
+	// checks only the version and the name: index.ts exports it, and that
+	// schema pulls the 177 KB look catalog into every bundle. The lazy theme
+	// card parses the file with `appThemeFileSchema` before it reads more.
+	theme: z.looseObject({ version: z.literal(1), name: z.string() }).optional(),
 	// True on the option the agent advises; the tray shows a badge on it.
 	recommended: z.boolean().optional(),
 });

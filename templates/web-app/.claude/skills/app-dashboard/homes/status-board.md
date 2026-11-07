@@ -60,7 +60,7 @@ The asset list returns no row: this is the first visit.
 
 - Setup strip: under the status line, above the wall.
 - Status line: "0 machines", in the words of the app.
-- Wall: 6 empty tile slots in the empty frame of the style (4 at 375 px). The first slot holds the add action.
+- Wall: 6 empty tile slots in the empty frame (4 at 375 px). The first slot holds the add action.
 - Events per day: the empty frame of the chart file. The 2 header figures show 0.
 - Alerts: "No alert." This is also the healthy state on later visits.
 

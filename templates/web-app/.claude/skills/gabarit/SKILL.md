@@ -42,7 +42,7 @@ The chef d'atelier who loves exact words. Short declaratives, technical vocabula
 - GRADIENTS: none. Anywhere. A working drawing is printed in flat inks; even panel washes are forbidden. Depth comes from line weight and paper-vs-sheet contrast.
 - ::selection is cyan at ~30% on paper with ink text; :focus-visible is a 2px ink outline offset 2–3px.
 
-FIXED TOKEN MAP — PAPER→--background · INK→--foreground · INK→--primary · PAPER→--primary-foreground · sheet panel→--secondary · RED PENCIL→--accent · CYAN SUPPORT→--muted · ink at 35%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, hatch or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: Archivo or Saira (one per site, client-owned), weights 600–800, tracking −0.01 to −0.03em. Hero statement clamp(2.6rem, 6vw, 5rem); section titles clamp(1.9rem, 3.6vw, 3.2rem); line-height 1.02–1.12. Sentence case for statements; uppercase reserved for the wordmark and short labels.

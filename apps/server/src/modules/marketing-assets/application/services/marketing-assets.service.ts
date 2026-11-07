@@ -1,3 +1,8 @@
+/**
+ * Lists the marketing assets of a project and serves the HTML of one asset.
+ * MarketingAssetsController and AdminProjectsService call it. A list fails
+ * stale rows. A failed row gets an idempotent refund through MeteringService.
+ */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
 	AiErrorData,
@@ -147,7 +152,7 @@ export class MarketingAssetsService {
 		rows: MarketingAssetRow[],
 		scope: ProjectScope,
 	): Promise<boolean> {
-		const userId = scope.userId;
+		const userId = scope.actorUserId;
 		const queuedCutoff = new Date(Date.now() - QUEUED_STALE_AFTER_MS);
 		const generatingCutoff = new Date(Date.now() - GENERATION_STALE_AFTER_MS);
 		let changed = false;
@@ -177,7 +182,7 @@ export class MarketingAssetsService {
 						row,
 						failure,
 						STALE_QUEUED_ERROR,
-						scope.userId,
+						scope.actorUserId,
 					);
 					captureGenerationFailed(
 						this.analyticsService,
@@ -275,7 +280,7 @@ export class MarketingAssetsService {
 						row,
 						failure,
 						STALE_GENERATION_ERROR,
-						scope.userId,
+						scope.actorUserId,
 					);
 					captureGenerationFailed(
 						this.analyticsService,

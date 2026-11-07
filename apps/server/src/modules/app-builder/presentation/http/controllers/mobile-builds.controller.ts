@@ -1,7 +1,7 @@
 /**
  * `/api/v2/projects/:projectId/mobile-builds`: the EAS builds of one V2
  * mobile app (WANDIT-194). The global AuthGuard needs a session, the
- * workspace guard checks `project:update`, `V2BuilderEnabledGuard` gates the
+ * global ProjectAccessGuard checks the editor role, `V2BuilderEnabledGuard` gates the
  * module, and `RedisRateLimitGuard` reads the `@RateLimit` of the two write
  * routes. This file parses the input and delegates to `MobileBuildsService`.
  */
@@ -32,12 +32,12 @@ import type { FastifyRequest } from "fastify";
 import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
-	CurrentWorkspace,
-	RequireWorkspacePermission,
-} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { MobileBuildsService } from "../../../application/services/mobile-builds.service";
 import {
 	RateLimit,
@@ -58,8 +58,8 @@ const buildIdParam = Param("buildId", new ZodValidationPipe(uuidSchema));
 @Controller("v2/projects/:projectId/mobile-builds")
 @UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 // A build spends credits and ships the app code, so reads and writes need
-// `project:update`. A non-member gets 404 from the service.
-@RequireWorkspacePermission("project", "update")
+// an editor. A caller without access gets 404 from the guard.
+@RequireProjectRole("editor")
 export class MobileBuildsController {
 	constructor(
 		// The Pick type, not the class: a spec passes the fake without a cast.
@@ -76,10 +76,10 @@ export class MobileBuildsController {
 		@Query(new ZodValidationPipe(listMobileBuildsQuerySchema))
 		query: ListMobileBuildsQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ListMobileBuildsResponse> {
 		return this.builds.list(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);
@@ -96,11 +96,11 @@ export class MobileBuildsController {
 		@Body(new ZodValidationPipe(createMobileBuildBodySchema))
 		body: CreateMobileBuildBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<MobileBuild> {
 		return this.builds.create(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 			readClientIp(request),
@@ -112,10 +112,10 @@ export class MobileBuildsController {
 		@projectIdParam projectId: string,
 		@buildIdParam buildId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<MobileBuild> {
 		return this.builds.get(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			buildId,
 		);
@@ -133,11 +133,11 @@ export class MobileBuildsController {
 		@projectIdParam projectId: string,
 		@buildIdParam buildId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<MobileBuild> {
 		return this.builds.cancel(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			buildId,
 			readClientIp(request),

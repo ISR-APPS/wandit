@@ -8,6 +8,7 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
+import { DAILY_CAP_TURN_ERROR_CODE } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
@@ -152,6 +153,9 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						messages: MESSAGES,
 						turnEstimateCredits: 6,
 						targets: [],
+						isReadOnly: false,
+						payerOutOfCredits: false,
+						isPayerActiveWorkspace: true,
 						onRemoveTarget: vi.fn(),
 						isSending: false,
 						phase: null,
@@ -166,6 +170,12 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onAnswerQuestions,
 						isPlanMode: false,
 						onPlanModeChange: () => {},
+						// No model list: the menu hides, as while the list loads.
+						modelPick: {
+							models: undefined,
+							modelId: undefined,
+							setModelId: vi.fn(),
+						},
 						onCancel: () => {},
 						errorText: null,
 						onReconnect: null,
@@ -243,6 +253,35 @@ describe("ChatPane", () => {
 		expect(busy.onDecideApproval).not.toHaveBeenCalled();
 	});
 
+	// A daily cap resend fails until 00:00 UTC. A no-credits stop can go
+	// again after a top-up; this pane has no session, so no balance lock.
+	it.each([
+		{ code: "SANDBOX_LOST", retry: "shows" },
+		{ code: DAILY_CAP_TURN_ERROR_CODE, retry: "hides" },
+		{ code: "stopped_no_credits", retry: "shows" },
+	])("$retry Retry on a failed reply with code $code", ({ code, retry }) => {
+		renderPane({
+			messages: [
+				{ id: "u1", role: "user", parts: [{ type: "text", text: "Build it" }] },
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{
+							type: "data-error",
+							id: "e1",
+							data: { code, message: "Turn stopped", retryable: false },
+						},
+					],
+				},
+			],
+		});
+		expect(screen.getByRole("alert")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Retry" }) !== null).toBe(
+			retry === "shows",
+		);
+	});
+
 	it("locks the composer while the chat id is unknown", () => {
 		renderPane({ isReady: false });
 		const textarea = screen.getByRole("textbox");
@@ -250,6 +289,33 @@ describe("ChatPane", () => {
 		expect(
 			screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
 		).toBe(true);
+	});
+
+	// The payer of the turn estimate replaces the active workspace pool, which has
+	// credits here (no session). A viewer gets a note instead of the composer.
+	it.each<{
+		name: string;
+		props: Partial<ChatPaneProps>;
+		composer: "locked" | "hidden";
+	}>([
+		{
+			name: "the project payer has no credits",
+			props: { payerOutOfCredits: true, isPayerActiveWorkspace: false },
+			composer: "locked",
+		},
+		{
+			name: "the caller is a viewer",
+			props: { isReadOnly: true },
+			composer: "hidden",
+		},
+	])("shows the composer $composer when $name", ({ props, composer }) => {
+		renderPane(props);
+		const textarea = screen.queryByRole("textbox");
+		if (composer === "hidden") {
+			expect(textarea).toBeNull();
+		} else {
+			expect(textarea?.hasAttribute("disabled")).toBe(true);
+		}
 	});
 
 	it("shows the live reply only as the status line, with no thinking and no file, in the production view", () => {

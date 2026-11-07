@@ -6,7 +6,7 @@
 import { z } from "zod";
 
 /** Device family a V2 app targets. Matches `project_target_platform`. */
-export const targetPlatforms = ["web", "mobile"] as const;
+export const targetPlatforms = ["web", "mobile", "desktop"] as const;
 
 /** The V2 create body defaults it to "web"; the V1 `projectSchema` makes it nullable. */
 export const targetPlatformSchema = z.enum(targetPlatforms);

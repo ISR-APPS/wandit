@@ -37,7 +37,7 @@ export const PLAN_MODE_PROMPT = [
 	"- What the owner wants to see at a glance: numbers, lists, and reports.",
 	"- Where people use it (office, shop floor, phone) and the app language.",
 	"- What the first version must have, and what can come later.",
-	"6. Ask the app language and, for a public website or a mobile app, the design world in the last round, as CLAUDE.md says. An app area behind sign-in gets no style question.",
+	"6. Ask the app language in the last round, as CLAUDE.md says. In the same round, ask about the look as CLAUDE.md says. An app, and Both whose public page only leads to sign-up, get the theme question. When CLAUDE.md has no theme question, they get no style question. A website, Both whose public pages sell, and a mobile app get the design world question.",
 	"7. The project already has an app: plan only the change that the user asks for. Read the files of that change first, then ask only about it. One or two rounds are usually enough.",
 	"8. Stop asking when you can describe every screen and every user action without a guess. A vague request needs 3 to 5 rounds. A clear request needs 1 or 2. Never ask more than 6 rounds.",
 	'9. An answer "decide for me" or a skipped question: choose what most businesses like theirs choose, and add the choice to the assumptions of the plan. The user says "stop asking" or "just build": stop asking, and present the plan now.',

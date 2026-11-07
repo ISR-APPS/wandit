@@ -9,7 +9,9 @@ import type {
 	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
+	ProjectAccess,
 	ProjectEngine,
+	TargetPlatform,
 	TurnDataParts,
 	TurnPlanData,
 	TurnQuestionOption,
@@ -18,13 +20,16 @@ import type {
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
-/** What Wandit builds. Changes the preview frame, the More panels, and the publish targets. */
-export type AppProjectKind = "web" | "mobile";
+/**
+ * What Wandit builds: the `targetPlatform` values of the API. Changes the
+ * preview frame, the More panels, and the publish targets.
+ */
+export type AppProjectKind = TargetPlatform;
 
 export type AppProject = {
 	id: string;
 	name: string;
-	/** Set at creation from `targetPlatform`. It never changes, so Settings shows it as a badge. */
+	/** Set at creation from `targetPlatform`, or from the `desktop-app` framework. It never changes, so Settings shows it as a badge. */
 	kind: AppProjectKind;
 	/** Languages the agent builds the app in, from `projects.languages`. Settings lists them read-only. */
 	languages: AppLanguage[];
@@ -38,6 +43,11 @@ export type AppProject = {
 	unpublishedChanges: number;
 	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
 	hasCodeChanges: boolean;
+	/**
+	 * The caller's project role and the project's workspace. Every V2 panel reads it,
+	 * never the workspace header role. Absent from an older API: full access, as before.
+	 */
+	access?: ProjectAccess;
 };
 
 /**

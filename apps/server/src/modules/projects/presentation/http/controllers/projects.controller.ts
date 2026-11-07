@@ -1,6 +1,6 @@
 /**
  * Serves the V1 project routes: list, create, get, update, and delete.
- * Nest calls it after the session and workspace guards.
+ * Nest calls it after the session, workspace, and project access guards.
  * It calls ProjectsService, which reserves the credits of a new project.
  */
 import {
@@ -32,17 +32,29 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { WorkspacePermissionDeniedError } from "../../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { ProjectsService } from "../../../application/services/projects.service";
-import { projectScopeFrom } from "../../../domain/project-scope";
+import {
+	canDeleteProject,
+	type ResolvedProjectAccess,
+} from "../../../domain/project-access";
+import {
+	projectScopeFrom,
+	projectScopeFromAccess,
+} from "../../../domain/project-scope";
+import {
+	CurrentProjectAccess,
+	RequireProjectRole,
+} from "../decorators/project-access.decorators";
 
-// The x-wandit-workspace header (resolved by WorkspaceContextGuard) selects
-// personal vs org scope. Role gates apply only in org scope — personal
-// workspaces bypass them (the owner is omnipotent in their own space).
+// The list and create routes read the x-wandit-workspace header (resolved by
+// WorkspaceContextGuard). The `:projectId` routes use the caller's role on
+// the project, for every engine, and never the header role (design 3.3).
 @Controller("v1/projects")
 export class ProjectsController {
 	constructor(
@@ -85,20 +97,22 @@ export class ProjectsController {
 		);
 	}
 
+	@RequireProjectRole("viewer", { anyEngine: true })
 	@Get(":projectId")
 	get(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<Project> {
 		return this.projectsService.get(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}
 
-	@RequireWorkspacePermission("project", "update")
+	// A rename is an edit: a viewer must not write.
+	@RequireProjectRole("editor", { anyEngine: true })
 	@Patch(":projectId")
 	update(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -106,27 +120,32 @@ export class ProjectsController {
 		@Body(new ZodValidationPipe(updateProjectBodySchema))
 		body: UpdateProjectBody,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<Project> {
 		return this.projectsService.update(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			body,
 		);
 	}
 
-	// Destructive: members cannot delete org projects, only owners/admins.
-	@RequireWorkspacePermission("project", "delete")
+	// The guard only proves access. canDeleteProject applies the delete rule:
+	// a V2 project needs its owner, a V1 project keeps `project:delete`.
+	@RequireProjectRole("viewer", { anyEngine: true })
 	@Delete(":projectId")
 	@HttpCode(204)
 	delete(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<void> {
+		if (!canDeleteProject(access)) {
+			throw new WorkspacePermissionDeniedError();
+		}
+
 		return this.projectsService.delete(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 		);
 	}

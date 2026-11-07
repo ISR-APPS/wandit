@@ -4,25 +4,33 @@
  * which draws its title; a Cloud panel renders through
  * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
+ * A project viewer gets a note in place of the AI panel. The MCP panel body
+ * comes from the coding-agents feature.
  */
 
+import { InfoIcon } from "@phosphor-icons/react/Info";
+import { cn } from "@wandit/ui/lib/utils";
 import { type ReactNode, useState } from "react";
 
+import { ProjectConnectSteps } from "@/features/coding-agents";
+import { hasProjectRole } from "@/features/project-sharing";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import {
-	type EnabledMorePanel,
 	MORE_PANEL_META,
+	type MorePanel,
 	type ProjectPanel,
 } from "../../lib/constants";
 import { isCloudPanel } from "../../lib/helpers";
 import { CloudPanelContent } from "../cloud/cloud-panel-content";
 import type { LogsFilter } from "../cloud/logs-panel";
+import { AiPanel } from "./ai-panel";
 import { AppStoresPanel } from "./app-stores-panel";
 import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
+import { IntegrationsPanel } from "./integrations-panel";
 import { MoreNav } from "./more-nav";
-import { PanelShell } from "./panel-shell";
+import { PANEL_CARD_CLASS, PanelMessage, PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
 import { SettingsPanel } from "./settings-panel";
 import { SignInPanel } from "./sign-in-panel";
@@ -32,7 +40,7 @@ export type MoreViewProps = {
 	project: AppProject;
 	/** Open panel, already resolved by resolvePanel in the page for the kind and the Cloud gate. */
 	panel: ProjectPanel;
-	/** True while the More view is on screen. The view stays mounted, so every Cloud query waits for it. */
+	/** True while the More view is on screen. The view stays mounted, so every Cloud query and the AI status wait for it. */
 	isActive: boolean;
 	/** True when the nav shows the Backend group. The page reads it from useCloudTabEnabled. */
 	showBackendGroup: boolean;
@@ -40,14 +48,10 @@ export type MoreViewProps = {
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
-type EmptyMorePanel = Extract<
-	EnabledMorePanel,
-	"analytics" | "ai" | "security"
->;
+type EmptyMorePanel = Extract<MorePanel, "analytics" | "security">;
 
 const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	analytics: "appBuilder.panels.analytics.cta",
-	ai: "appBuilder.panels.ai.cta",
 	security: "appBuilder.panels.security.cta",
 };
 
@@ -70,10 +74,9 @@ export function MoreView({
 		onSelectPanel(next);
 	}
 
-	function renderMorePanel(morePanel: EnabledMorePanel): ReactNode {
+	function renderMorePanel(morePanel: MorePanel): ReactNode {
 		switch (morePanel) {
 			case "analytics":
-			case "ai":
 			case "security":
 				return (
 					<EmptyPanel
@@ -81,12 +84,30 @@ export function MoreView({
 						ctaLabel={t(EMPTY_PANEL_CTA[morePanel])}
 					/>
 				);
+			case "ai":
+				// Every AI key route needs the editor role, the GET too. A viewer gets a note and no API call.
+				return hasProjectRole(project.access, "editor") ? (
+					<AiPanel projectId={project.id} isActive={isActive} />
+				) : (
+					<PanelMessage
+						icon={InfoIcon}
+						text={t("sharing.readOnly.editorsOnly")}
+					/>
+				);
 			case "signIn":
 				return <SignInPanel projectId={project.id} />;
 			case "payments":
 				return <PaymentsPanel />;
+			case "integrations":
+				return <IntegrationsPanel project={project} isActive={isActive} />;
+			case "mcp":
+				return (
+					<section className={cn(PANEL_CARD_CLASS, "p-5 sm:p-6")}>
+						<ProjectConnectSteps projectId={project.id} />
+					</section>
+				);
 			case "domains":
-				return <DomainsPanel projectId={project.id} />;
+				return <DomainsPanel projectId={project.id} access={project.access} />;
 			case "appStores":
 				return <AppStoresPanel projectId={project.id} />;
 			case "settings":

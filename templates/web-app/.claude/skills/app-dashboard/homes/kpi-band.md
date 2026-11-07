@@ -57,7 +57,7 @@ The list query returns no row: this is the first visit.
 - Band: each figure shows its real value (0) and "No earlier data" in place of the delta. Never "0%".
 - Trend: the empty frame of the chart file at full height. Every day is a real 0.
 - Breakdown: the empty frame of the chart file and one muted sentence with the page that records the events.
-- Newest rows: the table head, the empty frame of the style, one muted sentence, and the add action.
+- Newest rows: the table head, the empty frame, one muted sentence, and the add action.
 
 ## Rules
 

@@ -1,0 +1,178 @@
+# Saves the cargo caches that build.yml and build-macos.yml restore (docs/v2/desktop-apps.md, section 9).
+# It builds shell/ (written by sync-shell.mjs, with fixture files) on Windows and on macOS (2 jobs).
+# It saves one cargo cache for each system. A push to main, a manual start, and a daily schedule start it.
+# Only this workflow writes the cache, and it runs only trusted code of this repo.
+name: Desktop cache warm-up
+
+on:
+  push:
+    # The default branch of the builder repo. A cache saved here is visible to build.yml and build-macos.yml runs.
+    branches: [main]
+  workflow_dispatch:
+  # GitHub deletes a cache after 7 days without access, and build runs only restore.
+  # A daily run makes a deleted cache again. A run that finds the cache skips the build.
+  # 03:17 UTC: GitHub can delay scheduled runs at the start of each hour.
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+# Two pushes run one after the other. With the same key, the second run finds it and skips the build.
+concurrency:
+  group: desktop-warm-cache
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: windows-2022
+    # A cold run: about 10 min for tauri-cli and 25 min for the shell (ESTIMATE), plus the cache upload.
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 4 values equal in build.yml. The cache key and the cache paths use them.
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      # The crate version of @tauri-apps/cli 2.12.4. Both come from one release.
+      TAURI_CLI_VERSION: "2.12.4"
+      TAURI_CLI_ROOT: 'C:\desktop-build\tools'
+      CARGO_TARGET_DIR: 'C:\desktop-build\target'
+    steps:
+      # The Windows image sets core.autocrlf=true. Cargo.lock must keep the LF bytes of the
+      # server input, or its hash differs from the cache key that build.yml asks for.
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A cache entry never changes after its first save. When the key exists, the steps below skip.
+      - name: Look up the cargo cache
+        id: lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in build.yml. The cache version is a hash of these paths.
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          # The same formula as build.yml. hashFiles hashes the file content, not its path.
+          key: desktop-cargo-v1-rust-${{ env.RUSTUP_TOOLCHAIN }}-tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}
+          lookup-only: true
+
+      - name: Install the Rust toolchain
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The runner image has rustup. RUSTUP_TOOLCHAIN makes every cargo call use this version.
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          # cargo finds the `tauri` subcommand (cargo-tauri.exe) on PATH.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value "$env:TAURI_CLI_ROOT\bin"
+
+      - name: Install tauri-cli
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # --locked uses the lock file that tauri-cli publishes. A separate target folder keeps
+          # the tauri-cli build out of the shell build folder.
+          cargo install tauri-cli --version $env:TAURI_CLI_VERSION --locked --root $env:TAURI_CLI_ROOT --target-dir "$env:RUNNER_TEMP\tauri-cli-target"
+
+      # The command of build.yml, so the target folder holds the same compiled crates. Only the
+      # config path differs: sync-shell.mjs writes the fixture config next to src-tauri/.
+      - name: Build the fixture app
+        if: steps.lookup.outputs.cache-hit != 'true'
+        working-directory: shell/src-tauri
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo tauri build --ci --bundles nsis --config ../tauri.desktop.json -- --locked
+
+      - name: Save the cargo cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.lookup.outputs.cache-primary-key }}
+
+  warm-macos:
+    # The runner of build-macos.yml, so the cache holds crates built on the same system.
+    runs-on: macos-15
+    # No user pays for this job. A cold run takes about 10 to 25 minutes on 3 vCPU (ESTIMATE).
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 4 values equal in build-macos.yml. The cache key and the cache paths use them.
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      # The crate version of @tauri-apps/cli 2.12.4. Both come from one release.
+      TAURI_CLI_VERSION: "2.12.4"
+      TAURI_CLI_ROOT: /Users/runner/desktop-build/tools
+      CARGO_TARGET_DIR: /Users/runner/desktop-build/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A cache entry never changes after its first save. When the key exists, the steps below skip.
+      - name: Look up the cargo cache
+        id: lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in build-macos.yml. The cache version is a hash of these paths.
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          # The same formula as build-macos.yml. hashFiles hashes the file content, not its path.
+          key: desktop-cargo-v1-macos-arm64-rust-${{ env.RUSTUP_TOOLCHAIN }}-tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}
+          lookup-only: true
+
+      - name: Install the Rust toolchain
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The runner image has rustup. RUSTUP_TOOLCHAIN makes every cargo call use this version.
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          # cargo finds the `tauri` subcommand (cargo-tauri) on PATH.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value "$env:TAURI_CLI_ROOT/bin"
+
+      - name: Install tauri-cli
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # --locked uses the lock file that tauri-cli publishes. A separate target folder keeps
+          # the tauri-cli build out of the shell build folder.
+          cargo install tauri-cli --version $env:TAURI_CLI_VERSION --locked --root $env:TAURI_CLI_ROOT --target-dir "$env:RUNNER_TEMP/tauri-cli-target"
+
+      # The cargo build of build-macos.yml, so the target folder holds the same compiled crates.
+      # The config path differs: sync-shell.mjs writes the fixture config next to src-tauri/.
+      # No DMG: it adds no compiled crate, and an hdiutil fault on the runner would stop the save.
+      - name: Build the fixture app
+        if: steps.lookup.outputs.cache-hit != 'true'
+        working-directory: shell/src-tauri
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo tauri build --ci --bundles app --config ../tauri.desktop.json -- --locked
+
+      - name: Save the cargo cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.lookup.outputs.cache-primary-key }}

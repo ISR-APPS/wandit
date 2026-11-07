@@ -25,11 +25,13 @@
 		"leadStart": "Build me a",
 		"platforms": {
 			"mobile": "mobile app",
-			"web": "web app"
+			"web": "web app",
+			"desktop": "desktop app"
 		},
 		"switchTo": {
 			"mobile": "Switch to a mobile app",
-			"web": "Switch to a web app"
+			"web": "Switch to a web app",
+			"desktop": "Switch to a desktop app"
 		},
 		"inputLabel": "Describe your app",
 		"sub": "Wandit designs the screens, writes the code and sets up sign-in and a database. Try it on your phone in minutes.",
@@ -47,8 +49,8 @@
 			"invoices": [
 				"Designing the dashboard",
 				"Creating clients and invoices",
-				"Adding email sign-in",
-				"Live on ledgerly.wandit.app"
+				"Saving the data on the computer",
+				"Ledgerly-setup.exe is ready"
 			],
 			"running": [
 				"Designing 5 screens",
@@ -144,7 +146,8 @@
 		"useButton": "Use this idea",
 		"platforms": {
 			"mobile": "Mobile app",
-			"web": "Web app"
+			"web": "Web app",
+			"desktop": "Desktop app"
 		},
 		"items": {
 			"barber": {
@@ -153,7 +156,7 @@
 			},
 			"invoices": {
 				"name": "Invoices",
-				"text": "that sends invoices and tracks who paid"
+				"text": "that makes invoices and tracks who paid"
 			},
 			"running": {
 				"name": "Running club",

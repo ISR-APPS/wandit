@@ -1,4 +1,12 @@
-import { BadRequestException, ForbiddenException } from "@nestjs/common";
+/**
+ * Workspace errors with their API codes: permission, scope kind, and invite links.
+ * The workspace guard, the workspace controllers, and the sharing services throw them.
+ */
+import {
+	BadRequestException,
+	ForbiddenException,
+	NotFoundException,
+} from "@nestjs/common";
 
 export const WORKSPACE_PERMISSION_DENIED_ERROR_CODE =
 	"WORKSPACE_PERMISSION_DENIED";
@@ -24,6 +32,29 @@ export class WorkspaceNotSupportedError extends BadRequestException {
 		super({
 			code: WORKSPACE_NOT_SUPPORTED_ERROR_CODE,
 			message,
+		});
+	}
+}
+
+/**
+ * 404 for an unknown, revoked, or expired link, or a link to a project that is gone.
+ * The join page shows one message for all of them, so a token reveals nothing more.
+ */
+export class InviteLinkInvalidError extends NotFoundException {
+	constructor() {
+		super({
+			code: "INVITE_LINK_INVALID",
+			message: "This invite link is not valid",
+		});
+	}
+}
+
+/** 403 when the session email is not verified. Links and invitations need a verified owner of the email. */
+export class EmailNotVerifiedError extends ForbiddenException {
+	constructor() {
+		super({
+			code: "FORBIDDEN",
+			message: "Verify your email first",
 		});
 	}
 }

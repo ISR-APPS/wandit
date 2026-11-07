@@ -48,6 +48,9 @@
 		"sandbox": "Temps de sandbox",
 		"mobile_build": "Build de l'app",
 		"mobile_preview": "Aperçu sur appareil",
+		"app_ai_gateway": "Appel IA de l'app",
+		"desktop_build": "Build d'app de bureau",
+		"theme_design": "Design de thème",
 		"topup_adjust": "Ajustement du solde"
 	},
 	"activityStatus": {

@@ -168,6 +168,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const onDone = vi.fn();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			onDone,
 			reply,
 			request: fakeRequest(),
@@ -289,6 +290,7 @@ describe("TurnStreamRelayService.relay", () => {
 		};
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			first,
 			reply,
 			request: fakeRequest(),
@@ -301,6 +303,51 @@ describe("TurnStreamRelayService.relay", () => {
 			id: "turn-created",
 			type: "data-turn-created",
 		});
+	});
+
+	it.each([
+		true,
+		false,
+	])("sends the done receipt with the payer balance only to a reader who may see it (%s)", async (canReadPayerBalance) => {
+		const receipt = {
+			balanceCredits: 12_345,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			credits: 30,
+			inputTokens: 1,
+			modelId: "model-1",
+			outputTokens: 2,
+		};
+		const stream = new FakeTurnEventStream();
+		await stream.write("run-1", {
+			data: { receipt, status: "succeeded" },
+			type: "done",
+		});
+		const { relay } = setup(stream);
+		const { chunks, reply } = fakeReply();
+		const onDone = vi.fn();
+
+		await relay.relay({
+			canReadPayerBalance,
+			onDone,
+			reply,
+			request: fakeRequest(),
+			triggerRunId: "run-1",
+			turnId: "turn-1",
+		});
+
+		expect(parsedFrames(chunks)).toEqual([
+			{
+				data: canReadPayerBalance
+					? { receipt, status: "succeeded" }
+					: { status: "succeeded" },
+				id: "turn-done",
+				type: "data-turn-done",
+			},
+			"[DONE]",
+		]);
+		// The promotion callback still gets the full event.
+		expect(onDone).toHaveBeenCalledWith({ receipt, status: "succeeded" });
 	});
 
 	it("reopens a quietly-ended read and does not write replayed chunks twice", async () => {
@@ -334,6 +381,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const { chunks, reply } = fakeReply();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			reply,
 			request: fakeRequest(),
 			triggerRunId: "run-1",
@@ -381,6 +429,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const onDone = vi.fn();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			onDone,
 			reply,
 			request: fakeRequest(),
@@ -416,6 +465,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const onDone = vi.fn();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			onDone,
 			reply,
 			request: fakeRequest(),
@@ -463,6 +513,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const { chunks, reply } = fakeReply();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			reply,
 			request: fakeRequest(),
 			triggerRunId: null,
@@ -510,6 +561,7 @@ describe("TurnStreamRelayService.relay", () => {
 			const { chunks, reply } = fakeReply();
 
 			const done = relay.relay({
+				canReadPayerBalance: false,
 				reply,
 				request: fakeRequest(),
 				triggerRunId: null,
@@ -544,6 +596,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const { reply } = fakeReply();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			releaseSlot: false,
 			reply,
 			request: fakeRequest(),
@@ -568,6 +621,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const { chunks, raw, reply } = fakeReply();
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			reply,
 			request: fakeRequest(),
 			triggerRunId: "run-9",
@@ -593,6 +647,7 @@ describe("TurnStreamRelayService.relay", () => {
 		const { chunks, raw, reply } = fakeReply({ stallFirstWrite: true });
 
 		await relay.relay({
+			canReadPayerBalance: false,
 			reply,
 			request: fakeRequest(),
 			triggerRunId: "run-1",
@@ -615,6 +670,7 @@ describe("TurnStreamRelayService.relay", () => {
 			const { chunks, reply } = fakeReply();
 
 			const done = relay.relay({
+				canReadPayerBalance: false,
 				reply,
 				request: fakeRequest(),
 				triggerRunId: "run-1",
@@ -662,6 +718,7 @@ describe("TurnStreamRelayService.relay", () => {
 
 		leave(raw);
 		await relay.relay({
+			canReadPayerBalance: false,
 			reply,
 			request: fakeRequest(),
 			triggerRunId: "run-1",

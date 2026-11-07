@@ -5,6 +5,7 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
+	githubPullResponseSchema,
 	listVersionsResponseSchema,
 	restoreVersionResponseSchema,
 	versionDiffResponseSchema,
@@ -12,7 +13,11 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import type { ResolvedProjectAccess } from "../../../projects";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";
 import type { SandboxExecResult } from "../../domain/ports/sandbox-provider";
 import {
@@ -27,6 +32,7 @@ import {
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
 import type { BuilderTurnRow } from "../../infrastructure/persistence/builder-turns.repository";
+import type { ProjectGithubLinkRow } from "../../infrastructure/persistence/project-github-links.repository";
 import type { TurnProjectRow } from "../../infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import {
@@ -39,10 +45,11 @@ const SHA = "a".repeat(40);
 const HEAD = "b".repeat(40);
 const NEW_SHA = "c".repeat(40);
 const WIP_SHA = "e".repeat(40);
+const GITHUB_SHA = "f".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A TEST-NET-3 address (RFC 5737): it never names a real client.
 const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {
@@ -71,6 +78,39 @@ const BACKEND: AppBackendRow = {
 };
 
 const OK = { exitCode: 0, stderr: "", stdout: "" };
+
+// A link whose worker mirrored a GitHub head that the project did not pull.
+const LINK: ProjectGithubLinkRow = {
+	createdAt: new Date("2026-11-01T10:00:00.000Z"),
+	githubUserId: 583231,
+	id: "link-1",
+	installationId: 7,
+	lastError: null,
+	lastSyncedSha: HEAD,
+	mirroredSha: GITHUB_SHA,
+	projectId: "p-1",
+	remoteHeadSha: GITHUB_SHA,
+	repoId: 99,
+	repoName: "my-app",
+	repoOwner: "octocat",
+	updatedAt: new Date("2026-11-03T10:00:00.000Z"),
+	userId: "user-1",
+};
+
+// The linker owns the personal project of `LINK`.
+const LINKER_ACCESS: ResolvedProjectAccess = {
+	directRole: null,
+	project: {
+		engine: "v2_app",
+		id: "p-1",
+		organizationId: null,
+		userId: "user-1",
+		workspaceAccess: "can_edit",
+	},
+	role: "owner",
+	workspace: null,
+	workspaceRoles: [],
+};
 
 function commitRow(overrides?: Partial<AppCommitRow>): AppCommitRow {
 	// SAFETY: the object covers every column the service maps.
@@ -103,6 +143,12 @@ function fixture(options?: {
 	upsertOk?: boolean;
 	/** True when a turn of the project waits for a user answer. */
 	turnWaits?: boolean;
+	/** The `project_github_links` row; default `LINK`. */
+	link?: ProjectGithubLinkRow;
+	/** What `ProjectAccessService.resolve` answers for the linker; null means no access. Default `LINKER_ACCESS`. */
+	linkerAccess?: ResolvedProjectAccess | null;
+	/** An error that every R2 patch write throws, like an R2 outage. */
+	putPatchError?: Error;
 }) {
 	const objects = new Map<string, string | Uint8Array>();
 	const store: VersionsObjectStore = {
@@ -116,6 +162,9 @@ function fixture(options?: {
 				: stored;
 		},
 		putPatch: async (key: string, body: string | Uint8Array) => {
+			if (options?.putPatchError !== undefined) {
+				throw options.putPatchError;
+			}
 			objects.set(key, body);
 		},
 	};
@@ -176,6 +225,7 @@ function fixture(options?: {
 						languages: ["en"],
 						networkAllowedHosts: ["api.stripe.com"],
 						organizationId: project.organizationId,
+						suspendedReasonCode: null,
 						templateVersion: project.templateVersion,
 						userId: project.userId,
 					},
@@ -190,6 +240,11 @@ function fixture(options?: {
 			options?.turnWaits ? ({ id: "turn-8" } as BuilderTurnRow) : null,
 		),
 	};
+	const githubLinks = {
+		findByProject: vi.fn(async () => options?.link ?? LINK),
+		markPulled: vi.fn(async () => {}),
+		recordError: vi.fn(async () => {}),
+	};
 	const service = new VersionsService(
 		appCommits,
 		sandboxes,
@@ -201,9 +256,25 @@ function fixture(options?: {
 		backends,
 		turns,
 		{ record: async () => undefined },
+		{ scheduleIfLinked: async () => undefined },
+		githubLinks,
+		{
+			resolve: async () =>
+				options?.linkerAccess === undefined
+					? LINKER_ACCESS
+					: options.linkerAccess,
+		},
 	);
 
-	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
+	return {
+		appCommits,
+		githubLinks,
+		objects,
+		repoRestorer,
+		sandboxes,
+		service,
+		turnLock,
+	};
 }
 
 /** Scripts the nine git answers of one `commitTurn` that makes `sha` on `parentSha`. */
@@ -649,5 +720,206 @@ describe("VersionsService.restore", () => {
 		);
 		expect(await turnLock.holder("p-1")).toBeNull();
 		logError.mockRestore();
+	});
+});
+
+/**
+ * Scripts the exec queue of one pull up to the merge: `.env` → MERGE_HEAD check → clean status →
+ * restorer → HEAD → fetch → FETCH_HEAD → `merge-base --is-ancestor` with exit `ancestorExit`.
+ */
+function scriptPullUntilMerge(
+	provider: FakeSandboxProvider,
+	ancestorExit: number,
+): void {
+	provider.respondTo("bash", OK); // the boot's `.env` write waits for the dev port
+	provider.respondTo("git", { ...OK, exitCode: 1 }); // rev-parse MERGE_HEAD: no open merge
+	provider.respondTo("sh", { ...OK, stdout: `HEAD=${HEAD}\n` }); // clean tree at the stored head
+	provider.respondTo("test", OK); // restorer's `.git` check
+	provider.respondTo("git", OK); // restorer pull
+	provider.respondTo("git", { ...OK, stdout: `${HEAD}\n` }); // rev-parse HEAD
+	provider.respondTo("git", OK); // fetch github/main
+	provider.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse FETCH_HEAD
+	provider.respondTo("git", { ...OK, exitCode: ancestorExit }); // merge-base --is-ancestor
+}
+
+describe("VersionsService.pullFromGithub", () => {
+	// Security: a linker who cannot open the project must not bring code from their repo into it.
+	it("answers 409 GITHUB_LINK_OWNER_LEFT, records it, and boots no sandbox when the linker lost access", async () => {
+		const { githubLinks, sandboxes, service } = fixture({
+			linkerAccess: null,
+		});
+
+		const failure = await service
+			.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "GITHUB_LINK_OWNER_LEFT",
+		});
+		expect(githubLinks.recordError).toHaveBeenCalledWith(
+			"link-1",
+			"GITHUB_LINK_OWNER_LEFT",
+		);
+		expect(sandboxes.calls.some((call) => call.method === "getOrCreate")).toBe(
+			false,
+		);
+	});
+
+	// A pulled head must not boot a sandbox and merge again.
+	it("answers 409 GITHUB_NOTHING_TO_UPDATE without a sandbox when the GitHub head is pulled", async () => {
+		const { sandboxes, service } = fixture({
+			link: { ...LINK, lastSyncedSha: GITHUB_SHA },
+		});
+
+		const failure = await service
+			.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "GITHUB_NOTHING_TO_UPDATE",
+		});
+		expect(sandboxes.calls.some((call) => call.method === "getOrCreate")).toBe(
+			false,
+		);
+	});
+
+	// Without the mark, the banner offers the same Update forever.
+	it("marks the GitHub head pulled without a merge commit when HEAD already holds it", async () => {
+		const { appCommits, githubLinks, sandboxes, service, turnLock } = fixture();
+		scriptPullUntilMerge(sandboxes, 0);
+
+		const body = await service.pullFromGithub(
+			SCOPE,
+			"p-1",
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
+
+		expect(githubPullResponseSchema.parse(body).commit).toBeNull();
+		expect(githubLinks.markPulled).toHaveBeenCalledWith("link-1", GITHUB_SHA);
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		expect(execs.some((line) => line.includes(" merge --no-ff "))).toBe(false);
+		expect(appCommits.insert).not.toHaveBeenCalled();
+		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
+	// A failed merge without MERGE_HEAD would commit an empty non-merge version.
+	// The sync would then mirror forever and never push our commits again.
+	it("resets the sandbox and answers 500 GITHUB_MERGE_FAILED when the merge sets no MERGE_HEAD", async () => {
+		const { appCommits, githubLinks, sandboxes, service, turnLock } = fixture();
+		scriptPullUntilMerge(sandboxes, 1);
+		sandboxes.respondTo("git", {
+			exitCode: 128,
+			stderr: "fatal: unable to write new index file",
+			stdout: "",
+		}); // merge
+		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		sandboxes.respondTo("git", { ...OK, exitCode: 1 }); // rev-parse MERGE_HEAD: none
+		sandboxes.respondTo("git", OK); // reset --hard
+
+		const failure = await service
+			.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(InternalServerErrorException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect(
+			(failure as InternalServerErrorException).getResponse(),
+		).toMatchObject({ code: "GITHUB_MERGE_FAILED" });
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		// The reset to the head before the merge is the last command.
+		expect(execs.at(-1)).toMatch(new RegExp(` reset --hard ${HEAD}$`));
+		expect(appCommits.insert).not.toHaveBeenCalled();
+		expect(githubLinks.markPulled).not.toHaveBeenCalled();
+		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
+	// A merge commit left in the sandbox goes out inside the next turn's version,
+	// with no "github" version and no audit row.
+	it("resets the sandbox to code.storage main when the commit fails before the push", async () => {
+		const r2Outage = new Error("R2 is unavailable");
+		const { appCommits, githubLinks, repoRestorer, sandboxes, service } =
+			fixture({ putPatchError: r2Outage });
+		scriptPullUntilMerge(sandboxes, 1);
+		sandboxes.respondTo("git", OK); // merge
+		sandboxes.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse MERGE_HEAD
+		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		// The R2 write fails before the push, so the push slot answers the restorer pull.
+		scriptCommit(sandboxes, NEW_SHA, HEAD);
+		sandboxes.respondTo("test", OK); // restorer's `.git` check after the failed commit
+
+		const failure = await service
+			.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBe(r2Outage);
+		// Once before the merge, once after the failed commit.
+		expect(repoRestorer.restore).toHaveBeenCalledTimes(2);
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		expect(execs.at(-1)).toMatch(/ pull url main$/);
+		expect(appCommits.insert).not.toHaveBeenCalled();
+		expect(githubLinks.markPulled).not.toHaveBeenCalled();
+	});
+
+	// A path from GitHub must stay literal. A glob or a swapped branch overwrites or deletes other files.
+	it("takes the GitHub side of each conflict with literal paths and commits a github version", async () => {
+		const { appCommits, githubLinks, sandboxes, service } = fixture();
+		scriptPullUntilMerge(sandboxes, 1);
+		sandboxes.respondTo("git", { ...OK, exitCode: 1 }); // merge stops with conflicts
+		sandboxes.respondTo("git", { ...OK, stdout: "app/[id].tsx\0gone.ts\0" }); // diff --diff-filter=U
+		sandboxes.respondTo("git", OK); // cat-file -e app/[id].tsx: GitHub has it
+		sandboxes.respondTo("git", OK); // checkout
+		sandboxes.respondTo("git", { ...OK, exitCode: 128 }); // cat-file -e gone.ts: GitHub deleted it
+		sandboxes.respondTo("git", OK); // rm
+		sandboxes.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse MERGE_HEAD
+		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		scriptCommit(sandboxes, NEW_SHA, HEAD);
+		sandboxes.respondTo("pnpm", OK);
+
+		const body = await service.pullFromGithub(
+			SCOPE,
+			"p-1",
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
+
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		expect(
+			execs.filter((line) =>
+				line.endsWith(
+					` --literal-pathspecs checkout ${GITHUB_SHA} -- app/[id].tsx`,
+				),
+			),
+		).toHaveLength(1);
+		expect(
+			execs.filter((line) =>
+				line.endsWith(
+					" --literal-pathspecs rm -q -f --ignore-unmatch -- gone.ts",
+				),
+			),
+		).toHaveLength(1);
+		expect(
+			execs.some((line) => line.includes(`checkout ${GITHUB_SHA} -- gone.ts`)),
+		).toBe(false);
+		expect(appCommits.insert).toHaveBeenCalledWith(
+			expect.objectContaining({ source: "github" }),
+		);
+		expect(githubLinks.markPulled).toHaveBeenCalledWith("link-1", GITHUB_SHA);
+		expect(githubPullResponseSchema.parse(body).commit).not.toBeNull();
 	});
 });

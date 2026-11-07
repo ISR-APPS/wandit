@@ -4,7 +4,8 @@
 	},
 	"kind": {
 		"web": "App web",
-		"mobile": "App mobile"
+		"mobile": "App mobile",
+		"desktop": "App de bureau"
 	},
 	"topBar": {
 		"backToDashboard": "Retour au tableau de bord",
@@ -212,8 +213,7 @@
 		},
 		"ai": {
 			"title": "IA",
-			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits.",
-			"cta": "Ajouter une fonction IA"
+			"description": "Donne à ton app ses propres fonctions IA, facturées sur tes crédits."
 		},
 		"payments": {
 			"title": "Paiements",
@@ -221,7 +221,11 @@
 		},
 		"integrations": {
 			"title": "Intégrations",
-			"description": "Google Sheets, WhatsApp, e-mail et les autres services que ton app utilise."
+			"description": "GitHub, et plus tard les autres services que ton app utilise."
+		},
+		"mcp": {
+			"title": "MCP",
+			"description": "Connecte Claude Code, Codex, Cursor ou VS Code pour modifier cette app depuis ton agent de code."
 		},
 		"domains": {
 			"title": "Domaines",
@@ -274,6 +278,43 @@
 		},
 		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Ils ne reçoivent aucun e-mail de confirmation."
 	},
+	"ai": {
+		"gateway": "Passerelle IA",
+		"on": "Activée",
+		"off": "Désactivée",
+		"howItWorks": "Quand ton app a besoin d'IA, l'agent active la passerelle après ton accord. Une fonction serveur de ton app appelle alors les modèles d'IA. Chaque appel utilise tes crédits.",
+		"keySafety": "Wandit garde la clé dans les secrets de ton backend. La clé n'entre jamais dans le code de l'app.",
+		"noCredits": "Quand tes crédits sont épuisés, les appels IA de ton app s'arrêtent jusqu'à ce que tu ajoutes des crédits.",
+		"monthCredits": "Crédits ce mois-ci",
+		"monthRequests": "Appels IA ce mois-ci",
+		"keyUpdated": "Clé mise à jour le {date}",
+		"models": "Modèles",
+		"modelsHint": "L'agent choisit un de ces modèles pour chaque fonction IA.",
+		"defaultModel": "Par défaut",
+		"actions": {
+			"enable": "Activer",
+			"rotate": "Changer la clé",
+			"disable": "Désactiver"
+		},
+		"confirm": {
+			"cancel": "Annuler",
+			"enable": {
+				"title": "Activer la passerelle IA ?",
+				"description": "Wandit crée une clé pour ton app et l'envoie à ton backend. Chaque appel IA de ton app utilise tes crédits.",
+				"done": "La passerelle IA est activée."
+			},
+			"rotate": {
+				"title": "Changer la clé ?",
+				"description": "Wandit crée une nouvelle clé et l'envoie à ton backend. L'ancienne clé arrête de marcher tout de suite.",
+				"done": "La nouvelle clé est active."
+			},
+			"disable": {
+				"title": "Désactiver la passerelle IA ?",
+				"description": "Wandit supprime la clé. Les fonctions IA de ton app ne marchent plus jusqu'à ce que tu réactives la passerelle.",
+				"done": "La passerelle IA est désactivée."
+			}
+		}
+	},
 	"payments": {
 		"title": "Les paiements arrivent bientôt",
 		"body": "Bientôt, tu pourras encaisser des paiements dans tes apps web et tes SaaS, configurés depuis le chat.",
@@ -288,6 +329,51 @@
 		"freeTitle": "Adresse Wandit gratuite",
 		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app.",
 		"freeHost": "Domaine Wandit gratuit"
+	},
+	"github": {
+		"title": "GitHub",
+		"hint": "Garde le code de cette app dans un dépôt de ton compte GitHub.",
+		"notConfigured": "La synchronisation GitHub n’est pas configurée sur ce serveur.",
+		"connectHint": "Connecte ton compte GitHub pour créer un dépôt pour cette app.",
+		"connect": "Connecter GitHub",
+		"connectedAs": "Connecté en tant que {login}",
+		"owner": "Propriétaire",
+		"addOwner": "Ajouter un compte ou une organisation",
+		"noInstallations": "Installe l’app Wandit sur ton compte GitHub ou sur une organisation pour créer un dépôt.",
+		"repoName": "Nom du dépôt",
+		"repoNameInvalid": "Utilise seulement des lettres, des chiffres, des points, des tirets et des tirets bas, 100 caractères au plus.",
+		"private": "Dépôt privé",
+		"privateHelp": "Seuls toi et les personnes que tu ajoutes sur GitHub peuvent le voir.",
+		"create": "Créer le dépôt",
+		"lastSynced": "Dernière synchronisation : {sha}",
+		"neverSynced": "Pas encore synchronisé.",
+		"unlink": "Délier le dépôt",
+		"unlinkConfirmTitle": "Délier {repo} ?",
+		"unlinkConfirmBody": "Wandit arrête la synchronisation. Le dépôt et ses commits restent sur GitHub.",
+		"cancel": "Annuler",
+		"notes": {
+			"mainOnly": "Seule la branche main se synchronise, dans les deux sens.",
+			"githubWins": "Quand les deux côtés modifient les mêmes lignes, la version GitHub l’emporte.",
+			"workflows": "Quand l’agent modifie un fichier de .github/workflows, la synchronisation vers GitHub s’arrête."
+		},
+		"banner": {
+			"text": "Ce projet a de nouvelles modifications sur GitHub.",
+			"update": "Mettre à jour"
+		},
+		"connectedToast": "GitHub est connecté.",
+		"callbackErrors": {
+			"invalid_state": "La connexion GitHub a expiré. Réessaie.",
+			"access_denied": "Tu as refusé l’accès sur GitHub.",
+			"exchange_failed": "La connexion GitHub a échoué. Réessaie."
+		},
+		"syncErrors": {
+			"GITHUB_ACCESS_LOST": "L’app Wandit n’a plus accès à ce dépôt. Vérifie l’installation de l’app sur GitHub.",
+			"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau.",
+			"GITHUB_LINKER_NO_ACCESS": "La personne qui a lié ce dépôt ne peut plus y écrire.",
+			"GITHUB_PUSH_REJECTED": "GitHub a refusé le dernier envoi, par exemple à cause d’une règle de protection de branche.",
+			"GITHUB_WORKFLOW_CHANGED": "La synchronisation s’est arrêtée : l’agent a modifié un fichier de .github/workflows. Fais les modifications de workflow sur GitHub.",
+			"GITHUB_SYNC_FAILED": "La dernière synchronisation a échoué. Wandit réessaie bientôt."
+		}
 	},
 	"appStores": {
 		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
@@ -530,6 +616,7 @@
 			"request_network_host": "Autoriser l'app à joindre {host} ?",
 			"run_sql_write": "Modifier des données de ta base ?",
 			"apply_destructive_migration": "Modifier la structure de ta base ? Des données peuvent être perdues.",
+			"enable_ai": "Laisser ton app utiliser l'IA ? Chaque appel IA utilise tes crédits.",
 			"other": "Autoriser Wandit à faire cette action ?"
 		},
 		"elapsed": "{seconds} s",
@@ -549,18 +636,40 @@
 			"dailyCap": "Vous avez atteint la limite d'IA du jour. Elle se réinitialise à 00:00 UTC.",
 			"tooManyTurns": "Trop d'opérations s'exécutent en même temps. Attendez que l'une d'elles se termine.",
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
-			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
+			"modelDenied": "Ce modèle n'est pas disponible. Choisis un autre modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
 			"connectionLost": "Le chat a perdu la connexion au serveur."
 		},
 		"building": "En création",
-		"planning": "En planification"
+		"planning": "En planification",
+		"model": {
+			"title": "Choisis un modèle",
+			"chip": "Modèle : {model}",
+			"default": "Modèle par défaut",
+			"price": "{input} en entrée · {output} en sortie pour 1M de jetons",
+			"fast": "Mode rapide"
+		},
+		"cost": {
+			"line": "Coût du chat : {usd} · {credits} · {turns}",
+			"credits": {
+				"one": "{count} crédit",
+				"other": "{count} crédits"
+			},
+			"turns": {
+				"one": "{count} opération",
+				"other": "{count} opérations"
+			},
+			"byModel": "Coût par modèle",
+			"row": "{model} : {usd} · {requests}",
+			"requests": {
+				"one": "{count} requête",
+				"other": "{count} requêtes"
+			}
+		}
 	},
 	"publish": {
 		"cta": "Publier",
-		"soon": "Bientôt",
-		"comingSoon": "La publication arrive bientôt.",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} changement",
@@ -632,7 +741,8 @@
 				"supabase_service_role_jwt": "clé service role Supabase",
 				"anthropic_api_key": "clé API Anthropic",
 				"google_api_key": "clé API Google",
-				"private_key": "clé privée"
+				"private_key": "clé privée",
+				"wandit_ai_api_key": "clé de la passerelle IA Wandit"
 			},
 			"phishing": "Le nom public « {target} » ressemble à une page de connexion, de banque ou de portefeuille.",
 			"advisor": {
@@ -696,6 +806,95 @@
 			"internal": "Une erreur est survenue pendant le build. Réessaie."
 		}
 	},
+	"desktopBuilds": {
+		"title": "App de bureau",
+		"empty": "Crée un installateur pour Windows 10 et 11",
+		"emptyBoth": "Crée un installateur pour Windows 10 et 11, ou pour macOS 15 et plus",
+		"productName": "Nom de l’app",
+		"productNameHint": "Il nomme la fenêtre et l’app installée sur Windows et macOS. Tu ne peux plus le changer ensuite.",
+		"productNameInvalid": "Utilise 2 à 40 lettres, chiffres, espaces, points, tirets ou tirets bas. Commence et termine par une lettre ou un chiffre.",
+		"notes": "Notes de version (facultatif)",
+		"notesHint": "Les apps installées affichent ces notes quand elles proposent la mise à jour.",
+		"platformLabel": "Plateforme",
+		"platforms": {
+			"windows": "Windows",
+			"macos": "macOS"
+		},
+		"build": {
+			"one": "Créer l’installateur · {count} crédit",
+			"other": "Créer l’installateur · {count} crédits"
+		},
+		"retry": {
+			"one": "Relancer le build · {count} crédit",
+			"other": "Relancer le build · {count} crédits"
+		},
+		"cancel": "Annuler",
+		"cancelSigning": "Wandit signe l’installateur. Cette étape ne peut pas s’arrêter et se termine dans quelques minutes.",
+		"liveHint": "Un build prend 8 à 25 minutes. Il continue quand tu fermes ce panneau.",
+		"download": "Télécharger la version {version}",
+		"release": "Publier",
+		"rebuild": "Reconstruire",
+		"current": "Actuelle",
+		"history": "Builds",
+		"downloadLink": "Lien de téléchargement",
+		"copyLink": "Copier le lien de téléchargement",
+		"linkCopied": "Lien copié",
+		"smartScreen": "Windows SmartScreen affiche un avertissement au premier téléchargement, car l’installateur n’a pas de signature d’éditeur. Clique sur « Informations complémentaires », puis sur « Exécuter quand même ».",
+		"gatekeeper": "macOS affiche « non ouvert » au premier lancement, car Apple n’a pas notarié l’app. D’abord, déplace l’app dans le dossier Applications. Ouvre-la, puis clique sur « Terminé ». Ouvre Réglages Système > Confidentialité et sécurité, clique sur « Ouvrir quand même » et saisis ton mot de passe. Le bouton reste environ une heure. L’app demande un Mac avec une puce Apple et macOS 15 ou plus.",
+		"releaseTitle": "Publier la version {version} ?",
+		"rebuildTitle": "Reconstruire la version {version} ?",
+		"releaseBody": "Les apps installées passent à la version {version} à leur prochain démarrage. Le lien de téléchargement donne cette version à partir de maintenant.",
+		"rebuildBody": {
+			"one": "Les apps installées acceptent seulement une version plus récente. Wandit reconstruit le code de la version {version}, avec un nouveau numéro de version. Cela coûte {count} crédit. Publie le nouveau build quand il est prêt.",
+			"other": "Les apps installées acceptent seulement une version plus récente. Wandit reconstruit le code de la version {version}, avec un nouveau numéro de version. Cela coûte {count} crédits. Publie le nouveau build quand il est prêt."
+		},
+		"confirmCancel": "Annuler",
+		"released": "La version {version} est en ligne. Les apps installées se mettent à jour à leur prochain démarrage.",
+		"findingsTitle": "Le contrôle de sécurité a bloqué ce build",
+		"findingsHint": "Demande à Wandit dans le chat de corriger ces problèmes, puis relance le build.",
+		"status": {
+			"queued": "En attente",
+			"preparing": "Préparation",
+			"building": "Build en cours",
+			"signing": "Signature",
+			"ready": "Prêt",
+			"failed": "Échec",
+			"canceled": "Annulé",
+			"blocked": "Bloqué"
+		},
+		"errors": {
+			"start_failed": "Le build n’a pas démarré. Réessaie.",
+			"unconfigured": "Les builds d’apps de bureau ne sont pas disponibles pour le moment. Réessaie plus tard.",
+			"sandbox_failed": "Le build n’a pas pu ouvrir le code de ton app. Réessaie.",
+			"frontend_build_failed": "Ton app n’a pas pu être construite. Demande à Wandit dans le chat de la corriger, puis relance le build.",
+			"output_invalid": "Le build a créé des fichiers qu’un installateur ne peut pas contenir. Demande à Wandit dans le chat de corriger le build.",
+			"gate_unavailable": "Le contrôle de sécurité n’a pas pu tourner. Réessaie dans quelques minutes.",
+			"ci_start_failed": "Le service de build n’a pas démarré le build. Réessaie.",
+			"ci_failed": "Le build a échoué. Réessaie.",
+			"self_test_failed": "L’app n’a pas pu ouvrir ses données pendant le test du build. Demande à Wandit dans le chat de corriger les migrations, puis relance le build.",
+			"artifact_invalid": "Le build s’est terminé sans installateur valide. Réessaie.",
+			"signing_failed": "La signature de mise à jour n’a pas pu être créée. Réessaie.",
+			"upload_failed": "L’envoi de l’installateur a échoué. Réessaie.",
+			"timeout": "Le build a pris trop de temps et s’est arrêté. Réessaie.",
+			"internal": "Une erreur est survenue pendant le build. Réessaie."
+		},
+		"rules": {
+			"migration_name_invalid": "Un fichier de migration a un nom incorrect.",
+			"migration_duplicate_version": "Deux fichiers de migration ont le même numéro.",
+			"migration_too_large": "Un fichier de migration, ou le dossier des migrations, est trop gros.",
+			"migration_empty": "Un fichier de migration ne contient aucune instruction.",
+			"migration_released_changed": "Une migration d’un build précédent a changé. Les apps installées ont déjà exécuté l’ancien texte.",
+			"migration_released_missing": "Une migration d’un build précédent manque.",
+			"migration_version_order": "Une nouvelle migration a un numéro plus petit que la dernière migration construite.",
+			"migration_statement_refused": "Une migration contient une instruction qui peut faire perdre des données enregistrées.",
+			"migration_dry_run_failed": "Les migrations échouent sur des données de test ou sur une nouvelle installation.",
+			"migration_check_failed": "Une vérification d’une migration n’a pas confirmé son résultat sur des données de test ou sur une nouvelle installation.",
+			"migration_replaces_invalid": "Une migration de remplacement désigne une migration qu’elle ne peut pas remplacer.",
+			"migration_replaces_schema_differs": "Une migration de remplacement crée d’autres tables ou colonnes que la migration qu’elle remplace.",
+			"migration_schema_removed": "Les nouvelles migrations suppriment une table ou une colonne d’un build précédent.",
+			"secret_in_frontend": "L’app contient un secret, par exemple une clé d’API. Toute personne qui a l’installateur peut le lire."
+		}
+	},
 	"versions": {
 		"title": "Historique des versions",
 		"current": "Actuelle",
@@ -704,7 +903,10 @@
 			"agent": "Opération",
 			"restore": "Restauration",
 			"wip": "Travail en cours",
-			"merge": "Fusion"
+			"merge": "Fusion",
+			"theme": "Thème",
+			"github": "GitHub",
+			"mcp": "Agent de code"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",
@@ -714,6 +916,231 @@
 		"restoreTitle": "Restaurer cette version ?",
 		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé. Tes données et ta base de données ne changent pas.",
 		"cancel": "Annuler"
+	},
+	"theme": {
+		"open": "Thème",
+		"openHint": "Change les couleurs, les polices et la mise en page de ton app. L’agent ne travaille pas.",
+		"oldTemplate": "Cette app utilise un ancien modèle sans fichier de thème. Demande à l’agent de changer son style.",
+		"unavailable": "Le thème n’est pas disponible. Attends la première version, puis réessaie.",
+		"title": "Thème",
+		"description": "Chaque changement s’affiche tout de suite dans l’aperçu. Enregistrer l’écrit dans ton app comme une nouvelle version.",
+		"close": "Fermer le thème",
+		"unsaved": "Non enregistré",
+		"turnRunning": "L’agent travaille. Tu pourras changer le thème quand il aura fini.",
+		"random": "Au hasard",
+		"reset": "Rétablir",
+		"save": "Enregistrer",
+		"saving": "Enregistrement…",
+		"saved": "Thème enregistré : {name}",
+		"fromLook": "Celle du look",
+		"brandColor": "Couleur de marque",
+		"brandColorHint": "Une couleur hex, par exemple #1f6098.",
+		"brandColorInvalid": "Écris 6 chiffres hex, par exemple #1f6098.",
+		"brandColorPicker": "Choisir une couleur de marque",
+		"borderValue": "{value} px",
+		"design": {
+			"label": "Créer avec l’IA",
+			"placeholder": "Décris ton activité et le style que tu veux. Par exemple : un cabinet dentaire calme, menthe et blanc.",
+			"generate": "Générer",
+			"generating": "Création…",
+			"hint": "Chaque création utilise quelques crédits. Elle s’affiche dans l’aperçu, et Enregistrer l’écrit dans ton app.",
+			"designed": "Thème créé : {name}",
+			"examples": {
+				"clinic": "Cabinet dentaire calme, menthe et blanc",
+				"hotel": "Hôtel de luxe, sombre et doré",
+				"school": "École ludique pour enfants",
+				"law": "Cabinet d’avocats sérieux"
+			},
+			"errors": {
+				"failed": "Le designer n’a pas pu créer de thème avec ce texte. Réessaie, ou change les mots.",
+				"unavailable": "Le designer de thèmes n’est pas disponible pour le moment. Réessaie plus tard."
+			}
+		},
+		"industry": "Secteur",
+		"allIndustries": "Tous les secteurs",
+		"families": {
+			"soft": "Doux",
+			"crisp": "Nets",
+			"warm": "Chaleureux",
+			"pop": "Pop",
+			"luxe": "Luxe",
+			"editorial": "Éditoriaux",
+			"brutal": "Brutalistes",
+			"mono": "Mono",
+			"midnight": "Nuit",
+			"industrial": "Industriels",
+			"corporate": "Institutionnels",
+			"medina": "Médina"
+		},
+		"categories": {
+			"medical": "Santé et médical",
+			"beauty": "Beauté et bien-être",
+			"fitness": "Fitness et sport",
+			"restaurant": "Restauration",
+			"real-estate": "Immobilier",
+			"construction": "Construction et BTP",
+			"automotive": "Automobile",
+			"services": "Services de proximité",
+			"education": "Éducation",
+			"creative-agency": "Agence créative",
+			"ecommerce": "E-commerce",
+			"travel": "Voyage",
+			"events": "Événementiel",
+			"tech-saas": "Tech et SaaS",
+			"finance": "Finance",
+			"logistics": "Logistique",
+			"hr": "Ressources humaines",
+			"crm": "CRM et ventes",
+			"inventory": "Gestion de stock",
+			"dev-tools": "Outils pour développeurs",
+			"legal": "Juridique",
+			"hospitality": "Hôtellerie",
+			"agriculture": "Agriculture",
+			"nonprofit": "Associations",
+			"media": "Médias et édition"
+		},
+		"fontGroups": {
+			"display": "Polices de titre",
+			"body": "Polices de texte"
+		},
+		"fields": {
+			"look": "Look",
+			"mode": "Mode",
+			"primary": "Couleur principale",
+			"font": "Police",
+			"displayFont": "Police des titres",
+			"scale": "Taille",
+			"radius": "Arrondis",
+			"border": "Bordure",
+			"shadow": "Ombre",
+			"shadowStyle": "Style d’ombre",
+			"content": "Largeur du contenu",
+			"sidebarStyle": "Style de la barre latérale",
+			"sidebarCollapse": "Barre latérale réduite",
+			"sidebarStart": "Barre latérale au chargement",
+			"sidebarTone": "Couleur de la barre latérale",
+			"activeItem": "Élément actif",
+			"header": "En-tête",
+			"userMenu": "Menu utilisateur",
+			"frame": "Cadre du contenu",
+			"icons": "Style des icônes",
+			"navIcon": "Icônes du menu"
+		},
+		"options": {
+			"mode": {
+				"light": "Clair",
+				"dark": "Sombre"
+			},
+			"scale": {
+				"xs": "XS",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"radius": {
+				"none": "Aucun",
+				"sm": "S",
+				"md": "M",
+				"lg": "L",
+				"xl": "XL"
+			},
+			"shadow": {
+				"none": "Aucune",
+				"sm": "S",
+				"md": "M",
+				"lg": "L"
+			},
+			"shadowStyle": {
+				"soft": "Douce",
+				"hard": "Dure"
+			},
+			"content": {
+				"full": "Pleine",
+				"centered": "Centrée"
+			},
+			"sidebarStyle": {
+				"inset": "Encart",
+				"classic": "Classique",
+				"floating": "Flottante"
+			},
+			"sidebarCollapse": {
+				"icons": "Icônes",
+				"rail": "Rail",
+				"offcanvas": "Masquée"
+			},
+			"sidebarStart": {
+				"open": "Ouverte",
+				"collapsed": "Réduite"
+			},
+			"sidebarTone": {
+				"canvas": "Page",
+				"tint": "Teinte",
+				"contrast": "Contraste",
+				"brand": "Marque"
+			},
+			"activeItem": {
+				"pill": "Pilule",
+				"bar": "Barre",
+				"block": "Bloc",
+				"outline": "Contour",
+				"quiet": "Discret"
+			},
+			"header": {
+				"bar": "Barre",
+				"blur": "Flou",
+				"plain": "Simple"
+			},
+			"userMenu": {
+				"sidebar-footer": "Bas de barre",
+				"sidebar-header": "Haut de barre",
+				"header": "En-tête"
+			},
+			"frame": {
+				"outlined": "Contour",
+				"flat": "Plat"
+			},
+			"icons": {
+				"thin": "Fin",
+				"light": "Léger",
+				"regular": "Normal",
+				"bold": "Gras",
+				"fill": "Plein",
+				"duotone": "Duo"
+			},
+			"navIcon": {
+				"plain": "Simples",
+				"soft": "Douces",
+				"solid": "Pleines",
+				"color": "Couleurs"
+			}
+		},
+		"hues": {
+			"red": "Rouge",
+			"orange": "Orange",
+			"amber": "Ambre",
+			"yellow": "Jaune",
+			"lime": "Citron vert",
+			"green": "Vert",
+			"emerald": "Émeraude",
+			"teal": "Bleu sarcelle",
+			"cyan": "Cyan",
+			"sky": "Bleu ciel",
+			"blue": "Bleu",
+			"indigo": "Indigo",
+			"violet": "Violet",
+			"purple": "Pourpre",
+			"fuchsia": "Fuchsia",
+			"pink": "Rose",
+			"rose": "Rose framboise"
+		},
+		"errors": {
+			"turnRunning": "L’agent travaille. Enregistre le thème quand il aura fini.",
+			"turnWaiting": "L’agent attend ta réponse dans le chat. Réponds, puis enregistre le thème.",
+			"previewNotRunning": "Ton app ne tourne pas. Réveille l’aperçu, puis enregistre à nouveau.",
+			"headMoved": "Ton app a reçu une nouvelle version pendant tes changements. Le panneau l’a chargée. Enregistre à nouveau.",
+			"changedElsewhere": "Le thème a changé ailleurs. Tes changements n’ont pas été enregistrés."
+		}
 	},
 	"mock": {
 		"notWired": "Cette action n'est pas encore connectée."

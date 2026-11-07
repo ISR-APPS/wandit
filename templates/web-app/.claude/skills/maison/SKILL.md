@@ -51,7 +51,7 @@ Forbidden: "cocooning", "clé en main", "haut standing", exclamation marks, any 
 - THE WARM THREAD: one pigment, the #B65C2E register, no more than THREE uses per page: (1) the active tick in the showpiece index, (2) link hover and :focus-visible, (3) one rule or word in the closing.
 - Gradients: NONE except the optional 8%-white daylight band of the "course du jour" geste. No washes, no coloured overlays, nothing metallic.
 
-FIXED TOKEN MAP — GROUND A→--background · INK→--foreground · STONE→--primary · GROUND A→--primary-foreground · GROUND B→--secondary · THE WARM THREAD→--accent · ink at 45%→--muted · ink at 10%→--border · zero→--radius · DISPLAY→--font-heading · DISPLAY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, matte or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: a light humanist sans — **Albert Sans** (default) or Onest. Weights 200/300 at display sizes, 500 for micro-caps, 400 for prose. Authority comes from SIZE and AIR: a bold headline is a MAISON failure.

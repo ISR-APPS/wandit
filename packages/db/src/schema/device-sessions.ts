@@ -29,12 +29,19 @@ export const deviceSessions = pgTable(
 	"device_sessions",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
+		// The actor: the end route and the per-person lock use it.
 		// Restrict, not cascade: minute history must survive account rows.
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
 		// Set when the project belongs to an org workspace; the org pays then.
 		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		// Set when another user's personal pool pays (a shared personal
+		// workspace). The allowance payer is `organizationId`, else
+		// `payerUserId ?? userId`.
+		payerUserId: text("payer_user_id").references(() => user.id, {
 			onDelete: "restrict",
 		}),
 		// Set null, not cascade: a deleted project must not give its minutes back.

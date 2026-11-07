@@ -1,9 +1,9 @@
 /**
  * The answer bodies of the request tray: option rows for a single choice or
- * a multi-select, design-world cards, and the image drop zone with
- * thumbnails. Each body renders only the answer control; request-tray.tsx
+ * a multi-select, design-world cards, theme cards, and the image drop zone
+ * with thumbnails. Each body renders only the answer control; request-tray.tsx
  * owns the question. lib/use-request-tray.ts controls every body through
- * `TrayBodyCallbacks`.
+ * `TrayBodyCallbacks`. The theme card mockup is lazy: theme-mockup.tsx.
  */
 
 import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
@@ -16,13 +16,22 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/X";
 import { cn } from "@wandit/ui/lib/utils";
 import type * as React from "react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import { IconAction } from "../../shell/top-bar";
 import { SpinnerArc } from "./tray-signals";
-import type { ChipOption, MediaItem, TrayBody, WorldCardOption } from "./types";
+import type {
+	ChipOption,
+	MediaItem,
+	ThemeCardOption,
+	TrayBody,
+	WorldCardOption,
+} from "./types";
 import { ensureWorldFontsLoaded } from "./world-fonts";
+
+// The mockup parses the theme with the contracts schema, which holds the 177 KB look catalog.
+const ThemeMockup = lazy(() => import("./theme-mockup"));
 
 /** The answer wiring of the bodies, from lib/use-request-tray.ts. */
 export type TrayBodyCallbacks = {
@@ -76,6 +85,8 @@ export function TrayBodySlot({
 			);
 		case "world-pick":
 			return <WorldPickBody body={body} onPick={callbacks.onPick} />;
+		case "theme-pick":
+			return <ThemePickBody body={body} onPick={callbacks.onPick} />;
 		case "media-drop":
 			return <MediaDropBody body={body} callbacks={callbacks} />;
 	}
@@ -156,10 +167,25 @@ function OptionRow({
 	);
 }
 
-/** One scroll step of the card row: one card (168px) plus the gap (8px). */
+/** One scroll step of the world card row: one card (168px) plus the gap (8px). */
 const WORLD_CARD_SCROLL_STEP = 176;
+/** One scroll step of the theme card row: one card (232px) plus the gap (8px). */
+const THEME_CARD_SCROLL_STEP = 240;
 /** Scroll offsets under 2px count as the edge; browsers round sub-pixel scrolls. */
-const WORLD_CARD_SCROLL_EPSILON = 2;
+const CARD_SCROLL_EPSILON = 2;
+
+/**
+ * The face of a world card and of a theme card: a white card that lifts on
+ * hover. The picked card gets the primary edge and an ember halo.
+ */
+function pickCardClass(selected: boolean): string {
+	return cn(
+		"shrink-0 overflow-hidden rounded-[14px] border bg-white text-start outline-none transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ember/30 motion-reduce:hover:translate-y-0 dark:bg-white/[0.04]",
+		selected
+			? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
+			: "border-night/[0.08] hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)] dark:border-white/[0.08]",
+	);
+}
 
 /**
  * The design-world question. Each card is a specimen: the world's sample
@@ -174,14 +200,6 @@ function WorldPickBody({
 	body: Extract<TrayBody, { kind: "world-pick" }>;
 	onPick: (optionId: string) => void;
 }) {
-	const { dir, t } = useTranslation();
-	const scrollRef = useRef<HTMLDivElement>(null);
-	const [scrollState, setScrollState] = useState({
-		canScrollBack: false,
-		canScrollForward: false,
-		isRtl: false,
-	});
-
 	const fontsKey = body.options
 		.flatMap((option) => (option.card ? [option.card.preview.fontFamily] : []))
 		.join(",");
@@ -189,6 +207,65 @@ function WorldPickBody({
 	useEffect(() => {
 		ensureWorldFontsLoaded(fontsKey.split(",").filter(Boolean));
 	}, [fontsKey]);
+
+	return (
+		<CardScrollRow step={WORLD_CARD_SCROLL_STEP}>
+			{body.options.map((option) => (
+				<WorldCardButton
+					key={option.id}
+					option={option}
+					selected={option.id === body.selectedId}
+					onClick={() => onPick(option.id)}
+				/>
+			))}
+		</CardScrollRow>
+	);
+}
+
+/**
+ * The theme question: the 3 theme cards that the task dealt. Each card is a
+ * mockup of an app in its theme, with the look name under it. "Decide for
+ * me" in the tray head is the "You choose" answer.
+ */
+function ThemePickBody({
+	body,
+	onPick,
+}: {
+	body: Extract<TrayBody, { kind: "theme-pick" }>;
+	onPick: (optionId: string) => void;
+}) {
+	return (
+		<CardScrollRow step={THEME_CARD_SCROLL_STEP}>
+			{body.options.map((option) => (
+				<ThemeCardButton
+					key={option.id}
+					option={option}
+					selected={option.id === body.selectedId}
+					onClick={() => onPick(option.id)}
+				/>
+			))}
+		</CardScrollRow>
+	);
+}
+
+/**
+ * A row of cards that scrolls sideways, with a back and a forward chevron
+ * at the ends while more cards hide there. `step` is one card plus the gap, in px.
+ */
+function CardScrollRow({
+	step,
+	children,
+}: {
+	step: number;
+	children: React.ReactNode;
+}) {
+	const { dir, t } = useTranslation();
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [scrollState, setScrollState] = useState({
+		canScrollBack: false,
+		canScrollForward: false,
+		isRtl: false,
+	});
 
 	useEffect(() => {
 		const container = scrollRef.current;
@@ -201,12 +278,11 @@ function WorldPickBody({
 			);
 			// RTL rows scroll with negative offsets, so the size of the offset counts.
 			const scrollOffset = Math.abs(container.scrollLeft);
-			const isOverflowing = maxScroll > WORLD_CARD_SCROLL_EPSILON;
+			const isOverflowing = maxScroll > CARD_SCROLL_EPSILON;
 			const nextState = {
-				canScrollBack:
-					isOverflowing && scrollOffset > WORLD_CARD_SCROLL_EPSILON,
+				canScrollBack: isOverflowing && scrollOffset > CARD_SCROLL_EPSILON,
 				canScrollForward:
-					isOverflowing && scrollOffset < maxScroll - WORLD_CARD_SCROLL_EPSILON,
+					isOverflowing && scrollOffset < maxScroll - CARD_SCROLL_EPSILON,
 				isRtl: getComputedStyle(container).direction === "rtl",
 			};
 			setScrollState((current) =>
@@ -240,9 +316,7 @@ function WorldPickBody({
 		const forwardSign =
 			getComputedStyle(container).direction === "rtl" ? -1 : 1;
 		container.scrollBy({
-			left:
-				(direction === "forward" ? forwardSign : -forwardSign) *
-				WORLD_CARD_SCROLL_STEP,
+			left: (direction === "forward" ? forwardSign : -forwardSign) * step,
 			behavior: "smooth",
 		});
 	};
@@ -256,14 +330,7 @@ function WorldPickBody({
 				ref={scrollRef}
 				className="-mx-[15px] flex gap-2 overflow-x-auto overscroll-x-contain px-[15px] pb-1 [scrollbar-width:none]"
 			>
-				{body.options.map((option) => (
-					<WorldCardButton
-						key={option.id}
-						option={option}
-						selected={option.id === body.selectedId}
-						onClick={() => onPick(option.id)}
-					/>
-				))}
+				{children}
 			</div>
 			{scrollState.canScrollBack ? (
 				<>
@@ -318,12 +385,7 @@ function WorldCardButton({
 			type="button"
 			aria-pressed={selected}
 			onClick={onClick}
-			className={cn(
-				"w-[168px] shrink-0 overflow-hidden rounded-[14px] border bg-white text-start outline-none transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ember/30 motion-reduce:hover:translate-y-0 dark:bg-white/[0.04]",
-				selected
-					? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
-					: "border-night/[0.08] hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)] dark:border-white/[0.08]",
-			)}
+			className={cn("w-[168px]", pickCardClass(selected))}
 		>
 			<span
 				aria-hidden
@@ -380,6 +442,55 @@ function WorldCardButton({
 					>
 						{option.label}
 					</span>
+				) : null}
+			</span>
+		</button>
+	);
+}
+
+/**
+ * One theme card: the lazy mockup (232 x 112 px) and the look name. The
+ * button shows at once; a quiet block holds the place of the mockup while
+ * its chunk loads.
+ */
+function ThemeCardButton({
+	option,
+	selected,
+	onClick,
+}: {
+	option: ThemeCardOption;
+	selected: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			aria-pressed={selected}
+			onClick={onClick}
+			className={cn("w-[232px]", pickCardClass(selected))}
+		>
+			<span aria-hidden className="block h-[112px] overflow-hidden">
+				<Suspense
+					fallback={
+						<span className="block size-full animate-pulse bg-night/[0.05] dark:bg-white/[0.06]" />
+					}
+				>
+					<ThemeMockup theme={option.theme} />
+				</Suspense>
+			</span>
+			<span className="flex items-center justify-between gap-1.5 border-night/[0.07] border-t px-3.5 py-2 dark:border-white/[0.07]">
+				<span
+					dir="auto"
+					className="min-w-0 truncate font-grotesk font-semibold text-[13px] text-night dark:text-foreground"
+				>
+					{option.label}
+				</span>
+				{selected ? (
+					<CheckIcon
+						weight="bold"
+						aria-hidden
+						className="size-3.5 shrink-0 text-primary"
+					/>
 				) : null}
 			</span>
 		</button>

@@ -2,16 +2,16 @@
 // A list page passes its rows and its columns; this file adds no fetch and no dependency.
 // Sort, search, and paging are derived during render from three pieces of state.
 
-import {
-	ArrowUpDownIcon,
-	ChevronLeftIcon,
-	ChevronRightIcon,
-	SearchIcon,
-} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
+import {
+	ArrowsDownUpIcon,
+	CaretLeftIcon,
+	CaretRightIcon,
+	MagnifyingGlassIcon,
+} from "~/shared/ui/icons";
 import { Input } from "~/shared/ui/input";
 import {
 	Table,
@@ -116,7 +116,7 @@ export function DataTable<Row extends { id: string }>({
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					{searchText ? (
 						<div className="relative w-full sm:max-w-xs">
-							<SearchIcon className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+							<MagnifyingGlassIcon className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
 							<Input
 								type="search"
 								value={query}
@@ -153,14 +153,11 @@ export function DataTable<Row extends { id: string }>({
 										type="button"
 										variant="ghost"
 										size="sm"
-										className={cn(
-											"h-8",
-											column.align === "end" ? "-me-3" : "-ms-3",
-										)}
+										className={column.align === "end" ? "-me-3" : "-ms-3"}
 										onClick={() => toggleSort(column.id)}
 									>
 										{column.header}
-										<ArrowUpDownIcon className="text-muted-foreground" />
+										<ArrowsDownUpIcon className="text-muted-foreground" />
 									</Button>
 								) : (
 									column.header
@@ -209,7 +206,7 @@ export function DataTable<Row extends { id: string }>({
 						disabled={currentPage === 1}
 						onClick={() => setPage(currentPage - 1)}
 					>
-						<ChevronLeftIcon className="rtl:rotate-180" />
+						<CaretLeftIcon className="rtl:rotate-180" />
 						{t("table.previous")}
 					</Button>
 					<Button
@@ -220,7 +217,7 @@ export function DataTable<Row extends { id: string }>({
 						onClick={() => setPage(currentPage + 1)}
 					>
 						{t("table.next")}
-						<ChevronRightIcon className="rtl:rotate-180" />
+						<CaretRightIcon className="rtl:rotate-180" />
 					</Button>
 				</div>
 			) : null}

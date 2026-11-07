@@ -46,7 +46,7 @@ No superlatives, no exclamation marks, no "luxe", "prestige" or "excellence"; no
 - MADDER: #8C3B2E — exists ONLY inside ornament linework (vines, scrolls, center dots). Never text, never ground, never a button.
 - Gradients do not exist. Box-shadows do not exist. Depth is made with hairlines, soft ground shifts, and the frames themselves.
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · TEAL→--primary · GROUND→--primary-foreground · GROUND's softer companion→--secondary · GOLD→--accent · ink at 50%→--muted · ink at 16%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, ground shift or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 ## Typography system
 - DISPLAY: Amiri (400/700) OR Marcellus (400) — one per site. Masthead clamp(3.4rem, 8.5vw, 7rem), line-height 1.02–1.12; section titles clamp(2rem, 4.4vw, 3.5rem); letter-spacing normal (Amiri) or +0.01em (Marcellus). Never faux-bold Marcellus; never italic display — emphasis is the one gold word.

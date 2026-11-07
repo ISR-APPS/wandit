@@ -7,7 +7,10 @@ import type { DeleteAppProjectTaskStarter } from "../../../app-builder/domain/po
 import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
-import type { ProjectScope } from "../../domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../domain/project-scope";
 import type {
 	ProjectQueryRow,
 	ProjectsRepository,
@@ -15,7 +18,7 @@ import type {
 import type { ProjectTitleService } from "./project-title.service";
 import { deriveProjectName, ProjectsService } from "./projects.service";
 
-const personalScope: ProjectScope = { kind: "personal", userId: "user_1" };
+const personalScope: ProjectScope = projectScopeFrom(undefined, "user_1");
 
 vi.mock("../../../../infrastructure/storage/r2", () => ({
 	isUserUploadUrl: vi.fn(),
@@ -169,7 +172,7 @@ describe("ProjectsService", () => {
 			projectsRepository.createWithChatAndFirstMessage.mock.calls[0]?.[0];
 		expect(meteringService.reserve).toHaveBeenCalledWith(
 			"chat",
-			{ actorUserId: "user_1" },
+			{ actorIsLimitExempt: true, actorUserId: "user_1" },
 			{
 				attemptRef: `bundled-pending:project:${persistenceInput?.projectId}`,
 				chatId: persistenceInput?.chatId,
@@ -226,9 +229,10 @@ describe("ProjectsService", () => {
 			setup();
 		const orgScope: ProjectScope = {
 			actorIsLimitExempt: false,
+			actorRoles: ["member"],
 			kind: "org",
 			organizationId: "org_1",
-			userId: "user_1",
+			actorUserId: "user_1",
 		};
 
 		await service.create(orgScope, { prompt: "Build a team storefront" });
@@ -414,9 +418,10 @@ describe("ProjectsService.delete", () => {
 		});
 		const orgScope: ProjectScope = {
 			actorIsLimitExempt: true,
+			actorRoles: ["admin"],
 			kind: "org",
 			organizationId: "org_1",
-			userId: "user_1",
+			actorUserId: "user_1",
 		};
 
 		await service.delete(orgScope, "project_1");
@@ -491,6 +496,7 @@ describe("ProjectsService.delete", () => {
 
 function projectRow(overrides: { logoUrl: string | null }): ProjectQueryRow {
 	return {
+		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
 		engine: "v1_page",

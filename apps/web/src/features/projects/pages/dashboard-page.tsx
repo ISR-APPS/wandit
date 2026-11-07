@@ -3,9 +3,12 @@
  * the project grid with search and status filters. The route file imports
  * it by path. Calls the projects queries, the V1 and V2 create hooks, and
  * the credits banners. From the landing it uses the key button, the platform
- * word, and the V2 strip. It owns the app type and the Plan chip of a V2 create.
+ * word, and the V2 strip. It owns the app type, the Plan chip, and the model
+ * menu of a V2 create. Below the grid, "Shared with me" lists the projects of
+ * other workspaces that the user has a direct grant on (features/project-sharing).
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { useQuery } from "@tanstack/react-query";
 import type { TargetPlatform } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -15,6 +18,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import {
+	useBuilderModelPick,
 	useCreateAppProjectWithPrompt,
 	useV2BuilderEnabled,
 } from "@/features/app-builder";
@@ -26,9 +30,14 @@ import {
 } from "@/features/credits";
 import {
 	KeycapButton,
+	nextTargetPlatform,
 	PlatformToken,
 	V2ComingSoonBanner,
 } from "@/features/landing";
+import {
+	sharedProjectsQuery,
+	useSharingEnabled,
+} from "@/features/project-sharing";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
@@ -142,10 +151,14 @@ export default function DashboardPage() {
 	const [isPlanMode, setIsPlanMode] = useState(
 		() => (promptStash.peek()?.mode ?? "plan") === "plan",
 	);
+	// The model of the first turn. null is the scope of the next new project,
+	// so the menu remembers the last pick of a create.
+	const modelPick = useBuilderModelPick(null, v2Enabled);
 	const v1Flow = useCreateProjectWithPrompt();
 	const v2Flow = useCreateAppProjectWithPrompt(
 		targetPlatform,
 		isPlanMode ? "plan" : "build",
+		modelPick.modelId,
 	);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		v2Enabled ? v2Flow : v1Flow;
@@ -171,6 +184,19 @@ export default function DashboardPage() {
 					project.prompt.toLowerCase().includes(q)),
 		);
 	}, [projects, query, filter]);
+
+	const isSharingEnabled = useSharingEnabled();
+	// A failed load hides the section. The query cache reports the error.
+	const { data: sharedProjects } = useQuery(
+		sharedProjectsQuery(isSharingEnabled),
+	);
+	// A grant on a project of the active workspace already shows it in the main grid.
+	const sharedOnly = useMemo(() => {
+		const gridIds = new Set((projects ?? []).map((project) => project.id));
+		return (sharedProjects?.projects ?? []).filter(
+			(project) => !gridIds.has(project.id),
+		);
+	}, [projects, sharedProjects]);
 
 	const hasProjects = (projects?.length ?? 0) > 0;
 	const isFiltering = query.trim().length > 0 || filter !== "all";
@@ -213,11 +239,7 @@ export default function DashboardPage() {
 									</span>{" "}
 									<PlatformToken
 										platform={targetPlatform}
-										onFlip={() =>
-											setTargetPlatform((current) =>
-												current === "mobile" ? "web" : "mobile",
-											)
-										}
+										onFlip={() => setTargetPlatform(nextTargetPlatform)}
 									/>
 								</>
 							) : (
@@ -252,6 +274,7 @@ export default function DashboardPage() {
 											? { value: isPlanMode, onChange: setIsPlanMode }
 											: undefined
 									}
+									modelChoice={v2Enabled ? modelPick : undefined}
 									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={restoredPrompt}
@@ -345,6 +368,19 @@ export default function DashboardPage() {
 						)}
 					</div>
 				</section>
+
+				{sharedOnly.length > 0 ? (
+					<section className="mt-12">
+						<h2 className="font-bold font-grotesk text-[1.75rem] text-night tracking-[-0.035em] dark:text-foreground">
+							{t("sharing.sharedWithMe.title")}
+						</h2>
+						<div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+							{sharedOnly.map((project) => (
+								<ProjectCard key={project.id} project={project} />
+							))}
+						</div>
+					</section>
+				) : null}
 			</div>
 		</DashboardShell>
 	);

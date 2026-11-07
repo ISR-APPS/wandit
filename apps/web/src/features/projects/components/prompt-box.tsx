@@ -2,8 +2,9 @@
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
- * mode menu picks the app type, web or mobile, through `platformChoice`,
- * and the Plan chip of the app-builder feature sets `planChoice`.
+ * mode menu picks the app type, web, mobile, or desktop, through `platformChoice`,
+ * the Plan chip of the app-builder feature sets `planChoice`, and its
+ * model menu sets `modelChoice`.
  * Calls the attachments upload service and the voice dictation hook.
  */
 
@@ -15,6 +16,7 @@ import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { CpuIcon } from "@phosphor-icons/react/Cpu";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
@@ -91,7 +93,11 @@ import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
-import { PlanModeToggle } from "@/features/app-builder";
+import {
+	type BuilderModelPick,
+	BuilderModelPicker,
+	PlanModeToggle,
+} from "@/features/app-builder";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
 import { KeycapButton } from "@/features/landing";
@@ -272,6 +278,7 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
 	{ id: "web", icon: BrowserIcon },
 	{ id: "mobile", icon: DeviceMobileIcon },
+	{ id: "desktop", icon: DesktopIcon },
 ];
 
 // The hero chips copy the landing pills. A chip at rest has a soft night tint.
@@ -1635,8 +1642,8 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
-	/** Set only for a V2 create. The mode menu then lists web app and mobile
-	 * app instead of the V1 modes, and the "+" menu shows no connectors. */
+	/** Set only for a V2 create. The mode menu then lists web app, mobile app,
+	 * and desktop app instead of the V1 modes, and the "+" menu shows no connectors. */
 	platformChoice?: {
 		/** App type of the new project. The caller owns this state. */
 		value: TargetPlatform;
@@ -1648,6 +1655,8 @@ export type PromptBoxProps = {
 		value: boolean;
 		onChange: (isPlanMode: boolean) => void;
 	};
+	/** The model menu of a V2 create, from useBuilderModelPick of the caller. It shows only with `platformChoice`. */
+	modelChoice?: BuilderModelPick;
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
@@ -1686,6 +1695,7 @@ export function PromptBox({
 	showBanner = false,
 	platformChoice,
 	planChoice,
+	modelChoice,
 	isSubmitting = false,
 	disabled = false,
 	initialValue = "",
@@ -2276,6 +2286,14 @@ export function PromptBox({
 							<PlanModeToggle
 								isPlanMode={planChoice.value}
 								onPlanModeChange={planChoice.onChange}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
+						) : null}
+						{/* The same constant removes the model menu from the production bundle. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice && modelChoice ? (
+							<BuilderModelPicker
+								pick={modelChoice}
 								disabled={submissionPending || disabled}
 								size={isHero ? "md" : "sm"}
 							/>

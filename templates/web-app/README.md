@@ -28,11 +28,8 @@ and i18n with one language by default (more on request, RTL ready).
   are in `lib/nav-items.ts`; their `to` has the route type, so a wrong path
   fails typecheck.
 - `src/shared/`: the UI kit (`ui/`), the Supabase client (`lib/`), and i18n (`i18n/`).
-- `src/styles/tokens.css`: the design tokens, in two parts. Part 1 is the
-  palette (`:root`, `.dark`, the fonts, `html:lang(ar)`); a design world or an
-  app-dashboard style replaces it. Part 2 holds the derived tokens (sidebar,
-  chart, status, radius, density) and the style knobs. Keep it, because the
-  components read its names. A style sets the knobs in its own `:root` block.
+- `src/styles/tokens.css`: the entry CSS. It maps the role tokens to Tailwind
+  names and holds the app utilities. It never declares a theme token (see "Theme engine").
 - `src/wandit/`: host files (the dev-only preview bridge).
 
 ## Commands
@@ -40,7 +37,8 @@ and i18n with one language by default (more on request, RTL ready).
 - `pnpm run dev` — dev server on `0.0.0.0:5173`, strict port.
 - `pnpm run build` — production build for Cloudflare Workers.
 - `pnpm run typecheck` — `tsc6 --noEmit`, then `scripts/check-effects.mjs`, which
-  fails on a `useEffect` without a `// effect: <reason>` comment on the line above.
+  fails on a `useEffect` without a `// effect: <reason>` comment on the line above,
+  and `scripts/check-theme.mjs` (see "Theme engine").
 - `pnpm run lint` — `biome check --error-on-warnings .`
 - `pnpm run smoke` — frozen install, typecheck, lint, build, output checks, the
   effect-check self-test, the HMR host check, and a 640 MB ceiling on the
@@ -49,6 +47,23 @@ and i18n with one language by default (more on request, RTL ready).
 - `pnpm run pack` — write the distributable archive.
 - `node --env-file=.env scripts/create-test-user.mjs` — the agent creates one test
   account with the anon key and gives its email and password to the user.
+
+## Theme engine
+
+Every page takes its look from one file, `src/styles/theme.json`. Only the host writes it.
+
+- `src/styles/theme.json`: the choices (`selection`: look, mode, radius, sidebar, and the other axes)
+  and the values that the host computes from them (`resolved`: the light and dark palettes, the fonts, the voice).
+- `src/styles/theme-options.ts`: the value lists of each axis. It equals `APP_THEME_OPTIONS` of the host.
+- `src/styles/theme.ts`: the zod schema of the file, `useAppTheme()`, and the helpers that `__root.tsx`
+  uses to put the theme on `<html>`: data-* attributes, the dark class, and the palette and font variables.
+- `src/styles/engine.css`: maps those variables to the role tokens, with one block for each axis value.
+- The deny rules of `.claude/settings.json` block agent edits to these four files.
+- In the builder preview, the bridge shows a draft theme live (`wandit:theme` message). It needs no reload.
+- `scripts/check-theme.mjs` fails on a palette or raw color, a fixed shadow, or an emoji in a page.
+  In the app area it also fails on capital text, wide tracking, a fixed corner, a thick border, an ink band,
+  or an arbitrary font. In a CSS file of `src` it fails on a declaration of a theme token, a raw color,
+  capital text, or a Tailwind color, radius, shadow, or font name with a value that is not a token.
 
 ## Build output
 
@@ -93,11 +108,11 @@ The export keeps this folder.
 
 `app-dashboard/` is written by hand for the area behind login of an app.
 `SKILL.md` explains the app recipe that the host puts in the session
-instructions (`apps/server/src/modules/app-builder/domain/app-recipe.ts`).
-The option files sit beside it: `frame.md`, `data.md`, `tables.md`, and the
-folders `styles/`, `homes/`, `kpis/`, and `charts/`. A style file holds a whole
-design language: palette, fonts, knobs, and anatomy. The home, KPI, and chart
-files hold specs, not code. The agent reads only the files of its recipe. The
+instructions (`apps/server/src/modules/app-builder/domain/app-recipe.ts`) and
+the set_theme host tool. The option files sit beside it: `data.md`, `tables.md`,
+`tables-paging.md`, and the folders `homes/`, `kpis/`, and `charts/`. The home,
+KPI, and chart files hold specs, not code. The theme engine draws the look, so no
+skill file holds a palette or a shell. The agent reads only the files of its recipe. The
 folder holds Markdown only, because Biome lints the code files under `.claude/`
 and the agent cannot fix them. The export keeps this folder with its subfolders.
 

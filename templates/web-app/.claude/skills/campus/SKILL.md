@@ -43,7 +43,7 @@ Plain, warm, administratively honest French — a good secretary who tells you t
 - SUPPORT BLOCKS: sand (#FDE68A / #FCD34D) and pale sky (#DCEBF7 / #E4F0FA), SECTION GROUNDS and BLOCK FILLS only — never type color, never a border on white. Text on sand is navy; on sky and navy, white.
 - HAIRLINE: #DCE3EF for rules and cell borders; #C9D4E6 for the stronger outline (ghost buttons, form fields, outline course cards).
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · ACCENT SKY→--primary · GROUND→--primary-foreground · PALE SKY→--secondary · SAND→--accent · ink at 55%→--muted · ink at 13%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, tint or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 - Budget: at most two saturated blocks per card row; grounds and timetable fills are budgeted above.
 - ZERO GRADIENTS — not in heroes, buttons, blocks, or as a "subtle" photo overlay; flat color is this world's entire physics.

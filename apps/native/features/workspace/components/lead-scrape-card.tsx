@@ -394,7 +394,7 @@ function DownloadButton({ attempt }: { attempt: LeadScrapeAttempt }) {
 			const directory = new Directory(Paths.cache, "lead-scrapes");
 			directory.create({ idempotent: true, intermediates: true });
 			const target = new File(directory, attempt.fileName ?? "leads.xlsx");
-			const cookie = authClient.getCookie();
+			const cookie = await authClient.getCookie();
 			const file = await File.downloadFileAsync(url, target, {
 				headers: cookie ? { Cookie: cookie } : undefined,
 				idempotent: true,

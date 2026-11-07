@@ -32,7 +32,7 @@ export type HostRecoveryDeps = {
 	>;
 	lock: Pick<TurnLock, "release">;
 	counters: Pick<LlmSpendCounterStore, "revokeRun" | "unbindChat">;
-	metering: Pick<MeteringService, "findByIdempotencyKey" | "refund">;
+	metering: Pick<MeteringService, "findByIdempotencyKeyAnyPayer" | "refund">;
 	/** `TurnPromoter.promoteNext`: queues the next waiting turn of the project. */
 	promoteNext: (projectId: string, endedTurnId: string) => Promise<void>;
 	/**
@@ -162,11 +162,11 @@ async function recoverTurn(
 		),
 	);
 	// The same rule as a failed or canceled run: the reserved hold goes back,
-	// and the checkpoint debits of the work that ran stay paid.
+	// and the checkpoint debits of the work that ran stay paid. The refund
+	// returns the credits to the pool that the hold row names.
 	await step("refund", async () => {
-		const hold = await deps.metering.findByIdempotencyKey(
+		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(
 			`builder-turn:${row.id}`,
-			{ actorUserId: row.userId, organizationId: row.organizationId },
 		);
 		if (hold?.status === "reserved") {
 			await deps.metering.refund(

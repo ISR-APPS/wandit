@@ -26,7 +26,6 @@ import type {
 	MobileBuildRow,
 	MobileBuildTransition,
 } from "../modules/app-builder/infrastructure/persistence/mobile-builds.repository";
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type {
 	ExecutionLeaseHeartbeat,
 	MeteringService,
@@ -48,7 +47,6 @@ const POLL_INTERVAL_MS = 30_000;
 const POLL_CEILING_MS = 2 * 60 * 60_000;
 
 const INPUT = {
-	actorIsLimitExempt: true,
 	buildId: BUILD_ID,
 	projectId: PROJECT_ID,
 	triggerRunId: RUN_ID,
@@ -98,6 +96,7 @@ function holdEvent(status: AiUsageEvent["status"]): AiUsageEvent {
 		organizationId: "org-1",
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: PROJECT_ID,
 		provider: null,
@@ -192,23 +191,20 @@ class FakeMetering {
 	settleError: Error | null = null;
 	refundError: Error | null = null;
 	readonly calls: string[] = [];
-	readonly subjects: MeteringSubject[] = [];
 	readonly keys: string[] = [];
 	readonly settleCalls: Parameters<MeteringService["settle"]>[] = [];
 	readonly refundCalls: { eventId: string; reason: string }[] = [];
 
 	/** Every call except the hold lookup: the lease and money writes. */
 	get writeCalls(): string[] {
-		return this.calls.filter((name) => name !== "findByIdempotencyKey");
+		return this.calls.filter((name) => name !== "findByIdempotencyKeyAnyPayer");
 	}
 
-	async findByIdempotencyKey(
+	async findByIdempotencyKeyAnyPayer(
 		key: string,
-		subject: MeteringSubject,
 	): Promise<AiUsageEvent | null> {
-		this.calls.push("findByIdempotencyKey");
+		this.calls.push("findByIdempotencyKeyAnyPayer");
 		this.keys.push(key);
-		this.subjects.push(subject);
 		return this.hold;
 	}
 
@@ -464,11 +460,6 @@ describe("runMobileBuild", () => {
 			},
 		]);
 		expect(ctx.metering.keys[0]).toBe(`mobile_build:${BUILD_ID}`);
-		expect(ctx.metering.subjects[0]).toEqual({
-			actorIsLimitExempt: true,
-			actorUserId: "user-1",
-			organizationId: "org-1",
-		});
 		expect(ctx.metering.settleCalls).toEqual([
 			[
 				HOLD_ID,
@@ -503,12 +494,12 @@ describe("runMobileBuild", () => {
 		expect(ctx.disk.existedAtFirstSleep).toBe(false);
 	});
 
-	it("builds a personal row with the user as the payer and no backend env", async () => {
+	it("builds a personal row with no backend env", async () => {
 		const ctx = setup({ row: buildRow({ organizationId: null }) });
+		ctx.metering.hold = { ...holdEvent("reserved"), organizationId: null };
 
 		await runMobileBuild(ctx.deps, INPUT);
 
-		expect(ctx.metering.subjects[0]).toEqual({ actorUserId: "user-1" });
 		expect(ctx.workspaceInputs[0]?.appEnv).toEqual({});
 	});
 
@@ -824,7 +815,7 @@ describe("runMobileBuild", () => {
 		const result = await runMobileBuild(ctx.deps, INPUT);
 
 		expect(result.outcome).toBe("finished");
-		expect(ctx.metering.calls).toEqual(["findByIdempotencyKey"]);
+		expect(ctx.metering.calls).toEqual(["findByIdempotencyKeyAnyPayer"]);
 		expect(messagesOf(ctx)).toContain("billing.off");
 	});
 
@@ -909,15 +900,28 @@ describe("runMobileBuild", () => {
 		expect(ctx.metering.settleCalls).toEqual([]);
 	});
 
-	it("warns and builds when billing is on but the API made no hold", async () => {
+	it.each([
+		{ hold: null, name: "missing" },
+		{
+			hold: { ...holdEvent("reserved"), userId: "user-other" },
+			name: "of another actor",
+		},
+		{
+			hold: { ...holdEvent("reserved"), operation: "agent_session" as const },
+			name: "of another operation",
+		},
+	])("fails internal with no build and no money call when billing is on and the hold is $name", async ({
+		hold,
+	}) => {
 		const ctx = setup();
-		ctx.metering.hold = null;
+		ctx.metering.hold = hold;
 
 		const result = await runMobileBuild(ctx.deps, INPUT);
 
-		expect(result.outcome).toBe("finished");
-		expect(ctx.metering.calls).toEqual(["findByIdempotencyKey"]);
-		expect(messagesOf(ctx)).toContain("mobile-build.hold-missing");
+		// Fail closed: no hold that names this build's payer, no free build.
+		expect(result).toEqual({ outcome: "failed", errorCode: "internal" });
+		expect(ctx.metering.calls).toEqual(["findByIdempotencyKeyAnyPayer"]);
+		expect(ctx.workspaceInputs).toEqual([]);
 	});
 
 	it("skips the settle when the hold left reserved during the build", async () => {

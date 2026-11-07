@@ -3,6 +3,7 @@
  * refreshes the credits, and opens `/app/$projectId`. Same result shape as
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
+ * Stores the model pick for the new project, so its composer shows it.
  * The Vercel production build gets a flow that never creates.
  */
 
@@ -23,6 +24,7 @@ import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateAppProject } from "../api/app-builder.mutations";
 import { toCreateAppProjectBody } from "./create-app-project-body";
+import { writeBuilderModel } from "./helpers";
 
 /** What the dashboard reads: the same four fields as the V1 hook result. */
 export type UseCreateAppProjectWithPromptResult = {
@@ -43,11 +45,14 @@ export type UseCreateAppProjectWithPromptResult = {
  * its Plan chip: the server starts the first turn with it, before the
  * navigation. The server checks the balance, and it answers 503 for
  * `mobile` when it has no mobile template. Both come back as errors here,
- * so the dashboard has no precheck.
+ * so the dashboard has no precheck. `model` is the pick of the model menu
+ * for the first turn. Undefined sends none, as from the landing hero: the
+ * server default runs.
  */
 function useAppProjectCreateFlow(
 	targetPlatform: TargetPlatform,
 	mode: BuilderTurnMode,
+	model?: string,
 ): UseCreateAppProjectWithPromptResult {
 	const { locale } = useTranslation();
 	const createAppProject = useCreateAppProject();
@@ -75,6 +80,7 @@ function useAppProjectCreateFlow(
 						locale,
 						targetPlatform,
 						mode,
+						model,
 					}),
 				);
 			} catch (error) {
@@ -90,6 +96,8 @@ function useAppProjectCreateFlow(
 
 			// The first turn reserves credits; the balance shown must follow.
 			void queryClient.invalidateQueries({ queryKey: creditsKeys.scope() });
+			// The first turn runs on this model, so the project composer opens on it.
+			if (model !== undefined) writeBuilderModel(created.projectId, model);
 			try {
 				await navigate({
 					to: "/app/$projectId",
@@ -101,7 +109,15 @@ function useAppProjectCreateFlow(
 			// The server kept the project, so a second submit must not make a twin.
 			return true;
 		},
-		[createAppProject, locale, mode, navigate, queryClient, targetPlatform],
+		[
+			createAppProject,
+			locale,
+			mode,
+			model,
+			navigate,
+			queryClient,
+			targetPlatform,
+		],
 	);
 
 	return {

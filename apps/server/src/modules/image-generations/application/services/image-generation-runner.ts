@@ -25,6 +25,10 @@ import {
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import {
+	meteringSubjectFrom,
+	systemProjectScope,
+} from "../../../projects/domain/project-scope";
 import type {
 	ImageGenerationBilling,
 	ImageGenerationReservation,
@@ -288,21 +292,6 @@ export function parseImageGenerationPayload(
  * storage, and any uploaded indexed subset is settled and published.
  * An attempt with no durable output fails once and refunds once.
  */
-/**
- * The metering subject for this run: the queue-time ACTING member (who may
- * differ from the project creator in an org workspace) paying from the
- * project's owner entity — the org pool when org-owned. The durable row's
- * userId is the project creator and must never be used as the actor.
- */
-function payloadSubject(payload: ImageGenerationPayload): MeteringSubject {
-	return {
-		actorUserId: payload.userId,
-		...(payload.organizationId
-			? { organizationId: payload.organizationId }
-			: {}),
-	};
-}
-
 export async function runImageGeneration(
 	payload: ImageGenerationPayload,
 	input: {
@@ -314,26 +303,36 @@ export async function runImageGeneration(
 	const { dependencies } = input;
 	const loaded = await dependencies.loadAttempt(payload.attemptId);
 
-	// Owner-entity assert: the durable row's owner must match the queue-time
-	// payload. Org attempts require the same org (the acting member may differ
-	// from the project creator); personal attempts keep strict user equality.
+	// Owner-entity assert: the durable row must match the queue-time payload
+	// on the project and the org. The actor may differ from the project owner
+	// in both kinds of workspace; the payer comes from the row.
 	if (
 		!loaded ||
 		loaded.projectId !== payload.projectId ||
-		loaded.organizationId !== (payload.organizationId ?? null) ||
-		(loaded.organizationId === null && loaded.userId !== payload.userId)
+		loaded.organizationId !== (payload.organizationId ?? null)
 	) {
-		await dependencies.refund(payloadSubject(payload), payload.attemptId);
+		// The row is not trusted, so the actor's own pool (or the payload org)
+		// stands in for the refund.
+		await dependencies.refund(
+			{
+				actorUserId: payload.userId,
+				organizationId: payload.organizationId ?? null,
+			},
+			payload.attemptId,
+		);
 
 		return { reason: "ownership_mismatch", status: "failed" };
 	}
 
-	// The ownership assert above guarantees the payload and the durable row
-	// agree on the paying entity; the payload adds the true acting member.
-	const subject = payloadSubject(payload);
+	// The payload names the true acting member; the row names the pool: the
+	// org, or `projects.user_id`. The payload has no role, so no exemption.
+	// The row's userId is the project owner and is never the actor.
+	const subject = meteringSubjectFrom(
+		systemProjectScope(loaded, payload.userId, false),
+	);
 
 	if (loaded.status === "succeeded") {
-		await settleSucceededBillingReplay(loaded, payload, dependencies);
+		await settleSucceededBillingReplay(loaded, payload, subject, dependencies);
 		return settleSucceeded(loaded, loaded.images, false, dependencies);
 	}
 
@@ -390,7 +389,7 @@ export async function runImageGeneration(
 		}
 
 		if (raced.status === "succeeded") {
-			await settleSucceededBillingReplay(raced, payload, dependencies);
+			await settleSucceededBillingReplay(raced, payload, subject, dependencies);
 			return settleSucceeded(raced, raced.images, false, dependencies);
 		}
 
@@ -1154,6 +1153,7 @@ async function resolveSuccessCasLoss(
 async function settleSucceededBillingReplay(
 	attempt: ImageGenerationAttemptState,
 	payload: ImageGenerationPayload,
+	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
 ): Promise<void> {
 	if (!attempt.images || attempt.images.length === 0) {
@@ -1167,7 +1167,7 @@ async function settleSucceededBillingReplay(
 	// while captured provider evidence can prove more completed units than the
 	// stored subset. The evidence-aware path preserves either terminal choice.
 	await dependencies.reserve(
-		payloadSubject(payload),
+		subject,
 		attempt.id,
 		attempt.count,
 		payload.parentEventId,
@@ -1176,7 +1176,7 @@ async function settleSucceededBillingReplay(
 	);
 	await settleExistingStoredOutput(
 		attempt,
-		payloadSubject(payload),
+		subject,
 		attempt.images.length,
 		dependencies,
 		payload.billingMode,

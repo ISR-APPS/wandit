@@ -206,6 +206,26 @@ describe("CodeStorageGitStore.issueCredential", () => {
 		expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(600);
 	});
 
+	it("mints a push-github-mirror JWT that can push github/main and nothing else", async () => {
+		await startServer();
+		const store = makeStore();
+
+		const credential = await store.issueCredential(
+			"project-1",
+			600,
+			"push-github-mirror",
+		);
+
+		const key = await importSPKI(publicKeyPem, "ES256");
+		const { payload } = await jwtVerify(credential.password, key);
+		expect(payload.scopes).toEqual(["git:read", "git:write"]);
+		// Security: the worker mirror token must never move `main`.
+		expect(payload.refs).toEqual([
+			["refs/heads/github/main", []],
+			["*", ["no-push"]],
+		]);
+	});
+
 	it("mints a git:read JWT only for read access", async () => {
 		await startServer();
 		const store = makeStore();
@@ -242,6 +262,39 @@ describe("CodeStorageGitStore.deleteRepository", () => {
 		await expect(store.deleteRepository("p-1")).resolves.toBeUndefined();
 		answers.push({ status: 409, body: { detail: "already deleted" } });
 		await expect(store.deleteRepository("p-1")).resolves.toBeUndefined();
+	});
+});
+
+describe("CodeStorageGitStore.readFile", () => {
+	// The theme GET reads a stopped project with it: a token that can push would be a leak.
+	it("reads a file at a ref with a git:read JWT, and answers null on a 404", async () => {
+		await startServer();
+		answers.push(
+			{ status: 200, body: { version: 1 } },
+			{ status: 404, body: { detail: "not found" } },
+		);
+		const store = makeStore();
+		const sha = "a".repeat(40);
+
+		const bytes = await store.readFile(
+			"project-1",
+			sha,
+			"src/styles/theme.json",
+		);
+		const missing = await store.readFile("project-1", sha, "src/missing.json");
+
+		expect(new TextDecoder().decode(bytes ?? new Uint8Array())).toBe(
+			'{"version":1}',
+		);
+		expect(missing).toBeNull();
+		expect(requests[0]?.method).toBe("GET");
+		expect(requests[0]?.path).toBe(
+			`/api/v1/repos/file?path=src%2Fstyles%2Ftheme.json&ref=${sha}`,
+		);
+		const claims = await tokenClaims(requests[0]?.authorization ?? null);
+		expect(claims.repo).toBe("wandit/project-1");
+		expect(claims.scopes).toEqual(["git:read"]);
+		expect(claims.refs).toBeUndefined();
 	});
 });
 

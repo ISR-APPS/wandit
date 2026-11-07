@@ -1,7 +1,7 @@
 /**
  * The four simulated apps that the landing page "builds": two mobile apps
- * (barber, running) and two web apps (invoices, yoga). Each one has its own
- * palette and renders at a fixed design size; FitScreen scales it. The same
+ * (barber, running), one desktop app (invoices), and one web app (yoga). Each
+ * one has its own palette and renders at a fixed design size; FitScreen scales it. The same
  * DOM renders a grey skeleton, so WandSweep can line up both states.
  * The hero, how-it-works and languages sections import it. Text comes from
  * lib/mini-app-copy.ts.
@@ -34,16 +34,20 @@ import { getDir, type Locale } from "@/lib/i18n";
 import type { HeroIdeaId, IDEAS } from "../lib/constants";
 import { MINI_APP_COPY } from "../lib/mini-app-copy";
 
-/** Design size of a mini app screen in CSS px. Mobile is a 360 px wide phone screen. */
+/**
+ * Design size of a mini app screen in CSS px. Mobile is a 360 px wide phone
+ * screen. A desktop window has the size of a web page in a browser window.
+ */
 export const MINI_APP_SIZE = {
 	mobile: { width: 360, height: 780 },
 	web: { width: 960, height: 600 },
+	desktop: { width: 960, height: 600 },
 } as const satisfies Record<TargetPlatform, { width: number; height: number }>;
 
 /** Platform of each hero app. The type check rejects a value that differs from IDEAS. */
 export const MINI_APP_PLATFORM = {
 	barber: "mobile",
-	invoices: "web",
+	invoices: "desktop",
 	running: "mobile",
 	yoga: "web",
 } as const satisfies {

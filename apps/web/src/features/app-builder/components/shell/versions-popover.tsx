@@ -43,13 +43,11 @@ import {
 	appVersionsQuery,
 	versionDiffQuery,
 } from "../../api/app-builder.queries";
+import { SHORT_SHA_LENGTH } from "../../lib/constants";
 import { parseUnifiedDiff } from "../../lib/unified-diff";
 import { DiffCard } from "../chat/diff-card";
 import { HISTORY_ACTION_CLASS } from "./android-build-card";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "./top-bar";
-
-// Seven characters name a commit, like `git log --oneline`.
-const SHORT_SHA_LENGTH = 7;
 
 // Diff and Restore: the ghost pill of the publish history. An open diff keeps the pressed tint through aria-expanded.
 const ROW_ACTION_CLASS = cn(
@@ -64,6 +62,8 @@ export type VersionsPopoverProps = {
 	liveCommitSha: string | null;
 	/** Runs after a restore succeeds. The page mints a new preview token with it. */
 	onRestored: () => void;
+	/** False for a project viewer: the rows show no Restore button. */
+	canRestore: boolean;
 };
 
 /** The History icon button. Its popover loads the versions only while it is open. */
@@ -71,6 +71,7 @@ export function VersionsPopover({
 	projectId,
 	liveCommitSha,
 	onRestored,
+	canRestore,
 }: VersionsPopoverProps) {
 	const { t } = useTranslation();
 
@@ -102,6 +103,7 @@ export function VersionsPopover({
 						projectId={projectId}
 						liveCommitSha={liveCommitSha}
 						onRestored={onRestored}
+						canRestore={canRestore}
 					/>
 				</div>
 			</PopoverContent>
@@ -118,7 +120,11 @@ function VersionsBody({
 	projectId,
 	liveCommitSha,
 	onRestored,
-}: Pick<VersionsPopoverProps, "projectId" | "liveCommitSha" | "onRestored">) {
+	canRestore,
+}: Pick<
+	VersionsPopoverProps,
+	"projectId" | "liveCommitSha" | "onRestored" | "canRestore"
+>) {
 	const { t } = useTranslation();
 	const versions = useInfiniteQuery(appVersionsQuery(projectId));
 	// The callback lives on the hook so it also runs when the popover closed mid-restore.
@@ -149,11 +155,14 @@ function VersionsBody({
 				projectId={projectId}
 				liveCommitSha={liveCommitSha}
 				isRestoring={restore.isPending}
-				onRestore={(sha) =>
-					restore.mutate(
-						// The API compares this head with the real one and swaps on it.
-						{ sha, expectedHeadSha: items[0].sha },
-					)
+				onRestore={
+					canRestore
+						? (sha) =>
+								restore.mutate(
+									// The API compares this head with the real one and swaps on it.
+									{ sha, expectedHeadSha: items[0].sha },
+								)
+						: null
 				}
 			/>
 			{versions.hasNextPage ? (
@@ -188,8 +197,8 @@ function VersionsBody({
 export type VersionsListProps = {
 	/** Newest first, every loaded page of appVersionsQuery. The first row is the current version. */
 	versions: AppCommit[];
-	/** Sha of the version to restore. The parent runs the mutation. */
-	onRestore: (sha: string) => void;
+	/** Sha of the version to restore. The parent runs the mutation. Null hides every Restore button. */
+	onRestore: ((sha: string) => void) | null;
 	/** Route param of the open project. The diff block queries with it. */
 	projectId: string;
 	/** Sha of the commit the live web app runs. Its row gets the Live mark. Null when nothing is live. */
@@ -295,38 +304,40 @@ export function VersionsList({
 											)}
 										/>
 									</button>
-									<AlertDialog>
-										<AlertDialogTrigger asChild>
-											{/* A second restore during the first sends a stale head sha and ends in VERSION_CONFLICT. */}
-											<button
-												type="button"
-												className={ROW_ACTION_CLASS}
-												disabled={isRestoring}
-											>
-												{t("appBuilder.versions.restore")}
-											</button>
-										</AlertDialogTrigger>
-										<AlertDialogContent>
-											<AlertDialogHeader>
-												<AlertDialogTitle>
-													{t("appBuilder.versions.restoreTitle")}
-												</AlertDialogTitle>
-												<AlertDialogDescription>
-													{t("appBuilder.versions.restoreBody")}
-												</AlertDialogDescription>
-											</AlertDialogHeader>
-											<AlertDialogFooter>
-												<AlertDialogCancel>
-													{t("appBuilder.versions.cancel")}
-												</AlertDialogCancel>
-												<AlertDialogAction
-													onClick={() => onRestore(version.sha)}
+									{onRestore === null ? null : (
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												{/* A second restore during the first sends a stale head sha and ends in VERSION_CONFLICT. */}
+												<button
+													type="button"
+													className={ROW_ACTION_CLASS}
+													disabled={isRestoring}
 												>
 													{t("appBuilder.versions.restore")}
-												</AlertDialogAction>
-											</AlertDialogFooter>
-										</AlertDialogContent>
-									</AlertDialog>
+												</button>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														{t("appBuilder.versions.restoreTitle")}
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														{t("appBuilder.versions.restoreBody")}
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>
+														{t("appBuilder.versions.cancel")}
+													</AlertDialogCancel>
+													<AlertDialogAction
+														onClick={() => onRestore(version.sha)}
+													>
+														{t("appBuilder.versions.restore")}
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
+									)}
 								</div>
 							)}
 						</div>

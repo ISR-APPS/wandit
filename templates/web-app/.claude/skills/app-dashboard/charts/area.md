@@ -26,8 +26,8 @@ Breakdown part:
 2. Donut: one slice per part. The total sits in the hole, with the word "Total" under it.
 3. Parts list under the donut, in 2 columns: a color mark, the name, and the value.
 
-- The style gives the panel, the curve type, the fill, the grid, the axes, the sizes, and the weights.
-- The snippet shows the logic. Its curve, fill, grid, and axes are the no-style defaults.
+- The panel is a `Card`.
+- The snippet shows the logic. Keep its curve, fill, grid, and axes.
 - The trend plot takes a main height of SKILL.md. The donut takes a side height, with `aspect-square`.
 - Each skeleton keeps the header, the plot, and the list in their final sizes.
 
@@ -35,12 +35,10 @@ Breakdown part:
 
 - `ChartContainer` from `~/shared/ui/chart` with a `ChartConfig`. Colors come only from `var(--chart-1)` to `var(--chart-5)`.
 - `ChartContainer` has `aspect-video` by default. Add `aspect-auto` with the height class.
-- Do not set `strokeWidth` or `fillOpacity`. The knobs `--chart-stroke` and `--chart-fill-opacity` set them.
-- The curve type and the fill follow the style Anatomy. A flat fill is `fill="var(--color-current)"` with no gradient.
-- With no style rule: the curve is `type="monotone"`, and the fill is a vertical gradient of the series color.
-  The gradient goes from 30 % at the line to 0 at the base.
-  The knob `--chart-fill-opacity` multiplies it. A style with no fill sets the knob to 0.
-- The grid and the axes follow the style. With no style rule: `<CartesianGrid vertical={false} />`,
+- Do not set `strokeWidth` or `fillOpacity`. `ChartContainer` sets them: 2 px lines and a fill opacity of 0.6.
+- The curve is `type="monotone"`, and the fill is a vertical gradient of the series color.
+  The gradient goes from 30 % at the line to 0 at the base. The fill opacity of `ChartContainer` multiplies it.
+- The grid and the axes: `<CartesianGrid vertical={false} />`,
   and `tickLine={false} axisLine={false} tickMargin={8}` on both axes.
 - `day` is `YYYY-MM-DD` with no time. Format `` new Date(`${day}T00:00:00Z`) `` with
   `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })`.
@@ -54,7 +52,7 @@ Breakdown part:
 - `isAnimationActive={false}` on every series.
 - The plot has `role="img"` and an `aria-label`: the title, the last day, its value, and its change.
   The change compares with the same day one period earlier, only when that value is above 0.
-- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+- The period control shows only with `onDaysChange`. It is a `Select`. `Tabs` also fit: the theme draws them.
   The choices are `PERIOD_DAYS`, written with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
   It has `aria-label={t("chart.period")}`.
 - Empty trend: every day is 0 in both periods. The plot keeps its height and draws the real zeros:
@@ -74,14 +72,13 @@ The trend plot, inside `ChartContainer`. `fillId` comes from `useId()`, and `isR
 
 ```tsx
 <AreaChart data={points} margin={{ top: 8, left: 0, right: 0 }}>
-	{/* No-style default: this gradient. A style with a flat fill drops the defs and passes fill="var(--color-current)". */}
 	<defs>
 		<linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
 			<stop offset="0%" stopColor="var(--color-current)" stopOpacity={0.3} />
 			<stop offset="100%" stopColor="var(--color-current)" stopOpacity={0} />
 		</linearGradient>
 	</defs>
-	{/* No-style defaults: a horizontal grid, and axes with no tick line and no axis line. The style Anatomy replaces them. */}
+	{/* A horizontal grid, and axes with no tick line and no axis line. */}
 	<CartesianGrid vertical={false} />
 	{/* Time runs from right to left in Arabic, so the values move to the right side. */}
 	<XAxis dataKey="day" reversed={isRtl} tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={formatDay} />
@@ -89,7 +86,6 @@ The trend plot, inside `ChartContainer`. `fillId` comes from `useId()`, and `isR
 	<YAxis hide={isEmpty} orientation={isRtl ? "right" : "left"} tick={{ textAnchor: "end" }} width="auto"
 		tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value: number) => compact.format(value)} />
 	<ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={(label) => formatDay(String(label))} />} />
-	{/* No-style default: type="monotone". The style Anatomy gives the curve, for example natural, linear, or stepAfter. */}
 	<Area dataKey="current" type="monotone" stroke="var(--color-current)" fill={`url(#${fillId})`} isAnimationActive={false} />
 </AreaChart>
 ```

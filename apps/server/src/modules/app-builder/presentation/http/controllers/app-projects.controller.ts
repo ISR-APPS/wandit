@@ -1,7 +1,8 @@
 /**
- * HTTP routes for V2 app projects: create and get.
+ * HTTP routes for V2 app projects: create, get, and the cost of one chat.
  * `V2BuilderEnabledGuard` gates the whole controller, and
- * `RedisRateLimitGuard` reads the `@RateLimit` on create. Platform,
+ * `RedisRateLimitGuard` reads the `@RateLimit` on create. Create reads the
+ * workspace header; the `:projectId` routes use the global ProjectAccessGuard. Platform,
  * attachment, credits, and engine checks live in `AppProjectsService`; this
  * file parses and delegates.
  */
@@ -18,6 +19,7 @@ import {
 import type { AuthUser } from "@wandit/auth";
 import {
 	type AppProject,
+	type ChatCostResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	createAppProjectRequestSchema,
@@ -28,7 +30,13 @@ import type { FastifyRequest } from "fastify";
 import { readRequestCountryCode } from "../../../../../infrastructure/http/request-country-code";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import {
+	CurrentProjectAccess,
+	projectScopeFrom,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
@@ -41,16 +49,12 @@ import {
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
-// Creates per user per day (WANDIT-181). Each create can provision a
+// 10 creates per user per day (WANDIT-181). Each create can provision a
 // backend and starts a first turn, so the cap stops a script that farms them.
-// Staging allows 50, so Zack can rehearse the event demo on his own account.
-// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
-const PROJECT_CREATE_LIMIT = 50;
-// Creates per client IP per day. The cap stops one person who uses many
-// accounts. An event room shares one NAT IP, so staging sizes it for the room.
-// LIMIT: one NAT IP fits about 100 people with 5 creates each. Upgrade: skip the IP cap for known event IPs.
-// STAGING ONLY: restore the production values before V2 opens on production (docs/v2/runbook.md).
-const PROJECT_CREATE_IP_LIMIT = 500;
+const PROJECT_CREATE_LIMIT = 10;
+// Three times the user cap: three people behind one office IP still fit,
+// but the cap stops one person who uses many accounts.
+const PROJECT_CREATE_IP_LIMIT = 30;
 const PROJECT_CREATE_WINDOW_MS = 24 * 60 * 60_000;
 
 @Controller("v2/projects")
@@ -59,7 +63,10 @@ export class AppProjectsController {
 	constructor(
 		// The Pick type, not the class: a spec passes the fake without a cast.
 		@Inject(AppProjectsService)
-		private readonly appProjects: Pick<AppProjectsService, "create" | "get">,
+		private readonly appProjects: Pick<
+			AppProjectsService,
+			"chatCost" | "create" | "get"
+		>,
 	) {}
 
 	@RequireWorkspacePermission("project", "create")
@@ -83,16 +90,36 @@ export class AppProjectsController {
 		});
 	}
 
+	@RequireProjectRole("viewer")
 	@Get(":projectId")
 	get(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppProject> {
 		return this.appProjects.get(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
+		);
+	}
+
+	// A read like the turn estimate. The service checks the chat: a foreign
+	// chat id answers 404.
+	@RequireProjectRole("viewer")
+	@Get(":projectId/chats/:chatId/cost")
+	chatCost(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("chatId", new ZodValidationPipe(uuidSchema))
+		chatId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+	): Promise<ChatCostResponse> {
+		return this.appProjects.chatCost(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+			chatId,
 		);
 	}
 }

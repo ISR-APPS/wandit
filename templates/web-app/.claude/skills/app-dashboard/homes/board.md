@@ -65,7 +65,7 @@ Lost in the last 30 days: 4                  <- scroll ->
 The list query returns no row: this is the first visit.
 
 - Setup strip: under the PageHeader, above the columns.
-- Every column stays, with the count 0 and one empty slot in the empty frame of the style.
+- Every column stays, with the count 0 and one empty slot in the empty frame.
   The slot of the first column holds the add action.
 - Throughput: a flat mini chart at 0, and "0 won" in the words of the app.
 - End line: hidden while the count is 0.

@@ -18,9 +18,20 @@ export const commitShaSchema = z
 
 /**
  * What made the commit. Matches the `app_commit_source` database enum
- * (WANDIT-163).
+ * (WANDIT-163). "theme" is a save of the builder Thème sheet: a commit of
+ * `src/styles/theme.json` only. "github" is the merge commit of an Update
+ * from the linked GitHub repo. "mcp" is a direct file edit of an external
+ * coding agent through the `apply_changes` MCP tool.
  */
-export const appCommitSources = ["agent", "restore", "wip", "merge"] as const;
+export const appCommitSources = [
+	"agent",
+	"restore",
+	"wip",
+	"merge",
+	"theme",
+	"github",
+	"mcp",
+] as const;
 
 /** Runtime validator for an app commit source. */
 export const appCommitSourceSchema = z.enum(appCommitSources);

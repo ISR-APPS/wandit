@@ -1,10 +1,15 @@
+/**
+ * The 403 that refuses a charge over a member's monthly credit limit.
+ * MeteringService throws it from the reserve gate.
+ */
 import { ForbiddenException } from "@nestjs/common";
+import type { CreditPayer } from "@wandit/contracts";
 
 export const MEMBER_CREDIT_LIMIT_REACHED_ERROR_CODE =
 	"MEMBER_CREDIT_LIMIT_REACHED";
 
 /**
- * The org pool could afford the reserve, but this member's monthly credit
+ * The pool could afford the reserve, but this member's monthly credit
  * limit could not. 403 (not 402): buying credits is not the fix — a workspace
  * admin raising the limit is.
  *
@@ -24,6 +29,8 @@ export class MemberCreditLimitError extends ForbiddenException {
 		limitCentiCredits: number,
 		spentCentiCredits: number,
 		requiredCentiCredits: number,
+		/** The pool whose limit refused the charge: a team pool or a personal pool. */
+		payer: CreditPayer,
 	) {
 		const limitCredits = limitCentiCredits / 100;
 		const spentCredits = spentCentiCredits / 100;
@@ -31,7 +38,7 @@ export class MemberCreditLimitError extends ForbiddenException {
 
 		super({
 			code: MEMBER_CREDIT_LIMIT_REACHED_ERROR_CODE,
-			details: { limitCredits, requiredCredits, spentCredits },
+			details: { limitCredits, payer, requiredCredits, spentCredits },
 			message: `Workspace member credit limit reached: limit ${limitCredits}, spent ${spentCredits}, required ${requiredCredits}`,
 		});
 		this.limitCredits = limitCredits;

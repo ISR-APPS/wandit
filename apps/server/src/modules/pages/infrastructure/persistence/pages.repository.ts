@@ -633,7 +633,7 @@ export class PagesRepository {
 				{
 					attemptId: failed.id,
 					projectId: failed.projectId,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				},
 			);
 			if (failure.sentryEventId) {
@@ -644,7 +644,7 @@ export class PagesRepository {
 			}
 			captureGenerationFailed(
 				this.analyticsService,
-				scope.userId,
+				scope.actorUserId,
 				"page",
 				failed.projectId,
 				failed.id,
@@ -682,7 +682,7 @@ export class PagesRepository {
 				{
 					attemptId: failed.id,
 					projectId: failed.projectId,
-					userId: scope.userId,
+					userId: scope.actorUserId,
 				},
 			);
 			if (failure.sentryEventId) {
@@ -693,7 +693,7 @@ export class PagesRepository {
 			}
 			captureGenerationFailed(
 				this.analyticsService,
-				scope.userId,
+				scope.actorUserId,
 				"page",
 				failed.projectId,
 				failed.id,

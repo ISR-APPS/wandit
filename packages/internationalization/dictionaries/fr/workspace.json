@@ -1399,7 +1399,7 @@
 				"value": "Valeur",
 				"save": "Enregistrer le secret",
 				"hint": "Pour remplacer une valeur, utilise le nom d'un secret de la liste.",
-				"nameInvalid": "Utilise A à Z, 0 à 9 et _. Commence par une lettre. Utilise 64 caractères au plus. Les noms qui commencent par SUPABASE_ sont réservés.",
+				"nameInvalid": "Utilise A à Z, 0 à 9 et _. Commence par une lettre. Utilise 64 caractères au plus. Les noms qui commencent par SUPABASE_ ou WANDIT_ sont réservés.",
 				"valueInvalid": "Saisis une valeur de 8 Ko au plus.",
 				"saved": "{name} est enregistré."
 			},

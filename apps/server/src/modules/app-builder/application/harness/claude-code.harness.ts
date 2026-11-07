@@ -49,6 +49,7 @@ import type {
 } from "ai";
 
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
+import { isAnthropicModel } from "../../domain/llm-upstream";
 import type {
 	BuilderHarness,
 	HarnessQuestionResult,
@@ -229,6 +230,11 @@ type LiveSession = {
 	 * filtering when the session starts, so a kept session serves only it.
 	 */
 	mode: BuilderTurnMode;
+	/**
+	 * `input.model` at the session start. The adapter fixes the CLI env and
+	 * the built-in tools at the start, and they differ for a Paper model.
+	 */
+	model: string;
 	/**
 	 * `networkPolicyHash` of the sandbox handle the session started on. The
 	 * session added its run-token rule on top of that policy.
@@ -613,6 +619,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	 * - the same live sandbox,
 	 * - the same tool approval rules,
 	 * - the same turn mode,
+	 * - the same model (the adapter fixes the CLI env and the built-in tools at the start),
 	 * - the same token epoch,
 	 * - no raw policy push at this turn start,
 	 * - the same network policy hash as at the session start.
@@ -645,6 +652,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			live.epoch === this.tokenEpoch() &&
 			live.toolApproval === JSON.stringify(input.hostTools.toolApproval) &&
 			live.mode === input.mode &&
+			live.model === input.model &&
 			!live.session.hasUnfinishedTurn();
 		if (!fits) {
 			await this.closeKept(input.chatId, live);
@@ -693,6 +701,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			...started,
 			chatId: input.chatId,
 			mode: input.mode,
+			model: input.model,
 			policyHash: input.sandbox.networkPolicyHash,
 			sandboxId: input.sandbox.providerSandboxId,
 			toolApproval: JSON.stringify(input.hostTools.toolApproval),
@@ -870,6 +879,11 @@ export class ClaudeCodeHarness implements BuilderHarness {
 						};
 					});
 				const helper = cutText(question.helper, ASK_USER_MAX_NOTE_CHARS);
+				// The runtime deals the theme cards from the business of this marker.
+				const themeBusiness = cutText(
+					question.theme?.business,
+					ASK_USER_MAX_ID_CHARS,
+				);
 				const kind = resolveAskUserKind(question);
 				return [
 					{
@@ -883,6 +897,10 @@ export class ClaudeCodeHarness implements BuilderHarness {
 						options,
 						question: text,
 						...(helper === undefined ? {} : { helper }),
+						// An empty business still marks a theme question: it deals for "other".
+						...(question.theme === undefined
+							? {}
+							: { theme: { business: themeBusiness ?? "" } }),
 						...(question.maxFiles === undefined
 							? {}
 							: {
@@ -948,6 +966,11 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				"Harness env lacks ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN",
 			);
 		}
+		const isOtherProviderModel = !isAnthropicModel(input.model);
+		// Only Anthropic runs the `web_search` server tool that WebSearch
+		// calls, and Paper answers 400 to it. The adapter key is `webSearch`:
+		// HarnessAgent throws on the native name.
+		const otherProviderBlockedTools = isOtherProviderModel ? ["webSearch"] : [];
 		return this.agentFactory({
 			harness: this.claudeFactory({
 				// The explicit auth object stops the adapter from reading
@@ -985,6 +1008,29 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// warm turn wrote the whole history to the cache again (Phase 1, item 4).
 					CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
 					WANDIT_TOKEN_EPOCH: String(epoch),
+					// A model of another provider only (Paper, or a gateway model such
+					// as DeepSeek or GLM). A Claude model keeps its betas and its haiku
+					// helper calls.
+					...(isOtherProviderModel
+						? {
+								// Claude Code sends helper and subagent calls to these alias
+								// models. The LLM proxy routes on the model prefix, so each one
+								// gets the full model id, and the chat cost has one model.
+								ANTHROPIC_DEFAULT_HAIKU_MODEL: input.model,
+								ANTHROPIC_DEFAULT_OPUS_MODEL: input.model,
+								ANTHROPIC_DEFAULT_SONNET_MODEL: input.model,
+								// Claude Code 2.1.281 sends the betas
+								// prompt-caching-scope-2026-01-05,
+								// mid-conversation-tool-changes-2026-07-01, and
+								// thinking-token-count-2026-05-13. Paper answers 400 to them,
+								// and the gateway docs ask for this flag for other providers.
+								CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
+								CLAUDE_CODE_SUBAGENT_MODEL: input.model,
+								// Paper answers 400 to the tool search beta. The tool search
+								// server tool runs only on Anthropic.
+								ENABLE_TOOL_SEARCH: "false",
+							}
+						: {}),
 				},
 				port: HARNESS_BRIDGE_PORT,
 				startupTimeoutMs: BRIDGE_STARTUP_TIMEOUT_MS,
@@ -997,8 +1043,17 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			// so the stall watchdog sees a long subagent as a dead harness.
 			inactiveTools:
 				input.mode === "plan"
-					? [ASK_USER_QUESTIONS_TOOL_NAME, ...PLAN_MODE_BLOCKED_TOOLS]
-					: [ASK_USER_QUESTIONS_TOOL_NAME, "Agent", "Workflow"],
+					? [
+							ASK_USER_QUESTIONS_TOOL_NAME,
+							...PLAN_MODE_BLOCKED_TOOLS,
+							...otherProviderBlockedTools,
+						]
+					: [
+							ASK_USER_QUESTIONS_TOOL_NAME,
+							"Agent",
+							"Workflow",
+							...otherProviderBlockedTools,
+						],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the

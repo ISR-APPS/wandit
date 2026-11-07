@@ -13,6 +13,7 @@ import type {
 	AppBackendRow,
 	AppBackendsRepository,
 } from "../../infrastructure/persistence/app-backends.repository";
+import type { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
 import { BackendsService } from "./backends.service";
 
 const INPUT = {
@@ -69,7 +70,11 @@ function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
 	};
 }
 
-function setup(envOverrides: Partial<V2EnvSource> = {}) {
+function setup(
+	envOverrides: Partial<V2EnvSource> = {},
+	/** `projects.framework` of the project; a desktop app gets no backend. */
+	framework = "web-app",
+) {
 	// The payer's owned backends the locked write counts; a spec sets it.
 	const owned = { count: 0 };
 	// The stored row. The locked write reads and writes it one call at a
@@ -125,7 +130,26 @@ function setup(envOverrides: Partial<V2EnvSource> = {}) {
 		),
 	};
 
-	const service = new BackendsService(backends, starter, v2Env, subscriptions);
+	const projects = {
+		findForTurn: vi.fn<TurnProjectRepository["findForTurn"]>(async () => ({
+			engine: "v2_app",
+			framework,
+			languages: ["en"],
+			networkAllowedHosts: [],
+			organizationId: null,
+			suspendedReasonCode: null,
+			templateVersion: "1.0.0",
+			userId: "user-1",
+		})),
+	};
+
+	const service = new BackendsService(
+		backends,
+		starter,
+		v2Env,
+		subscriptions,
+		projects,
+	);
 
 	return { backends, owned, service, starter, store, subscriptions };
 }
@@ -143,6 +167,16 @@ describe("BackendsService.provisionBackend", () => {
 
 		expect(row).toBeNull();
 		expect(backends.findByProjectId).not.toHaveBeenCalled();
+		expect(backends.writeCreatingWithinLimit).not.toHaveBeenCalled();
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	it("answers null and writes nothing for a desktop project", async () => {
+		const { backends, service, starter } = setup({}, "desktop-app");
+
+		const row = await service.provisionBackend("project-1", INPUT);
+
+		expect(row).toBeNull();
 		expect(backends.writeCreatingWithinLimit).not.toHaveBeenCalled();
 		expect(starter.start).not.toHaveBeenCalled();
 	});

@@ -1,7 +1,8 @@
 /**
  * Upstream and provider-key selection for the V2 LLM proxy.
  * `LlmProxyService` calls `upstreamFor` once per request, after the model
- * allow-list check. Pure functions; specs pass a plain env object.
+ * allow-list check. The Claude Code harness reads `isAnthropicModel`.
+ * Pure functions; specs pass a plain env object.
  */
 
 /** Env keys the LLM proxy reads. `env` satisfies it; specs pass a subset. */
@@ -12,6 +13,7 @@ export type LlmProxyEnv = {
 	GENERATION_BILLING_MODE?: "enforce" | "off" | undefined;
 	LLM_PROXY_SIGNING_KEY?: string | undefined;
 	OPENROUTER_API_KEY?: string | undefined;
+	PAPERINSTRUMENTS_API_KEY?: string | undefined;
 	V2_DEFAULT_MODEL?: string | undefined;
 	V2_LLM_UPSTREAM_BASE_URL?: string | undefined;
 };
@@ -29,6 +31,30 @@ const VERCEL_AI_GATEWAY_HOST = "ai-gateway.vercel.sh";
 // OpenRouter's own host, for deploys that point the base URL there.
 const OPENROUTER_HOST = "openrouter.ai";
 
+/**
+ * Provider prefix of the Paper Instruments models, for example
+ * `paperinstruments/ultramarine-1-flash`. The gateway does not list them,
+ * so the proxy calls Paper's own Anthropic Messages endpoint.
+ */
+export const PAPER_INSTRUMENTS_PROVIDER = "paperinstruments";
+
+// Paper's Anthropic SDK base URL; the proxy appends `/v1/messages`.
+const PAPER_INSTRUMENTS_BASE_URL = "https://api.paperinstruments.com";
+
+/** True for a `paperinstruments/` model id. `upstreamFor` then sends it to Paper. */
+export function isPaperInstrumentsModel(modelId: string): boolean {
+	return modelId.startsWith(`${PAPER_INSTRUMENTS_PROVIDER}/`);
+}
+
+/**
+ * True for a Claude model, also a bare `claude-` id. False for a model of
+ * any other provider, for example Paper, DeepSeek, GLM, OpenAI, or Gemini.
+ * The harness then gives Claude Code the flags that such a model needs.
+ */
+export function isAnthropicModel(modelId: string): boolean {
+	return normalizeInboundModelId(modelId).startsWith("anthropic/");
+}
+
 /** How the provider key travels on the forwarded request. */
 export type LlmUpstreamAuthStyle = "x-api-key" | "bearer";
 
@@ -36,7 +62,8 @@ export type LlmUpstreamAuthStyle = "x-api-key" | "bearer";
 export type LlmUpstreamKeyEnv =
 	| "AI_GATEWAY_API_KEY"
 	| "ANTHROPIC_API_KEY"
-	| "OPENROUTER_API_KEY";
+	| "OPENROUTER_API_KEY"
+	| "PAPERINSTRUMENTS_API_KEY";
 
 /** Where a proxied request goes and how it proves itself. */
 export type LlmUpstream = {
@@ -46,8 +73,9 @@ export type LlmUpstream = {
 	provider: string;
 	// Model id to send upstream. On api.anthropic.com it is the id the
 	// client sent minus the `anthropic/` routing prefix, so a dated id
-	// like `claude-haiku-4-5-20251001` passes through. Every other host is
-	// a gateway and gets the normalized allow-list id.
+	// like `claude-haiku-4-5-20251001` passes through. Paper gets the id
+	// without its `paperinstruments/` prefix. Every other host is a gateway
+	// and gets the normalized allow-list id.
 	upstreamModelId: string;
 	// The provider key. Never log it, never send it anywhere but upstream.
 	apiKey: string;
@@ -88,8 +116,9 @@ export type LlmUpstreamResult =
 
 /**
  * Picks the base URL, provider key, and auth header for one model id.
- * The gateway host wins over the model prefix: the gateway key signs the
- * request, whatever the model is called. `modelId` is the normalized
+ * A `paperinstruments/` model always goes to Paper's own endpoint. For
+ * other models the gateway host wins over the model prefix: the gateway
+ * key signs the request, whatever the model is called. `modelId` is the normalized
  * allow-list id; `inboundModelId` is the id the client sent, which
  * api.anthropic.com forwards as is. Absent when the client named no model
  * and the deploy default applies.
@@ -99,6 +128,24 @@ export function upstreamFor(
 	envLike: LlmProxyEnv,
 	inboundModelId?: string,
 ): LlmUpstreamResult {
+	// Paper accepts only its bare model id: any other name answers 404.
+	if (isPaperInstrumentsModel(modelId)) {
+		const apiKey = envLike.PAPERINSTRUMENTS_API_KEY;
+		if (apiKey === undefined) {
+			return { ok: false, missingEnv: "PAPERINSTRUMENTS_API_KEY" };
+		}
+		return {
+			ok: true,
+			upstream: {
+				baseUrl: PAPER_INSTRUMENTS_BASE_URL,
+				provider: PAPER_INSTRUMENTS_PROVIDER,
+				upstreamModelId: modelId.slice(PAPER_INSTRUMENTS_PROVIDER.length + 1),
+				apiKey,
+				authStyle: "bearer",
+			},
+		};
+	}
+
 	const baseUrl =
 		envLike.V2_LLM_UPSTREAM_BASE_URL ?? ANTHROPIC_UPSTREAM_BASE_URL;
 	// The env schema validates the URL at boot, so `new URL` cannot throw

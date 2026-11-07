@@ -5,7 +5,9 @@
 // Runs the select mode: a click posts the data-wandit-src value of the element.
 // vite-plugins/wandit-source.ts writes that attribute on each JSX element in dev.
 // Posts the page the app shows, so the host address bar can show its path.
+// Shows a draft theme of the builder Thème sheet live, through setLiveTheme of src/styles/theme.ts.
 import { z } from "zod";
+import { appThemeFileSchema, setLiveTheme } from "~/styles/theme";
 
 type BridgeMessage =
 	| { type: "wandit:bridge-ready" }
@@ -271,19 +273,34 @@ export function installPreviewBridge() {
 		}
 	};
 
-	// The host posts this to start or stop the select mode. The schema is built
-	// here, not at module level, so the production build drops this module.
-	const selectModeMessageSchema = z.object({
-		type: z.literal("wandit:select-mode"),
-		active: z.boolean(),
-	});
+	// The messages of the host. The schema is built here, not at module level,
+	// so the production build drops this module.
+	const hostMessageSchema = z.discriminatedUnion("type", [
+		// Starts or stops the select mode.
+		z.object({ type: z.literal("wandit:select-mode"), active: z.boolean() }),
+		// A draft theme of the Thème sheet, or null to show theme.json again.
+		// The file schema is the guard of the inline style on <html>, as for theme.json.
+		z.object({
+			type: z.literal("wandit:theme"),
+			theme: appThemeFileSchema.nullable(),
+		}),
+	]);
 	window.addEventListener("message", (event) => {
-		// Only the host window that frames the app may switch the mode.
+		// Only the host window that frames the app may switch the mode or the theme.
 		if (event.source !== window.parent) {
 			return;
 		}
-		const parsed = selectModeMessageSchema.safeParse(event.data);
+		const parsed = hostMessageSchema.safeParse(event.data);
 		if (!parsed.success) {
+			// A host bug, for example a theme of another schema version. The page keeps its mode and its theme.
+			console.warn(
+				"wandit bridge: invalid host message",
+				z.prettifyError(parsed.error),
+			);
+			return;
+		}
+		if (parsed.data.type === "wandit:theme") {
+			setLiveTheme(parsed.data.theme);
 			return;
 		}
 		if (parsed.data.active) {

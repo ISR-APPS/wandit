@@ -2,7 +2,10 @@ import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type { PagesRepository } from "../../infrastructure/persistence/pages.repository";
 import { PagesService } from "./pages.service";
 
@@ -39,7 +42,7 @@ vi.mock("@wandit/env/server", () => ({
 import { runs } from "@trigger.dev/sdk";
 import { triggerGeneratePageTask } from "../page-build-handoff";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user_1");
 
 function attemptRow(overrides: Record<string, unknown> = {}) {
 	return {

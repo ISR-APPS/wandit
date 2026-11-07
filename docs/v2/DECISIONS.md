@@ -21,7 +21,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D7 | Arabic, French, and English with RTL from day 1 | changed | 2026-09-12 |
 | D8 | Data residency | confirmed | 2026-09-12 |
 | D9 | Exit paths | changed | 2026-09-12 |
-| D10 | Default model | changed | 2026-09-12 |
+| D10 | Default model | changed | 2026-10-17 |
 | D11 | V1 projects stay on V1 | changed | 2026-09-12 |
 | D12 | Native app as a V2 client | confirmed | 2026-09-12 |
 | D13 | Multiple conversations and branches per project | open | 2026-09-09 |
@@ -39,6 +39,15 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D25 | Visual edit of text and colors in the V2 preview | default | 2026-10-04 |
 | D26 | App design recipe picked by the host | default | 2026-10-04 |
 | D27 | Plan Mode | default | 2026-10-05 |
+| D28 | App theme owned by the host (D26 change) | default | 2026-10-26 |
+| D29 | External coding agents through a remote MCP server | confirmed | 2026-11-04 |
+| D30 | Desktop app stack | default | 2026-11-04 |
+| D31 | Trust split of desktop builds | default | 2026-11-04 |
+| D32 | Price of a desktop build | default | 2026-11-04 |
+| D33 | Additive-only migrations of desktop databases | default | 2026-11-04 |
+| D34 | No Authenticode signature on desktop installers yet | default | 2026-11-04 |
+| D35 | Desktop rollback by rebuild, and 2 live builds per payer | changed | 2026-11-05 |
+| D36 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
 
 ## D1. Sandbox vendor
 
@@ -160,6 +169,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-12.
 - Issues that change: WANDIT-150 (P0-03), WANDIT-151 (P0-04), WANDIT-165 (P1-04), WANDIT-166 (P1-05), WANDIT-174 (P1-13).
 - Notes: Claude Code speaks the Anthropic API only, so the LLM proxy must translate for other models. WANDIT-150 tests this. See D17. Source: report 6.1 and 6.10.
+- Update 2026-10-17 (Zack): test Paper Instruments `ultramarine-1-flash` for every V2 call (main, plan, helper, and subagent model). Set `V2_DEFAULT_MODEL=paperinstruments/ultramarine-1-flash`. Paper serves an Anthropic Messages endpoint, so the proxy does not translate. The CLI needs `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and `ENABLE_TOOL_SEARCH=false`; the harness sets them for every model that is not Claude (Update 2026-10-22: also DeepSeek and GLM through the gateway). Price: $0.15 in, $0.03 cache read, $0.50 out per million tokens. Limits: no web search (the harness turns WebSearch off). No PDF and no thinking blocks of another model in the history (the proxy changes these blocks to text). Source: docs.paperinstruments.com and a CLI 2.1.281 probe.
 
 ## D11. V1 projects stay on V1
 
@@ -351,7 +361,8 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Date: 2026-10-04
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
-- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump. Since 2026-10-06, the recipe axes are style (16 design languages, 3 ranked), accent, fonts, mode, shell, density, home (12, 3 ranked), kpi, and chart. A style replaces the theme, sidebar, and cards axes.
+- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump. Since 2026-10-24, the host gives a theme seed, home (12, 3 ranked), kpi, and chart. From the seed, the template script `scripts/apply-theme.mjs` deals 3 of the 24 theme presets and the structure axes of the chosen preset. The UI kit of the template renders each value.
+- Update 2026-10-26: D28 replaces the theme part of this entry. The recipe keeps home, kpi, and chart.
 
 ## D27. Plan Mode
 
@@ -365,9 +376,122 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: B is rejected. A session that starts with bypass permissions still runs Write and Bash in plan mode, so only prompt text stops edits. `ExitPlanMode` reads the plan from `~/.claude/plans`, and the template hook blocks that write. The plan-mode footer names `AskUserQuestion`, which Wandit disables. B also needs a bridge fork change and a new template snapshot.
 
+## D28. App theme owned by the host (D26 change)
+
+- Question: Who writes the look of a web app, and how does the user change it?
+- Options: A. The agent writes the theme with a template script (D26). B. The host writes `src/styles/theme.json`, the user picks the look, and the builder saves it with no agent turn.
+- Default: B, for `web-app@1.1.0` and later. This is D25 option B for the theme only.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-10-26
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: With A, the agent wrote capital labels and ink bands from prose. The schema of B cannot express them. The user picks one of 3 cards in the first `ask_user` call, or edits each field in the builder. The agent calls `set_theme` for the user's words. The host restores a file that a turn changed. Older projects keep D26.
+
+## D29. External coding agents through a remote MCP server
+
+- Question: How does a user work on a V2 project from an external coding agent (Claude Code, Codex, Cursor)?
+- Options: A. A remote MCP server on the API with OAuth, whole-account grants, and read, edit, prompt, and publish tools. B. Per-project grants. C. Prompt-only tools, as Lovable does. D. Personal access tokens.
+- Default: A, on Better Auth 1.7.16 (`jwt`, `mcp`, `cimd` plugins). Direct edits are commits with source `mcp`. Approvals stay in the web app.
+- Final choice: A.
+- Status: confirmed
+- Date: 2026-11-04
+- Decided by: Zack ("the most secure option", "the way Lovable does it", all four tool groups).
+- Issues that change: none filed yet.
+- Notes: The Better Auth 1.6 `mcp` plugin can skip consent and stores plain-text tokens. Rules: `docs/features/coding-agents-mcp.md`.
+
+## D30. Desktop app stack
+
+- Question: With which stack does a user build a desktop app, for which systems, and where do its data stay?
+- Options: Shell: Tauri v2 (Rust and the WebView2 of Windows, small installer) or Electron (a bundled Chromium and Node, about 10 times larger, ESTIMATE). Systems: Windows only, or Windows, macOS, and Linux. Data: one local SQLite file, or a cloud backend as in web apps.
+- Default: Tauri v2, Windows x64 only, one local SQLite file per installed app, no cloud backend.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: macOS needs notarization and a macOS runner. Linux has many package formats. A local file works offline and costs nothing per user, but it gives no sync and no login. Contract: `docs/v2/desktop-apps.md`.
+- Update 2026-11-05: D36 adds macOS. The systems are now Windows x64 and macOS on Apple silicon (D36). macOS apps ship with an ad-hoc signature first. Notarization comes later.
+
+## D31. Trust split of desktop builds
+
+- Question: Who holds the native code, the CI token, and the updater keys of a desktop app?
+- Options: A. The agent edits the full Tauri project in the sandbox, and CI builds it with the signing key. B. The server owns the native shell and the keys. The project holds only the frontend and the migrations. A private CI repo compiles the trusted shell with server-made inputs. The server signs each update.
+- Default: B.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: With A, user Rust code runs on CI and with native rights on every user machine. With B, CI runs no user code and holds no secret. The updater private key never leaves the API and the `desktop-build` task. Details: `security.md` section 14.
+
+## D32. Price of a desktop build
+
+- Question: What does one Windows installer build cost the user?
+- Options: A fixed operation `desktop_build`, as `mobile_build` (D23). Or free builds inside the plan.
+- Default: 25 credits per build (ESTIMATE). The hold starts with the request. `ready` settles it. `failed`, `blocked`, and `canceled` release it. A release or a rollback costs nothing. No plan entitlement yet.
+- Final choice: none yet. Zack confirms the price.
+- Status: default
+- Date: 2026-11-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: At $0.032 per credit (D2), 25 credits are $0.80. A cold build on a 2-core Windows runner takes about 35 minutes: 10 for tauri-cli, 25 for the shell (ESTIMATE). A cached build takes about 8 minutes (ESTIMATE). At $0.016 per runner minute (2025 price, UNVERIFIED for 2026), a cold build costs about $0.56 and a cached build about $0.13. Constant: `DESKTOP_BUILD_CREDITS`.
+- Update 2026-11-05: D35 makes a rollback a rebuild, so a rollback now costs one build. A release still costs nothing.
+- Update 2026-11-05: a macOS build has the same price, 25 credits (D36). A macOS runner minute costs $0.062 (GitHub price page, see `tooling/desktop-builder/README.md`). A cached macOS build costs $0.31 to $0.50, and a cold one $0.62 to $1.55 (ESTIMATE). Same price, review after staging: the runbook records the job minutes (macOS staging check 2).
+
+## D33. Additive-only migrations of desktop databases
+
+- Question: How does a desktop app change its schema without data loss, also after a rollback?
+- Options: A. Free SQL migrations, as on a server. B. Additive-only migrations: a frozen registry of the built files, and a gate that refuses a change of saved data or of an older schema. C. No migrations: one fixed key-value store.
+- Default: B.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: Installed apps run each file once, so `desktop_migrations` freezes a built file at `ready`. The gate runs in `add_local_migration` and before CI. It refuses DROP TABLE, DELETE, RENAME, PRAGMA, and a UNIQUE index on an older table. So a rollback stays safe. Cost: no column rename and no table drop. Limit: a file can fail on saved rows. The whole update then rolls back as one transaction. A replacement file in a later build fixes the data statements (`desktop-apps.md` sections 5 and 6). A frozen DDL statement has no fix.
+
+## D34. No Authenticode signature on desktop installers yet
+
+- Question: Does Wandit sign the Windows installers with an Authenticode certificate?
+- Options: A. No signature at first. SmartScreen shows "Windows protected your PC", and the user clicks "More info" and "Run anyway". B. An OV or EV certificate on a hardware token. A hosted CI cannot use the token easily. C. Azure Trusted Signing, a cloud signing service of about $10 per month (UNVERIFIED).
+- Default: A. Follow-up: C.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: The updater signature (one Ed25519 key per app) protects each update also without Authenticode. Azure Trusted Signing accepts companies of some countries with about 3 years of history (UNVERIFIED). A Wandit certificate names Wandit as the publisher of each user app, so it also needs an abuse policy.
+- Update 2026-11-05: macOS: Gatekeeper note (D36). macOS apps have no Developer ID signature and no notarization. Gatekeeper shows "Not Opened", and the user clicks Open Anyway in System Settings. The web shows these steps under the SmartScreen note.
+
+## D35. Desktop rollback by rebuild, and 2 live builds per payer
+
+- Question: Can an installed desktop app install an older version? How many desktop builds can one payer run at once?
+- Options: A. The shell installs any other version, and a rollback releases an older build. B. The shell installs only a newer version, and a rollback rebuilds the older code with a higher version. Builds: no cap across projects, or a cap per payer.
+- Default: A, and no cap across projects.
+- Final choice: B, and at most 2 live desktop builds per payer, in all its projects.
+- Status: changed
+- Date: 2026-11-05
+- Decided by: Zack, 2026-11-05.
+- Issues that change: none filed yet.
+- Notes: The security audit found both holes. With A, a writer of `latest.json` can push an older signed build. A rebuild costs `DESKTOP_BUILD_CREDITS` (D32). A third live build answers 409 `DESKTOP_BUILD_LIMIT_REACHED`. Contract: `desktop-apps.md` sections 8 and 10.
+- Update 2026-11-05: on a shared personal project, `projects.user_id` pays, also for the build of a member.
+
+## D36. macOS desktop builds: ad-hoc signature first
+
+- Question: How does a user get a macOS desktop app?
+- Options: one platform per build, or both. Apple silicon, or universal. Minimum macOS 15, 14, or 11. 25 credits, or more.
+- Default: one platform per build, Apple silicon only, macOS 15 or later, 25 credits (D32). Ad-hoc signature `-`, no notarization.
+- Final choice: the default, on GitHub Free, Pro, or Team: at most 5 macOS jobs at once.
+- Status: confirmed
+- Date: 2026-11-05
+- Decided by: Zack, 2026-11-05.
+- Issues that change: none filed yet.
+- Notes: The user opens the app one time with Open Anyway. The server checks, re-packs, and signs the update archive. `DESKTOP_MACOS_BUILDS_ENABLED` gates new builds. A fixed `icon.icns` keeps the product name out of the app. The job stops after 45 minutes. The warm-up runs each day. Later: notarization with rcodesign, after a choice of whose Developer ID signs.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D28.
+1. Take the next number. The next number is D37.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

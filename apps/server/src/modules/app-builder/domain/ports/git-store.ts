@@ -1,8 +1,9 @@
 /**
  * Port: the durable git store for app code (D21 — code.storage).
- * The project-create flow calls `GitStore`; the sandbox-wake path calls
- * `RepoRestorer` to push the repo back into a fresh sandbox. WANDIT-171
- * implements both.
+ * `commitTurn`, the mobile build, the GitHub sync, and the project delete
+ * call `GitStore`. The sandbox-wake path calls `RepoRestorer` to push the repo back into a
+ * fresh sandbox. WANDIT-171 implements both. The theme service reads one
+ * committed file through `GitFileReader`.
  */
 import type { SandboxHandle } from "./sandbox-provider";
 
@@ -14,12 +15,15 @@ export const REPO_RESTORER = Symbol.for("app-builder.repo-restorer");
 
 /**
  * What a git credential may do. "read" only fetches: the mobile build
- * worker and the restorer use it, so a leaked token cannot change the
- * repository. "push-main" also pushes `main`: no force push, no other
- * branch, no tag (WANDIT-282). It can still delete `main` and create it
+ * worker, the restorer, and the GitHub sync use it, so a leaked token cannot
+ * change the repository. "push-main" also pushes `main`: no force push, no
+ * other branch, no tag (WANDIT-282). It can still delete `main` and create it
  * again; see the LIMIT at `PUSH_MAIN_REFS`. Only `commitTurn` uses it.
+ * "push-github-mirror" pushes only the branch `github/main`, force included,
+ * and never `main`. Only the `github-sync` worker task uses it: it copies
+ * GitHub `main` there for an Update.
  */
-export type GitCredentialAccess = "read" | "push-main";
+export type GitCredentialAccess = "read" | "push-main" | "push-github-mirror";
 
 /** Repository lifecycle on code.storage. */
 export interface GitStore {
@@ -45,4 +49,20 @@ export interface GitStore {
 /** Pushes the stored repository back into a sandbox that lost it. */
 export interface RepoRestorer {
 	restore(projectId: string, sandbox: SandboxHandle): Promise<void>;
+}
+
+/** Nest token for the `GitFileReader` implementation. The module binds it to the `GitStore` class. */
+export const GIT_FILE_READER = Symbol.for("app-builder.git-file-reader");
+
+/** Reads one committed file without a sandbox. The theme GET route reads theme.json of a stopped sandbox. */
+export interface GitFileReader {
+	/**
+	 * The bytes of `path` at `ref`, a branch name or a commit sha. Null when the repository or the
+	 * file does not exist there. Throws on any other failure.
+	 */
+	readFile(
+		projectId: string,
+		ref: string,
+		path: string,
+	): Promise<Uint8Array | null>;
 }

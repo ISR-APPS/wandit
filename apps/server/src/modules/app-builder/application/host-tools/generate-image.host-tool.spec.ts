@@ -94,13 +94,17 @@ async function setup(options: {
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId:
 			options.holdEventId === undefined ? "evt_parent_1" : options.holdEventId,
+		knownThemeFile: () => null,
 		mode: "build",
+		onThemeFileWritten: () => {},
 		organizationId: null,
 		projectId: "project-1",
 		sandbox,
 		subject: { actorUserId: "user-1", organizationId: null },
+		templateVersion: "web-app@1.0.0",
 		turnId: "turn-1",
 	};
 	const tool = createGenerateImageTool(

@@ -88,6 +88,8 @@ export * from "./v1/push-tokens";
 export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Workspace kinds, project roles, and project Workspace access (V1 and V2 schemas read them).
+export * from "./v1/shared/project-access";
 // Shared project-engine enum (V1 and V2 schemas both read it).
 export * from "./v1/shared/project-engine";
 // Story-link campaign and analytics contracts.
@@ -98,8 +100,12 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 app AI gateway contracts: the request, the key, the tool, and the panel.
+export * from "./v2/app-ai";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
+// The V2 app theme modules (v2/app-theme*.ts) are not exported here. Import them by subpath, for example
+// "@wandit/contracts/v2/app-theme". A re-export puts the 175 KB catalog in every bundle, also in production.
 // V2 audit trail action names.
 export * from "./v2/audit";
 // V2 agent backend tool contracts and the destructive migration check.
@@ -112,8 +118,12 @@ export * from "./v2/cloud";
 export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
+// V2 desktop app contracts: the builds, the migration rules, and the updater manifest.
+export * from "./v2/desktop";
 // V2 Appetize device-session routes and the Appetize and Expo answers.
 export * from "./v2/device-sessions";
+// V2 GitHub sync contracts: the API routes and the GitHub REST answers.
+export * from "./v2/github";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 harness host routes: the API starts and stops host-run turns there.
@@ -124,6 +134,8 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 remote MCP server: the OAuth scopes and the paths.
+export * from "./v2/mcp";
 // V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
 export * from "./v2/mobile-builds";
 // V2 app-builder preview token and sandbox wake contracts.
@@ -138,6 +150,8 @@ export * from "./v2/publish";
 export * from "./v2/routes";
 // V2 write-only project secrets contracts.
 export * from "./v2/secrets";
+// V2 project sharing: grants, invitations, invite link, transfer, move, and shared projects.
+export * from "./v2/sharing";
 // V2 Supabase Management API contracts.
 export * from "./v2/supabase-management";
 // V2 builder turn and stream contracts.

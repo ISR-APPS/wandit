@@ -2,7 +2,8 @@
  * Pure helpers of the Code view (WANDIT-271): the path rule, the file tree,
  * the file the view opens first, and the files the tree answer carries.
  * `CodeService` calls them with the `git ls-files` paths of the sandbox
- * worktree. This file does no I/O.
+ * worktree. `McpChangesService` calls the write rule `isWritableCodePath`.
+ * This file does no I/O.
  */
 import type { CodeTreeNode } from "@wandit/contracts";
 
@@ -45,6 +46,76 @@ export function isReadableCodePath(path: string): boolean {
 		);
 	const fileName = path.slice(path.lastIndexOf("/") + 1);
 	return !hasBadSegment && !fileName.startsWith(".env");
+}
+
+// Folders that an `apply_changes` path must not enter, at any depth: git internals,
+// agent settings, and installed packages.
+const PROTECTED_FOLDER_NAMES = new Set([".git", ".claude", "node_modules"]);
+
+// File names that `apply_changes` must not write, at any depth. Agents load a nested
+// CLAUDE.md or AGENTS.md as instructions. pnpm and git read a nested config file too.
+const PROTECTED_FILE_NAMES = new Set([
+	"CLAUDE.md",
+	"CLAUDE.local.md",
+	"AGENTS.md",
+	".mcp.json",
+	"opencode.json",
+	".npmrc",
+	".pnpmfile.cjs",
+	".pnpmfile.mjs",
+	"pnpm-workspace.yaml",
+	".gitignore",
+]);
+
+// Root files that the host and the Thème sheet own. Only the file at the root has this meaning.
+const PROTECTED_ROOT_PATHS = new Set([
+	"template_version",
+	"native-modules.json",
+	"src/styles/theme.json",
+	"src/styles/theme.ts",
+	"src/styles/theme-options.ts",
+	"src/styles/engine.css",
+]);
+
+/**
+ * True when `path` holds a control character (Unicode category Cc: U+0000 to U+001F, U+007F to U+009F).
+ * Security: the guarded write script reads `$(dirname -- "$1")`, and bash `$(...)` drops a trailing newline.
+ * So "CLAUDE.md\n" writes CLAUDE.md. `mcpPathSchema` in `@wandit/contracts` uses the same category.
+ */
+function hasControlCharacter(path: string): boolean {
+	return /\p{Cc}/u.test(path);
+}
+
+/**
+ * True when the `apply_changes` MCP tool may write or delete `path`, a path relative to the worktree root.
+ * The sandbox hook does not see these writes, so the API applies the deny list of
+ * docs/features/coding-agents-mcp.md. The match is case-sensitive: the Vercel sandbox runs Linux.
+ * Every `.env*` file name is denied at any depth, as `isReadableCodePath` hides them.
+ * A path with a control character is denied before the segment checks.
+ */
+export function isWritableCodePath(path: string): boolean {
+	if (
+		path.startsWith("/") ||
+		hasControlCharacter(path) ||
+		path.includes("\\")
+	) {
+		return false;
+	}
+	const segments = path.split("/");
+	const fileName = segments[segments.length - 1] ?? "";
+	const hasBadSegment = segments.some(
+		(segment) =>
+			segment === "" ||
+			segment === "." ||
+			segment === ".." ||
+			PROTECTED_FOLDER_NAMES.has(segment),
+	);
+	return (
+		!hasBadSegment &&
+		!fileName.startsWith(".env") &&
+		!PROTECTED_FILE_NAMES.has(fileName) &&
+		!PROTECTED_ROOT_PATHS.has(path)
+	);
 }
 
 /** One folder while the tree builds: child folders by name, file names. */

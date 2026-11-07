@@ -43,7 +43,7 @@ Numbers are stated flat and honest (43 marques, 24 h, 2 400 €). No exclamation
 ## Color physics
 - WHITE sections: ground #FFFFFF, ink #000000. BLACK sections: ground #000000, ink #FFFFFF. No off-white, no near-black — #111111 or #FAFAF8 are failures, not nuances.
 
-FIXED TOKEN MAP — GROUND→--background · INK→--foreground · INK→--primary · GROUND→--primary-foreground · the BLACK ground→--secondary · INK→--accent · ink at 55%→--muted · ink at 18%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every grey or opacity step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 - Greys exist ONLY as rgba() opacity steps of the section's ink: 0.55–0.70 for secondary prose, 0.45–0.55 for meta, 0.12–0.25 for quiet rules, 0.05–0.08 for the filigrane. Anti-aliasing is the only other grey permitted on the page.
 - Ink coverage IS the palette: the page alternates ink-heavy viewports (a black section, a giant word) with air-heavy viewports (white ground, one statement, vast margins). This alternation replaces color contrast entirely.

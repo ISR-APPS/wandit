@@ -1,10 +1,10 @@
 /**
  * Delete-app-project runtime: removes the external resources of one
  * soft-deleted `v2_app` project.
- * Nine steps run in order: turn-run cancel, sandbox destroy, user Worker
+ * Ten steps run in order: turn-run cancel, sandbox destroy, user Worker
  * delete, slug pointer delete and live deployment end (WANDIT-178),
- * backend pause and secrets delete (WANDIT-184), R2 drain, repository
- * delete, audit row, analytics event.
+ * backend pause and secrets delete (WANDIT-184), desktop app delete, R2
+ * drain, repository delete, audit row, analytics event.
  * Every step runs in its own try/catch, so one failed vendor call never
  * blocks the audit row.
  * `delete-app-project.task.ts` calls it through
@@ -39,6 +39,7 @@ import { AppBackendsRepository } from "../modules/app-builder/infrastructure/per
 import { AppPublishRepository } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { DesktopBuildsRepository } from "../modules/app-builder/infrastructure/persistence/desktop-builds.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import {
@@ -89,6 +90,8 @@ export type DeleteAppProjectDeps = {
 	supabase: Pick<SupabaseManagementClient, "pauseProject"> | null;
 	/** Deletes the `project_secrets` rows of the project. */
 	projectSecrets: Pick<ProjectSecretsRepository, "deleteAllForProject">;
+	/** Deletes the `desktop_apps` row, which holds the encrypted updater key. */
+	desktopApps: Pick<DesktopBuildsRepository, "deleteApp">;
 	/** code.storage repository delete; a 404 or a 409 counts as done. */
 	gitStore: Pick<GitStore, "deleteRepository">;
 	/** Drains one R2 prefix and answers the number of deleted keys. */
@@ -131,16 +134,18 @@ export type DeleteAppProjectResult = {
 	backend: "paused" | "deleting" | "skipped" | "error";
 	/** `project_secrets` rows removed; 0 when the delete threw. */
 	secretsDeleted: number;
+	/** `desktop_apps` rows removed: 1 for a desktop app, else 0; 0 when the delete threw. */
+	desktopAppsDeleted: number;
 	/** "deleted" when code.storage answered; "error" when the call threw. */
 	repository: "deleted" | "error";
-	/** Keys removed under the two `v2ProjectPrefixes`. */
+	/** Keys removed under every prefix of `v2ProjectPrefixes`. */
 	objectsDeleted: number;
 	/** False when the audit insert threw; the log line carries the reason. */
 	auditWritten: boolean;
 };
 
 /**
- * Runs the nine cleanup steps for one soft-deleted `v2_app` project.
+ * Runs the ten cleanup steps for one soft-deleted `v2_app` project.
  * It never throws: each step logs its own failure and the result reports every outcome.
  * The audit row carries the same outcomes, so a failed vendor call stays visible after the run.
  */
@@ -266,6 +271,19 @@ export async function runDeleteAppProject(
 		});
 	}
 
+	// Security: the updater private key signs updates for every install of
+	// the app, and no path restores a deleted project. The delete waits for
+	// a release in progress, so the R2 drain below runs after its last write.
+	let desktopAppsDeleted = 0;
+	try {
+		desktopAppsDeleted = await deps.desktopApps.deleteApp(projectId);
+	} catch (error) {
+		deps.logger.error("app-project.delete.desktop-app-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
 	let objectsDeleted = 0;
 	for (const prefix of v2ProjectPrefixes(projectId)) {
 		try {
@@ -298,6 +316,7 @@ export async function runDeleteAppProject(
 			metadata: {
 				backend,
 				deployment,
+				desktopAppsDeleted,
 				objectsDeleted,
 				repository,
 				sandbox,
@@ -332,6 +351,7 @@ export async function runDeleteAppProject(
 		...fields,
 		backend,
 		deployment,
+		desktopAppsDeleted: String(desktopAppsDeleted),
 		objectsDeleted: String(objectsDeleted),
 		repository,
 		sandbox,
@@ -343,6 +363,7 @@ export async function runDeleteAppProject(
 		auditWritten,
 		backend,
 		deployment,
+		desktopAppsDeleted,
 		objectsDeleted,
 		repository,
 		sandbox,
@@ -384,6 +405,7 @@ export function createDeleteAppProjectRuntime(
 					capture,
 					deleteObjectsByPrefix: (prefix) => deleteObjectsByPrefix(prefix),
 					deployments: new DeploymentsRepository(db),
+					desktopApps: new DesktopBuildsRepository(db),
 					gitStore: new CodeStorageGitStore(env),
 					logger: Sentry.logger,
 					projectSecrets: new ProjectSecretsRepository(db),

@@ -45,7 +45,7 @@ English or Arabic builds keep the same wire-service temperature.
 - BRICK: the #A63325 / #993122 / #B03A28 register — ONE value per site. Budget: rubric slugs, ONE headline kicker per viewport, jump lines, the dernière-heure tag, the CTA fill, link hover, ::selection, focus rings. Brick never grounds a section, never fills an area larger than a button, never appears inside a plate.
 - THE INK BAND: ground flips to ink for the single dernière-heure strip only; text there is Ground A, the tag is brick.
 
-FIXED TOKEN MAP — GROUND A→--background · INK→--foreground · BRICK→--primary · GROUND A→--primary-foreground · GROUND B→--secondary · the ink band→--accent · ink at 55%→--muted · ink at 25%→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, hairline or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+The host sets this world's palette and fonts in src/styles/theme.json. Use token classes (bg-background, text-primary...). Keep the voice, motifs and photography of this world.
 
 - Gradients DO NOT EXIST — a press prints flat. No box-shadows, no blurs, no grain overlays, no photography. Depth is hairlines, ground shifts, density and scale.
 

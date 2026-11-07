@@ -138,8 +138,15 @@ function createDeps(
 	const cancelTurn = vi.fn<BuilderChatDeps["cancelTurn"]>(
 		async (_projectId, turnId) => ({ turnId, status: "canceled" }),
 	);
+	// The poll route: no turn and no commit of another client.
+	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
+		async () => ({ activeTurnId: null, headSha: null }),
+	);
 
-	return { requests, deps: { fetch: fetchImpl, cancelTurn } };
+	return {
+		requests,
+		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+	};
 }
 
 // Starts a fetch of one query that rejects with `error`. The hook mounts
@@ -241,7 +248,7 @@ function renderThread(
 			options.history ?? EMPTY_HISTORY,
 		);
 	}
-	const view = renderHook(() => useBuilderThread(PROJECT_ID, deps), {
+	const view = renderHook(() => useBuilderThread(PROJECT_ID, undefined, deps), {
 		wrapper: ({ children }: { children: ReactNode }) =>
 			createElement(
 				QueryClientProvider,

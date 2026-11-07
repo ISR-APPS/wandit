@@ -1,0 +1,279 @@
+# Builds the Windows installer of one Wandit desktop app (docs/v2/desktop-apps.md, section 9).
+# The `desktop-build` Trigger task dispatches it through the GitHub API with the 4 inputs below.
+# It downloads the server-made input, compiles the trusted Tauri shell, installs the installer
+# on the runner to self-test the migrations, and uploads one NSIS installer to a presigned URL.
+# It holds no secret. It reads the repo variable DESKTOP_BUILD_BUCKET_URLS
+# (tooling/desktop-builder/README.md of the Wandit repo, Setup step 9).
+name: Desktop build
+run-name: Desktop build ${{ inputs.build_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Id of the desktop_builds row (uuid). Only the run name and the concurrency group use it.
+        type: string
+        required: true
+      input_url:
+        description: Presigned R2 GET URL of desktop-temp/<project id>/inputs/<build id>-<random>.tar.gz. It expires after 2 h.
+        type: string
+        required: true
+      input_sha256:
+        description: SHA-256 of desktop-input.tar.gz, 64 hex digits.
+        type: string
+        required: true
+      output_url:
+        description: Presigned R2 PUT URL of desktop-temp/<project id>/staging/<build id>-<random>.exe. It expires after 2 h.
+        type: string
+        required: true
+
+# The job reads no repo content and calls no GitHub API, so its token gets no scope.
+permissions: {}
+
+# A second dispatch of the same build waits for the first run, so two runs never upload to one URL.
+concurrency:
+  group: desktop-build-${{ inputs.build_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    # The task polls this run for at most 70 minutes, so the job must stop first.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 4 values equal in warm-cache.yml. The cache key and the cache paths use them.
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      # The crate version of @tauri-apps/cli 2.12.4. Both come from one release.
+      TAURI_CLI_VERSION: "2.12.4"
+      TAURI_CLI_ROOT: 'C:\desktop-build\tools'
+      CARGO_TARGET_DIR: 'C:\desktop-build\target'
+    steps:
+      - name: Mask and check the URLs
+        env:
+          # The R2 bucket URL of each environment that dispatches here, one per line. Not a secret.
+          BUCKET_URLS: ${{ vars.DESKTOP_BUILD_BUCKET_URLS }}
+        run: |
+          # A step header shows the env of its step. So this step reads the URLs from the
+          # event file, and masks them before a later step header can show them.
+          $dispatchInputs = (Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json).inputs
+          foreach ($url in @($dispatchInputs.input_url, $dispatchInputs.output_url)) {
+            # A line break ends the mask command early, and the rest of the URL shows.
+            if ([string]::IsNullOrEmpty($url) -or $url -match '[\r\n]') {
+              throw 'A URL input is empty or holds a line break.'
+            }
+            Write-Output "::add-mask::$url"
+          }
+          # Security: a stolen dispatch token must not choose the input, because CI compiles its src-tauri.
+          # Only a presigned URL of a temp key that the API made passes (r2.ts, desktopInputKey and
+          # desktopStagingKey). Only the API has the R2 keys that write and sign such a URL.
+          if ([string]::IsNullOrWhiteSpace($env:BUCKET_URLS)) {
+            throw 'The repo variable DESKTOP_BUILD_BUCKET_URLS is empty. Read tooling/desktop-builder/README.md of the Wandit repo, Setup step 9.'
+          }
+          $bucketUrls = @(-split $env:BUCKET_URLS)
+          foreach ($bucketUrl in $bucketUrls) {
+            # The virtual-hosted URL that the S3 client of r2.ts signs. R2 bucket names hold no dot.
+            if ($bucketUrl -cnotmatch '^https://[a-z0-9-]+\.[0-9a-f]{32}\.r2\.cloudflarestorage\.com\z') {
+              throw "DESKTOP_BUILD_BUCKET_URLS holds '$bucketUrl'. Expected https://<R2_BUCKET>.<R2_ACCOUNT_ID>.r2.cloudflarestorage.com."
+            }
+          }
+          $bucket = '(?:' + (@($bucketUrls | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')'
+          $uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+          # The key is desktop-temp/<project id>/<folder>/<build id>-<32 hex>.<extension>. The SigV4
+          # query that follows holds no '/', '#', or '@', so it cannot change the host or the key.
+          $tempKey = '^' + $bucket + '/desktop-temp/' + $uuid + '/'
+          $query = '\?[A-Za-z0-9%=&._~-]+\z'
+          if ($dispatchInputs.input_url -cnotmatch ($tempKey + 'inputs/' + $uuid + '-[0-9a-f]{32}\.tar\.gz' + $query)) {
+            throw 'input_url is not a presigned URL of a desktop-temp input key in DESKTOP_BUILD_BUCKET_URLS.'
+          }
+          if ($dispatchInputs.output_url -cnotmatch ($tempKey + 'staging/' + $uuid + '-[0-9a-f]{32}\.exe' + $query)) {
+            throw 'output_url is not a presigned URL of a desktop-temp staging key in DESKTOP_BUILD_BUCKET_URLS.'
+          }
+
+      - name: Check, download, and extract the input
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          INPUT_URL: ${{ inputs.input_url }}
+          INPUT_SHA256: ${{ inputs.input_sha256 }}
+        run: |
+          # A native command (tar) with a non-zero exit code stops the step.
+          $PSNativeCommandUseErrorActionPreference = $true
+          # \z, not $: a value with a trailing line break fails the check.
+          if ($env:BUILD_ID -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') {
+            throw 'build_id is not a uuid.'
+          }
+          if ($env:INPUT_SHA256 -notmatch '^[0-9a-f]{64}\z') {
+            throw 'input_sha256 is not 64 hex digits.'
+          }
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'desktop-input.tar.gz'
+          # The progress bar makes Invoke-WebRequest much slower.
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri $env:INPUT_URL -OutFile $archive
+          $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          # -ine ignores case: Get-FileHash answers upper case, the server sends lower case.
+          if ($actualSha256 -ine $env:INPUT_SHA256) {
+            throw "The input SHA-256 is $actualSha256, not $env:INPUT_SHA256."
+          }
+          # Windows tar (bsdtar) refuses absolute paths, '..' parts, and a write through a symlink.
+          & "$env:SystemRoot\System32\tar.exe" -xzf $archive -C $env:GITHUB_WORKSPACE
+          Remove-Item -LiteralPath $archive
+          # The input holds 3 folders only. A root .cargo/config.toml could make cargo run a command.
+          $unexpected = @(Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force -Name | Where-Object { $_ -notin 'src-tauri', 'dist', 'migrations' })
+          if ($unexpected.Count -gt 0) {
+            throw "The input holds unexpected entries: $($unexpected -join ', ')."
+          }
+
+      - name: Install the Rust toolchain
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The runner image has rustup. RUSTUP_TOOLCHAIN makes every cargo call use this version.
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          # cargo finds the `tauri` subcommand (cargo-tauri.exe) on PATH. The cache restores it.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value "$env:TAURI_CLI_ROOT\bin"
+
+      # Restore only. warm-cache.yml on the default branch saves this cache, so a user build never writes one.
+      - name: Restore the cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in warm-cache.yml. The cache version is a hash of these paths.
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ env.TAURI_CLI_ROOT }}
+            ${{ env.CARGO_TARGET_DIR }}
+          # Exact key only, no restore-keys: a build never takes the cache of another Cargo.lock.
+          key: desktop-cargo-v1-rust-${{ env.RUSTUP_TOOLCHAIN }}-tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install tauri-cli
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # --locked uses the lock file that tauri-cli publishes. A separate target folder keeps
+          # the tauri-cli build out of the shell build folder.
+          cargo install tauri-cli --version $env:TAURI_CLI_VERSION --locked --root $env:TAURI_CLI_ROOT --target-dir "$env:RUNNER_TEMP\tauri-cli-target"
+
+      # tauri.conf.json embeds the WebView2 bootstrapper, and the installer runs it on a PC without
+      # WebView2. The pinned tauri-bundler 2.10.4 downloads it with no check. Its
+      # download_webview2_bootstrapper (src/bundle/windows/util.rs) skips the download when the file exists.
+      - name: Download and check the WebView2 bootstrapper
+        run: |
+          # The bundler folder is dirs::cache_dir()\tauri (src/bundle/windows/nsis/mod.rs), because
+          # tauri.conf.json sets no useLocalToolsDir. On Windows, cache_dir() is the LocalAppData folder.
+          $toolsDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'tauri'
+          New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+          $bootstrapper = Join-Path $toolsDir 'MicrosoftEdgeWebview2Setup.exe'
+          # The progress bar makes Invoke-WebRequest much slower.
+          $ProgressPreference = 'SilentlyContinue'
+          # The URL of WEBVIEW2_BOOTSTRAPPER_URL in the bundler.
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrapper
+          # Security: the signed Wandit installer carries this exe. Only a valid Microsoft signature passes.
+          $signature = Get-AuthenticodeSignature -LiteralPath $bootstrapper
+          $signer = if ($signature.SignerCertificate) { $signature.SignerCertificate.GetNameInfo('SimpleName', $false) } else { '' }
+          if ($signature.Status -ne 'Valid' -or $signer -cne 'Microsoft Corporation') {
+            throw "The WebView2 bootstrapper has the signature status $($signature.Status) and the signer '$signer'."
+          }
+
+      - name: Build the installer
+        working-directory: src-tauri
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          # The cache can hold the installer of the warm-up build. An old file breaks the one-installer check.
+          $bundleDir = "$env:CARGO_TARGET_DIR\release\bundle"
+          if (Test-Path -LiteralPath $bundleDir) {
+            Remove-Item -LiteralPath $bundleDir -Recurse -Force
+          }
+          # The arguments after '--' go to cargo build. --locked stops when Cargo.lock does not match Cargo.toml.
+          cargo tauri build --ci --bundles nsis --config tauri.desktop.json -- --locked
+
+      # Section 9: the installed exe runs its embedded migrations with the real runner on a new
+      # database, before the upload. 3 steps, so a failed install, a missing exe, or a failed
+      # uninstall is not a failed self-test. Each step uses the install folder
+      # %LOCALAPPDATA%\wandit-self-test-install.
+      - name: Install the app on the runner
+        id: install-app
+        # The install takes seconds. A hang must not use the 60-minute job.
+        timeout-minutes: 5
+        run: |
+          $nsisDir = "$env:CARGO_TARGET_DIR\release\bundle\nsis"
+          $installers = @(Get-ChildItem -LiteralPath $nsisDir -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected 1 installer in $nsisDir, found $($installers.Count)."
+          }
+          # The installer names the app exe after mainBinaryName. The server checked the name, and
+          # this check keeps the exe path inside the install folder.
+          $configPath = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\tauri.desktop.json'
+          $binaryName = (Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).mainBinaryName
+          if ($binaryName -cnotmatch '^[a-z0-9]+(?:-[a-z0-9]+)*\z') {
+            throw 'mainBinaryName in tauri.desktop.json is not a lowercase kebab-case name.'
+          }
+          # installMode is currentUser, so the install needs no admin rights. /S is the NSIS silent
+          # mode. /D sets the folder: it must come last, without quotes. Without /R, no app starts.
+          $installDir = Join-Path $env:LOCALAPPDATA 'wandit-self-test-install'
+          $install = Start-Process -FilePath $installers[0].FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "The installer ended with exit code $($install.ExitCode)."
+          }
+          # A missing exe is a platform fault (for example, NSIS ignored /D), so it fails this step.
+          $appExe = Join-Path $installDir "$binaryName.exe"
+          if (-not (Test-Path -LiteralPath $appExe -PathType Leaf)) {
+            throw "The installer wrote no $appExe."
+          }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "app-exe=$appExe"
+
+      # The task reads the conclusion of this step by its name, through the GitHub jobs API.
+      # A failure stores `self_test_failed`, any other failure `ci_failed`. Keep the name equal to
+      # SELF_TEST_STEP in apps/server/src/modules/app-builder/infrastructure/desktop/github-desktop-build-runner.ts
+      # of the Wandit repo.
+      - name: Self-test the installed app
+        # The test takes seconds. A hang must not use the 60-minute job.
+        timeout-minutes: 5
+        env:
+          # The install step checked that this exe exists in the install folder.
+          APP_EXE: ${{ steps.install-app.outputs.app-exe }}
+        run: |
+          $outFile = Join-Path $env:RUNNER_TEMP 'self-test-out.txt'
+          $errFile = Join-Path $env:RUNNER_TEMP 'self-test-err.txt'
+          # A release exe has no console window, so its output goes to files.
+          $selfTest = Start-Process -FilePath $env:APP_EXE -ArgumentList '--wandit-self-test' -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+          # Security: the result line can hold the SQL of the user. The runner reads no command in it.
+          $stopToken = [guid]::NewGuid().ToString('N')
+          Write-Output "::stop-commands::${stopToken}"
+          Get-Content -LiteralPath $outFile, $errFile
+          Write-Output "::${stopToken}::"
+          if ($selfTest.ExitCode -ne 0) {
+            throw "The self-test ended with exit code $($selfTest.ExitCode). Read the wandit-self-test line above."
+          }
+
+      - name: Uninstall the app
+        # Also after a failed self-test, so the uninstaller is tested on each install. The upload
+        # still runs only when every step before it passed.
+        if: ${{ !cancelled() && steps.install-app.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          $installDir = Join-Path $env:LOCALAPPDATA 'wandit-self-test-install'
+          # _?= makes the uninstaller run in place and wait, so its exit code is the real one.
+          $uninstall = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S', "_?=$installDir" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "The uninstaller ended with exit code $($uninstall.ExitCode)."
+          }
+
+      - name: Upload the installer
+        env:
+          OUTPUT_URL: ${{ inputs.output_url }}
+        run: |
+          $nsisDir = "$env:CARGO_TARGET_DIR\release\bundle\nsis"
+          $installers = @(Get-ChildItem -LiteralPath $nsisDir -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected 1 installer in $nsisDir, found $($installers.Count)."
+          }
+          $installer = $installers[0]
+          # An operator compares this hash with desktop_builds.installer_sha256 (docs/v2/runbook.md).
+          $installerSha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
+          Write-Output "Installer $($installer.Name): $($installer.Length) bytes, SHA-256 $installerSha256"
+          # The progress bar makes Invoke-WebRequest much slower.
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri $env:OUTPUT_URL -Method Put -InFile $installer.FullName -ContentType 'application/octet-stream' | Out-Null

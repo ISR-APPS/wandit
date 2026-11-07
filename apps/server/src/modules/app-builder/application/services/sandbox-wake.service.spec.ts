@@ -1,7 +1,10 @@
 import { Logger, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	SandboxHandle,
 	SandboxProvider,
@@ -12,7 +15,7 @@ import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
 import { SandboxWakeService } from "./sandbox-wake.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
@@ -27,6 +30,7 @@ const TURN_PROJECT: TurnProjectRow = {
 	languages: ["en"],
 	networkAllowedHosts: [],
 	organizationId: null,
+	suspendedReasonCode: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
 };

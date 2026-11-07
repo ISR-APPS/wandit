@@ -106,6 +106,52 @@ export type RequestNetworkHostToolOutput = z.infer<
 >;
 
 /**
+ * Input of the `set_theme` host tool (web-app@1.1.0+ or desktop-app@1.0.0+). Every field is an
+ * optional string, so a wrong value never fails the call: the tool parses
+ * each one with tolerance (case, spaces) and answers the allowed values.
+ * Only the named fields change; `src/styles/theme.json` holds the rest.
+ */
+export const setThemeHostToolInputSchema = z.object({
+	// A business category, for example "medical". Deals a whole new theme.
+	business: z.string().optional(),
+	// A look id or name, for example "pop-pastel".
+	look: z.string().optional(),
+	// A design world id, for example "zellige": its palette and fonts.
+	world: z.string().optional(),
+	// True deals another look than the current one.
+	reroll: z.boolean().optional(),
+	mode: z.string().optional(),
+	// "look", a hue such as "violet", or a "#rrggbb" brand color.
+	primary: z.string().optional(),
+	// With `foreground` and a hex `primary`: three brand seed colors.
+	background: z.string().optional(),
+	foreground: z.string().optional(),
+	font: z.string().optional(),
+	displayFont: z.string().optional(),
+	scale: z.string().optional(),
+	radius: z.string().optional(),
+	// A width in px, for example "1.5". A number is accepted too.
+	border: z.union([z.string(), z.number()]).optional(),
+	shadow: z.string().optional(),
+	shadowStyle: z.string().optional(),
+	content: z.string().optional(),
+	sidebarStyle: z.string().optional(),
+	sidebarCollapse: z.string().optional(),
+	sidebarStart: z.string().optional(),
+	sidebarTone: z.string().optional(),
+	activeItem: z.string().optional(),
+	header: z.string().optional(),
+	userMenu: z.string().optional(),
+	frame: z.string().optional(),
+	icons: z.string().optional(),
+	// The frame of the nav icons, for example "color" for one hue tile per item.
+	navIcon: z.string().optional(),
+});
+
+/** Parsed `set_theme` input; the tool parses each value against the theme options. */
+export type SetThemeHostToolInput = z.infer<typeof setThemeHostToolInputSchema>;
+
+/**
  * One option of an `ask_user` question. `worldId` names a design world
  * skill; the task then adds the preview card of that world to the question.
  * No length limits here: Claude Code does not enforce them, and a failed
@@ -133,6 +179,10 @@ export const askUserHostToolQuestionSchema = z.object({
 	helper: z.string().optional(),
 	// Upload limit of an `attachments` question; the tray uses 3 when absent.
 	maxFiles: z.int().optional(),
+	// Marks the theme question of a web-app@1.1.0+ or desktop-app@1.0.0+ project. The agent sends
+	// no options: the task adds 3 theme cards dealt for `business`, a
+	// category of `set_theme` (an unknown one counts as "other").
+	theme: z.object({ business: z.string() }).optional(),
 });
 
 /** One parsed `ask_user` question; `resolveAskUserKind` reads it. */
@@ -203,6 +253,10 @@ export const askUserHostToolOutputSchema = z.object({
 			selected: z.array(z.object({ id: z.string(), label: z.string() })),
 			text: z.string(),
 			files: z.array(askUserHostToolFileSchema),
+			// What the host did with the answer, for the agent. A theme question
+			// gets "Theme set: <name>." or "Theme kept: <name>.", then
+			// "Do not edit src/styles/theme.json."
+			hostNote: z.string().optional(),
 		}),
 	),
 });

@@ -13,6 +13,7 @@ import { config } from "dotenv";
 import { z } from "zod";
 import { codeStoragePrivateKeySchema } from "./code-storage-key";
 import { corsExtraOriginsSchema, httpOriginSchema } from "./cors-origins";
+import { githubAppPrivateKeySchema } from "./github-app-key";
 import { parseLlmProviderOverrides } from "./llm-routing";
 import { v2HarnessSchema } from "./v2-harness";
 
@@ -95,16 +96,18 @@ export const env = createEnv({
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+		// The theme designer of the builder Thème sheet: one structured call per design.
+		AI_THEME_MODEL: z.string().min(1).default("anthropic/claude-sonnet-5"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Default provider for LLM traffic (chat, page builds, titles, marketing,
-		// and prompt refinement). Image generation and transcription models always
+		// prompt refinement, and theme design). Image generation and transcription models always
 		// stay on the Vercel gateway. "openrouter" needs
 		// OPENROUTER_API_KEY; model ids keep the Vercel `creator/model` form and
 		// are translated at the provider boundary.
 		AI_PROVIDER: z.enum(["openrouter", "vercel"]).default("vercel"),
 		// Per-task exceptions to AI_PROVIDER, e.g.
 		// "page_build=openrouter,project_title=openrouter". Tasks: chat,
-		// marketing, page_build, project_title, prompt_refine. A task
+		// marketing, page_build, project_title, prompt_refine, theme_design. A task
 		// named here runs on the given provider; every other task follows AI_PROVIDER.
 		AI_PROVIDER_OVERRIDES: z
 			.string()
@@ -301,6 +304,11 @@ export const env = createEnv({
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
+		// Staging only. Every new slug ends with "-stg", so the staging edge route
+		// "*-stg.wandit.app/*" serves it (apps/edge/wrangler.jsonc). Production leaves
+		// it unset and refuses a slug that ends with "-stg". Same value as
+		// STAGING_SLUG_SUFFIX in apps/server/src/modules/sites/domain/slugify.ts.
+		SITES_SLUG_SUFFIX: z.literal("-stg").optional(),
 		// Publish preflight over the final bytes: relative asset URLs and
 		// provably-gone media (404/410/403) block the publish. "false" is the
 		// emergency bypass when an asset host flaps and blocks every publish.
@@ -319,6 +327,13 @@ export const env = createEnv({
 		POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
 		POSTHOG_HOST: z.url().optional(),
+		// Langfuse tracing of the V2 LLM proxy. Unset = off: no network call, no log.
+		// Set both keys; one key alone keeps it off and logs one warn at boot.
+		LANGFUSE_PUBLIC_KEY: z.string().startsWith("pk-lf-").optional(),
+		// Secret. The API sends it only inside the Basic auth header to Langfuse.
+		LANGFUSE_SECRET_KEY: z.string().startsWith("sk-lf-").optional(),
+		// Langfuse host. Unset means https://cloud.langfuse.com, the EU region.
+		LANGFUSE_BASE_URL: z.url().optional(),
 		// Linear, for in-app user feedback. Unset = the feedback route answers
 		// 503 while the rest of the API boots normally.
 		LINEAR_API_KEY: z.string().min(1).optional(),
@@ -353,10 +368,13 @@ export const env = createEnv({
 		VERCEL_TEAM_ID: z.string().min(1).optional(),
 		VERCEL_PROJECT_ID: z.string().min(1).optional(),
 		VERCEL_SANDBOX_IMAGE: z.string().min(1).optional(),
-		// Folder with the `web-app-<version>.tar.gz` template archives. Unset
+		// Folder with the `<framework>-<version>.tar.gz` template archives. Unset
 		// in dev: the code finds the repo `templates/` folder from the cwd.
 		TEMPLATE_ARCHIVE_DIR: z.string().min(1).optional(),
 		ANTHROPIC_API_KEY: z.string().min(1).optional(),
+		// Paper Instruments key (`pi_live_...`). The LLM proxy sends each
+		// `paperinstruments/` model to api.paperinstruments.com with it.
+		PAPERINSTRUMENTS_API_KEY: z.string().min(1).optional(),
 		// Comma-separated list: the first key signs, any key verifies.
 		LLM_PROXY_SIGNING_KEY: z.string().min(1).optional(),
 		// Base URL of the harness host process, which keeps Claude Code
@@ -409,12 +427,55 @@ export const env = createEnv({
 		// Name of the wandit Expo organization that owns every EAS project of a
 		// user app (WANDIT-194), for example "wandit".
 		EXPO_ACCOUNT: z.string().min(1).optional(),
+		// Fine-grained GitHub token with "Actions: read and write" on the
+		// desktop builder repo only. Only the API and the `desktop-build` task
+		// read it; it never enters a sandbox or the CI run.
+		DESKTOP_BUILD_GITHUB_TOKEN: z.string().min(1).optional(),
+		// "<owner>/<repo>" of the private repo that runs the desktop build
+		// workflows (`build.yml`, `build-macos.yml`) of tooling/desktop-builder,
+		// for example "ISR-APPS/wandit-desktop-builder".
+		DESKTOP_BUILD_REPO: z
+			.string()
+			.regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+			.optional(),
+		// https base URL that serves the `desktop/` keys of the R2 bucket, for
+		// example "https://updates.wandit.app". Every installer holds the
+		// updater URL built on it, so never change it after the first release.
+		// Unset means R2_PUBLIC_BASE_URL.
+		DESKTOP_UPDATES_BASE_URL: z.url({ protocol: /^https$/ }).optional(),
+		// "true" lets the API start macOS desktop builds (D36). Staging sets it;
+		// production keeps "false" until the macOS staging checks pass. It is also
+		// the kill switch for macOS: Windows builds do not read it.
+		DESKTOP_MACOS_BUILDS_ENABLED: z
+			.enum(["true", "false"])
+			.default("false")
+			.transform((value) => value === "true"),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
 		// Appetize app ids of the store Expo Go builds (WANDIT-196). The upload
 		// script prints them; the device-session route answers them to the browser.
 		APPETIZE_IOS_PUBLIC_KEY: z.string().min(1).optional(),
 		APPETIZE_ANDROID_PUBLIC_KEY: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
+		// The Wandit GitHub App of the GitHub sync. The API and the `github-sync`
+		// Trigger task read them; a missing value answers 503 V2_ENV_MISSING.
+		// Numeric App ID: the `iss` claim of the App JWT.
+		GITHUB_APP_ID: z
+			.string()
+			.regex(/^\d+$/, "GITHUB_APP_ID must be the numeric App ID")
+			.optional(),
+		// App slug of the install URL `https://github.com/apps/<slug>/installations/new`.
+		GITHUB_APP_SLUG: z
+			.string()
+			.regex(/^[a-z0-9][a-z0-9-]*$/, "GITHUB_APP_SLUG must be the App URL slug")
+			.optional(),
+		// OAuth client id and secret of the App: the user connect and the token refresh.
+		GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
+		GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
+		// RSA PEM of the App; it signs the App JWT. `\n` escapes accepted, and a bad key stops the boot.
+		GITHUB_APP_PRIVATE_KEY: githubAppPrivateKeySchema.optional(),
+		// Webhook secret of the App. GitHub signs each delivery with it (`X-Hub-Signature-256`).
+		// Without it, the webhook route answers 503 and the status route reads GitHub once a minute.
+		GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

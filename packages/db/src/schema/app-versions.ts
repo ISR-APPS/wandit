@@ -24,13 +24,18 @@ import { projects } from "./projects";
 
 /**
  * What made the commit: an agent turn, a restore, a work-in-progress
- * snapshot, or a merge.
+ * snapshot, a merge, a theme save of the builder Thème sheet, an Update
+ * from the linked GitHub repo, or a direct file edit of an external coding
+ * agent through the MCP server ("mcp").
  */
 export const appCommitSource = pgEnum("app_commit_source", [
 	"agent",
 	"restore",
 	"wip",
 	"merge",
+	"theme",
+	"github",
+	"mcp",
 ]);
 
 export const appCommits = pgTable(

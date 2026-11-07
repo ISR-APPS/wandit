@@ -1,7 +1,8 @@
 /**
- * URL helpers for git over HTTPS against code.storage.
- * `commitTurn` and `CodeStorageRepoRestorer` build the authenticated remote
- * for one command, and logs and errors print the redacted form.
+ * URL helpers for git over HTTPS, to code.storage and to github.com.
+ * `commitTurn`, `CodeStorageRepoRestorer`, `VersionsService.pullFromGithub`,
+ * `mobile-build-workspace.ts`, and `trigger/github-sync.runtime.ts` build the
+ * authenticated remote for one command. Logs and errors print the redacted form.
  */
 
 /** The username code.storage expects in a git URL; the JWT is the password. */
