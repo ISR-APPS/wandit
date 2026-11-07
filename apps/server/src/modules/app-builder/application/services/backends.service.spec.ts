@@ -250,6 +250,17 @@ describe("BackendsService.provisionBackend", () => {
 		expect(starter.start).not.toHaveBeenCalled();
 	});
 
+	it("provisions a free payer when BACKEND_LIMIT_OFF is on", async () => {
+		const { service, starter, subscriptions } = setup({
+			BACKEND_LIMIT_OFF: true,
+		});
+		subscriptions.findActiveByOwner.mockResolvedValue(null);
+
+		await service.provisionBackend("project-1", INPUT);
+
+		expect(starter.start).toHaveBeenCalledTimes(1);
+	});
+
 	it("counts and reads the plan of the org for an org project", async () => {
 		const { backends, service, subscriptions } = setup();
 
