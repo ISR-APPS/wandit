@@ -478,7 +478,7 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
   business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
-  backend.
+  backend. `BACKEND_LIMIT_OFF=true` skips the limit; set it only on staging for tests.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
   the doc for what a later issue must do.
 
