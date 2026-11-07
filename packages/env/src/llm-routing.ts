@@ -14,6 +14,7 @@ export const LLM_TASKS = [
 	"page_build",
 	"project_title",
 	"prompt_refine",
+	"theme_design",
 ] as const;
 
 export type LlmTask = (typeof LLM_TASKS)[number];

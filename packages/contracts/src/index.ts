@@ -105,7 +105,7 @@ export * from "./v2/app-ai";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
 // The V2 app theme modules (v2/app-theme*.ts) are not exported here. Import them by subpath, for example
-// "@wandit/contracts/v2/app-theme". A re-export puts the 74 KB catalog in every bundle, also in production.
+// "@wandit/contracts/v2/app-theme". A re-export puts the 175 KB catalog in every bundle, also in production.
 // V2 audit trail action names.
 export * from "./v2/audit";
 // V2 agent backend tool contracts and the destructive migration check.

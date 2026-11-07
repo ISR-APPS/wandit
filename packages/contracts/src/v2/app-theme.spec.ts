@@ -12,6 +12,7 @@ import {
 	type AppThemeWorld,
 	appThemeFileSchema,
 	appThemeFontSchema,
+	appThemeNameSchema,
 	appThemeSelectionSchema,
 	buildAppThemeFile,
 	coherentSelection,
@@ -268,6 +269,18 @@ describe("appThemeFileSchema", () => {
 		);
 	});
 
+	// A saved name goes into the commit message. A line break there could add a fake git trailer.
+	it.each([
+		["a line break", "Calm\nWandit-Restore-From: abc", false],
+		["a tab", "Calm\tclinic", false],
+		["markup", "<b>Calm</b>", false],
+		["41 characters", "a".repeat(41), false],
+		["accents", "Clinique sereine", true],
+		["Arabic", "عيادة هادئة", true],
+	])("appThemeNameSchema with %s answers %s", (_label, name, isValid) => {
+		expect(appThemeNameSchema.safeParse(name).success).toBe(isValid);
+	});
+
 	// A world face that fails the schema would make buildAppThemeFile throw for that world.
 	it.each(Object.entries(APP_FONTS))("accepts the font %s", (_id, font) => {
 		expect(
@@ -423,8 +436,8 @@ describe("randomSelection", () => {
 		expect(
 			axesOutside(selection, APP_THEME_FAMILY_RULES[look?.family ?? "soft"]),
 		).toEqual([]);
-		// The deal and Random never pick these values. Only the user may.
-		expect(["none", "sm"]).not.toContain(selection.radius);
+		// The deal and Random never pick a square corner, an extreme scale, or a closed sidebar. Only the user may.
+		expect(selection.radius).not.toBe("none");
 		expect(["xs", "xl"]).not.toContain(selection.scale);
 		expect(selection.sidebarStart).toBe("open");
 	});

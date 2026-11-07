@@ -57,7 +57,7 @@ export const appBuilderKeys = {
 /**
  * The saved theme.json of a web project, for the Thème button and sheet. A turn end and a restore
  * mark it stale, because both can change the file. The queryFn imports the services on demand:
- * they pull the 74 KB look catalog, which must stay out of the builder chunk.
+ * they pull the 177 KB look catalog, which must stay out of the builder chunk.
  */
 export const appThemeQuery = (projectId: string) =>
 	queryOptions({

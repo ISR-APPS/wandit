@@ -1,3 +1,8 @@
+/**
+ * Reserve, capture, settle, and refund of the measured and token-priced operations.
+ * API services and Trigger runtimes call createMeasuredOperationBilling, so their billing cannot drift.
+ * It calls MeteringService and reads the prices of the operation registry.
+ */
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type {
 	AiUsageEvent,
@@ -20,9 +25,10 @@ import type { MeteringService } from "./metering.service";
 
 const FIXED_CAPTURE_ATTEMPTS = 3;
 
+/** The operations that createMeasuredOperationBilling accepts. Each one has a "measured" or a "token" price. */
 export type MeasuredMeteredOperation = Extract<
 	AiUsageOperation,
-	"connector" | "image" | "marketing" | "video"
+	"connector" | "image" | "marketing" | "theme_design" | "video"
 >;
 
 export type BillingAdmissionMode = "enforce" | "off";

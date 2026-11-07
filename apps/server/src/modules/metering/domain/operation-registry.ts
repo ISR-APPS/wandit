@@ -61,6 +61,13 @@ export const MOBILE_BUILD_CREDITS = MOBILE_BUILD_ANDROID_CREDITS * 100;
  * price is in whole credits; the registry keeps centi-credits.
  */
 export const DESKTOP_BUILD_CREDITS_CENTI = DESKTOP_BUILD_CREDITS * 100;
+/**
+ * The hold of one AI theme design, in centi-credits. One call reads about 4k
+ * input tokens and writes about 800 output tokens. On the default
+ * anthropic/claude-sonnet-5 ($2 in, $10 out per MTok) that is $0.016, which
+ * is 50 cc at $0.032 per credit. Settlement overdraft collects a longer answer.
+ */
+export const THEME_DESIGN_RESERVE_FLOOR_CREDITS = 50;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -238,6 +245,14 @@ export const OPERATION_REGISTRY = {
 		reserveFloorCredits: 0,
 		rootAllowed: false,
 		unit: "minute",
+	},
+	// The user asks for a theme in the Thème sheet, never inside a turn, so it has no parent.
+	theme_design: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		mode: "token",
+		reserveFloorCredits: THEME_DESIGN_RESERVE_FLOOR_CREDITS,
+		rootAllowed: true,
 	},
 	topup_adjust: {
 		allowedChildOperations: NO_CHILDREN,
@@ -454,6 +469,13 @@ export const AI_INVOCATION_COVERAGE = [
 		id: "legacy-worker-chat",
 		marker: "const result = streamText({",
 		source: "apps/worker/src/processors/ai-generation.processor.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "theme_design" },
+		id: "theme-design",
+		marker: "const result = await generateObject({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-theme-design.service.ts",
 	},
 	{
 		billing: { billedInto: "chat", kind: "helper" },

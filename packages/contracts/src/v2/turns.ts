@@ -471,7 +471,7 @@ export const turnQuestionOptionSchema = z.object({
 	card: worldCardSchema.optional(),
 	// The whole AppThemeFile of "@wandit/contracts/v2/app-theme". This file
 	// checks only the version and the name: index.ts exports it, and that
-	// schema pulls the 74 KB look catalog into every bundle. The lazy theme
+	// schema pulls the 177 KB look catalog into every bundle. The lazy theme
 	// card parses the file with `appThemeFileSchema` before it reads more.
 	theme: z.looseObject({ version: z.literal(1), name: z.string() }).optional(),
 	// True on the option the agent advises; the tray shows a badge on it.

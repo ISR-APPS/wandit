@@ -318,8 +318,6 @@ export function hydrateTurnMessages(
 				row.metadata,
 			);
 			if (metadata.success) {
-				// LIMIT: after a reload the receipt shows no model; the usage part
-				// carries no model id. Upgrade: a modelId on turnUsageDataSchema.
 				parts.push({
 					type: "data-turn-usage",
 					id: "turn-usage",

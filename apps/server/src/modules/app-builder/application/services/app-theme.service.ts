@@ -29,7 +29,7 @@ import { worldCardOf } from "../../../ai-chat/agent/worlds";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	fallbackThemeSelection,
-	supportsAppTheme,
+	isThemeEditable,
 } from "../../domain/app-theme-deal";
 import {
 	GIT_FILE_READER,
@@ -130,7 +130,8 @@ export class AppThemeService {
 
 	/**
 	 * Writes the selection as theme.json with origin "user", and commits only that file with source
-	 * "theme" and the message "Theme: <name>". It never boots a sandbox. 409 answers:
+	 * "theme" and the message "Theme: <name>". The body name, when given, replaces the default name.
+	 * It never boots a sandbox. 409 answers:
 	 * BUILDER_TURN_RUNNING while a turn or a restore holds the lock, BUILDER_TURN_WAITING while a turn
 	 * waits for the user, PREVIEW_NOT_RUNNING without a running sandbox, and THEME_HEAD_MOVED when the
 	 * sandbox HEAD is not `expectedHeadSha`, or when the head CAS fails after the push.
@@ -156,7 +157,9 @@ export class AppThemeService {
 				message: `No design world "${source.world}" with a preview`,
 			});
 		}
+		// `name` comes from an AI theme draft. Without it, the file takes the look, world, or seeds name.
 		const file = buildAppThemeFile({
+			name: body.name,
 			origin: "user",
 			selection: body.selection,
 			world,
@@ -332,14 +335,6 @@ export class AppThemeService {
 		}
 		return project;
 	}
-}
-
-/** True for a web-app@1.1.0+ or desktop-app@1.0.0+ project: only these projects have src/styles/theme.json. */
-function isThemeEditable(project: ScopedAppProject): boolean {
-	return (
-		project.templateVersion !== null &&
-		supportsAppTheme(project.templateVersion)
-	);
 }
 
 /**
