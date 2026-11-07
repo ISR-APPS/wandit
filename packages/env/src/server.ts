@@ -72,11 +72,13 @@ export function refineServerEnv(
  * On the Railway production environment, V2_BUILDER_ENABLED is always false, whatever Railway sets.
  * The API then never loads the app-builder module, so every /api/v2 route answers 404.
  * BACKEND_LIMIT_OFF is also always false there: free users must not get paid Supabase projects.
+ * LLM_DAILY_CAP_OFF is always false there too: one user must not spend without a daily ceiling.
  * Before you remove this rule, restore the V2 production limits (docs/v2/runbook.md).
  */
 export function closeV2BuilderInProduction<
 	Values extends {
 		BACKEND_LIMIT_OFF: boolean;
+		LLM_DAILY_CAP_OFF: boolean;
 		RAILWAY_ENVIRONMENT_NAME?: string;
 		V2_BUILDER_ENABLED: boolean;
 	},
@@ -84,7 +86,12 @@ export function closeV2BuilderInProduction<
 	if (values.RAILWAY_ENVIRONMENT_NAME !== "production") {
 		return values;
 	}
-	return { ...values, BACKEND_LIMIT_OFF: false, V2_BUILDER_ENABLED: false };
+	return {
+		...values,
+		BACKEND_LIMIT_OFF: false,
+		LLM_DAILY_CAP_OFF: false,
+		V2_BUILDER_ENABLED: false,
+	};
 }
 
 // Validated config object. Other code should import `env` instead of process.env.
@@ -412,6 +419,12 @@ export const env = createEnv({
 		// Staging test switch: "true" lets every payer create backends with no
 		// plan limit. closeV2BuilderInProduction forces it to false on production.
 		BACKEND_LIMIT_OFF: z
+			.enum(["true", "false"])
+			.default("false")
+			.transform((value) => value === "true"),
+		// Staging test switch: "true" removes the $50 daily LLM spend cap per user
+		// in the LLM proxy. closeV2BuilderInProduction forces it to false on production.
+		LLM_DAILY_CAP_OFF: z
 			.enum(["true", "false"])
 			.default("false")
 			.transform((value) => value === "true"),

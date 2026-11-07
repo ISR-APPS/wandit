@@ -11,6 +11,8 @@ export type LlmProxyEnv = {
 	ANTHROPIC_API_KEY?: string | undefined;
 	/** `off` is the local test mode; the env schema refuses it in production. */
 	GENERATION_BILLING_MODE?: "enforce" | "off" | undefined;
+	/** Staging test switch: true skips the daily cap per user. Production forces it to false. */
+	LLM_DAILY_CAP_OFF?: boolean | undefined;
 	LLM_PROXY_SIGNING_KEY?: string | undefined;
 	OPENROUTER_API_KEY?: string | undefined;
 	PAPERINSTRUMENTS_API_KEY?: string | undefined;
