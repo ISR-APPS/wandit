@@ -306,6 +306,9 @@ daily `backend-pause-sweep` on staging, are in
 environment and runs only in PRODUCTION and STAGING. `BACKEND_IDLE_DAYS`
 and `BACKEND_IDLE_DAYS_PUBLISHED` override the idle windows; leave them
 unset in production until WANDIT-153 settles the numbers.
+`LLM_DAILY_CAP_OFF=true` on the API removes the $50 daily LLM spend cap per
+user; the run cap still applies. Set it only on staging; on Railway
+production the API forces it to false.
 `BACKEND_LIMIT_OFF=true` on the API removes the plan limit on backends, so
 testers without a plan get one. Set it only on staging; on Railway
 production the API forces it to false.

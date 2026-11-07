@@ -848,6 +848,32 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("forwards past the daily cap when LLM_DAILY_CAP_OFF is on", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env: LlmProxyEnv = {
+				...makeEnv(upstream.baseUrl),
+				LLM_DAILY_CAP_OFF: true,
+			};
+			const { service, counters } = makeService(env);
+			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+			await counters.addUserSpend(
+				"user_1",
+				dayKey,
+				// USD to micros: the day counter stores micros.
+				LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(inbound(env).input, reply);
+
+			expect(reply.statusCode).toBe(200);
+			expect(upstream.requests).toHaveLength(1);
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("forwards past both spend caps when billing is off", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {

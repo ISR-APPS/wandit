@@ -1471,7 +1471,8 @@ Check order, per request:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
    runtime then stops the turn as `stopped_project_cap` with the failure
    code `daily_cap`. The chat shows the reset time and no Retry.
-   `GENERATION_BILLING_MODE=off` skips this check.
+   `GENERATION_BILLING_MODE=off` skips this check. `LLM_DAILY_CAP_OFF=true`
+   skips only this check; set it only on staging for tests.
 
 Then the forward. `upstreamFor(modelId, env)` picks the upstream and key.
 A `paperinstruments/` model always goes to `https://api.paperinstruments.com`
