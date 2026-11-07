@@ -36,6 +36,11 @@ export type V2EnvSource = Readonly<
 		 * too. The Workers for Platforms client needs it.
 		 */
 		CLOUDFLARE_ACCOUNT_ID?: string;
+		/**
+		 * Staging test switch, not a V2 name: true skips the plan limit on
+		 * backends. The zod default makes it false; specs may omit it.
+		 */
+		BACKEND_LIMIT_OFF?: boolean;
 	}
 >;
 

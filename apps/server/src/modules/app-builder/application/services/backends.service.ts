@@ -140,7 +140,11 @@ export class BackendsService {
 				userId: input.userId,
 			},
 			subjectPayer(subject),
-			(ownedBackends) => assertBackendEntitlement(plan, ownedBackends),
+			(ownedBackends) =>
+				// BACKEND_LIMIT_OFF is a staging test switch: testers get backends without a plan.
+				this.v2Env.BACKEND_LIMIT_OFF === true
+					? { allowed: true }
+					: assertBackendEntitlement(plan, ownedBackends),
 		);
 		if (outcome.kind === "refused") {
 			this.logger.warn(
