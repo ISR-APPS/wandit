@@ -102,12 +102,17 @@ partial unique index guarantees at most one live row per project.
 - Rebuild rule: the vendor snapshot is a disk cache; the git copy on
   code.storage is the source of truth (D21). When the named sandbox or its
   snapshot is gone, the provider boots a fresh one, applies the template
-  archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
-  `rebuild` warning. After `RepoRestorer`, and on each resume before the
-  dev server starts, `TemplateInit.replaceOldTemplateFiles` replaces a
+  archive (`ArchiveTemplateInit`), calls `RepoRestorer`, installs the
+  packages of the project lockfile, and logs a `rebuild` warning. A deploy
+  ships only the current archive, so an older pin gets that archive, and
+  the restore puts back the project files. After `RepoRestorer`, and on
+  each resume before the dev server starts,
+  `TemplateInit.replaceOldTemplateFiles` replaces a
   `vite.config.ts` (WANDIT-281) or a `.claude/settings.json` (WANDIT-180)
   that is byte-equal to an old template version. The next turn commits the
-  new file. `LoggingRepoRestorer` is the placeholder until WANDIT-171.
+  new file. An older pin keeps its `vite.config.ts`, because the current
+  file imports a plugin that the project lacks. `LoggingRepoRestorer` is
+  the placeholder until WANDIT-171.
 - Template snapshot (first-turn latency): a new or rebuilt sandbox boots
   from a ready Vercel snapshot that already holds the template, its
   `node_modules`, the template commit, and the harness install. The boot
