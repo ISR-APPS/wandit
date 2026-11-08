@@ -783,7 +783,11 @@ window, or a remote script. From there it can try to call the commands.
   System Access API (`showSaveFilePicker`) stays on. It writes a file only
   after the user picks a path in a native dialog.
 - `app.withGlobalTauri` is `false`. `app.security.freezePrototype` is
-  `true`.
+  `false`, the Tauri default. With `true`, recharts throws at load and
+  the app shows a white window (desktop-apps.md, section 3).
+- Residual risk: a prototype pollution bug in the app code can change
+  shared objects. The CSP blocks every remote script and request, so
+  only data on the device can start such a bug.
 - The navigation lock lets the main window load only the app origin of
   the current system: `http://tauri.localhost` on Windows,
   `tauri://localhost` on macOS (`is_app_origin` in `lib.rs`). It refuses

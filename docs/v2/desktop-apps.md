@@ -132,7 +132,11 @@ Static config of the shell (`tauri.conf.json`):
 - `bundle.windows.nsis.installMode`: `currentUser`. No admin prompt.
 - `bundle.windows.webviewInstallMode`: `embedBootstrapper`. Windows 10 and
   11 only.
-- `app.withGlobalTauri`: `false`. `app.security.freezePrototype`: `true`.
+- `app.withGlobalTauri`: `false`. `app.security.freezePrototype`: `false`,
+  the Tauri default. With `true`, Tauri freezes `Object.prototype` before
+  the first page script. A library that sets `toString` on its own
+  prototype then throws at load, for example `decimal.js-light` of
+  recharts. The script stops, and the window stays white.
 - `app.security.csp`:
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:; font-src 'self' data:;
