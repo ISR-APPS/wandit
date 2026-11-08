@@ -3,6 +3,7 @@
  * prices. It sits behind the global AuthGuard only: an invited collaborator
  * without the V2 rollout flag needs it too (workspaces-sharing.md 3.3).
  * It reads `LLM_MODEL_PRICES` and `V2_DEFAULT_MODEL`; it calls no database.
+ * Product rule: every deploy returns the full list. The staging menu needs it.
  */
 import { Controller, Get, Inject } from "@nestjs/common";
 import type { BuilderModelsResponse } from "@wandit/contracts";
