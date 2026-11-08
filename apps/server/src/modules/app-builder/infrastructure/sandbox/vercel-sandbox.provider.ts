@@ -51,6 +51,7 @@ import {
 	type SandboxSessionsStore,
 } from "../persistence/sandbox-sessions.repository";
 import { buildNetworkPolicy, SANDBOX_DENIED_RANGES } from "./network-policy";
+import { installWorkspacePackages } from "./sandbox-start";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
 import { TEMPLATE_PROFILES } from "./template-profiles";
 
@@ -920,6 +921,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 					});
 				}
 				await this.repoRestorer.restore(projectId, handle);
+				await this.installRestoredPackages(projectId, handle);
 				// The restored repo can bring back an old template file.
 				await this.templateInit.replaceOldTemplateFiles(handle, options);
 				await this.bootServices(projectId, sandbox, options);
@@ -951,6 +953,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 						!(await hasUncommittedWork(handle))
 					) {
 						await this.repoRestorer.restore(projectId, handle);
+						await this.installRestoredPackages(projectId, handle);
 					}
 					// A sandbox from before the template fix still holds the old files.
 					await this.templateInit.replaceOldTemplateFiles(handle, options);
@@ -1020,6 +1023,25 @@ export class VercelSandboxProvider implements SandboxProvider {
 					});
 				});
 			throw error;
+		}
+	}
+
+	/**
+	 * Installs the packages of the restored lockfile. The disk still holds
+	 * the template packages. A failed install only logs: the dev server
+	 * starts, and a turn can install.
+	 */
+	private async installRestoredPackages(
+		projectId: string,
+		handle: SandboxHandle,
+	): Promise<void> {
+		const failure = await installWorkspacePackages(handle);
+		if (failure !== null) {
+			this.logger.warn("sandbox.repo-restore.install-failed", {
+				error: failure,
+				projectId,
+				sandboxId: handle.providerSandboxId,
+			});
 		}
 	}
 
@@ -1218,8 +1240,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 			);
 		} catch (error) {
 			// The snapshot only saves time, so the boot continues from the image.
-			// A deploy ships only the current archive: an older project that
-			// resumes has no archive and needs none, so that case logs nothing.
+			// An older pin reads the current archive. This error means that no
+			// archive is packed, as in a local run, so it logs nothing.
 			if (!(error instanceof TemplateArchiveMissingError)) {
 				this.logger.warn("sandbox.template-snapshot.lookup-failed", {
 					error: errorMessage(error),
