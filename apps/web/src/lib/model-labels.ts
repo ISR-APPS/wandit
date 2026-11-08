@@ -3,26 +3,29 @@
  * The prompt box, the V1 model indicator, and the V2 chat message read it.
  * The picker choices persist in localStorage.
  */
-const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
-	"anthropic/claude-opus-5.5": "Claude Opus 5.5",
-	"anthropic/claude-opus-5.5-fast": "Claude Opus 5.5 Fast",
-	"anthropic/claude-sonnet-5": "Claude Sonnet 5",
-	"google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
-	"google/gemini-3.5-flash": "Gemini 3.5 Flash",
-	"google/gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
-	"google/gemini-3.6-flash": "Gemini 3.6 Flash",
-	"meta/muse-spark-1.1": "Muse Spark 1.1",
-	"meta/muse-spark-1.2-contributor": "Muse Spark 1.2 Contributor",
-	"minimax/minimax-m3": "MiniMax M3",
-	"moonshotai/kimi-k2.7-code": "Kimi K2.7 Code",
-	"moonshotai/kimi-k3-fast": "Kimi K3 Fast",
-	"openai/gpt-5.6-luna": "GPT-5.6 Luna",
-	"openai/gpt-5.6-sol": "GPT-5.6 Sol",
-	"openai/gpt-5.6-terra": "GPT-5.6 Terra",
-	"xai/grok-4.5": "Grok 4.5",
-	"xiaomi/mimo-v2.5": "MiMo v2.5",
-	"zai/glm-5.3-flash": "GLM 5.3 Flash",
-};
+// Deployed bundles must not contain the internal model catalog.
+const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = import.meta.env.DEV
+	? {
+			"anthropic/claude-opus-5.5": "Claude Opus 5.5",
+			"anthropic/claude-opus-5.5-fast": "Claude Opus 5.5 Fast",
+			"anthropic/claude-sonnet-5": "Claude Sonnet 5",
+			"google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+			"google/gemini-3.5-flash": "Gemini 3.5 Flash",
+			"google/gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
+			"google/gemini-3.6-flash": "Gemini 3.6 Flash",
+			"meta/muse-spark-1.1": "Muse Spark 1.1",
+			"meta/muse-spark-1.2-contributor": "Muse Spark 1.2 Contributor",
+			"minimax/minimax-m3": "MiniMax M3",
+			"moonshotai/kimi-k2.7-code": "Kimi K2.7 Code",
+			"moonshotai/kimi-k3-fast": "Kimi K3 Fast",
+			"openai/gpt-5.6-luna": "GPT-5.6 Luna",
+			"openai/gpt-5.6-sol": "GPT-5.6 Sol",
+			"openai/gpt-5.6-terra": "GPT-5.6 Terra",
+			"xai/grok-4.5": "Grok 4.5",
+			"xiaomi/mimo-v2.5": "MiMo v2.5",
+			"zai/glm-5.3-flash": "GLM 5.3 Flash",
+		}
+	: {};
 
 export type BuilderModelOption = {
 	gatewayModelId: string;
@@ -44,26 +47,32 @@ export const DEFAULT_BUILDER_MODEL: BuilderModelOption = {
 	label: "Default",
 };
 
-export const BUILDER_MODELS: readonly BuilderModelOption[] = [
-	DEFAULT_BUILDER_MODEL,
-	builderModelOption("grok-4-5", "xai/grok-4.5"),
-	builderModelOption("gemini-3-5-flash", "google/gemini-3.5-flash"),
-	builderModelOption("gemini-3-5-flash-lite", "google/gemini-3.5-flash-lite"),
-	builderModelOption("gemini-3-6-flash", "google/gemini-3.6-flash"),
-	builderModelOption("gemini-3-1-pro", "google/gemini-3.1-pro-preview"),
-	builderModelOption("kimi-k2-7-code", "moonshotai/kimi-k2.7-code"),
-	builderModelOption("kimi-k3-fast", "moonshotai/kimi-k3-fast"),
-	builderModelOption("minimax-m3", "minimax/minimax-m3"),
-	builderModelOption("mimo-v2-5", "xiaomi/mimo-v2.5"),
-	builderModelOption("gpt-5-6-sol", "openai/gpt-5.6-sol"),
-	builderModelOption("gpt-5-6-luna", "openai/gpt-5.6-luna"),
-	builderModelOption("sonnet-5", "anthropic/claude-sonnet-5"),
-	builderModelOption("muse-spark-1-1", "meta/muse-spark-1.1"),
-	builderModelOption(
-		"muse-spark-1-2-contributor",
-		"meta/muse-spark-1.2-contributor",
-	),
-];
+/** Only local development includes internal model choices in the browser bundle. */
+export const BUILDER_MODELS: readonly BuilderModelOption[] = import.meta.env.DEV
+	? [
+			DEFAULT_BUILDER_MODEL,
+			builderModelOption("grok-4-5", "xai/grok-4.5"),
+			builderModelOption("gemini-3-5-flash", "google/gemini-3.5-flash"),
+			builderModelOption(
+				"gemini-3-5-flash-lite",
+				"google/gemini-3.5-flash-lite",
+			),
+			builderModelOption("gemini-3-6-flash", "google/gemini-3.6-flash"),
+			builderModelOption("gemini-3-1-pro", "google/gemini-3.1-pro-preview"),
+			builderModelOption("kimi-k2-7-code", "moonshotai/kimi-k2.7-code"),
+			builderModelOption("kimi-k3-fast", "moonshotai/kimi-k3-fast"),
+			builderModelOption("minimax-m3", "minimax/minimax-m3"),
+			builderModelOption("mimo-v2-5", "xiaomi/mimo-v2.5"),
+			builderModelOption("gpt-5-6-sol", "openai/gpt-5.6-sol"),
+			builderModelOption("gpt-5-6-luna", "openai/gpt-5.6-luna"),
+			builderModelOption("sonnet-5", "anthropic/claude-sonnet-5"),
+			builderModelOption("muse-spark-1-1", "meta/muse-spark-1.1"),
+			builderModelOption(
+				"muse-spark-1-2-contributor",
+				"meta/muse-spark-1.2-contributor",
+			),
+		]
+	: [DEFAULT_BUILDER_MODEL];
 
 export const BUILDER_MODEL_STORAGE_KEY = "wandit:dev-builder-model";
 

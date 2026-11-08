@@ -144,6 +144,7 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 	opencode: "opencode",
 };
 
+/** Keeps billing models internal while the public turn routes return credit estimates and state. */
 @Injectable()
 export class TurnsService {
 	private readonly logger = new Logger(TurnsService.name);
@@ -838,7 +839,7 @@ export class TurnsService {
 				throw new ServiceUnavailableException(
 					{
 						code: "V2_MODEL_UNPRICED",
-						message: `Model ${modelId} has no price row`,
+						message: "The builder model has no price configuration",
 					},
 					{ cause: error },
 				);
@@ -1096,7 +1097,8 @@ function wholeCreditEstimateOf(
 		// The hold is in centi-credits (1 credit = 100 cc); the UI shows
 		// whole credits.
 		credits: Math.ceil(estimate.creditsCc / 100),
-		modelId: estimate.modelId,
+		// Keep the required wire field compatible without exposing deployment configuration.
+		modelId: env.NODE_ENV === "development" ? estimate.modelId : "wandit",
 		multiplier: estimate.multiplier,
 	};
 }

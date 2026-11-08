@@ -1678,6 +1678,7 @@ export type PromptBoxProps = {
 	className?: string;
 };
 
+/** Local development exposes model controls. Deployed builds send no saved model choice. */
 export function PromptBox({
 	onSubmit,
 	attachmentsEnabled = false,
@@ -1720,10 +1721,14 @@ export function PromptBox({
 	// Dev-only builder override (see BUILDER_MODELS); localStorage-backed so
 	// the choice survives the remounts between hero and chat composers.
 	const [builderModel, setBuilderModelState] = useState(() =>
-		readStoredBuilderModel(initialComposer?.options?.builderModel),
+		import.meta.env.DEV
+			? readStoredBuilderModel(initialComposer?.options?.builderModel)
+			: DEFAULT_BUILDER_MODEL.id,
 	);
 	const setBuilderModel = useCallback(
 		(id: string) => {
+			// Deployed builds cannot store or expose internal model choices.
+			if (!import.meta.env.DEV) return;
 			const selection = getBuilderModelOption(id);
 			setBuilderModelState(selection.id);
 			try {
@@ -1995,7 +2000,7 @@ export function PromptBox({
 
 		// Dev-only builder override: rides as a composer option so each
 		// generate_page call snapshots the picked model — no server restart.
-		if (builderModel !== DEFAULT_BUILDER_MODEL.id) {
+		if (import.meta.env.DEV && builderModel !== DEFAULT_BUILDER_MODEL.id) {
 			options.builderModel = builderModel;
 		}
 

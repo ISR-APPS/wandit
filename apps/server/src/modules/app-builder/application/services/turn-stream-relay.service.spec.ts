@@ -7,7 +7,7 @@ import {
 	turnDataPartSchema,
 } from "@wandit/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
 	TurnEventReader,
@@ -20,6 +20,9 @@ import type {
 import { FakeTurnEventStream } from "../../infrastructure/trigger/fake-turn-events";
 import type { RateLimitStore } from "../../presentation/http/guards/redis-rate-limit.guard";
 import { TurnStreamRelayService } from "./turn-stream-relay.service";
+
+beforeEach(() => vi.stubEnv("NODE_ENV", "development"));
+afterEach(() => vi.unstubAllEnvs());
 
 function fakeReply(options: { stallFirstWrite?: boolean } = {}) {
 	const chunks: string[] = [];
@@ -135,6 +138,73 @@ function setup(
 }
 
 describe("TurnStreamRelayService.relay", () => {
+	it("removes upstream metadata and failure details from replayed network frames", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		const stream = new FakeTurnEventStream();
+		await stream.write("run-1", {
+			type: "part",
+			data: {
+				type: "text-delta",
+				id: "text-1",
+				delta: "Your app is ready.",
+				providerMetadata: { private: { model: "private/model" } },
+			},
+		});
+		await stream.write("run-1", {
+			type: "error",
+			data: {
+				code: "harness_error",
+				message: "private/model is unavailable",
+				retryable: true,
+			},
+		});
+		await stream.write("run-1", {
+			type: "part",
+			data: {
+				type: "tool-input-start",
+				toolCallId: "image-1",
+				toolName: "generate_image",
+			},
+		});
+		await stream.write("run-1", {
+			type: "part",
+			data: {
+				type: "tool-output-available",
+				toolCallId: "image-1",
+				output: {
+					status: "failed",
+					message: "private/model cannot generate this image",
+				},
+			},
+		});
+		await stream.write("run-1", { type: "done", data: { status: "failed" } });
+		const { relay } = setup(stream);
+		const { chunks, reply } = fakeReply();
+
+		await relay.relay({
+			reply,
+			request: fakeRequest(),
+			triggerRunId: "run-1",
+			turnId: "turn-1",
+		});
+
+		expect(chunks.join("")).not.toContain("private/model");
+		expect(parsedFrames(chunks)).toContainEqual({
+			type: "text-delta",
+			id: "text-1",
+			delta: "Your app is ready.",
+		});
+		expect(parsedFrames(chunks)).toContainEqual({
+			type: "data-turn-error",
+			id: "turn-error",
+			data: {
+				code: "harness_error",
+				message: "The builder request failed. Please try again.",
+				retryable: true,
+			},
+		});
+	});
+
 	it("maps each envelope event to its browser frames, in order, ending with [DONE]", async () => {
 		const stream = new FakeTurnEventStream();
 		await stream.write("run-1", {

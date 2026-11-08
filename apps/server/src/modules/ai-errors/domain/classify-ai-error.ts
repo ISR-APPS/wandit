@@ -10,6 +10,7 @@ import type {
 	AiErrorKind,
 	AiErrorSource,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 import {
 	AISDKError,
 	APICallError,
@@ -480,21 +481,31 @@ export function classifyMcpResult(
 	return null;
 }
 
+/** Hides internal provider details outside local development while it preserves external connector account instructions. */
 export function toClientAiError(
 	normalized: NormalizedAiError,
 	toolCallId?: string,
 ): AiErrorData {
+	// Connector errors refer to user-connected services; other provider details remain server diagnostics.
+	const exposeProvider =
+		env.NODE_ENV === "development" ||
+		normalized.kind.startsWith("connector_") ||
+		normalized.source === "higgsfield";
 	return {
 		kind: normalized.kind,
 		moderationStage: normalized.moderationStage,
-		providerLabel: normalized.providerLabel,
-		providerMessage: FORWARD_KINDS.has(normalized.kind)
-			? normalized.providerMessage
-			: null,
+		providerLabel: exposeProvider ? normalized.providerLabel : null,
+		providerMessage:
+			exposeProvider && FORWARD_KINDS.has(normalized.kind)
+				? normalized.providerMessage
+				: null,
 		refunded: normalized.refunded,
-		requestId: normalized.requestId,
+		requestId: exposeProvider ? normalized.requestId : null,
 		retryable: normalized.retryable,
-		source: normalized.source,
+		source:
+			exposeProvider || normalized.source === "ours"
+				? normalized.source
+				: "unknown",
 		terminal: normalized.terminal,
 		...(toolCallId === undefined ? {} : { toolCallId }),
 	};

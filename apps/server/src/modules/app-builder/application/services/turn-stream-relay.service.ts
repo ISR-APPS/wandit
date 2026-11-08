@@ -22,6 +22,7 @@ import { allowedCorsWebOrigin } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { publicAiPart } from "../../../../infrastructure/http/public-ai-response";
 import {
 	HOST_TURN_EVENT_READER,
 	TURN_EVENT_READER,
@@ -75,6 +76,7 @@ type UiChunkPassThrough = TurnStreamPartEvent["data"];
 /** Runs after the terminal `done` frame is written; the caller promotes. */
 type OnTurnDone = (done: TurnDoneData) => void | Promise<void>;
 
+/** Filters browser frames while internal events retain billing and provider diagnostics. */
 @Injectable()
 export class TurnStreamRelayService {
 	private readonly logger = new Logger(TurnStreamRelayService.name);
@@ -177,6 +179,8 @@ export class TurnStreamRelayService {
 				? null
 				: { id: options.triggerRunId, reader: this.turnEvents };
 		let lastSeenId: string | null = null;
+		// Output chunks omit tool names, so each connection remembers the preceding input chunks.
+		const toolNames = new Map<string, string>();
 		let done = false;
 		try {
 			if (first) {
@@ -239,7 +243,7 @@ export class TurnStreamRelayService {
 					// After a cut, the browser drops the replay chunks it has by
 					// count, so one event must give the same chunks on each read.
 					if (event.type === "part") {
-						await this.writeChunk(raw, event.data);
+						await this.writeChunk(raw, event.data, toolNames);
 					} else if (event.type === "status") {
 						await this.writeChunk(raw, {
 							data: event.data,
@@ -355,13 +359,17 @@ export class TurnStreamRelayService {
 		}
 	}
 
-	// One SSE frame `useChat` parses: a single `data:` line of JSON, no
-	// `id:`/`event:` lines. The chunk is stringified once, never parsed.
+	// Filter on every read so old events cannot leak model details through replay.
 	private async writeChunk(
 		raw: ServerResponse,
 		chunk: TurnDataPart | UiChunkPassThrough,
+		/** Tool call identifiers and names from this connection's replay. */
+		toolNames?: Map<string, string>,
 	): Promise<void> {
-		await this.write(raw, `data: ${JSON.stringify(chunk)}\n\n`);
+		await this.write(
+			raw,
+			`data: ${JSON.stringify(publicAiPart(chunk, toolNames))}\n\n`,
+		);
 	}
 
 	// The terminator `DefaultChatTransport` waits for to end the read.

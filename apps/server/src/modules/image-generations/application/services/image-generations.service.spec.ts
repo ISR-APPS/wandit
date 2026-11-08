@@ -685,14 +685,17 @@ describe("ImageGenerationsService attempt placement", () => {
 		expect(attempt.failure).toEqual({
 			kind: "content_moderated",
 			moderationStage: "output",
-			providerLabel: "Google",
+			providerLabel: null,
 			providerMessage: null,
 			refunded: false,
-			requestId: "gen_safety",
+			requestId: null,
 			retryable: false,
-			source: "provider:google",
+			source: "unknown",
 			terminal: true,
 		});
+		expect(attempt.error).toBe(
+			"Image generation did not complete. Please try again.",
+		);
 	});
 
 	it("maps a partial-success failure with refunded false", async () => {
@@ -712,7 +715,7 @@ describe("ImageGenerationsService attempt placement", () => {
 
 		expect(attempt.failure).toMatchObject({
 			kind: "capacity",
-			providerLabel: "OpenAI",
+			providerLabel: null,
 			refunded: false,
 			retryable: true,
 		});

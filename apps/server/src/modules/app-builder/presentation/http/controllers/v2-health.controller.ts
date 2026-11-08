@@ -1,11 +1,11 @@
 /**
- * `GET /api/v2/health`: reports the V2 rollout state and which optional
- * env values are set. Ops and deploy checks call it; it calls
- * `v2EnvPresence`. The global AuthGuard already requires a session —
- * no `@Public()` here on purpose.
+ * Reports builder diagnostics for local development.
+ * Calls v2EnvPresence after the global AuthGuard checks the session.
+ * Deployed servers use the separate /api/health route for health checks.
  */
-import { Controller, Get, Inject } from "@nestjs/common";
+import { Controller, Get, Inject, NotFoundException } from "@nestjs/common";
 import type { V2HealthResponse } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import {
 	V2_ENV,
@@ -13,7 +13,7 @@ import {
 	v2EnvPresence,
 } from "../../../infrastructure/env/v2-env";
 
-/** `GET /api/v2/health`: the V2 switches and which env values are set. */
+/** Keeps model and provider diagnostics off deployed API responses. */
 @Controller("v2/health")
 export class V2HealthController {
 	constructor(
@@ -23,6 +23,10 @@ export class V2HealthController {
 
 	@Get()
 	health(): V2HealthResponse {
+		// A normal session must not expose deployment configuration.
+		if (env.NODE_ENV !== "development") {
+			throw new NotFoundException();
+		}
 		return {
 			enabled: true,
 			harness: this.v2Env.V2_HARNESS,

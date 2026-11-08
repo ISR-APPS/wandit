@@ -136,7 +136,7 @@ describe("PagesService", () => {
 		});
 	});
 
-	it("maps an attempt row to the contract shape", async () => {
+	it("hides stored provider details while it preserves the failed attempt state", async () => {
 		const { pagesRepository, service } = setup();
 		pagesRepository.findAttemptDetail.mockResolvedValue(
 			attemptRow({
@@ -144,7 +144,9 @@ describe("PagesService", () => {
 				dismissedAt: new Date("2026-08-07T10:06:00.000Z"),
 				failureCode: "provider_rate_limited",
 				failureKind: "rate_limited",
+				error: "anthropic/private-model is overloaded",
 				failureProvider: "anthropic",
+				failureProviderMessage: "anthropic/private-model is overloaded",
 				failureRequestId: "gen_page_1",
 				failureSource: "gateway",
 				lastProgressPercent: 62,
@@ -158,16 +160,16 @@ describe("PagesService", () => {
 			completedAt: "2026-08-07T10:05:00.000Z",
 			createdAt: "2026-08-07T10:00:00.000Z",
 			dismissed: true,
-			error: null,
+			error: "The page build did not complete.",
 			failure: {
 				kind: "rate_limited",
 				moderationStage: null,
-				providerLabel: "Anthropic",
+				providerLabel: null,
 				providerMessage: null,
 				refunded: null,
-				requestId: "gen_page_1",
+				requestId: null,
 				retryable: true,
-				source: "gateway",
+				source: "unknown",
 				terminal: true,
 			},
 			failureCode: "provider_rate_limited",

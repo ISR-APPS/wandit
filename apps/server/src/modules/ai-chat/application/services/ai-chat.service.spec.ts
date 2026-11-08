@@ -383,7 +383,7 @@ describe("AiChatService MCP lifecycle", () => {
 		aiMocks.createAgentUIStream.mockResolvedValue(new ReadableStream());
 		aiMocks.createUIMessageStream.mockImplementation((options: unknown) => {
 			capturedStreamOptions = options as CapturedStreamOptions;
-			return {};
+			return new ReadableStream();
 		});
 		aiMocks.pipeUIMessageStreamToResponse.mockImplementation(() => {});
 	});
@@ -1622,9 +1622,9 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(firstAiErrorPart).toEqual({
 			data: expect.objectContaining({
 				kind: "rate_limited",
-				requestId: "generation-rate-limited",
+				requestId: null,
 				retryable: true,
-				source: "gateway",
+				source: "unknown",
 				terminal: true,
 			}),
 			id: "ai-error",
@@ -1901,8 +1901,8 @@ describe("AiChatService MCP lifecycle", () => {
 			data: expect.objectContaining({
 				kind: "content_moderated",
 				moderationStage: "input",
-				providerLabel: "Anthropic",
-				source: "provider:anthropic",
+				providerLabel: null,
+				source: "unknown",
 				terminal: true,
 			}),
 			id: "ai-error",

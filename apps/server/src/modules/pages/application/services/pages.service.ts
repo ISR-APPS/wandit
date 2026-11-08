@@ -51,6 +51,7 @@ import {
 	triggerGeneratePageTask,
 } from "../page-build-handoff";
 
+/** Supplies public page state and keeps stored provider diagnostics inside the server outside local development. */
 @Injectable()
 export class PagesService {
 	private readonly logger = new Logger(PagesService.name);
@@ -88,7 +89,7 @@ export class PagesService {
 			latestAttempt: rows.latestAttempt
 				? {
 						createdAt: rows.latestAttempt.createdAt.toISOString(),
-						error: rows.latestAttempt.error,
+						error: publicAttemptError(rows.latestAttempt.error),
 						failure: mapPersistedFailure(rows.latestAttempt),
 						failureCode: pageBuildFailureCodeReadSchema.parse(
 							rows.latestAttempt.failureCode,
@@ -431,7 +432,7 @@ function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
 		completedAt: row.completedAt ? row.completedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
 		dismissed: row.dismissedAt !== null,
-		error: row.error,
+		error: publicAttemptError(row.error),
 		failure: mapPersistedFailure(row),
 		failureCode: pageBuildFailureCodeReadSchema.parse(row.failureCode),
 		id: row.id,
@@ -440,6 +441,13 @@ function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
 		triggerRunId: row.triggerRunId,
 		versionId: row.versionId,
 	};
+}
+
+function publicAttemptError(error: string | null): string | null {
+	// Historical provider messages can name internal models, even when no structured failure exists.
+	return error !== null && env.NODE_ENV !== "development"
+		? "The page build did not complete."
+		: error;
 }
 
 function mapPersistedFailure(row: {

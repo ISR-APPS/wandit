@@ -56,6 +56,7 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"image/webp": "webp",
 };
 
+/** Recovers image attempts and returns public errors without internal provider diagnostics. */
 @Injectable()
 export class ImageGenerationsService {
 	constructor(
@@ -403,7 +404,11 @@ function mapAttemptRow(row: ImageGenerationAttemptRow): ImageGenerationAttempt {
 		completedAt: row.completedAt?.toISOString() ?? null,
 		count: row.count,
 		createdAt: row.createdAt.toISOString(),
-		error: row.error,
+		// Historical provider errors can include internal model names.
+		error:
+			row.error !== null && env.NODE_ENV !== "development"
+				? "Image generation did not complete. Please try again."
+				: row.error,
 		failure: mapFailure(row),
 		id: row.id,
 		images: row.images,

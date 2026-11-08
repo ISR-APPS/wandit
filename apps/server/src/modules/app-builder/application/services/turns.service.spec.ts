@@ -11,7 +11,7 @@ import {
 } from "@nestjs/common";
 import type { BillingPlanId } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
 	SubscriptionRow,
@@ -50,7 +50,10 @@ const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
 const INITIAL_R2_PUBLIC_BASE_URL = env.R2_PUBLIC_BASE_URL;
 const INITIAL_GENERATION_BILLING_MODE = env.GENERATION_BILLING_MODE;
 
+beforeEach(() => vi.stubEnv("NODE_ENV", "development"));
+
 afterEach(() => {
+	vi.unstubAllEnvs();
 	// The env object can be process.env; restore so the storage URL and the
 	// billing mode do not leak into other spec files on the same worker.
 	if (INITIAL_R2_PUBLIC_BASE_URL === undefined) {
@@ -318,6 +321,25 @@ function setup(
 const BODY = { chatId: randomUUID(), message: "build me a page" };
 
 describe("TurnsService.create", () => {
+	it.each([
+		"production",
+		"test",
+		"development",
+	])("keeps the configured model private in create and estimate responses (%s)", async (nodeEnv) => {
+		vi.stubEnv("NODE_ENV", nodeEnv);
+		const { service } = setup();
+
+		const created = await service.create(SCOPE, "project-1", BODY);
+		const estimated = await service.estimate(SCOPE, "project-1");
+
+		for (const response of [created, estimated]) {
+			expect(response.estimate?.credits).toBeGreaterThan(0);
+			expect(response.estimate?.modelId).toBe(
+				nodeEnv === "development" ? DEFAULT_MODEL : "wandit",
+			);
+		}
+	});
+
 	it("rejects a project that is not a v2_app before any credit moves", async () => {
 		const { metering, projects, service, turns } = setup();
 		projects.findEngineByIdForScope.mockResolvedValue("v1_page");
@@ -588,6 +610,7 @@ describe("TurnsService.create", () => {
 		expect(exception.getResponse()).toMatchObject({
 			code: "V2_MODEL_UNPRICED",
 		});
+		expect(JSON.stringify(exception.getResponse())).not.toContain("x/unpriced");
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 		expect(turns.create).not.toHaveBeenCalled();
 	});

@@ -49,6 +49,7 @@ const STALE_GENERATION_ERROR =
 const STALE_QUEUED_ERROR =
 	"The marketing request did not reach the background generator. Please try again.";
 
+/** Recovers marketing assets and returns public errors without internal provider diagnostics. */
 @Injectable()
 export class MarketingAssetsService {
 	constructor(
@@ -330,7 +331,11 @@ function mapAssetRow(row: MarketingAssetRow): MarketingAsset {
 		assetType: row.assetType,
 		completedAt: row.completedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
-		error: row.error,
+		// Historical provider errors can include internal model names.
+		error:
+			row.error !== null && env.NODE_ENV !== "development"
+				? "The marketing asset did not complete. Please try again."
+				: row.error,
 		failure: mapFailure(row),
 		id: row.id,
 		name: row.name,

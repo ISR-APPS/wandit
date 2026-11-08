@@ -77,6 +77,7 @@ import {
 } from "ai";
 import type { FastifyReply } from "fastify";
 
+import { publicAiStream } from "../../../../infrastructure/http/public-ai-response";
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
 import {
 	type AiErrorContext,
@@ -192,6 +193,7 @@ export type PreparedAiChatStream = {
 	readonly release: () => void;
 };
 
+/** Reserves and settles chat credits while the response filter keeps model diagnostics inside the server. */
 @Injectable()
 export class AiChatService {
 	private readonly logger = new Logger(AiChatService.name);
@@ -1441,7 +1443,7 @@ export class AiChatService {
 						}
 					: undefined,
 				response: reply.raw,
-				stream,
+				stream: publicAiStream(stream),
 			});
 		} catch (error) {
 			queueGatewayErrorCapture(error);

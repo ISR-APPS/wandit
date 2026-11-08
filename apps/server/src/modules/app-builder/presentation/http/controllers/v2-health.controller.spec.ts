@@ -1,11 +1,15 @@
-import { v2EnvNames, v2HealthResponseSchema } from "@wandit/contracts";
-import { describe, expect, it } from "vitest";
+import { NotFoundException } from "@nestjs/common";
+import { v2HealthResponseSchema } from "@wandit/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { V2EnvSource } from "../../../infrastructure/env/v2-env";
 import { V2HealthController } from "./v2-health.controller";
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("V2HealthController", () => {
-	it("answers the health contract with enabled true and per-name booleans", () => {
+	it("keeps secret values out of local diagnostics", () => {
+		vi.stubEnv("NODE_ENV", "development");
 		const fakeEnv: V2EnvSource = {
 			V2_HARNESS: "claude-code",
 			V2_DEFAULT_MODEL: "openai/gpt-5.6-luna",
@@ -19,16 +23,22 @@ describe("V2HealthController", () => {
 		expect(parsed.enabled).toBe(true);
 		expect(parsed.harness).toBe("claude-code");
 		expect(parsed.model).toBe("openai/gpt-5.6-luna");
-		expect(Object.keys(parsed.env).sort()).toEqual([...v2EnvNames].sort());
 		expect(parsed.env.VERCEL_SANDBOX_TOKEN).toBe(true);
 		expect(parsed.env.ANTHROPIC_API_KEY).toBe(false);
 		// No secret value ever leaves the process.
 		expect(JSON.stringify(body)).not.toContain("vs_secret_token");
 	});
 
-	it("reports a null model when no default model is set", () => {
-		const controller = new V2HealthController({ V2_HARNESS: "opencode" });
+	it.each([
+		"production",
+		"test",
+	])("blocks model and provider diagnostics outside local development (%s)", (nodeEnv) => {
+		vi.stubEnv("NODE_ENV", nodeEnv);
+		const controller = new V2HealthController({
+			V2_HARNESS: "opencode",
+			V2_DEFAULT_MODEL: "private-provider/private-model",
+		});
 
-		expect(controller.health().model).toBeNull();
+		expect(() => controller.health()).toThrow(NotFoundException);
 	});
 });

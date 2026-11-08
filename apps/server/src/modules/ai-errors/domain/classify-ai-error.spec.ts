@@ -928,7 +928,9 @@ describe("toClientAiError", () => {
 
 		const client = toClientAiError(providerFailure, "tool_1");
 		expect(client).toMatchObject({
+			providerLabel: null,
 			providerMessage: null,
+			source: "unknown",
 			toolCallId: "tool_1",
 		});
 		expect(client).not.toHaveProperty("model");

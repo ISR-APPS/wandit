@@ -124,9 +124,33 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
+	window.localStorage.clear();
 });
 
 describe("PromptBox generation settings", () => {
+	it.each([
+		"storage",
+		"history",
+	] as const)("drops a saved model override from %s in deployed builds", async (source) => {
+		vi.stubEnv("DEV", false);
+		window.localStorage.setItem("wandit:dev-builder-model", "sonnet-5");
+		const onSubmit = vi
+			.fn<PromptBoxProps["onSubmit"]>()
+			.mockResolvedValue(true);
+		renderPromptBox({
+			initialValue: "Build a page",
+			initialComposer:
+				source === "history"
+					? { mode: "page", options: { builderModel: "sonnet-5" } }
+					: undefined,
+			onSubmit,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+		expect(onSubmit.mock.calls[0]?.[1]?.options?.builderModel).toBeUndefined();
+	});
+
 	it("renders image output options without quality tiers or a credit badge", async () => {
 		renderPromptBox({
 			initialComposer: { mode: "image", output: "image-creator" },

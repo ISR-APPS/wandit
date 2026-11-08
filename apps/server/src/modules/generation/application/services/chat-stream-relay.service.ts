@@ -15,6 +15,10 @@ import { env } from "@wandit/env/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import {
+	publicAiMetadata,
+	publicAiPart,
+} from "../../../../infrastructure/http/public-ai-response";
+import {
 	type BlockingRedisClient,
 	ChatEventsRepository,
 	type ChatStreamEntry,
@@ -25,7 +29,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 // How long Redis should wait for new events before checking if the browser left.
 const XREAD_BLOCK_MS = 5_000;
 
-// `@Injectable()` lets the controller inject this service.
+/** Relays saved and live events after it removes internal model details from completed messages. */
 @Injectable()
 export class ChatStreamRelayService {
 	private readonly logger = new Logger(ChatStreamRelayService.name);
@@ -169,9 +173,25 @@ export class ChatStreamRelayService {
 		raw: ServerResponse,
 		entry: ChatStreamEntry,
 	): Promise<void> {
+		let event = entry.event;
+		// Replay entries can predate the privacy filter, so sanitize at the response boundary.
+		if (event.type === "message-completed") {
+			event = {
+				...event,
+				message: {
+					...event.message,
+					metadata: publicAiMetadata(event.message.metadata),
+					parts: event.message.parts.map((part) => publicAiPart(part)),
+				},
+			};
+		}
+		// Legacy worker errors can contain upstream model names.
+		if (event.type === "error" && env.NODE_ENV !== "development") {
+			event = { ...event, message: "The request failed. Please try again." };
+		}
 		await this.write(raw, `id: ${entry.id}\n`);
-		await this.write(raw, `event: ${entry.event.type}\n`);
-		await this.write(raw, `data: ${JSON.stringify(entry.event)}\n\n`);
+		await this.write(raw, `event: ${event.type}\n`);
+		await this.write(raw, `data: ${JSON.stringify(event)}\n\n`);
 	}
 
 	// SSE comments start with ":" and are ignored by browser code.

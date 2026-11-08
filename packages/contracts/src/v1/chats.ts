@@ -49,6 +49,48 @@ export const composerMetadataSchema = z.object({
 // Validated composer metadata.
 export type ComposerMetadata = z.infer<typeof composerMetadataSchema>;
 
+/** Fields read by the server when it removes internal model settings from browser responses. */
+const publicAiComposerOptionsSchema = z.looseObject({
+	builderModel: z.json().optional(),
+	builderReasoning: z.json().optional(),
+});
+
+/** Covers both nested composer metadata and direct composer metadata in historical dashboard rows. */
+export const publicAiMessageMetadataSchema = z.looseObject({
+	model: z.json().optional(),
+	provider: z.json().optional(),
+	gatewayGenerationId: z.json().optional(),
+	rawFinishReason: z.json().optional(),
+	options: publicAiComposerOptionsSchema.optional(),
+	composer: composerMetadataSchema
+		.extend({
+			options: publicAiComposerOptionsSchema.optional(),
+		})
+		.optional(),
+});
+
+/** Named fields read by the public filter; other SDK fields pass through without inspection. */
+export const publicAiResponsePartSchema = z.looseObject({
+	type: z.string(),
+	providerMetadata: z.json().optional(),
+	callProviderMetadata: z.json().optional(),
+	resultProviderMetadata: z.json().optional(),
+	toolName: z.string().optional(),
+	toolCallId: z.string().optional(),
+	messageMetadata: publicAiMessageMetadataSchema.optional(),
+	output: z.json().optional(),
+	data: z.json().optional(),
+	errorText: z.string().optional(),
+});
+
+/** The filter preserves SDK fields outside the named public-boundary fields. */
+export type PublicAiResponsePart = z.infer<typeof publicAiResponsePartSchema>;
+
+/** Stored metadata keeps application fields after the public filter removes model details. */
+export type PublicAiMessageMetadata = z.infer<
+	typeof publicAiMessageMetadataSchema
+>;
+
 // AI SDK message parts. Kept flexible for future text/images/tools/etc.
 export const messagePartsSchema = z.array(z.record(z.string(), z.unknown()));
 

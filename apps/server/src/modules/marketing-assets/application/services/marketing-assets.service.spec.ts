@@ -142,14 +142,17 @@ describe("MarketingAssetsService stale recovery billing", () => {
 		expect(result.assets[0]?.failure).toEqual({
 			kind: "content_moderated",
 			moderationStage: null,
-			providerLabel: "Anthropic",
-			providerMessage: "sexual content",
+			providerLabel: null,
+			providerMessage: null,
 			refunded: false,
-			requestId: "gen_marketing_1",
+			requestId: null,
 			retryable: false,
-			source: "openrouter",
+			source: "unknown",
 			terminal: true,
 		});
+		expect(result.assets[0]?.error).toBe(
+			"The marketing asset did not complete. Please try again.",
+		);
 	});
 
 	it("reports a proven no-evidence provider failure as refunded", async () => {
