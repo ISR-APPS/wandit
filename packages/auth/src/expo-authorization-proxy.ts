@@ -2,18 +2,20 @@ import { APIError } from "better-auth/api";
 
 /**
  * Guards `GET /api/auth/expo-authorization-proxy`.
+ * The `before` hook in index.ts calls `assertTrustedAuthorizationUrl` before the plugin handler.
  *
  * The @better-auth/expo plugin mounts this route so the native app can open
  * the Google consent page in the system browser: the proxy stores the OAuth
- * `state` in a signed cookie and redirects to `authorizationURL`. The plugin
- * only checks that the URL is https and not our own origin, which makes the
- * route an open redirect and, worse, lets an attacker plant a state cookie
- * of their choice in a victim's browser (state fixation -> login CSRF: the
- * victim ends up signed in to the attacker's account).
+ * `state` in a signed cookie and redirects to `authorizationURL`.
  *
  * The native client always sends the exact URL `POST /sign-in/social`
  * returned, so the proxy may only forward to Google's authorization
  * endpoint for OUR client id with OUR callback. Anything else is rejected.
+ *
+ * This guard does not check `state`, so it does not stop state fixation.
+ * Before 1.7.16, the plugin signed any `state` with the auth secret (GHSA-4wq4-2ppv-q3hg).
+ * 1.7.16 signs only a `state` that Better Auth issued, also one issued to an attacker.
+ * Signatures from before 1.7.16 stay valid until the secret rotates.
  */
 export const EXPO_AUTHORIZATION_PROXY_PATH = "/expo-authorization-proxy";
 

@@ -3,7 +3,7 @@
 // The `organization`, `member`, and `invitation` exports are consumed by the
 // Better Auth drizzle adapter, which resolves models BY EXPORT NAME — renaming
 // them breaks every /api/auth/organization/* route. Their columns mirror the
-// plugin's runtime schema for better-auth 1.6.22
+// plugin's runtime schema for better-auth 1.7.16
 // (dist/plugins/organization/organization.mjs); keep in sync on upgrades.
 import { relations, sql } from "drizzle-orm";
 import {
@@ -27,6 +27,12 @@ export const organization = pgTable(
 		logo: text("logo"),
 		// Better Auth serializes JSON into this text column itself — not jsonb.
 		metadata: text("metadata"),
+		// Set: the personal workspace of this user (one per user, the unique
+		// constraint). NULL: a team workspace. Better Auth never writes it.
+		// The personal pool of this user pays for work in this workspace.
+		personalOwnerUserId: text("personal_owner_user_id")
+			.unique()
+			.references(() => user.id, { onDelete: "restrict" }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -49,7 +55,7 @@ export const member = pgTable(
 			// restrict like every other user reference: user deletion is
 			// soft/anonymize at the app layer, never a DB cascade.
 			.references(() => user.id, { onDelete: "restrict" }),
-		// Comma-separated multi-role string in better-auth 1.6.22 — never compare
+		// Comma-separated multi-role string in better-auth 1.7.16 — never compare
 		// with string equality; use the shared permission helpers.
 		role: text("role").notNull().default("member"),
 		createdAt: timestamp("created_at", { withTimezone: true })

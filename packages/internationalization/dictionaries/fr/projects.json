@@ -123,7 +123,9 @@
 			"unsupported": "Format non pris en charge",
 			"tooLarge": "Fichier trop lourd (vidéo 50 Mo, audio 25 Mo, images et documents 15 Mo max ; images limitées à 30 mégapixels, 8000 px par côté et 7 Mo après traitement)",
 			"failed": "Échec de l'envoi",
-			"signInFirst": "Connecte-toi pour joindre des fichiers"
+			"signInFirst": "Connecte-toi pour joindre des fichiers",
+			"pastedText": "Texte · {size} caractères",
+			"textTooLong": "Ton message peut contenir au plus {max} caractères."
 		},
 		"modeLabel": "Mode",
 		"platforms": {
@@ -134,6 +136,10 @@
 			"mobile": {
 				"label": "App mobile",
 				"description": "Pour iPhone et Android. Teste-la sur ton téléphone."
+			},
+			"desktop": {
+				"label": "App de bureau",
+				"description": "Pour Windows. Les données restent sur l'ordinateur."
 			}
 		},
 		"outputLabel": "Sortie",

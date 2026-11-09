@@ -1,3 +1,7 @@
+/**
+ * The organizations list: team workspaces by default, personal workspaces on demand.
+ * The route /organizations renders it. It reads useOrganizationsQuery and links to the detail page.
+ */
 import { Link } from "@tanstack/react-router";
 import {
 	Building2Icon,
@@ -36,7 +40,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import type { AdminListOrganizationsSort } from "@/features/organizations/api/organizations.dto";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type {
+	AdminListOrganizationsSort,
+	WorkspaceKind,
+} from "@/features/organizations/api/organizations.dto";
 import { useOrganizationsQuery } from "@/features/organizations/api/organizations.queries";
 import {
 	formatAdminDate,
@@ -56,6 +64,7 @@ const SORT_LABELS: Record<AdminListOrganizationsSort, string> = {
 export function OrganizationsPage() {
 	const [page, setPage] = useState(1);
 	const [sort, setSort] = useState<AdminListOrganizationsSort>("newest");
+	const [kind, setKind] = useState<WorkspaceKind>("team");
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
 
@@ -67,16 +76,17 @@ export function OrganizationsPage() {
 		return () => clearTimeout(handle);
 	}, [searchValue]);
 
-	// New search text or sort restarts from the first page.
+	// New search text, sort, or kind restarts from the first page.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: page reset is intentional
 	useEffect(() => {
 		setPage(1);
-	}, [debouncedQuery, sort]);
+	}, [debouncedQuery, sort, kind]);
 
 	const organizationsQuery = useOrganizationsQuery({
 		page,
 		pageSize: PAGE_SIZE,
 		sort,
+		kind,
 		q: debouncedQuery || undefined,
 	});
 	const result = organizationsQuery.data;
@@ -88,17 +98,37 @@ export function OrganizationsPage() {
 
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-5">
-			<div className="min-w-0">
-				<p className="font-medium text-muted-foreground text-xs uppercase tracking-[0.16em]">
-					Teams & billing
-				</p>
-				<h1 className="mt-1 font-semibold text-2xl tracking-tight">
-					Organizations
-				</h1>
-				<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-					Every team workspace with its members, Business plan, and shared
-					credit pool.
-				</p>
+			<div className="flex flex-wrap items-end justify-between gap-3">
+				<div className="min-w-0">
+					<p className="font-medium text-muted-foreground text-xs uppercase tracking-[0.16em]">
+						Teams & billing
+					</p>
+					<h1 className="mt-1 font-semibold text-2xl tracking-tight">
+						Organizations
+					</h1>
+					<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
+						Team workspaces with their members, Business plan, and shared credit
+						pool. Each user also has one personal workspace: select Personal to
+						see them.
+					</p>
+				</div>
+				{/* The filter stays outside the table card, so an empty list never hides it. */}
+				<ToggleGroup
+					type="single"
+					variant="outline"
+					size="sm"
+					value={kind}
+					onValueChange={(value) => {
+						// Radix sends "" when the active item is clicked again. Keep the current kind.
+						if (value === "team" || value === "personal") {
+							setKind(value);
+						}
+					}}
+					aria-label="Workspace kind"
+				>
+					<ToggleGroupItem value="team">Team</ToggleGroupItem>
+					<ToggleGroupItem value="personal">Personal</ToggleGroupItem>
+				</ToggleGroup>
 			</div>
 
 			{organizationsQuery.isError && result ? (
@@ -159,11 +189,13 @@ export function OrganizationsPage() {
 						<EmptyMedia variant="icon">
 							<Building2Icon />
 						</EmptyMedia>
-						<EmptyTitle>No team workspaces yet</EmptyTitle>
-						<EmptyDescription>
-							Teams appear here as soon as users create workspaces. Enable team
-							workspaces in Settings to open creation.
-						</EmptyDescription>
+						<EmptyTitle>No {kind} workspaces yet</EmptyTitle>
+						{kind === "team" ? (
+							<EmptyDescription>
+								Teams appear here as soon as users create workspaces. Enable
+								team workspaces in Settings to open creation.
+							</EmptyDescription>
+						) : null}
 					</EmptyHeader>
 				</Empty>
 			) : result ? (
@@ -227,8 +259,13 @@ export function OrganizationsPage() {
 													params={{ organizationId: organization.id }}
 													className="flex min-w-0 flex-col hover:underline"
 												>
-													<span className="truncate font-medium">
-														{organization.name}
+													<span className="flex min-w-0 items-center gap-2">
+														<span className="truncate font-medium">
+															{organization.name}
+														</span>
+														{organization.isPersonal ? (
+															<Badge variant="secondary">Personal</Badge>
+														) : null}
 													</span>
 													<span className="truncate text-muted-foreground text-xs">
 														{organization.slug}

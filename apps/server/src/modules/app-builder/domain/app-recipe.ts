@@ -1,5 +1,5 @@
 /**
- * Picks the app design recipe of a web project from its project id.
+ * Picks the app design recipe of a web or desktop project from its project id.
  * The recipe is the home, KPI, and chart forms. The theme is not in it: the host writes src/styles/theme.json.
  * `runBuilderTurn` in `builder-turn.runtime.ts` appends its sentence to the session instructions.
  * The template skill `app-dashboard` explains every option id.
@@ -66,7 +66,7 @@ export function rankOptions<T extends string>(
 }
 
 /**
- * The recipe sentence of a web project. The same id gives the same sentence,
+ * The recipe sentence of a web or desktop project. The same id gives the same sentence,
  * so the prompt cache and the warm CLI process stay valid.
  * Home gives 3 ranked ids; KPI and chart give 1 id each.
  */

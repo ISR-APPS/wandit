@@ -42,8 +42,8 @@
 	"observability": { "enabled": true },
 	// vars, kv_namespaces, r2_buckets, dispatch_namespaces, and
 	// version_metadata are NOT inherited by an environment block; repeat each
-	// one in every env. routes IS inherited, so it lives in env.production
-	// only — the staging Worker must never take the */* route on wandit.app.
+	// one in every env. routes IS inherited, so each env sets its own: */* in
+	// production, *-stg.wandit.app/* in staging. Staging must never take */*.
 	"env": {
 		"production": {
 			// Without name, wrangler names the Worker wandit-edge-production.
@@ -66,8 +66,11 @@
 		},
 		"staging": {
 			"name": "wandit-edge-staging",
-			// Test host on workers.dev, no route: a staging zone and slug host
-			// are an open point for WANDIT-177.
+			// Staging slugs end with "-stg" (SITES_SLUG_SUFFIX=-stg on the staging API and
+			// Trigger.dev staging), so staging apps live on <slug>-stg.wandit.app. This route
+			// is more specific than the production "*/*", so it wins. The *.wandit.app DNS
+			// record and the free certificate already cover these one-level hosts.
+			"routes": [{ "pattern": "*-stg.wandit.app/*", "zone_name": "wandit.app" }],
 			"workers_dev": true,
 			"vars": { "SENTRY_ENVIRONMENT": "preview" },
 			"version_metadata": { "binding": "CF_VERSION_METADATA" },

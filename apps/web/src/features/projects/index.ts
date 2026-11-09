@@ -44,6 +44,8 @@ export {
 } from "./api/projects.queries";
 // Shared composer used both to create a project and to send chat messages.
 export { PromptBox } from "./components/prompt-box";
+// Frame of the account pages. The /coding-agents and the workspace People pages render inside it.
+export { DashboardShell } from "./components/shell/dashboard-shell";
 // One-shot flag the workspace consumes to auto-start the first AI reply
 // after project creation (see lib/chat-autostart.ts for the full flow).
 export { chatAutostart } from "./lib/chat-autostart";
@@ -55,5 +57,12 @@ export { isInsufficientCreditsApiError } from "./lib/create-precheck";
 export { thumbGradient } from "./lib/helpers";
 // High-level create-with-prompt hook that handles auth, credits, creation, and navigation.
 export { useCreateProjectWithPrompt } from "./lib/hooks";
+// Long pastes that become text chips; the V2 builder composer shares them with the prompt box.
+export {
+	describePastedText,
+	joinPastedText,
+	type PastedText,
+	readLongPaste,
+} from "./lib/pasted-text";
 // Microphone recording and transcription of the prompt box; the V2 builder composer shares it.
 export { useVoiceDictation } from "./lib/use-voice-dictation";

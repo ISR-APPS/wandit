@@ -30,6 +30,7 @@ import { UserMenu } from "@/features/auth";
 import { UpgradeCard } from "@/features/billing/components/upgrade-button";
 import { FeedbackHost } from "@/features/feedback";
 import { isChatwootConfigured, openSupportChat } from "@/features/support";
+import { useCollaborationGates } from "@/features/workspaces";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { localeMeta, locales, useI18n, useTranslation } from "@/lib/i18n";
 import {
@@ -224,6 +225,16 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 		!affiliateQuery.isPending &&
 		!affiliateQuery.isError &&
 		Boolean(affiliateQuery.data?.affiliate);
+	const { showsPeople } = useCollaborationGates();
+	// While the collaboration toggle is off, the own personal workspace has no People page link.
+	const navGroups = showsPeople
+		? NAV_GROUPS
+		: NAV_GROUPS.map((group) => ({
+				...group,
+				items: group.items.filter(
+					(item) => item.type !== "route" || item.to !== "/workspace/people",
+				),
+			}));
 	return (
 		<Sidebar
 			collapsible="icon"
@@ -262,7 +273,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 				<WorkspaceSwitcher className="h-11 rounded-2xl border-night/10 bg-transparent px-2 font-grotesk hover:bg-night/[0.04] group-data-[collapsible=icon]:hidden dark:border-border dark:hover:bg-white/[0.06] [&_[data-slot=avatar-fallback]]:bg-spark [&_[data-slot=avatar-fallback]]:font-semibold [&_[data-slot=avatar-fallback]]:text-night [&_[data-slot=avatar]]:size-7" />
 			</SidebarHeader>
 			<SidebarContent className="gap-0">
-				{NAV_GROUPS.map((group) => (
+				{navGroups.map((group) => (
 					<NavGroupList key={group.titleKey} group={group} />
 				))}
 				{showAffiliateNavigation ? (

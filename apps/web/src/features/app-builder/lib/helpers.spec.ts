@@ -3,6 +3,7 @@
 import type { BuilderModelsResponse } from "@wandit/contracts";
 import {
 	APP_THEME_TEMPLATE_SELECTION,
+	type AppThemeSource,
 	buildAppThemeFile,
 } from "@wandit/contracts/v2/app-theme";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +20,7 @@ import {
 	costCapToDraft,
 	fastModelOf,
 	formatUsdMicros,
+	isSameThemeSource,
 	isThemeDraftStale,
 	panelsForKind,
 	previewSrcFor,
@@ -61,11 +63,6 @@ describe("resolvePanel", () => {
 	it("opens Database with the gate open and Analytics with it closed when nothing is requested", () => {
 		expect(resolvePanel("web", undefined, true)).toBe("database");
 		expect(resolvePanel("mobile", undefined, false)).toBe("analytics");
-	});
-
-	it("falls back for Integrations, which the nav shows as Soon", () => {
-		expect(resolvePanel("web", "integrations", true)).toBe("database");
-		expect(resolvePanel("web", "integrations", false)).toBe("analytics");
 	});
 
 	it("falls back for a panel the kind does not have", () => {
@@ -403,6 +400,37 @@ describe("isThemeDraftStale", () => {
 		expect(isThemeDraftStale({ draft, savedTheme, isTurnRunning })).toBe(
 			isStale,
 		);
+	});
+});
+
+describe("isSameThemeSource", () => {
+	const seeds = {
+		kind: "seeds",
+		background: "#ffffff",
+		foreground: "#111111",
+		primary: "#1f6098",
+	} satisfies AppThemeSource;
+	const ardoise: AppThemeSource = { kind: "look", look: "ardoise" };
+	// A wrong answer keeps an old name after a new look, or drops the AI name after a radius change.
+	it.each<[string, boolean, AppThemeSource, AppThemeSource]>([
+		["the same look", true, ardoise, { kind: "look", look: "ardoise" }],
+		["another look", false, ardoise, { kind: "look", look: "brume" }],
+		[
+			"the same world",
+			true,
+			{ kind: "world", world: "promenade" },
+			{ kind: "world", world: "promenade" },
+		],
+		["equal seeds", true, seeds, { ...seeds }],
+		[
+			"seeds with another primary",
+			false,
+			seeds,
+			{ ...seeds, primary: "#aa0000" },
+		],
+		["a look after seeds", false, seeds, ardoise],
+	])("with %s, keeps the name: %s", (_case, isSame, current, next) => {
+		expect(isSameThemeSource(current, next)).toBe(isSame);
 	});
 });
 

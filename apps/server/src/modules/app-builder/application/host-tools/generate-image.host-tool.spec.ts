@@ -94,6 +94,7 @@ async function setup(options: {
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId:
 			options.holdEventId === undefined ? "evt_parent_1" : options.holdEventId,
 		knownThemeFile: () => null,

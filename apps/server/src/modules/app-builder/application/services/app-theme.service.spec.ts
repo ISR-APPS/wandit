@@ -8,7 +8,10 @@ import {
 } from "@wandit/contracts/v2/app-theme";
 import { describe, expect, it } from "vitest";
 
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import { fallbackThemeSelection } from "../../domain/app-theme-deal";
 import type { GitFileReader, GitStore } from "../../domain/ports/git-store";
 import type {
@@ -31,7 +34,7 @@ import {
 import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
 import { AppThemeService } from "./app-theme.service";
 
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 const HEAD = "b".repeat(40);
 const NEW_SHA = "c".repeat(40);
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
@@ -140,6 +143,7 @@ async function setup(state: ProjectState = {}) {
 		gitFiles,
 		{ putPatch: async () => undefined },
 		turns,
+		{ scheduleIfLinked: async () => undefined },
 	);
 	return { inserted, sandboxes, service, turnLock };
 }

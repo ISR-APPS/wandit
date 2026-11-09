@@ -1,10 +1,13 @@
 import type { SetThemeHostToolInput } from "@wandit/contracts";
 import {
 	APP_THEME_OPTIONS,
+	APP_THEME_TEMPLATE_SELECTION,
 	type AppThemeFile,
 	type AppThemeSelection,
 	appThemeFileSchema,
+	buildAppThemeFile,
 } from "@wandit/contracts/v2/app-theme";
+import { APP_LOOKS } from "@wandit/contracts/v2/app-theme-catalog";
 import { describe, expect, it } from "vitest";
 
 import type { HostToolContext } from "../../domain/ports/host-tools";
@@ -17,6 +20,17 @@ import { createSetThemeTool } from "./set-theme.host-tool";
 const THEME_PATH = `${FAKE_WORKSPACE_DIR}/src/styles/theme.json`;
 
 const OPTIONS = { context: {}, messages: [], toolCallId: "tc-1" };
+
+/** The selection of a saved AI theme draft: a seeds source. */
+const SEEDS_SELECTION: AppThemeSelection = {
+	...APP_THEME_TEMPLATE_SELECTION,
+	source: {
+		kind: "seeds",
+		background: "#f6fbf9",
+		foreground: "#14231f",
+		primary: "#1e8c6e",
+	},
+};
 
 /** The tool on a fake web-app@1.1.0 sandbox with no theme.json yet. */
 async function setup() {
@@ -34,6 +48,7 @@ async function setup() {
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId: null,
 		// Like the runtime: the last host write is the file that the host trusts.
 		knownThemeFile: () => written.at(-1) ?? null,
@@ -133,5 +148,42 @@ describe("createSetThemeTool", () => {
 		const file = await fileOnDisk();
 		expect(file?.selection.source.kind).toBe("seeds");
 		expect(file?.selection.mode).toBe("dark");
+	});
+
+	it("keeps the name of an AI theme on a tweak, and a new look takes the look name", async () => {
+		const { execute, fileOnDisk, written } = await setup();
+		// The Save of an AI theme draft: a seeds source with the name of the designer.
+		written.push(
+			buildAppThemeFile({
+				name: "Menthe douce",
+				origin: "user",
+				selection: SEEDS_SELECTION,
+			}),
+		);
+
+		await execute({ mode: "dark" }, OPTIONS);
+		const tweaked = await fileOnDisk();
+		await execute({ look: "pop-pastel" }, OPTIONS);
+		const restyled = await fileOnDisk();
+
+		expect(tweaked?.name).toBe("Menthe douce");
+		expect(restyled?.name).toBe(APP_LOOKS["pop-pastel"].name);
+	});
+
+	it("drops a disk name with a line break on a tweak, so the commit message gets no fake trailer", async () => {
+		const { execute, fileOnDisk, sandbox } = await setup();
+		// With no host file, the base is the disk file, which an agent script can write.
+		const agentFile = buildAppThemeFile({
+			name: "Menthe\nSigned-off-by: x",
+			origin: "user",
+			selection: SEEDS_SELECTION,
+		});
+		await sandbox.writeFiles([
+			{ content: JSON.stringify(agentFile), path: THEME_PATH },
+		]);
+
+		await execute({ mode: "dark" }, OPTIONS);
+
+		expect((await fileOnDisk())?.name).toBe("Brand colors");
 	});
 });

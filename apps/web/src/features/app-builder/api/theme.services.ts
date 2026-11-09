@@ -1,12 +1,15 @@
 /**
- * Data layer of the builder Thème sheet: the theme GET and the theme PUT of a project.
+ * Data layer of the builder Thème sheet: the theme GET, PUT, and design POST of a project.
  * Each function calls the route through `@/lib/api-client` and parses the answer with contracts.
- * The contracts theme module holds the 74 KB look catalog, so only lazy code imports this file:
+ * The contracts theme module holds the large look catalog, so only lazy code imports this file:
  * the queryFn of `appThemeQuery` and theme.mutations.ts, which only the lazy Thème sheet calls.
  */
 
 import { appBuilderRoutes } from "@wandit/contracts";
 import {
+	type DesignAppThemeBody,
+	type DesignAppThemeResponse,
+	designAppThemeResponseSchema,
 	type GetAppThemeResponse,
 	getAppThemeResponseSchema,
 	type PutAppThemeBody,
@@ -41,4 +44,20 @@ export async function saveAppTheme(
 		body,
 	);
 	return putAppThemeResponseSchema.parse(data);
+}
+
+/**
+ * `POST /api/v2/projects/:id/theme/design`: the designer model makes a whole theme.json from the words of
+ * the user. It saves nothing and costs credits. Errors: 402 INSUFFICIENT_CREDITS, 429 RATE_LIMITED,
+ * 502 THEME_DESIGN_FAILED, 503 THEME_DESIGN_UNAVAILABLE. The error propagates to the sheet.
+ */
+export async function designAppTheme(
+	projectId: string,
+	body: DesignAppThemeBody,
+): Promise<DesignAppThemeResponse> {
+	const data = await apiClient.post<unknown>(
+		appBuilderRoutes.themeDesign(projectId),
+		body,
+	);
+	return designAppThemeResponseSchema.parse(data);
 }

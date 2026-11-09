@@ -56,7 +56,13 @@ describe("PagesController.restoreVersion", () => {
 			),
 		).resolves.toEqual(response);
 		expect(pageEditsService.restoreVersion).toHaveBeenCalledWith(
-			{ kind: "personal", userId: "user_1" },
+			{
+				actorIsLimitExempt: true,
+				actorRoles: ["owner"],
+				actorUserId: "user_1",
+				kind: "personal",
+				ownerUserId: "user_1",
+			},
 			PROJECT_ID,
 			VERSION_ID,
 			{ expectedActiveVersionId: ACTIVE_VERSION_ID },

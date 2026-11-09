@@ -2,11 +2,19 @@
 	"switcher": {
 		"label": "Espace de travail",
 		"personal": "Personnel",
-		"personalDescription": "Vos projets privés",
-		"create": "Créer un espace d'équipe",
-		"roleOwner": "Propriétaire",
-		"roleAdmin": "Admin",
-		"roleMember": "Membre"
+		"create": "Créer un espace d'équipe"
+	},
+	"roles": {
+		"owner": "Propriétaire",
+		"admin": "Admin",
+		"member": "Éditeur",
+		"viewer": "Lecteur"
+	},
+	"projectRoles": {
+		"owner": "Propriétaire",
+		"admin": "Admin",
+		"editor": "Peut modifier",
+		"viewer": "Peut voir"
 	},
 	"create": {
 		"title": "Nommez votre espace de travail",
@@ -23,34 +31,81 @@
 		},
 		"retryCheckout": "Réessayer le paiement"
 	},
-	"members": {
-		"title": "Membres",
-		"description": "Les personnes ayant accès à cet espace de travail.",
-		"invite": "Inviter un coéquipier",
-		"inviteEmailLabel": "Adresse e-mail",
-		"inviteEmailPlaceholder": "collegue@entreprise.com",
-		"inviteRoleLabel": "Rôle",
-		"inviteSubmit": "Envoyer l'invitation",
-		"inviteSending": "Envoi…",
-		"inviteSent": "Invitation envoyée",
-		"inviteFailed": "L'envoi de l'invitation a échoué. Veuillez réessayer.",
-		"inviteLinkCopy": "Copier le lien d'invitation",
-		"inviteLinkCopied": "Lien d'invitation copié",
-		"pendingTitle": "Invitations en attente",
-		"cancelInvite": "Annuler l'invitation",
-		"resendInvite": "Renvoyer",
-		"removeMember": "Retirer de l'espace",
-		"removeConfirmTitle": "Retirer {name} ?",
-		"removeConfirmBody": "Cette personne perd immédiatement l'accès à tous les projets de cet espace.",
-		"leave": "Quitter l'espace",
-		"leaveConfirmTitle": "Quitter cet espace de travail ?",
-		"leaveConfirmBody": "Vous perdrez l'accès à ses projets jusqu'à ce qu'on vous réinvite.",
-		"lastOwnerBlocked": "Vous êtes le seul propriétaire. Transférez la propriété avant de partir.",
-		"changeRole": "Changer le rôle",
-		"you": "Vous",
-		"memberCount": {
-			"one": "{count} membre",
-			"other": "{count} membres"
+	"people": {
+		"title": "Personnes",
+		"description": "Les personnes qui peuvent ouvrir les projets de cet espace de travail.",
+		"loadFailed": "Cette liste n'a pas pu se charger. Rechargez la page pour réessayer.",
+		"cancel": "Annuler",
+		"linkCopied": "Lien copié",
+		"copyFailed": "Le navigateur a bloqué la copie. Sélectionnez le lien et copiez-le vous-même.",
+		"rename": {
+			"label": "Nom de l'espace",
+			"save": "Enregistrer le nom",
+			"saving": "Enregistrement…",
+			"saved": "Espace renommé"
+		},
+		"invite": {
+			"title": "Inviter par e-mail",
+			"description": "Séparez plusieurs adresses par des virgules, des espaces ou des retours à la ligne.",
+			"emailsLabel": "Adresses e-mail",
+			"emailsPlaceholder": "collegue@entreprise.com, designer@entreprise.com",
+			"roleLabel": "Rôle",
+			"submit": "Envoyer les invitations",
+			"sending": "Envoi…",
+			"sent": {
+				"one": "{count} invitation envoyée",
+				"other": "{count} invitations envoyées"
+			},
+			"failed": "Ces invitations n'ont pas été envoyées : {emails}. {reason}",
+			"invalidEmails": "Ce ne sont pas des adresses e-mail : {emails}",
+			"tooMany": "Envoyez {max} invitations au maximum à la fois.",
+			"alreadyMember": "Cette personne est déjà membre.",
+			"alreadyInvited": "Cette personne a déjà une invitation en attente."
+		},
+		"links": {
+			"title": "Liens d'invitation",
+			"description": "Toute personne qui a un lien peut rejoindre l'espace avec son rôle. Un lien expire après 5 jours.",
+			"url": "Lien d'invitation pour {role}",
+			"copy": "Copier le lien",
+			"create": "Créer un lien",
+			"replace": "Nouveau lien",
+			"revoke": "Supprimer le lien",
+			"created": "Lien d'invitation prêt",
+			"revoked": "Lien d'invitation supprimé",
+			"expires": "Expire le {date}",
+			"expired": "Expiré. Créez un nouveau lien.",
+			"none": "Aucun lien actif"
+		},
+		"members": {
+			"title": "Membres",
+			"you": "Vous",
+			"roleLabel": "Rôle de {name}",
+			"roleChanged": "Rôle modifié",
+			"remove": "Retirer de l'espace",
+			"removeConfirmTitle": "Retirer {name} ?",
+			"removeConfirmBody": "Cette personne perd immédiatement l'accès à tous les projets de cet espace.",
+			"removeConfirm": "Retirer",
+			"removed": "{name} a été retiré"
+		},
+		"pending": {
+			"title": "Invitations en attente",
+			"expires": "Expire le {date}",
+			"copy": "Copier le lien d'invitation",
+			"cancel": "Annuler l'invitation",
+			"canceled": "Invitation annulée"
+		},
+		"collaborators": {
+			"title": "Collaborateurs",
+			"description": "Les personnes extérieures à cet espace qui peuvent ouvrir certains de ses projets.",
+			"empty": "Aucun collaborateur pour l'instant. Partagez un projet pour en ajouter un.",
+			"project": "{project} · {role}"
+		},
+		"leave": {
+			"button": "Quitter l'espace",
+			"confirmTitle": "Quitter cet espace de travail ?",
+			"confirmBody": "Vous perdrez l'accès à ses projets jusqu'à ce qu'on vous réinvite.",
+			"confirm": "Quitter",
+			"lastOwnerBlocked": "Vous êtes le seul propriétaire. Nommez un autre membre propriétaire avant de partir."
 		}
 	},
 	"limits": {
@@ -63,7 +118,9 @@
 		"save": "Enregistrer les limites",
 		"saving": "Enregistrement…",
 		"saved": "Limites enregistrées",
-		"saveFailed": "L'enregistrement des limites a échoué. Veuillez réessayer."
+		"saveFailed": "L'enregistrement des limites a échoué. Veuillez réessayer.",
+		"loadFailed": "Les limites n'ont pas pu se charger. Rechargez la page pour réessayer.",
+		"collaborator": "Collaborateur"
 	},
 	"invite": {
 		"title": "Invitation à un espace de travail",
@@ -76,10 +133,22 @@
 		"invalid": "Cette invitation est invalide ou a expiré.",
 		"signInFirst": "Connectez-vous pour accepter cette invitation.",
 		"pendingBanner": {
-			"one": "Vous avez {count} invitation d'espace en attente",
-			"other": "Vous avez {count} invitations d'espace en attente"
+			"one": "Vous avez {count} invitation en attente",
+			"other": "Vous avez {count} invitations en attente"
 		},
+		"pendingWorkspace": "Espace {workspace} · {role}",
+		"pendingProject": "Projet {project} dans {workspace} · {role}",
 		"pendingBannerCta": "Voir"
+	},
+	"join": {
+		"title": "Rejoindre avec un lien d'invitation",
+		"workspaceInvite": "{inviter} vous invite à rejoindre l'espace {workspace} en tant que {role}.",
+		"projectInvite": "{inviter} vous invite sur le projet {project} en tant que {role}.",
+		"join": "Rejoindre",
+		"joining": "Connexion…",
+		"invalid": "Ce lien d'invitation n'est pas valide. Demandez un nouveau lien.",
+		"expired": "Ce lien d'invitation a expiré. Demandez un nouveau lien à {inviter}.",
+		"signInFirst": "Connectez-vous pour rejoindre."
 	},
 	"billing": {
 		"ownerOnlyTitle": "La facturation est gérée par le propriétaire",

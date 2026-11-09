@@ -318,6 +318,8 @@ export class AdminUsersService {
 			// Remove durable sessions. A signed session cache can remain valid for
 			// up to five minutes, then the missing Postgres row enforces the ban.
 			await this.adminRepository.deleteUserSessions(userId);
+			// The MCP grants go too. Without this, an agent that a thief connected works again after an unban.
+			await this.adminRepository.deleteUserOAuthGrants(userId);
 		}
 
 		this.logger.log(

@@ -8,11 +8,11 @@
 import { z } from "zod";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
-import { projectPromptMaxLength, projectSchema } from "../v1/projects";
+import { projectSchema } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { projectEngineSchema } from "../v1/shared/project-engine";
 import { targetPlatformSchema } from "../v1/shared/target-platform";
-import { builderTurnModeSchema } from "./turns";
+import { builderMessageMaxLength, builderTurnModeSchema } from "./turns";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
 // `projectSchema` carries it now. This line keeps earlier V2 imports working.
@@ -45,7 +45,7 @@ export type AppLanguage = z.infer<typeof appLanguageSchema>;
  */
 export const createAppProjectRequestSchema = z
 	.object({
-		prompt: z.string().max(projectPromptMaxLength),
+		prompt: z.string().max(builderMessageMaxLength),
 		composer: composerMetadataSchema.optional(),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		targetPlatform: targetPlatformSchema.default("web"),

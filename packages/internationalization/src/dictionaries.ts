@@ -1,3 +1,9 @@
+/**
+ * Joins the JSON namespaces of each locale into one dictionary. English loads
+ * at once and is the fallback and the type of every key. French and Arabic
+ * load on demand through `getDictionary`. react.tsx reads the key types. The web
+ * i18n provider and the native locale context load a locale through the package index.
+ */
 import enAcademy from "../dictionaries/en/academy.json";
 import enAffiliates from "../dictionaries/en/affiliates.json";
 import enAppBuilder from "../dictionaries/en/app-builder.json";
@@ -13,6 +19,7 @@ import enNative from "../dictionaries/en/native.json";
 import enOnboarding from "../dictionaries/en/onboarding.json";
 import enProjects from "../dictionaries/en/projects.json";
 import enSettings from "../dictionaries/en/settings.json";
+import enSharing from "../dictionaries/en/sharing.json";
 import enWorkspace from "../dictionaries/en/workspace.json";
 import enWorkspaces from "../dictionaries/en/workspaces.json";
 import type { Locale } from "./config";
@@ -32,6 +39,7 @@ const en = {
 	leads: enLeads,
 	legal: enLegal,
 	settings: enSettings,
+	sharing: enSharing,
 	errors: enErrors,
 	native: enNative,
 	onboarding: enOnboarding,
@@ -107,6 +115,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		leads,
 		legal,
 		settings,
+		sharing,
 		errors,
 		native,
 		onboarding,
@@ -125,6 +134,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/leads.json"),
 		import("../dictionaries/fr/legal.json"),
 		import("../dictionaries/fr/settings.json"),
+		import("../dictionaries/fr/sharing.json"),
 		import("../dictionaries/fr/errors.json"),
 		import("../dictionaries/fr/native.json"),
 		import("../dictionaries/fr/onboarding.json"),
@@ -145,6 +155,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		leads: leads.default,
 		legal: legal.default,
 		settings: settings.default,
+		sharing: sharing.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,
@@ -167,6 +178,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		leads,
 		legal,
 		settings,
+		sharing,
 		errors,
 		native,
 		onboarding,
@@ -185,6 +197,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/leads.json"),
 		import("../dictionaries/ar/legal.json"),
 		import("../dictionaries/ar/settings.json"),
+		import("../dictionaries/ar/sharing.json"),
 		import("../dictionaries/ar/errors.json"),
 		import("../dictionaries/ar/native.json"),
 		import("../dictionaries/ar/onboarding.json"),
@@ -205,6 +218,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		leads: leads.default,
 		legal: legal.default,
 		settings: settings.default,
+		sharing: sharing.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,

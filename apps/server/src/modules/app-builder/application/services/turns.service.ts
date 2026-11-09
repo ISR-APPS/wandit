@@ -1,6 +1,7 @@
 /**
  * Orchestration behind the turn API: create, the pre-send estimate, cancel,
- * stream access checks, and the end-of-turn promotion trigger.
+ * stream access checks, the poll answer of the builder page, and the
+ * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
  * model price check, the monthly cap, and the per-actor turn limit, then
@@ -27,6 +28,7 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	type ActiveTurnStateResponse,
 	appBuilderRoutes,
 	builderTurnSpecSchema,
 	type CancelTurnResponse,
@@ -38,6 +40,11 @@ import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
 import { getErrorMessage } from "@wandit/observability/error";
 
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	creditPayerOf,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { harnessModelMultiplier } from "../../../metering/domain/harness-price-table";
@@ -49,6 +56,7 @@ import { assertWanditHostedAttachments } from "../../../projects/application/ser
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
+	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
@@ -79,6 +87,7 @@ import {
 	WAKE_LOCK_HOLDER_PREFIX,
 } from "../../domain/turn-queue";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
+import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
 import {
 	type BuilderSessionRow,
 	BuilderSessionsRepository,
@@ -192,18 +201,26 @@ export class TurnsService {
 		/** Starts a failed or missing backend again when a new message arrives. */
 		@Inject(BackendsService)
 		private readonly backends: Pick<BackendsService, "provisionBackend">,
+		/** The payer pool balance of the estimate answer. */
+		@Inject(CreditsService)
+		private readonly credits: Pick<CreditsService, "getSettledBalance">,
+		/** The `main` head of the poll answer. */
+		@Inject(AppCommitsRepository)
+		private readonly commits: Pick<AppCommitsRepository, "findBranch">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
 
 	/**
-	 * `POST /v2/projects/:id/turns`. Reserves a credit hold, then either
-	 * queues the turn behind an active one (`waiting` row, `queued: true`)
-	 * or takes the project lock and starts `builder-turn` right away. A
+	 * `POST /v2/projects/:id/turns`. Reserves a credit hold. Then it queues
+	 * the turn behind an active one (`waiting` row, `queued: true`).
+	 * Otherwise it takes the project lock and starts `builder-turn` at once. A
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project
 	 * whose last turn waits on an approval card answers 409
 	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
-	 * message also starts an `error` or missing backend row again.
+	 * message also starts an `error` or missing backend row again. With
+	 * `options.requestKey`, a retry answers the first turn before these gates.
+	 * A replay with another message answers 409 REQUEST_KEY_REUSED.
 	 */
 	async create(
 		scope: ProjectScope,
@@ -216,6 +233,12 @@ export class TurnsService {
 			ip?: string;
 			/** `Date.now()` ms when the HTTP request arrived; feeds `apiCreateMs` of the timing line. */
 			requestStartedAt?: number;
+			/**
+			 * Dedupe key of the row, unique per chat. The MCP `send_prompt` tool passes
+			 * `mcp:<clientId>:<userId>:<requestKey>`, so a retry returns the first turn before any gate.
+			 * Default: the new turn id.
+			 */
+			requestKey?: string;
 		} = {},
 	): Promise<CreateTurnResponse> {
 		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
@@ -229,13 +252,28 @@ export class TurnsService {
 			throw new NotFoundException();
 		}
 
-		assertWanditHostedAttachments(scope.userId, body.attachments);
+		// Uploads live under the uploader's namespace: the actor, not the owner.
+		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
 		// Security check: an answer file reaches the sandbox copy, so it
 		// passes the same owner check as an attachment.
 		assertWanditHostedAttachments(
-			scope.userId,
+			scope.actorUserId,
 			body.answers?.flatMap((answer) => answer.files),
 		);
+
+		// A retry of a keyed submit answers its first turn before the gates below. When the first turn
+		// waits on an approval card or hits a cap, a gate refuses the retry. The agent then loses its turn id.
+		// A replay takes no new credit hold. The late replay in `turns.create` covers two concurrent submits.
+		if (options.requestKey !== undefined) {
+			const replayed = await this.turns.findByRequestKey(
+				body.chatId,
+				options.requestKey,
+			);
+			if (replayed !== null && replayed.projectId === projectId) {
+				assertSameReplayedMessage(replayed, body.message);
+				return turnCreatedResponseOf(replayed, body.chatId, null);
+			}
+		}
 
 		// A paused approval card must be answered before a new turn starts;
 		// a paused question is answered by `answers` or by the message text.
@@ -279,10 +317,11 @@ export class TurnsService {
 
 		// A runaway client holding many open turns would drain the pool;
 		// three reserved sessions per actor is the hard stop.
+		// LIMIT: the cap counts per actor, so N editors of one pool run 3N turns. Upgrade: a cap per payer.
 		if (
 			(await this.metering.countReservedByActor(
 				"agent_session",
-				scope.userId,
+				scope.actorUserId,
 			)) >= MAX_ACTIVE_TURNS_PER_ACTOR
 		) {
 			throw new HttpException(
@@ -382,13 +421,13 @@ export class TurnsService {
 				model,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
-				requestKey: turnId,
+				requestKey: options.requestKey ?? turnId,
 				sessionId: session.id,
 				spec,
 				status,
-				userId: scope.userId,
+				// `builder_turns.user_id` holds the actor (workspaces-sharing.md 4).
+				userId: scope.actorUserId,
 			});
-			rowCreated = true;
 			// Whole ms: the task payload schema takes an integer, and Fastify
 			// counts the request time with decimals.
 			const apiCreateMs =
@@ -410,8 +449,11 @@ export class TurnsService {
 						"builder_turn_create_replayed",
 					);
 				}
+				// `rowCreated` stays false: this call made no row, so a refusal here marks no row failed.
+				assertSameReplayedMessage(created.turn, body.message);
 				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
+			rowCreated = true;
 
 			if (options.existingMessageId === undefined) {
 				await this.chats.insertTurnUserMessage({
@@ -430,8 +472,8 @@ export class TurnsService {
 					.provisionBackend(projectId, {
 						// The turn route reads no country; null picks the default region.
 						countryCode: null,
-						organizationId: scope.kind === "org" ? scope.organizationId : null,
-						userId: scope.userId,
+						// The payer's plan decides the backend slot: the project owner columns.
+						...projectOwnerColumns(scope),
 					})
 					.catch((error: unknown) => {
 						// A plan without a free backend slot is a product rule, not a
@@ -455,7 +497,7 @@ export class TurnsService {
 			if (!acquired) {
 				await this.recordTurnAudit(
 					"turn.start",
-					scope.userId,
+					scope.actorUserId,
 					created.turn,
 					options.ip ?? null,
 					{ queued: true },
@@ -479,7 +521,7 @@ export class TurnsService {
 			}
 
 			const handle = await this.starter.start({
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				apiCreateMs,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
@@ -487,7 +529,7 @@ export class TurnsService {
 			});
 			await this.recordTurnAudit(
 				"turn.start",
-				scope.userId,
+				scope.actorUserId,
 				created.turn,
 				options.ip ?? null,
 				{ queued: false },
@@ -551,7 +593,7 @@ export class TurnsService {
 				"canceled",
 			);
 			if (moved) {
-				await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+				await this.recordTurnAudit("turn.cancel", scope.actorUserId, turn, ip, {
 					fromStatus: turn.status,
 				});
 				if (
@@ -596,7 +638,7 @@ export class TurnsService {
 		// writes it before the remote cancel can throw. A retry finds
 		// `cancelling` and writes no second row. `turn.end` holds the outcome.
 		if (turn.status !== "cancelling") {
-			await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+			await this.recordTurnAudit("turn.cancel", scope.actorUserId, turn, ip, {
 				fromStatus: turn.status,
 			});
 		}
@@ -663,7 +705,8 @@ export class TurnsService {
 	 * `GET /v2/projects/:id/turns/estimate`. The hold that the next turn on
 	 * the deploy default model reserves: the same `estimateTurn` that
 	 * `create` runs, with no write. 404 for a project that is out of scope
-	 * or not V2.
+	 * or not V2. `payer` names the pool the turn spends, which can be
+	 * another user's pool (workspaces-sharing.md 4), so the composer locks on it.
 	 */
 	async estimate(
 		scope: ProjectScope,
@@ -680,7 +723,16 @@ export class TurnsService {
 			this.v2Env.V2_DEFAULT_MODEL ?? null,
 			caps?.perTurnCapCredits ?? null,
 		);
-		return { estimate: wholeCreditEstimateOf(estimate) };
+		const payer = subjectPayer(meteringSubjectFrom(scope));
+		const balance = await this.credits.getSettledBalance(payer);
+		return {
+			estimate: wholeCreditEstimateOf(estimate),
+			payer: {
+				isActor: creditPayerOf(payer, scope.actorUserId).isActor,
+				// The reserve admission refuses at a settled balance of 0 or less.
+				outOfCredits: balance.settledBalance <= 0,
+			},
+		};
 	}
 
 	/** The project's currently active turn (for `turns/active/stream`). */
@@ -694,6 +746,20 @@ export class TurnsService {
 		}
 
 		return this.turns.findActiveForProject(projectId);
+	}
+
+	/**
+	 * `GET /v2/projects/:id/turns/active`. The builder page polls it every 5 s
+	 * to show a turn or a commit of another client, such as the MCP tools.
+	 * The same 404 as `findActiveTurn` comes before the head read.
+	 */
+	async activeTurnState(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ActiveTurnStateResponse> {
+		const turn = await this.findActiveTurn(scope, projectId);
+		const branch = await this.commits.findBranch(projectId);
+		return { activeTurnId: turn?.id ?? null, headSha: branch?.headSha ?? null };
 	}
 
 	/**
@@ -772,10 +838,10 @@ export class TurnsService {
 				chatId,
 				harness,
 				model,
-				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
 				templateVersion: null,
-				userId: scope.userId,
+				// Owner columns: the session belongs to the project, not to the sender.
+				...projectOwnerColumns(scope),
 			});
 		} catch (error) {
 			if (!isUniqueViolation(error)) {
@@ -1042,6 +1108,27 @@ export class TurnsService {
 			projectId: turn.projectId,
 			targetId: turn.id,
 			targetType: "builder_turn",
+		});
+	}
+}
+
+/**
+ * Throws 409 REQUEST_KEY_REUSED when a replayed row holds another prompt than `message`.
+ * An MCP agent writes its own `requestKey` and can reuse one by mistake. The new prompt then must not drop silently.
+ */
+function assertSameReplayedMessage(
+	replayed: BuilderTurnRow,
+	message: string,
+): void {
+	// jsonb returns unknown. A spec that does not parse cannot prove the same prompt, so it also refuses.
+	const spec = builderTurnSpecSchema
+		.pick({ message: true })
+		.safeParse(replayed.spec);
+	if (!spec.success || spec.data.message !== message) {
+		throw new ConflictException({
+			code: "REQUEST_KEY_REUSED",
+			message:
+				"This requestKey belongs to another prompt. Send the new prompt with a new requestKey",
 		});
 	}
 }

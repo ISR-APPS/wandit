@@ -4,14 +4,14 @@
  * Line 1 of `templates/<framework>/template_version` is the version (D-D);
  * line 2 is the release date. The file paths come from `TEMPLATE_PROFILES`.
  */
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { TargetPlatform } from "@wandit/contracts";
 
+import { DesktopTemplateUnavailableError } from "../../domain/errors/desktop-template-unavailable.error";
 import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
 import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
-import { TEMPLATE_PROFILES } from "../sandbox/template-profiles";
+import { readFirstLine, TEMPLATE_PROFILES } from "../sandbox/template-profiles";
 
 /**
  * The version file of each platform inside the `templates/` folder that
@@ -22,6 +22,7 @@ import { TEMPLATE_PROFILES } from "../sandbox/template-profiles";
 export const TEMPLATE_VERSION_FILE_PATHS: Readonly<
 	Record<TargetPlatform, string>
 > = {
+	desktop: resolve(TEMPLATE_ARCHIVE_DIR, TEMPLATE_PROFILES.desktop.versionFile),
 	mobile: resolve(TEMPLATE_ARCHIVE_DIR, TEMPLATE_PROFILES.mobile.versionFile),
 	web: resolve(TEMPLATE_ARCHIVE_DIR, TEMPLATE_PROFILES.web.versionFile),
 };
@@ -33,8 +34,8 @@ export const TEMPLATE_VERSION_FILES = Symbol.for(
 
 /**
  * The web file is required: a missing or empty one throws at construction.
- * The mobile file is optional. Without it, the API boots. Each mobile create
- * then answers 503 until a boot finds the file.
+ * The mobile and desktop files are optional. Without one, the API boots.
+ * Each create of that platform then answers 503 until a boot finds the file.
  */
 @Injectable()
 export class TemplateVersionService {
@@ -43,6 +44,8 @@ export class TemplateVersionService {
 	private readonly webVersion: string;
 	// "mobile-app@1.0.0", or null when the mobile file was absent at boot.
 	private readonly mobileVersion: string | null;
+	// "desktop-app@1.0.0", or null when the desktop file was absent at boot.
+	private readonly desktopVersion: string | null;
 
 	constructor(
 		@Optional()
@@ -64,30 +67,33 @@ export class TemplateVersionService {
 				`templates/mobile-app/template_version is missing or empty at ${files.mobile}; a mobile create answers MOBILE_TEMPLATE_UNAVAILABLE`,
 			);
 		}
+		this.desktopVersion = readFirstLine(files.desktop);
+		if (this.desktopVersion === null) {
+			this.logger.warn(
+				`templates/desktop-app/template_version is missing or empty at ${files.desktop}; a desktop create answers DESKTOP_TEMPLATE_UNAVAILABLE`,
+			);
+		}
 	}
 
 	/**
-	 * The version a new project of this platform starts from. Throws
-	 * `MobileTemplateUnavailableError` (503) when the mobile file was absent at boot.
+	 * The version a new project of this platform starts from. Throws a 503
+	 * `MobileTemplateUnavailableError` or `DesktopTemplateUnavailableError`
+	 * when that file was absent at boot.
 	 */
 	versionFor(platform: TargetPlatform): string {
-		if (platform === "web") {
-			return this.webVersion;
+		switch (platform) {
+			case "web":
+				return this.webVersion;
+			case "mobile":
+				if (this.mobileVersion === null) {
+					throw new MobileTemplateUnavailableError();
+				}
+				return this.mobileVersion;
+			case "desktop":
+				if (this.desktopVersion === null) {
+					throw new DesktopTemplateUnavailableError();
+				}
+				return this.desktopVersion;
 		}
-		if (this.mobileVersion === null) {
-			throw new MobileTemplateUnavailableError();
-		}
-		return this.mobileVersion;
-	}
-}
-
-/** The trimmed first line of the file, or null when it is missing or empty. */
-function readFirstLine(file: string): string | null {
-	try {
-		return readFileSync(file, "utf8").split("\n", 1)[0]?.trim() || null;
-	} catch {
-		// One answer for "no file" and "no version". The caller names the file,
-		// so the operator fixes the file.
-		return null;
 	}
 }

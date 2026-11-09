@@ -81,6 +81,7 @@ import {
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
 import { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import {
 	type BackendRef,
 	projectStatusOrRemoved,
@@ -319,8 +320,9 @@ export class CloudService {
 		const project = await this.requireProject(scope, projectId);
 		const row = await this.provisioning.provisionBackend(projectId, {
 			countryCode,
+			// Owner columns of the project row: the payer's plan decides the slot.
 			organizationId: project.organizationId,
-			userId: scope.userId,
+			userId: project.userId,
 		});
 		if (row === null) {
 			throw new ServiceUnavailableException({
@@ -476,7 +478,7 @@ select (select count(*)::float8 from ${qualifiedTable(table)}) as total, coalesc
 		if (kind === "write") {
 			await this.auditEvents.insert({
 				action: "cloud.sql_write",
-				actorUserId: scope.userId,
+				actorUserId: scope.actorUserId,
 				metadata: {
 					queryHash: createHash("sha256").update(body.query).digest("hex"),
 					rowCount: rows.length,
@@ -662,7 +664,7 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		// user data.
 		await this.auditEvents.insert({
 			action: "cloud.objects_deleted",
-			actorUserId: scope.userId,
+			actorUserId: scope.actorUserId,
 			metadata: { bucket, deleted, requested: body.paths.length },
 			organizationId: organizationIdOf(scope),
 			projectId,
@@ -803,7 +805,12 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		projectId: string,
 	): Promise<ScopedAppProject> {
 		const project = await this.appCommits.findScopedProject(scope, projectId);
-		if (project === null || project.engine !== "v2_app") {
+		// A desktop app has no cloud backend: every Cloud route answers 404, as for a V1 project.
+		if (
+			project === null ||
+			project.engine !== "v2_app" ||
+			project.framework === TEMPLATE_PROFILES.desktop.framework
+		) {
 			throw new NotFoundException();
 		}
 		return project;

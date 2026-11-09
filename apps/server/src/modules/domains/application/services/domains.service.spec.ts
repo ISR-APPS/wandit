@@ -9,7 +9,10 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	DomainNotAvailableError,
 	DomainsUnavailableError,
@@ -46,7 +49,7 @@ vi.mock("@wandit/env/server", () => ({
 
 const userId = "user_1";
 const projectId = "11111111-1111-4111-8111-111111111111";
-const scope: ProjectScope = { kind: "personal", userId };
+const scope: ProjectScope = projectScopeFrom(undefined, userId);
 const zoneNameServers = ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"];
 const nameserverRecords = zoneNameServers.map((value) => ({
 	name: "@",
@@ -73,7 +76,7 @@ class FakeDomainsRepository {
 		inputScope: ProjectScope,
 		inputProjectId: string,
 	) {
-		if (!this.projects.has(`${inputScope.userId}:${inputProjectId}`)) {
+		if (!this.projects.has(`${inputScope.actorUserId}:${inputProjectId}`)) {
 			throw new Error("Project not found");
 		}
 	}
@@ -83,7 +86,8 @@ class FakeDomainsRepository {
 
 		return [...this.rows.values()].filter(
 			(row) =>
-				row.projectId === inputProjectId && row.userId === inputScope.userId,
+				row.projectId === inputProjectId &&
+				row.userId === inputScope.actorUserId,
 		);
 	}
 
@@ -98,7 +102,7 @@ class FakeDomainsRepository {
 	}
 
 	async getByIdForScope(id: string, inputScope: ProjectScope) {
-		return this.getByIdForUser(id, inputScope.userId);
+		return this.getByIdForUser(id, inputScope.actorUserId);
 	}
 
 	async createExternal(input: {

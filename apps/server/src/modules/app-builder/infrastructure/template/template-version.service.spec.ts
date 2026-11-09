@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
+import { DesktopTemplateUnavailableError } from "../../domain/errors/desktop-template-unavailable.error";
 import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
 import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
 import {
@@ -23,12 +24,14 @@ const MISSING = join(tmpdir(), "no-such-template_version");
 describe("TemplateVersionService", () => {
 	it("answers the trimmed first line of each version file", () => {
 		const service = new TemplateVersionService({
+			desktop: versionFile("desktop-app@1.0.0\n2026-11-04\n"),
 			mobile: versionFile("mobile-app@2.0.0\n2026-09-25\nexpo-sdk@57\n"),
 			web: versionFile("  web-app@9.9.9\n2026-09-14\n"),
 		});
 
 		expect(service.versionFor("web")).toBe("web-app@9.9.9");
 		expect(service.versionFor("mobile")).toBe("mobile-app@2.0.0");
+		expect(service.versionFor("desktop")).toBe("desktop-app@1.0.0");
 	});
 
 	it("boots without the mobile file, warns once, and still answers web", () => {
@@ -37,6 +40,7 @@ describe("TemplateVersionService", () => {
 			.mockImplementation(() => undefined);
 
 		const service = new TemplateVersionService({
+			desktop: versionFile("desktop-app@1.0.0\n"),
 			mobile: MISSING,
 			web: versionFile("web-app@1.0.0\n"),
 		});
@@ -47,18 +51,20 @@ describe("TemplateVersionService", () => {
 		warn.mockRestore();
 	});
 
-	it("throws MobileTemplateUnavailableError for mobile when the mobile file is empty", () => {
+	it.each([
+		["mobile", MobileTemplateUnavailableError],
+		["desktop", DesktopTemplateUnavailableError],
+	] as const)("throws a 503 for %s when its file is empty", (platform, error) => {
 		const warn = vi
 			.spyOn(Logger.prototype, "warn")
 			.mockImplementation(() => undefined);
 		const service = new TemplateVersionService({
+			desktop: versionFile("\n"),
 			mobile: versionFile("\n"),
 			web: versionFile("web-app@1.0.0\n"),
 		});
 
-		expect(() => service.versionFor("mobile")).toThrow(
-			MobileTemplateUnavailableError,
-		);
+		expect(() => service.versionFor(platform)).toThrow(error);
 		warn.mockRestore();
 	});
 
@@ -66,6 +72,7 @@ describe("TemplateVersionService", () => {
 		expect(
 			() =>
 				new TemplateVersionService({
+					desktop: versionFile("desktop-app@1.0.0\n"),
 					mobile: versionFile("mobile-app@1.0.0\n"),
 					web: MISSING,
 				}),
@@ -83,6 +90,7 @@ describe("TemplateVersionService", () => {
 			"web-app@1.1.0",
 		);
 		expect(TEMPLATE_VERSION_FILE_PATHS).toEqual({
+			desktop: join(TEMPLATE_ARCHIVE_DIR, "desktop-app/template_version"),
 			mobile: join(TEMPLATE_ARCHIVE_DIR, "mobile-app/template_version"),
 			web: join(TEMPLATE_ARCHIVE_DIR, "web-app/template_version"),
 		});

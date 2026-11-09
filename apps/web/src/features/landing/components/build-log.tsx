@@ -2,7 +2,8 @@
  * The build log card of the hero stage: four steps that tick while the app
  * builds. hero.tsx renders it next to the device, one card per build run.
  * When the wand sweep is done, the last step turns into an amber chip. The
- * chip is a QR code for a mobile app and a live address for a web app.
+ * chip is a QR code for a mobile app, a live address for a web app, and the
+ * ready installer for a desktop app.
  * Decorative only.
  */
 
@@ -20,7 +21,7 @@ export const LOG_STEP_MS = 420;
 type BuildLogProps = {
 	/** The four steps of landing.hero.log.<id>. The last step names the result. */
 	lines: string[];
-	/** Platform of the app. It picks the chip: QR code (mobile) or live address (web). */
+	/** Platform of the app. It picks the chip: QR code (mobile), or a live dot with the last step (web and desktop). */
 	platform: TargetPlatform;
 	/** Time from mount to the first step, in ms. The hero waits for its typing. */
 	startDelayMs: number;
@@ -166,7 +167,7 @@ function StepIcon({ state }: { state: StepState }) {
 
 type ResultChipProps = {
 	platform: TargetPlatform;
-	/** "Scan to open" for a mobile app, the "Live on <address>" step for a web app. */
+	/** "Scan to open" for a mobile app, the last step for a web app ("Live on <address>") or a desktop app (the installer is ready). */
 	label: string;
 	/** True under reduced motion: the chip shows at once, without its pop. */
 	isStill: boolean;

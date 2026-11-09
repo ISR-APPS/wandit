@@ -1,3 +1,9 @@
+/**
+ * The members table of the organization detail page, with the staff role select.
+ * OrganizationDetailPage renders it. The select writes through useSetOrganizationMemberRoleMutation.
+ * In a personal workspace, only the personal owner can hold the owner role, and that user keeps it.
+ */
+import { adminWorkspaceRoles } from "@wandit/contracts";
 import { AlertTriangleIcon, Loader2Icon, UsersRoundIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -48,39 +54,45 @@ import {
 import { isApiClientError } from "@/lib/api-client";
 import { formatCreditAmount } from "@/lib/credit-format";
 
-const WORKSPACE_ROLES: AdminWorkspaceRole[] = ["owner", "admin", "member"];
-
 type PendingRoleChange = {
 	member: OrganizationMember;
 	nextRole: AdminWorkspaceRole;
 };
 
+// Design 2.1: the `member` key shows as "Editor", like the web app. The API value stays `member`.
+const roleLabels = {
+	owner: "Owner",
+	admin: "Admin",
+	member: "Editor",
+	viewer: "Viewer",
+} satisfies Record<AdminWorkspaceRole, string>;
+
 /**
  * Primary role for the select: Better Auth stores comma-joined multi-role
- * strings, so containment (not equality) decides.
+ * strings, so containment (not equality) decides. `adminWorkspaceRoles` lists
+ * the roles highest first. Null means no known role: the select then shows the
+ * raw string, so staff never overwrite an unknown role by mistake.
  */
-function primaryRole(role: string): AdminWorkspaceRole {
+export function primaryRole(role: string): AdminWorkspaceRole | null {
 	const roles = role.split(",").map((value) => value.trim().toLowerCase());
 
-	if (roles.includes("owner")) {
-		return "owner";
-	}
-
-	if (roles.includes("admin")) {
-		return "admin";
-	}
-
-	return "member";
+	return adminWorkspaceRoles.find((known) => roles.includes(known)) ?? null;
 }
 
 export function OrgMembersCard({
 	organizationId,
 	members,
 	defaultMemberMonthlyCreditLimit,
+	isPersonal,
+	personalOwnerUserId,
 }: {
 	organizationId: string;
 	members: OrganizationMember[];
 	defaultMemberMonthlyCreditLimit: number | null;
+	/** True for a user's personal workspace. That user is its only owner, and the API refuses a second one. */
+	isPersonal: boolean;
+	/** The user id of that only owner. Null for a team, or when an older API leaves it out. */
+	personalOwnerUserId: string | null;
 }) {
 	const [pending, setPending] = useState<PendingRoleChange | null>(null);
 	const mutation = useSetOrganizationMemberRoleMutation();
@@ -111,7 +123,7 @@ export function OrgMembersCard({
 				role: pending.nextRole,
 			});
 			toast.success(
-				`${pending.member.name} is now ${pending.nextRole} of this workspace.`,
+				`${pending.member.name} now has the ${roleLabels[pending.nextRole]} role in this workspace.`,
 			);
 			setPending(null);
 		} catch (error) {
@@ -132,6 +144,9 @@ export function OrgMembersCard({
 					{defaultMemberMonthlyCreditLimit !== null
 						? ` Default member limit: ${formatWholeNumber(defaultMemberMonthlyCreditLimit)} credits/month.`
 						: " No default member limit is set."}
+					{isPersonal
+						? " Personal workspace: only its personal owner has the owner role. Staff cannot give it to another member or remove it."
+						: null}
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
@@ -141,9 +156,11 @@ export function OrgMembersCard({
 						className="mb-4 flex items-start gap-3 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive text-sm"
 					>
 						<AlertTriangleIcon className="mt-0.5 shrink-0" aria-hidden="true" />
+						{/* The API restores a missing personal owner row. Staff repair a changed role with the select. */}
 						<p>
-							This workspace has no owner. Promote a member to owner so the team
-							can manage billing again.
+							{isPersonal
+								? "This personal workspace has no owner role. If the personal owner row has another role, give it the Owner role again. The API restores a missing owner row when the owner next loads the workspace list."
+								: "This workspace has no owner. Promote a member to owner so the team can manage billing again."}
 						</p>
 					</div>
 				) : null}
@@ -165,57 +182,79 @@ export function OrgMembersCard({
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{members.map((row) => (
-								<TableRow key={row.userId}>
-									<TableCell>
-										<div className="flex min-w-0 flex-col">
-											<span className="truncate font-medium">{row.name}</span>
-											<span className="truncate text-muted-foreground text-xs">
-												{row.email}
-											</span>
-										</div>
-									</TableCell>
-									<TableCell>
-										<Select
-											value={primaryRole(row.role)}
-											disabled={mutation.isPending || !canManage}
-											onValueChange={(value) => {
-												const nextRole = value as AdminWorkspaceRole;
+							{members.map((row) => {
+								// The API accepts only `owner` for the personal owner, and never `owner` for another member.
+								const isPersonalOwnerRow =
+									isPersonal && row.userId === personalOwnerUserId;
 
-												if (nextRole !== primaryRole(row.role)) {
-													setPending({ member: row, nextRole });
+								return (
+									<TableRow key={row.userId}>
+										<TableCell>
+											<div className="flex min-w-0 flex-col">
+												<span className="truncate font-medium">{row.name}</span>
+												<span className="truncate text-muted-foreground text-xs">
+													{row.email}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											{/* "" shows an unknown raw role as the placeholder. The personal owner row stays
+											    locked while it has the owner role, because it can have no other role. */}
+											<Select
+												value={primaryRole(row.role) ?? ""}
+												disabled={
+													mutation.isPending ||
+													!canManage ||
+													(isPersonalOwnerRow &&
+														primaryRole(row.role) === "owner")
 												}
-											}}
-										>
-											<SelectTrigger
-												size="sm"
-												className="w-28"
-												aria-label={`Change role for ${row.name}`}
+												onValueChange={(value) => {
+													// SAFETY: every SelectItem value below comes from adminWorkspaceRoles.
+													const nextRole = value as AdminWorkspaceRole;
+
+													if (nextRole !== primaryRole(row.role)) {
+														setPending({ member: row, nextRole });
+													}
+												}}
 											>
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												{WORKSPACE_ROLES.map((role) => (
-													<SelectItem key={role} value={role}>
-														<span className="capitalize">{role}</span>
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</TableCell>
-									<TableCell className="text-muted-foreground text-sm">
-										{formatAdminDate(row.joinedAt)}
-									</TableCell>
-									<TableCell className="text-end font-mono text-sm tabular-nums">
-										{row.monthlyCreditLimit === null
-											? "—"
-											: formatWholeNumber(row.monthlyCreditLimit)}
-									</TableCell>
-									<TableCell className="text-end font-mono text-sm tabular-nums">
-										{formatCreditAmount(row.spentThisMonth)}
-									</TableCell>
-								</TableRow>
-							))}
+												<SelectTrigger
+													size="sm"
+													className="w-28"
+													aria-label={`Change role for ${row.name}`}
+												>
+													<SelectValue placeholder={row.role} />
+												</SelectTrigger>
+												<SelectContent>
+													{adminWorkspaceRoles.map((role) => (
+														<SelectItem
+															key={role}
+															value={role}
+															disabled={
+																isPersonalOwnerRow
+																	? role !== "owner"
+																	: isPersonal && role === "owner"
+															}
+														>
+															{roleLabels[role]}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</TableCell>
+										<TableCell className="text-muted-foreground text-sm">
+											{formatAdminDate(row.joinedAt)}
+										</TableCell>
+										<TableCell className="text-end font-mono text-sm tabular-nums">
+											{row.monthlyCreditLimit === null
+												? "—"
+												: formatWholeNumber(row.monthlyCreditLimit)}
+										</TableCell>
+										<TableCell className="text-end font-mono text-sm tabular-nums">
+											{formatCreditAmount(row.spentThisMonth)}
+										</TableCell>
+									</TableRow>
+								);
+							})}
 						</TableBody>
 					</Table>
 				)}
@@ -235,7 +274,8 @@ export function OrgMembersCard({
 							<AlertTriangleIcon aria-hidden="true" />
 						</AlertDialogMedia>
 						<AlertDialogTitle>
-							Make {pending?.member.name} {pending?.nextRole}?
+							Make {pending?.member.name}{" "}
+							{pending ? roleLabels[pending.nextRole] : null}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{demotingLastOwner

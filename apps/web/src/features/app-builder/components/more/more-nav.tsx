@@ -18,12 +18,11 @@ import {
 	MORE_PANEL_META,
 	type ProjectPanel,
 } from "../../lib/constants";
-import { isDisabledMorePanel, panelsForKind } from "../../lib/helpers";
-import { PanelChip } from "./panel-shell";
+import { panelsForKind } from "../../lib/helpers";
 
 /** Props of MoreNav. More view passes the resolved open panel and the Cloud gate. */
 export type MoreNavProps = {
-	/** Web apps list Domains, mobile apps list App stores. */
+	/** Web apps list Domains, mobile apps list App stores. Desktop apps list neither, and no Sign-in or Payments. */
 	kind: AppProjectKind;
 	/** The open panel. Its row is the night pill and gets aria-current. */
 	active: ProjectPanel;
@@ -34,7 +33,7 @@ export type MoreNavProps = {
 
 // A copy of NAV_BUTTON_CLASS of the dashboard sidebar
 // (projects/components/shell/app-sidebar.tsx). The rows are 36 px high, not
-// 40 px, so 15 rows and 2 headings fit an 800 px window.
+// 40 px, so 16 rows and 2 headings fit an 800 px window.
 const NAV_ROW_CLASS = cn(
 	"flex h-9 w-full shrink-0 items-center gap-2.5 rounded-full ps-1 pe-3 font-grotesk font-medium text-[14px] text-night/75 outline-none transition-colors duration-150",
 	"hover:bg-night/[0.06] hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -45,7 +44,7 @@ const NAV_ROW_CLASS = cn(
 	"max-md:w-auto",
 );
 
-/** The More panels in nav order. A disabled panel is a muted "Soon" row that selects nothing. */
+/** The More panels in nav order. Each row opens its panel. */
 export function MoreNav({
 	kind,
 	active,
@@ -59,38 +58,6 @@ export function MoreNav({
 	const appPanels = panelsForKind(kind).filter(
 		(panel) => panel !== "analytics",
 	);
-
-	function moreRow(panel: (typeof appPanels)[number]): ReactNode {
-		const meta = MORE_PANEL_META[panel];
-		if (isDisabledMorePanel(panel)) {
-			return (
-				<button
-					key={panel}
-					type="button"
-					disabled
-					className={cn(
-						NAV_ROW_CLASS,
-						"cursor-not-allowed opacity-55 hover:bg-transparent hover:text-night/75 dark:hover:bg-transparent dark:hover:text-foreground/75",
-					)}
-				>
-					<NavIcon icon={meta.icon} isActive={false} />
-					<span className="truncate">{t(meta.title)}</span>
-					<PanelChip className="ms-auto h-5 px-2 text-[11px]">
-						{t("appBuilder.soon")}
-					</PanelChip>
-				</button>
-			);
-		}
-		return (
-			<NavRow
-				key={panel}
-				icon={meta.icon}
-				label={t(meta.title)}
-				isActive={panel === active}
-				onClick={() => onSelect(panel)}
-			/>
-		);
-	}
 
 	return (
 		<nav
@@ -125,7 +92,15 @@ export function MoreNav({
 				headingId={appHeadingId}
 				heading={t("appBuilder.panels.app.title")}
 			>
-				{appPanels.map(moreRow)}
+				{appPanels.map((panel) => (
+					<NavRow
+						key={panel}
+						icon={MORE_PANEL_META[panel].icon}
+						label={t(MORE_PANEL_META[panel].title)}
+						isActive={panel === active}
+						onClick={() => onSelect(panel)}
+					/>
+				))}
 			</NavGroup>
 		</nav>
 	);

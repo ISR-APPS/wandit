@@ -37,24 +37,24 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; `app-theme-design.ts`, the prompts and the answer rules of the AI theme designer; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
-| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json` |
+| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json`; D29: `guarded-file-writes.ts`, the symlink-safe file writes of `apply_changes` |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter; WANDIT-178: the `publish-app` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService`; WANDIT-192: one version per platform (the web file is required at boot, the mobile file is optional) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository` |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository`; D29: `McpAccessRepository` (the token user, the consent, and the project owner of one MCP call) and `BuilderTurnsRepository.findCardParts` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
 | `infrastructure/langfuse/` | The OTLP exporter of the LLM proxy generations |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost |
-| `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService` |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost; D29: `McpController` (`POST /api/mcp`) and `McpTools`, the 12 MCP tools (docs/features/coding-agents-mcp.md) |
+| `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard`; D29: `McpTokenGuard`, the bearer token check of `/api/mcp`; the shared bucket constants and `findRateLimitDenial`, which the MCP tools also call |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService`; D29: `McpChangesService`, the `apply_changes` lock, write, and commit flow |
 
 ## Ports (`domain/ports/`)
 
@@ -108,12 +108,17 @@ partial unique index guarantees at most one live row per project.
 - Rebuild rule: the vendor snapshot is a disk cache; the git copy on
   code.storage is the source of truth (D21). When the named sandbox or its
   snapshot is gone, the provider boots a fresh one, applies the template
-  archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
-  `rebuild` warning. After `RepoRestorer`, and on each resume before the
-  dev server starts, `TemplateInit.replaceOldTemplateFiles` replaces a
+  archive (`ArchiveTemplateInit`), calls `RepoRestorer`, installs the
+  packages of the project lockfile, and logs a `rebuild` warning. A deploy
+  ships only the current archive, so an older pin gets that archive, and
+  the restore puts back the project files. After `RepoRestorer`, and on
+  each resume before the dev server starts,
+  `TemplateInit.replaceOldTemplateFiles` replaces a
   `vite.config.ts` (WANDIT-281) or a `.claude/settings.json` (WANDIT-180)
   that is byte-equal to an old template version. The next turn commits the
-  new file. `LoggingRepoRestorer` is the placeholder until WANDIT-171.
+  new file. An older pin keeps its `vite.config.ts`, because the current
+  file imports a plugin that the project lacks. `LoggingRepoRestorer` is
+  the placeholder until WANDIT-171.
 - Template snapshot (first-turn latency): a new or rebuilt sandbox boots
   from a ready Vercel snapshot that already holds the template, its
   `node_modules`, the template commit, and the harness install. The boot
@@ -371,10 +376,11 @@ then marks the live app deployment `unpublished`. The backend step
 (WANDIT-184) moves the `app_backends` row
 to `deleting`, pauses a running Supabase project, and deletes the
 `project_secrets` rows; the pause sweep deletes the Supabase project after
-the grace window. Then it drains the three `v2ProjectPrefixes` and deletes
+the grace window. Then it drains the five `v2ProjectPrefixes` and deletes
 the code.storage repository. The prefixes are `git/<id>/`,
-`sites/<id>/assets/`, and `published/<id>/builds/` (the stored publish
-outputs), never the whole `published/<id>/` root.
+`sites/<id>/assets/`, `published/<id>/builds/` (the stored publish
+outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
+(the build input and staged installer), never the whole `published/<id>/` root.
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
@@ -483,7 +489,7 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
   business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
-  backend.
+  backend. `BACKEND_LIMIT_OFF=true` skips the limit; set it only on staging for tests.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
   the doc for what a later issue must do.
 
@@ -520,7 +526,8 @@ missing, out-of-scope, or V1 project, like the turn routes.
   a `user` row and answers 204. A `user` write over a `system` row
   answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
   upsert, so no read races the write. A name that starts with `SUPABASE_`
-  answers 400 (`userSecretNameSchema`): the Supabase keys use these names.
+  or `WANDIT_` answers 400 (`userSecretNameSchema`): the Supabase keys and
+  the app AI gateway key use these names.
 - `DELETE /:name` removes a `user` row and answers 204. A `system` row
   answers 409; a missing row answers 404.
 
@@ -540,7 +547,7 @@ Every set and delete writes one `audit_events` row (`secret.set`,
 name in `metadata`; never the value. The API request log carries no
 body. The Sentry `beforeSend` (`scrubEvent`) masks the `value` field of
 a captured body and replaces every string that holds `sk_live_`,
-`rk_live_`, `sb_secret_`, `service_role`, or `whsec_`.
+`rk_live_`, `sb_secret_`, `service_role`, `whsec_`, or `wnd_ai_`.
 
 ## Cloud tab API (WANDIT-187)
 
@@ -842,8 +849,8 @@ The `mobile-build` task (queue `mobile-builds`, `concurrencyKey` = project,
 one attempt, idempotency key `mobile-build:<buildId>`):
 
 1. Claims the row (`queued` → `building`). A canceled or replayed run skips.
-2. Leases the hold (`LEASE_TTL_MS`, 40 min), so the stale-hold sweep skips
-   it during the build.
+2. Leases the hold (`LEASE_TTL_MS`, 40 min, in `build-credit-hold.ts`), so
+   the stale-hold sweep skips it during the build.
 3. Prepares the workspace in a temp folder (`prepareMobileBuildWorkspace`):
    a read-only credential, `git fetch` of the commit (fallback: `main`), the
    app.json checks, the wandit EAS identity, the trusted `eas.json` with the
@@ -862,6 +869,53 @@ one attempt, idempotency key `mobile-build:<buildId>`):
 A run that Trigger stops from outside (OOM, `maxDuration`) leaves the row
 `building`. The user Cancel is the exit, and the sweep refunds the hold when
 the lease expires. The operator steps are in `docs/v2/runbook.md`.
+
+## Desktop apps
+
+The desktop card of the publish popover builds and releases a `desktop-app`
+project for Windows (setup exe) or macOS (disk image and update archive).
+One build makes the files of one platform. macOS builds stay off until
+`DESKTOP_MACOS_BUILDS_ENABLED` is true. The contract of every part is
+`docs/v2/desktop-apps.md`.
+
+- `application/services/desktop-builds.service.ts`: overview, create,
+  cancel, and release. It holds the credits, starts the task, and writes
+  `latest.json` (Windows) or `latest-macos.json` (macOS) on R2.
+- `presentation/http/controllers/desktop-builds.controller.ts`: the routes
+  under `/api/v2/projects/:projectId/desktop`. Each needs the project role
+  `editor`, as the mobile builds do.
+- `infrastructure/persistence/desktop-builds.repository.ts`: `desktop_apps`
+  and `desktop_builds`. Each status change is a compare-and-set.
+- `infrastructure/persistence/desktop-migrations.repository.ts`: reads the
+  frozen `desktop_migrations` rows.
+- `domain/desktop-build.ts`: the status machine, the version, the
+  identifier, the binary name, and the hold key.
+- `domain/desktop-migrations.ts`: the gate rules for file names, sizes,
+  frozen files, and the statement allow list.
+- `infrastructure/sqlite/desktop-migration-gate.ts`:
+  `checkDesktopMigrations`, the sql.js dry run of the gate.
+- `application/host-tools/add-local-migration.host-tool.ts`: the
+  `add_local_migration` host tool.
+- `infrastructure/desktop/github-desktop-build-runner.ts`: dispatches,
+  polls, and cancels `build.yml` (Windows) or `build-macos.yml` (macOS) in
+  `DESKTOP_BUILD_REPO`.
+- `infrastructure/desktop/updater-signature.ts`: the Ed25519 key pair of an
+  app and the minisign signature of each update file.
+- `infrastructure/desktop/desktop-build-input.ts`: writes
+  `desktop-input.tar.gz`, the input of the CI, and exports the tar writer.
+- `infrastructure/desktop/macos-update-archive.ts`: checks the `.app.tar.gz`
+  of the macOS CI with strict ustar rules and re-packs it. The server signs
+  only its own re-pack.
+- `infrastructure/desktop/theme-fonts.ts`: puts the theme fonts into
+  `dist/wandit-fonts/` of the app.
+- `infrastructure/trigger/trigger-desktop-build-task-starter.ts`: queues the
+  `desktop-build` task by id.
+- `infrastructure/secrets/rotate-desktop-updater-keys.ts`: re-encrypts the
+  updater keys in `pnpm secrets:rotate`.
+- `src/trigger/desktop-build.task.ts` and `desktop-build.runtime.ts`: the
+  `desktop-build` task, from the sandbox build to the signed build files.
+- `src/trigger/build-credit-hold.ts`: the lease, heartbeat, settle, and
+  refund of the desktop and mobile holds. It takes the payer from the hold row.
 
 ## Builder turn
 
@@ -1170,7 +1224,10 @@ Write on it to the agent. The writers:
    "Theme kept: <name>.", then "Do not edit src/styles/theme.json."
 3. The `set_theme` host tool (`applyThemePatch`). A business-only call
    never replaces a theme that the user picked. A reroll keeps the mode
-   of a theme that the user picked.
+   of a theme that the user picked. A call that keeps the same source
+   keeps the file name, so the name of an AI theme survives "make it dark".
+   A name with a control character takes the default name, because the
+   commit message "Theme: <name>" must not get a fake git trailer.
 4. The turn-end guard (`restoreThemeFile`). Before each commit (success,
    stop, and cancel) and at the end of a failed turn that is not stale,
    the runtime compares the file with the last file that the host knows in
@@ -1181,7 +1238,8 @@ Write on it to the agent. The writers:
    commits only `src/styles/theme.json` (source `wip`, message
    "Theme: <name>"). So the next pre-turn fallback keeps that theme.
 5. The Save of the builder Thème sheet: `PUT /api/v2/projects/:id/theme`
-   (`AppThemeService.save`) with `{ selection, expectedHeadSha }`. It takes
+   (`AppThemeService.save`) with `{ selection, expectedHeadSha, name? }`.
+   `name` is the name of an AI theme draft. It takes
    the turn lock (holder `restore:theme-<uuid>`, so a turn submit answers
    409), builds the file with origin `user`, writes it, and commits only
    `src/styles/theme.json` (`commitTurn` with `paths`) with source `theme`
@@ -1192,6 +1250,22 @@ Write on it to the agent. The writers:
    resets HEAD to `expectedHeadSha` and writes the old file back. After a
    later failure, code.storage can hold the commit, so the sandbox keeps the
    commit and the new file. 10 saves per user per minute (`@RateLimit`).
+6. The AI theme designer of the Thème sheet:
+   `POST /api/v2/projects/:id/theme/design` (`AppThemeDesignService`) with
+   `{ prompt, current: { name, selection } }`. One `generateObject` call on
+   `AI_THEME_MODEL` (LLM task `theme_design`) answers three seeds, two
+   fonts, and the style axes (`appThemeDesignSchema`).
+   `domain/app-theme-design.ts` holds the prompts and turns the answer into
+   a seeds selection (the structure axes stay the user's) and a safe name.
+   The route answers `{ theme }`, a draft with origin `user`, and writes
+   nothing: the Save above commits it. Each design holds
+   `THEME_DESIGN_RESERVE_FLOOR_CREDITS` (usage operation `theme_design`,
+   token-priced) and settles from the tokens. A failed design costs the
+   user 0: a call that ended settles at 0 with a `refunded_failure` ref,
+   and a hold with no call is refunded. Answers: 404 (scope, V1, or before
+   web-app@1.1.0), 503 `THEME_DESIGN_UNAVAILABLE` (no provider key), 402
+   `INSUFFICIENT_CREDITS`, 502 `THEME_DESIGN_FAILED`, 429 above 10 designs
+   per user per minute.
 
 `GET /api/v2/projects/:id/theme` answers `{ theme, world, headSha,
 editable }`. It reads the file and HEAD of the running sandbox, else the
@@ -1224,7 +1298,7 @@ port.
 
 ## Backend tools (WANDIT-186)
 
-Seven host tools act on the hidden Supabase project of the app. They live
+Eight host tools act on the hidden Supabase project of the app. They live
 in `application/host-tools/backend/` and run in the `builder-turn` task.
 They call the interactive `SupabaseManagementClient`: a full rate-limit
 bucket answers `rate_limited` with `retryAfterSeconds` at once. A
@@ -1232,8 +1306,8 @@ bucket answers `rate_limited` with `retryAfterSeconds` at once. A
 retry once, and the unique sha stops a second run. The schemas and
 `backendToolNames` live in
 `packages/contracts/src/v2/backend-tools.ts`. The worker needs
-`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` also
-needs `APP_SECRETS_ENCRYPTION_KEY`.
+`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` and
+`enable_ai` also need `APP_SECRETS_ENCRYPTION_KEY`.
 
 - No tool creates or wakes a backend. `resolveActiveBackend` answers
   `backend_paused` for a paused row and `backend_not_ready` for every other
@@ -1260,6 +1334,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
+| `enable_ai` | user-approval | Mints the app AI gateway key when it is absent and pushes `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`. See App AI gateway. | `secret.synced` (`name`, `source`) |
 
 Migration ledger: `wandit.migrations (name primary key, sha256 unique,
 applied_at)`, created on the first call. `apply_migration` sends the ledger
@@ -1365,9 +1440,10 @@ repository is the durable copy.
 `POST /api/v2/llm/v1/messages` and `POST /api/v2/llm/v1/messages/count_tokens`
 forward Anthropic Messages API traffic to the configured upstream. The
 sandbox holds only a run token; the real provider key never leaves the API.
-An OpenAI-compatible inbound route for OpenCode can reuse
-`LlmProxyService` unchanged — the token check, caps, and usage-row code
-live there, not in the controller.
+The token check, caps, and usage-row code live in `LlmProxyService`, not in
+the controller. The service reads the Anthropic Messages format and the run
+token only. The OpenAI-compatible route of the apps has its own service (see
+App AI gateway).
 
 Check order, per request:
 
@@ -1406,7 +1482,8 @@ Check order, per request:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
    runtime then stops the turn as `stopped_project_cap` with the failure
    code `daily_cap`. The chat shows the reset time and no Retry.
-   `GENERATION_BILLING_MODE=off` skips this check.
+   `GENERATION_BILLING_MODE=off` skips this check. `LLM_DAILY_CAP_OFF=true`
+   skips only this check; set it only on staging for tests.
 
 Then the forward. `upstreamFor(modelId, env)` picks the upstream and key.
 A `paperinstruments/` model always goes to `https://api.paperinstruments.com`
@@ -1478,6 +1555,147 @@ anchor the settle uses), `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
 `https://cloud.langfuse.com`, the EU region). Logs carry ids, tokens
 counts, micros, and status — never a body, a token, or a provider key.
 Langfuse gets the bodies; logs still never do.
+
+## App AI gateway
+
+A V2 app can call AI models. The Supabase Edge Function of the app sends an
+OpenAI chat completions request to the API. The API checks the request,
+forwards it to the Vercel AI Gateway, streams the answer back, and bills the
+payer of the project (metering operation `app_ai_gateway`). The builder agent
+turns the feature on with the host tool `enable_ai`. The user sees the usage
+in the AI panel of the More view. The shared names and schemas are in
+`packages/contracts/src/v2/app-ai.ts`.
+
+### Key
+
+- Format: `wnd_ai_`, the project id as 32 hex digits without dashes, `_`,
+  and 32 random bytes as 43 base64url characters (`APP_AI_KEY_PATTERN`).
+  256 random bits stop a brute force. `domain/app-ai-key.ts` mints, parses,
+  and compares the key.
+- The key is one `system` row of `project_secrets` with the name
+  `WANDIT_AI_API_KEY`, encrypted like every secret. No other table holds it.
+  The gateway is on while the row exists.
+- `userSecretNameSchema` refuses the `WANDIT_` prefix, so a `user` row never
+  takes the name.
+- Enable inserts the row only when it is absent. Two concurrent enables then
+  agree on one key. A repeated enable keeps the key, so a running app never
+  breaks. Rotate replaces the row. Turn off deletes the row.
+- Each enable and rotate pushes `WANDIT_AI_API_KEY` and
+  `WANDIT_AI_GATEWAY_URL` to the Edge Function secrets in one
+  `bulkCreateSecrets` call. Then it writes one `secret.synced` audit row. The
+  URL is `/api/v2/ai/v1` on `V2_LLM_PROXY_PUBLIC_URL`, or on
+  `BETTER_AUTH_URL` when that is unset.
+- Enable and rotate need an `active` backend. The check runs before the mint,
+  so a paused or missing backend never gets a new key. When the push fails
+  after a rotate, the app keeps the old key, and the gateway refuses it. A
+  later enable pushes the stored key.
+- The key never goes to the sandbox env, the sandbox `.env`, the Worker
+  bindings, a tool answer, a log line, an audit value, or an HTTP answer.
+  The publish secret scan blocks it (rule `wandit_ai_api_key`, also in
+  `server/`). The Sentry scrubber replaces each string that holds `wnd_ai_`.
+- The pause sweep (`deleteAllForProject`) deletes the row with the backend.
+  A later `enable_ai` mints a new key.
+
+### Request flow
+
+`POST /api/v2/ai/v1/chat/completions` is `@Public()`: no session guard runs.
+No CORS rule allows it, because a browser never calls it. The body cap is
+4 MiB (`main.ts`), for images as data URLs. `AppAiGatewayService`
+(`application/services/app-ai-gateway.service.ts`) runs these steps:
+
+1. **Auth.** It parses the key, reads the `system` row of that project, and
+   compares the SHA-256 digests with `timingSafeEqual`. A bad format answers
+   401 before a database read. An unknown, deleted, or V1 project, or no row,
+   gets the same 401 `invalid_api_key`. No step writes a row before this.
+2. **Project.** A suspended project answers 403 `project_suspended`.
+3. **Body.** `appAiChatCompletionRequestSchema` keeps only the allowed
+   fields. It drops `models`, `providerOptions`, and `service_tier`: they
+   change the billed model or the price. A bad body answers 400
+   `invalid_request` with the issue paths, never the values. A content part
+   must be text or `image_url` (detail `auto`, `low`, or `high`): a file or
+   audio part bills a cost that the reserve cannot estimate. A model outside
+   `APP_AI_MODELS` answers 400 `model_not_allowed`. No model means
+   `APP_AI_DEFAULT_MODEL`.
+4. **Rate limit.** Redis fixed window `builder:rate:app-ai:<projectId>`
+   (`rateLimitKey` and the `RateLimitStore` of `RedisRateLimitGuard`), 60
+   requests per 60 s (ESTIMATE). Over: 429 `rate_limited` with `retry-after`. A Redis
+   error answers 503 `gateway_unavailable`: a money path fails closed.
+5. **Price and key.** `ModelPricingService.quoteTokenUsage` prices the
+   estimate: body bytes / 4 input tokens, plus 5,000 tokens for each image
+   part (ESTIMATE), plus the output cap. An unpriced model or no
+   `AI_GATEWAY_API_KEY` answers 503 `gateway_unavailable`.
+6. **Reserve.** `MeteringService.reserve("app_ai_gateway", ...)` for the
+   payer of the project, with the key `app-ai:<requestId>`, at least 1
+   centi-credit. No credits or the member credit limit answers 402
+   `insufficient_credits`. `GENERATION_BILLING_MODE=off` skips the reserve
+   and the settle.
+7. **Forward.** The upstream body is the parsed object. `model` is set,
+   `max_tokens` is clamped to `APP_AI_MAX_OUTPUT_TOKENS`, and a stream gets
+   `stream_options.include_usage: true`. Without it, a stream carries no
+   usage. Only our `authorization` and `content-type` go upstream, never an
+   inbound header. The timeout is 300 s.
+8. **Upstream error.** The reserve is refunded. 400, 404, 413, and 422 keep
+   their status as `invalid_request`, with the upstream message (at most 500
+   characters). 429 is `rate_limited`. 401, 402, and 403 (our account) are
+   503 `gateway_unavailable`. A 5xx or a network error is 502
+   `upstream_error`. Both go to Sentry.
+9. **Answer.** A JSON answer is buffered, and its `usage` is parsed. A
+   stream relays each chunk at once and parses `usage` from the SSE frames.
+   The last usage wins. When the client disconnects, the API stops the
+   writes. It still reads the upstream to its end, so the call is billed.
+   The controller closes a socket that is still open after 300 s, so a
+   client that stops reading cannot keep the hold open.
+10. **Settle.** With usage, `MeteringService.settle` bills the tokens.
+    `prompt_tokens` includes the cached tokens, and `cached_tokens` is the
+    cache read part, so no token is billed twice. Zero tokens: refund. A 2xx
+    answer without usage settles the reserved credits and goes to Sentry. A
+    settle error is logged and reported. The stranded-hold sweep refunds the
+    hold after 40 min, so that call is free.
+11. **Log.** One `app-ai.request` line: request id, project id, model,
+    status, token counts, credits, and latency. Never a body, a key, or a
+    header value.
+
+Each error body has the OpenAI shape `{ error: { message, type, code } }`,
+with `code` from `appAiErrorCodes`. The message is short English for the
+developer of the app.
+
+Accepted ceilings (`LIMIT:` marks in the service and in
+`domain/app-ai-request.ts`): each call takes the payer
+lock twice (reserve and settle). The reserve stacking floor and the rate
+limit bound the overdraft of concurrent calls. An image data URL counts
+twice: its bytes count, and its image part adds 5,000 tokens. A lost settle (a DB
+error, or an API restart during the call) becomes a free call. A client
+that stops reading can make the upstream timeout end the drain, and the call
+then costs its full hold.
+
+### Tool and panel
+
+- `enable_ai` (`application/host-tools/backend/enable-ai.host-tool.ts`)
+  needs `user-approval`: the user agrees that the app spends credits. It
+  mints the key when it is absent, pushes both secrets, and answers
+  `enabled` with `defaultModel` and `models`. It never answers the key. Its
+  description teaches the agent the Edge Function rules, so old projects
+  learn them too. New projects also get the `## AI features` section of
+  the template `CLAUDE.md`.
+- `AppAiKeys` and `AppAiKeysService` (`application/services/app-ai-keys.service.ts`)
+  hold the mint, rotate, push, and turn-off code. The tool and the panel
+  routes both use them.
+- The panel routes live under `/api/v2/projects/:projectId/ai`, behind
+  `V2BuilderEnabledGuard` and the project role `editor`, like the secrets
+  routes. A foreign, V1, or deleted project answers 404.
+  - `GET /` answers `AppAiStatus`: `enabled`, `keyUpdatedAt`, and the
+    `monthCredits` (centi-credits) and `monthRequests` of the billed
+    `app_ai_gateway` events since the UTC month start.
+  - `PUT /key` turns the gateway on and keeps a live key. `POST /key/rotate`
+    makes a new key. Both push and answer the status. No active backend
+    answers 409 `BACKEND_NOT_READY` or `BACKEND_PAUSED`, like the Cloud tab.
+  - `DELETE /key` deletes the row and answers 204, also when no row exists.
+  - The three writes share one limit: 10 per user per 10 minutes.
+
+Env: `AI_GATEWAY_API_KEY` (the upstream key, API only),
+`V2_LLM_PROXY_PUBLIC_URL` (the host of `WANDIT_AI_GATEWAY_URL`; unset →
+`BETTER_AUTH_URL`), `REDIS_URL`, `GENERATION_BILLING_MODE`,
+`APP_SECRETS_ENCRYPTION_KEY`, and `SUPABASE_PLATFORM_TOKEN` (the push).
 
 ## Preview
 

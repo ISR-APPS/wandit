@@ -25,12 +25,23 @@ async function setup() {
 	const fixture = await createBackendToolFixture();
 	const registry = new BuilderHostToolRegistry({
 		...fixture.deps,
+		desktopMigrations: { listFrozen: async () => [] },
 		imageEditModel: "edit-model-1",
 		imageModel: "image-model-1",
 		metering: unusedMetering(),
 		networkHosts: {
 			appendHost: async () => [],
 			transaction: async () => undefined,
+		},
+		// `build` only creates the tools; `enable_ai` writes no key here.
+		secrets: {
+			...fixture.deps.secrets,
+			readSystemValue: async () => {
+				throw new Error("enable_ai is not called by build");
+			},
+			setSystemIfAbsent: async () => {
+				throw new Error("enable_ai is not called by build");
+			},
 		},
 	});
 	return { fixture, registry };
@@ -55,6 +66,7 @@ describe("BuilderHostToolRegistry.build", () => {
 			ask_user: "not-applicable",
 			apply_migration: "not-applicable",
 			deploy_function: "not-applicable",
+			enable_ai: "user-approval",
 			generate_image: "not-applicable",
 			get_advisors: "not-applicable",
 			request_network_host: "user-approval",
@@ -74,6 +86,28 @@ describe("BuilderHostToolRegistry.build", () => {
 
 		expect(Object.keys(build.tools)).toContain("set_theme");
 		expect(Object.keys(plan.tools)).not.toContain("set_theme");
+	});
+
+	it("gives a desktop project add_local_migration and no backend or network tool", async () => {
+		const { fixture, registry } = await setup();
+
+		const toolSet = await registry.build({
+			...fixture.context,
+			framework: "desktop-app",
+			templateVersion: "desktop-app@1.0.0",
+		});
+
+		// A desktop app has no cloud backend and no remote network: no Supabase
+		// tool may reach a backend, and the agent may not open an egress host.
+		expect(toolSet.toolApproval).toEqual({
+			add_local_migration: "not-applicable",
+			ask_user: "not-applicable",
+			generate_image: "not-applicable",
+			set_theme: "not-applicable",
+		});
+		expect(Object.keys(toolSet.tools).sort()).toEqual(
+			Object.keys(toolSet.toolApproval).sort(),
+		);
 	});
 
 	it("gives a plan turn only the tools that ask the user", async () => {

@@ -15,6 +15,7 @@ import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
+import { useGithubReturnToast } from "@/features/app-builder";
 import { AuthModalProvider } from "@/features/auth";
 import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
 import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
@@ -69,6 +70,7 @@ function RootComponent() {
 function RootProviders() {
 	const { dir } = useI18n();
 	useConnectReturnToast();
+	useGithubReturnToast();
 
 	return (
 		<ThemeProvider

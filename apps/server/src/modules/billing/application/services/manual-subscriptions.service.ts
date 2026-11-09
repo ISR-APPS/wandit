@@ -1,3 +1,8 @@
+/**
+ * Grants, renews, ends, and lists manual (offline) plan subscriptions.
+ * The admin manual billing controller, SlickpayPaymentsService, and the billing maintenance task call it.
+ * It writes subscriptions and plan credits through the billing repositories and CreditsService.
+ */
 import {
 	BadRequestException,
 	ConflictException,
@@ -157,6 +162,10 @@ export class ManualSubscriptionsService {
 		};
 	}
 
+	/**
+	 * Creates a manual plan for a user or a team org. A replay of the same idempotency key returns the first result.
+	 * Throws 400 for a personal workspace org: its owner's personal plan pays there.
+	 */
 	async grant(
 		adminId: string,
 		input: AdminGrantManualSubscriptionInput,
@@ -175,6 +184,13 @@ export class ManualSubscriptionsService {
 
 		if (!billingOwner) {
 			throw new NotFoundException("Billing user or organization was not found");
+		}
+
+		// The owner's personal plan pays in a personal workspace, so the org gets no plan.
+		if (billingOwner.organization?.personalOwnerUserId) {
+			throw new BadRequestException(
+				"A personal workspace cannot have its own plan. Grant the plan to its owner",
+			);
 		}
 
 		const providerSubscriptionId = `manual_${input.idempotencyKey}`;

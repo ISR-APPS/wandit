@@ -1,7 +1,8 @@
 /**
  * One message of the builder thread. A user message is a cream bubble at
- * the end side. Its files sit above it, and the chips of its preview picks
- * sit above the files. An assistant message starts with the Wandit byline.
+ * the end side; a long one folds, with a Show more button. Its files sit
+ * above it, and the chips of its preview picks sit above the files. An
+ * assistant message starts with the Wandit byline.
  * In the production view, one summary line opens the details panel, and
  * only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the plan card,
@@ -25,11 +26,11 @@ import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
+import { useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import { getModelLabel } from "@/lib/model-labels";
 import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
 import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
@@ -50,6 +51,41 @@ const showsCacheTokens =
 	env.VITE_SENTRY_ENVIRONMENT === "preview" ||
 	env.VITE_SENTRY_ENVIRONMENT === "development" ||
 	(env.VITE_SENTRY_ENVIRONMENT === undefined && import.meta.env.DEV);
+
+// About 24 lines in the bubble. A shorter message shows in full, as before.
+const USER_TEXT_FOLD_MIN_LENGTH = 1_200;
+
+// Full cream, not a tint: a lighter cream fades into the sand desk.
+const USER_BUBBLE_CLASS =
+	"max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground";
+
+/** The text bubble of a user message. A text over `USER_TEXT_FOLD_MIN_LENGTH` chars folds to 12 lines. */
+function UserTextBubble({ text }: { text: string }) {
+	const { t } = useTranslation();
+	const [isExpanded, setIsExpanded] = useState(false);
+	if (text.length <= USER_TEXT_FOLD_MIN_LENGTH) {
+		return (
+			<div dir="auto" className={USER_BUBBLE_CLASS}>
+				{text}
+			</div>
+		);
+	}
+	return (
+		<div dir="auto" className={USER_BUBBLE_CLASS}>
+			<div className={cn(!isExpanded && "line-clamp-12")}>{text}</div>
+			<button
+				type="button"
+				aria-expanded={isExpanded}
+				onClick={() => setIsExpanded((current) => !current)}
+				className="mt-1 rounded-sm font-grotesk font-semibold text-[13px] text-night/60 underline-offset-2 outline-none transition-colors hover:text-night hover:underline focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/60 dark:hover:text-foreground"
+			>
+				{t(
+					isExpanded ? "appBuilder.chat.showLess" : "appBuilder.chat.showMore",
+				)}
+			</button>
+		</div>
+	);
+}
 
 /** Props of one message, as chat-pane.tsx passes them. */
 export type ChatMessageViewProps = {
@@ -109,15 +145,7 @@ export function ChatMessageView({
 					</div>
 				) : null}
 				{/* A message with files only has no text bubble. */}
-				{text !== "" ? (
-					// Full cream, not a tint: a lighter cream fades into the sand desk.
-					<div
-						dir="auto"
-						className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground"
-					>
-						{text}
-					</div>
-				) : null}
+				{text !== "" ? <UserTextBubble text={text} /> : null}
 			</div>
 		);
 	}
@@ -396,9 +424,7 @@ function MessagePartView({
 								write: formatNumber(part.data.cacheWriteTokens, locale),
 							})}`
 						: null}
-					{part.data.modelId !== null
-						? ` · ${getModelLabel(part.data.modelId)}`
-						: null}
+					{/* Product rule: the receipt shows no model name, so a screen recording of the chat keeps the model private. */}
 				</p>
 			);
 		default:

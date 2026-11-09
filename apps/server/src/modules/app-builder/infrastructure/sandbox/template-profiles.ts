@@ -3,8 +3,9 @@
  * server command and port, and the version file. `AppProjectsService` and
  * `TemplateVersionService` read it by platform; the builder-turn runtime and
  * `startSandboxWithoutTurn` (restore, wake, publish) read it by
- * `projects.framework`. It calls nothing.
+ * `projects.framework`. Only `readFirstLine` touches the disk.
  */
+import { readFileSync } from "node:fs";
 import type { TargetPlatform } from "@wandit/contracts";
 
 import { UnknownTemplateFrameworkError } from "../../domain/errors/unknown-template-framework.error";
@@ -40,6 +41,14 @@ export const TEMPLATE_PROFILES: Readonly<
 		framework: "mobile-app",
 		versionFile: "mobile-app/template_version",
 	}),
+	desktop: Object.freeze({
+		devCommand: "pnpm run dev",
+		// The Vite default port. The preview runs the frontend of the Tauri app
+		// in the browser, with a sql.js database in place of the Rust one.
+		devPort: 5173,
+		framework: "desktop-app",
+		versionFile: "desktop-app/template_version",
+	}),
 });
 
 /**
@@ -57,4 +66,18 @@ export function profileForFramework(
 		throw new UnknownTemplateFrameworkError(framework);
 	}
 	return profile;
+}
+
+/**
+ * The trimmed first line of a version file, or null when it is missing or
+ * empty. `TemplateVersionService` and `ArchiveTemplateInit` read versions with it.
+ */
+export function readFirstLine(file: string): string | null {
+	try {
+		return readFileSync(file, "utf8").split("\n", 1)[0]?.trim() || null;
+	} catch {
+		// One answer for "no file" and "no version". The caller names the file,
+		// so the operator fixes the file.
+		return null;
+	}
 }

@@ -1,5 +1,6 @@
 /**
  * Provisions the hidden Supabase backend of a new V2 project (D18).
+ * A desktop project never gets one: it keeps its data in a local SQLite file.
  * `AppProjectsService.create` calls it after the create transaction.
  * The Cloud route `POST backend` also calls it.
  * `TurnsService.create` calls it for each new chat message.
@@ -29,6 +30,8 @@ import {
 	type AppBackendRow,
 	AppBackendsRepository,
 } from "../../infrastructure/persistence/app-backends.repository";
+import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 
 @Injectable()
 export class BackendsService {
@@ -53,14 +56,17 @@ export class BackendsService {
 			SubscriptionsRepository,
 			"findActiveByOwner"
 		>,
+		/** Reads the template of the project: a desktop app gets no backend. */
+		@Inject(TurnProjectRepository)
+		private readonly projects: Pick<TurnProjectRepository, "findForTurn">,
 	) {}
 
 	/**
 	 * The single entry of backend provisioning: project create, the Cloud
 	 * route `POST backend`, and each new chat message call it. An `error`
 	 * row gets a new run; any other row comes back as it is. Answers the
-	 * `app_backends` row; null means provisioning is not configured and
-	 * nothing was written. Throws
+	 * `app_backends` row; null means provisioning is not configured, or the
+	 * project is a desktop app, and nothing was written. Throws
 	 * `BackendLimitReachedError` when the payer's plan has no free slot.
 	 */
 	async provisionBackend(
@@ -83,6 +89,13 @@ export class BackendsService {
 			this.logger.warn(
 				`supabase.provisioning.unconfigured project=${projectId}`,
 			);
+			return null;
+		}
+
+		// Product rule: a desktop app keeps its data in a local SQLite file. A backend
+		// would take a plan slot and a Supabase project that the app never reaches.
+		const project = await this.projects.findForTurn(projectId);
+		if (project?.framework === TEMPLATE_PROFILES.desktop.framework) {
 			return null;
 		}
 
@@ -127,7 +140,11 @@ export class BackendsService {
 				userId: input.userId,
 			},
 			subjectPayer(subject),
-			(ownedBackends) => assertBackendEntitlement(plan, ownedBackends),
+			(ownedBackends) =>
+				// BACKEND_LIMIT_OFF is a staging test switch: testers get backends without a plan.
+				this.v2Env.BACKEND_LIMIT_OFF === true
+					? { allowed: true }
+					: assertBackendEntitlement(plan, ownedBackends),
 		);
 		if (outcome.kind === "refused") {
 			this.logger.warn(

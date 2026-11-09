@@ -1,7 +1,8 @@
 /**
  * `GET /api/v2/projects/:projectId/messages`: one page of the stored chat,
  * the newest page first (WANDIT-204). It sits behind the global AuthGuard
- * and the `V2BuilderEnabledGuard`. `ChatHistoryService` runs the scope check.
+ * and the `V2BuilderEnabledGuard`; the global ProjectAccessGuard checks the
+ * project role. `ChatHistoryService` runs the scope check.
  */
 import {
 	Controller,
@@ -21,9 +22,12 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
-import { projectScopeFrom } from "../../../../projects/domain/project-scope";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
-import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import {
+	CurrentProjectAccess,
+	projectScopeFromAccess,
+	RequireProjectRole,
+	type ResolvedProjectAccess,
+} from "../../../../projects";
 import { ChatHistoryService } from "../../../application/services/chat-history.service";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
@@ -37,6 +41,7 @@ export class ChatHistoryController {
 	) {}
 
 	// A bad `cursor` or `limit` answers 400 from the pipe.
+	@RequireProjectRole("viewer")
 	@Get()
 	list(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -44,10 +49,10 @@ export class ChatHistoryController {
 		@Query(new ZodValidationPipe(chatHistoryQuerySchema))
 		query: ChatHistoryQuery,
 		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ChatHistoryPage> {
 		return this.chatHistory.list(
-			projectScopeFrom(workspace, user.id),
+			projectScopeFromAccess(access, user.id),
 			projectId,
 			query,
 		);

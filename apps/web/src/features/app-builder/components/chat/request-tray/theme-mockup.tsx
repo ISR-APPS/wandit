@@ -3,7 +3,7 @@
  * option. It shows the sidebar in its style and tone, the active nav item, the nav icon tiles, the header,
  * the user avatar where the user menu sits, 2 KPI tiles, 3 bars, and a primary button. The radius, border,
  * shadow, and fonts come from the theme too.
- * tray-bodies.tsx lazy-loads this file: the contracts theme schema holds the look catalog (about 74 kB).
+ * tray-bodies.tsx lazy-loads this file: the contracts theme schema holds the look catalog (about 177 KB).
  */
 
 import type { TurnQuestionOption } from "@wandit/contracts";

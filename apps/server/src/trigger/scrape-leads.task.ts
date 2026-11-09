@@ -24,7 +24,6 @@ import {
 	leadScrapeFileKey,
 	putSiteFile,
 } from "../infrastructure/storage/r2";
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import {
 	ensureLeadScrapeUsageSettled,
 	recordSerperEvidence,
@@ -44,6 +43,10 @@ import {
 } from "../modules/lead-scrapes/scraper/xlsx-export";
 import type { BillingAdmissionMode } from "../modules/metering/application/services/fixed-operation-billing";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
+import {
+	meteringSubjectFrom,
+	systemProjectScope,
+} from "../modules/projects/domain/project-scope";
 import { createTriggerMetering } from "./metering.runtime";
 import { recoverSettledLeadScrapeCompletion } from "./settled-completion-recovery";
 
@@ -91,15 +94,14 @@ export const scrapeLeadsTask = task({
 			}
 
 			const { attempt, userId } = loaded;
-			// The project's owner entity pays: org projects debit the org pool.
-			// The ACTOR is the queue-time member (who reserved at the tool
-			// boundary), not the project creator the durable row points at.
-			const subject: MeteringSubject = {
-				actorUserId: payload.actorUserId ?? userId,
-				...(loaded.organizationId
-					? { organizationId: loaded.organizationId }
-					: {}),
-			};
+			// The project's owner entity pays: org projects debit the org pool,
+			// personal projects the pool of `projects.user_id`. The ACTOR is the
+			// queue-time member (who reserved at the tool boundary), not the
+			// project owner the durable row points at. The payload has no role,
+			// so no exemption.
+			const subject = meteringSubjectFrom(
+				systemProjectScope(loaded, payload.actorUserId ?? userId, false),
+			);
 			const meteringService = createTriggerMetering(db);
 
 			if (attempt.status === "succeeded") {

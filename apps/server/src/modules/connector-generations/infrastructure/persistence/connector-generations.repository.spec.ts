@@ -19,6 +19,7 @@ vi.mock("@wandit/observability/node", () => ({
 
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import {
 	CONNECTOR_ATTEMPT_STALE_MS,
 	ConnectorGenerationsRepository,
@@ -83,7 +84,7 @@ describe("ConnectorGenerationsRepository stale attempt janitor", () => {
 
 		try {
 			await repository.findAccessibleAttempt(
-				{ kind: "personal", userId: "user-1" },
+				projectScopeFrom(undefined, "user-1"),
 				ATTEMPT_ID,
 			);
 		} finally {
@@ -226,6 +227,7 @@ describe("ConnectorGenerationsRepository.insertAttempt request idempotency", () 
 		chatId: "chat-1",
 		connectorSlug: "higgsfield",
 		organizationId: null,
+		payerUserId: null,
 		requestKey: "b".repeat(64),
 		toolName: "generate_image",
 		userId: "user-1",

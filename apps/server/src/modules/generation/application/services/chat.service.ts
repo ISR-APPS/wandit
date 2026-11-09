@@ -33,7 +33,11 @@ import { env } from "@wandit/env/server";
 import { BuilderTurnsRepository } from "../../../app-builder/infrastructure/persistence/builder-turns.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { operationPricing } from "../../../metering/domain/operation-registry";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
+import { PERSONAL_WORKSPACE_CONTEXT } from "../../../workspaces/domain/workspace-context";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
 import { mapMessageRow } from "../../infrastructure/mappers/chat-message.mapper";
 // Repository = database helper. The service uses it instead of writing SQL here.
@@ -234,7 +238,10 @@ export class ChatService {
 	// Shared "does this user own this chat?" check. Legacy generation stays
 	// personal-only by design (teams-workspaces.md §0).
 	private async requireOwnedChat(userId: string, chatId: string) {
-		return this.requireAccessibleChat({ kind: "personal", userId }, chatId);
+		return this.requireAccessibleChat(
+			projectScopeFrom(PERSONAL_WORKSPACE_CONTEXT, userId),
+			chatId,
+		);
 	}
 
 	private async requireAccessibleChat(scope: ProjectScope, chatId: string) {

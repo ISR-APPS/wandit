@@ -11,7 +11,7 @@
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 import type { PreviewBridgeMessage } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
@@ -22,7 +22,9 @@ import {
 	PHONE_VIEWPORT_WIDTH_PX,
 	type PhoneDevice,
 } from "../../lib/constants";
+import { fitFrameScale } from "../../lib/helpers";
 import { useDeviceSession } from "../../lib/use-device-session";
+import { useElementSize } from "../../lib/use-element-size";
 import { usePreviewRuntimeErrors } from "../../lib/use-preview-runtime-errors";
 import {
 	type PreviewTokenDeps,
@@ -123,26 +125,7 @@ export function PhonePreview({
 
 	// The stage size picks the phone scale, the QR column, and the bar labels.
 	const stageRef = useRef<HTMLDivElement>(null);
-	const [stageSize, setStageSize] = useState<{
-		width: number;
-		height: number;
-	} | null>(null);
-	useLayoutEffect(() => {
-		const stage = stageRef.current;
-		if (!stage) return;
-		// Measure once before paint, so the first frame has the right layout.
-		setStageSize({ width: stage.clientWidth, height: stage.clientHeight });
-		const observer = new ResizeObserver(([entry]) => {
-			if (entry) {
-				setStageSize({
-					width: entry.contentRect.width,
-					height: entry.contentRect.height,
-				});
-			}
-		});
-		observer.observe(stage);
-		return () => observer.disconnect();
-	}, []);
+	const stageSize = useElementSize(stageRef);
 	// A stage without a size (not laid out yet) keeps the design size.
 	const hasStageSize = stageSize !== null && stageSize.width > 0;
 	// The QR column mounts only when it shows: its mount mints a phone link.
@@ -153,17 +136,7 @@ export function PhonePreview({
 	const isCompactBar =
 		hasStageSize && stageSize.width < FULL_BAR_MIN_STAGE_WIDTH_PX;
 	const frameSize = PHONE_FRAME_SIZE_PX[device];
-	const scale = hasStageSize
-		? Math.max(
-				Math.min(
-					1,
-					(stageSize.height - 2 * STAGE_PADDING_PX) / frameSize.height,
-					(stageSize.width - 2 * STAGE_PADDING_PX) / frameSize.width,
-				),
-				// A collapsed stage must not flip the phone with a negative scale.
-				0.1,
-			)
-		: 1;
+	const scale = fitFrameScale(stageSize, frameSize, STAGE_PADDING_PX);
 	// The boot screen is dark, so the bands turn white only when the app can show.
 	// LIMIT: they turn white on a ready token, up to one frame load before the
 	// app shows. Upgrade: an onAppShownChange prop on PreviewPanel.

@@ -206,6 +206,26 @@ describe("CodeStorageGitStore.issueCredential", () => {
 		expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(600);
 	});
 
+	it("mints a push-github-mirror JWT that can push github/main and nothing else", async () => {
+		await startServer();
+		const store = makeStore();
+
+		const credential = await store.issueCredential(
+			"project-1",
+			600,
+			"push-github-mirror",
+		);
+
+		const key = await importSPKI(publicKeyPem, "ES256");
+		const { payload } = await jwtVerify(credential.password, key);
+		expect(payload.scopes).toEqual(["git:read", "git:write"]);
+		// Security: the worker mirror token must never move `main`.
+		expect(payload.refs).toEqual([
+			["refs/heads/github/main", []],
+			["*", ["no-push"]],
+		]);
+	});
+
 	it("mints a git:read JWT only for read access", async () => {
 		await startServer();
 		const store = makeStore();

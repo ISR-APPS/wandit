@@ -4,9 +4,11 @@
  * it by path. Calls the projects queries, the V1 and V2 create hooks, and
  * the credits banners. From the landing it uses the key button, the platform
  * word, and the V2 strip. It owns the app type, the Plan chip, and the model
- * menu of a V2 create.
+ * menu of a V2 create. Below the grid, "Shared with me" lists the projects of
+ * other workspaces that the user has a direct grant on (features/project-sharing).
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { useQuery } from "@tanstack/react-query";
 import type { TargetPlatform } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -28,9 +30,14 @@ import {
 } from "@/features/credits";
 import {
 	KeycapButton,
+	nextTargetPlatform,
 	PlatformToken,
 	V2ComingSoonBanner,
 } from "@/features/landing";
+import {
+	sharedProjectsQuery,
+	useSharingEnabled,
+} from "@/features/project-sharing";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
@@ -178,6 +185,19 @@ export default function DashboardPage() {
 		);
 	}, [projects, query, filter]);
 
+	const isSharingEnabled = useSharingEnabled();
+	// A failed load hides the section. The query cache reports the error.
+	const { data: sharedProjects } = useQuery(
+		sharedProjectsQuery(isSharingEnabled),
+	);
+	// A grant on a project of the active workspace already shows it in the main grid.
+	const sharedOnly = useMemo(() => {
+		const gridIds = new Set((projects ?? []).map((project) => project.id));
+		return (sharedProjects?.projects ?? []).filter(
+			(project) => !gridIds.has(project.id),
+		);
+	}, [projects, sharedProjects]);
+
 	const hasProjects = (projects?.length ?? 0) > 0;
 	const isFiltering = query.trim().length > 0 || filter !== "all";
 
@@ -219,11 +239,7 @@ export default function DashboardPage() {
 									</span>{" "}
 									<PlatformToken
 										platform={targetPlatform}
-										onFlip={() =>
-											setTargetPlatform((current) =>
-												current === "mobile" ? "web" : "mobile",
-											)
-										}
+										onFlip={() => setTargetPlatform(nextTargetPlatform)}
 									/>
 								</>
 							) : (
@@ -259,6 +275,8 @@ export default function DashboardPage() {
 											: undefined
 									}
 									modelChoice={v2Enabled ? modelPick : undefined}
+									// The V2 create route takes long prompts; the V1 route keeps 2,000 chars.
+									acceptsLongText={v2Enabled}
 									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={restoredPrompt}
@@ -352,6 +370,19 @@ export default function DashboardPage() {
 						)}
 					</div>
 				</section>
+
+				{sharedOnly.length > 0 ? (
+					<section className="mt-12">
+						<h2 className="font-bold font-grotesk text-[1.75rem] text-night tracking-[-0.035em] dark:text-foreground">
+							{t("sharing.sharedWithMe.title")}
+						</h2>
+						<div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+							{sharedOnly.map((project) => (
+								<ProjectCard key={project.id} project={project} />
+							))}
+						</div>
+					</section>
+				) : null}
 			</div>
 		</DashboardShell>
 	);

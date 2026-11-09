@@ -4,8 +4,10 @@
  * Unpublish, Roll back, the gate findings of publish-gate-findings.tsx, "Publish
  * anyway" (WANDIT-190), and a staff suspension (WANDIT-181). A mobile app shows the
  * Android APK card of android-build-card.tsx (mobileBuildsQuery, WANDIT-194), and
- * "Show QR" opens the Expo Go panel of expo-go-popover.tsx under its row. The
- * spec renders the pure *Targets parts.
+ * "Show QR" opens the Expo Go panel of expo-go-popover.tsx under its row. A
+ * desktop app shows the desktop card of desktop-build-card.tsx
+ * (desktopOverviewQuery), the SmartScreen note, and the Gatekeeper note while
+ * macOS builds are on. The spec renders the pure *Targets parts.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -19,6 +21,7 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { LinkSimpleIcon } from "@phosphor-icons/react/LinkSimple";
 import { QrCodeIcon } from "@phosphor-icons/react/QrCode";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
+import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { AppPublishStatus } from "@wandit/contracts";
@@ -38,6 +41,12 @@ import { type ReactNode, useId, useState } from "react";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { formatNumber, formatRelativeTime, useTranslation } from "@/lib/i18n";
+import {
+	useCancelDesktopBuild,
+	useCreateDesktopBuild,
+	useReleaseDesktopBuild,
+} from "../../api/desktop.mutations";
+import { desktopOverviewQuery } from "../../api/desktop.queries";
 import type { AppProject } from "../../api/dto";
 import {
 	useCancelMobileBuild,
@@ -54,6 +63,7 @@ import {
 	appPublishQuery,
 	LIVE_PUBLISH_STATUSES,
 } from "../../api/publish.queries";
+import { SHORT_SHA_LENGTH } from "../../lib/constants";
 import {
 	AndroidBuildCard,
 	type AndroidBuildCardProps,
@@ -64,6 +74,7 @@ import {
 	HISTORY_ROW_CLASS,
 	HistoryList,
 } from "./android-build-card";
+import { DesktopBuildCard } from "./desktop-build-card";
 import { ExpoGoPanel } from "./expo-go-popover";
 import {
 	GATE_ACTION_CLASS,
@@ -72,8 +83,6 @@ import {
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
-// Seven characters name a commit, like `git log --oneline`.
-const SHORT_SHA_LENGTH = 7;
 
 /** Props of the top bar Publish button. WorkBar in top-bar.tsx passes them from the page. */
 export type PublishPopoverProps = {
@@ -162,9 +171,13 @@ export function PublishPopover({
 						}}
 						onNavigate={() => setOpen(false)}
 					/>
-				) : (
+				) : null}
+				{project.kind === "mobile" ? (
 					<PublishMobileBody projectId={project.id} />
-				)}
+				) : null}
+				{project.kind === "desktop" ? (
+					<PublishDesktopBody project={project} />
+				) : null}
 			</PopoverContent>
 		</Popover>
 	);
@@ -581,6 +594,76 @@ export function PublishMobileTargets({
 				</div>
 			) : null}
 		</>
+	);
+}
+
+/**
+ * Reads the desktop overview and wires the desktop actions. The overview
+ * polls only while this body is mounted. The SmartScreen note (D34) and,
+ * when macOS is on or a macOS link is live, the Gatekeeper note (D36) sit
+ * under the card. The setup exe has no Authenticode signature, and Apple does
+ * not notarize the macOS app.
+ */
+function PublishDesktopBody({
+	project,
+}: {
+	/** The open project. `id` reads the overview; `name` fills the product name field of the first build. */
+	project: AppProject;
+}) {
+	const { t } = useTranslation();
+	const overview = useQuery(desktopOverviewQuery(project.id));
+	const createBuild = useCreateDesktopBuild(project.id);
+	const cancelBuild = useCancelDesktopBuild(project.id);
+	const releaseBuild = useReleaseDesktopBuild(project.id);
+
+	// A failed poll keeps the last overview on screen. Only a first load without an overview shows the error.
+	if (overview.data === undefined) {
+		return (
+			<BodyPlaceholder
+				errorText={overview.isError ? getApiErrorMessage(overview.error) : null}
+			/>
+		);
+	}
+
+	return (
+		<div className="flex flex-col gap-2.5 px-3 pb-3">
+			<DesktopBuildCard
+				app={overview.data.app}
+				builds={overview.data.builds}
+				projectName={project.name}
+				suspension={overview.data.suspension}
+				buildablePlatforms={overview.data.buildablePlatforms}
+				isStarting={createBuild.isPending}
+				isCanceling={cancelBuild.isPending}
+				isReleasing={releaseBuild.isPending}
+				// A new key per click. A second click while a build is live gets 409 DESKTOP_BUILD_ACTIVE.
+				onBuild={(input) =>
+					createBuild.mutate({ ...input, requestKey: crypto.randomUUID() })
+				}
+				onCancel={(buildId) => cancelBuild.mutate(buildId)}
+				onRelease={(buildId) => releaseBuild.mutate(buildId)}
+			/>
+			<p className="flex items-start gap-1.5 px-1 text-popover-foreground/55 text-xs leading-snug">
+				<ShieldWarningIcon
+					aria-hidden
+					weight="duotone"
+					className="mt-px size-4 shrink-0 text-popover-foreground/45"
+				/>
+				{t("appBuilder.desktopBuilds.smartScreen")}
+			</p>
+			{/* A macOS link stays live when the flag turns macOS off. Its users still need the steps. */}
+			{overview.data.buildablePlatforms.includes("macos") ||
+			overview.data.app?.releases.macos.downloadUrl ? (
+				<p className="flex items-start gap-1.5 px-1 text-popover-foreground/55 text-xs leading-snug">
+					<ShieldWarningIcon
+						aria-hidden
+						weight="duotone"
+						className="mt-px size-4 shrink-0 text-popover-foreground/45"
+					/>
+					{t("appBuilder.desktopBuilds.gatekeeper")}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

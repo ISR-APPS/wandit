@@ -1,8 +1,13 @@
+/**
+ * Recovers connector generations whose Trigger run died after the provider
+ * finished: it settles the holds and marks the attempt succeeded. The task
+ * `recover-stranded-metering` calls it; it reads attempts through
+ * ConnectorGenerationsRepository.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
-
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { captureGenerationCompleted } from "../../../../infrastructure/analytics/generation-events";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { createConnectorGenerationBilling } from "../../../mcp-connectors/application/services/connector-generation-billing";
 import { connectorGenerationPlan } from "../../../mcp-connectors/domain/connector-generation-metering";
 import { MeteringService } from "../../../metering/application/services/metering.service";
@@ -124,12 +129,15 @@ function completedChildUnits(
 }
 
 /** The payer snapshotted when the attempt was queued. */
-function attemptSubject(row: {
-	organizationId: string | null;
-	userId: string;
-}): MeteringSubject {
+function attemptSubject(
+	row: Pick<
+		ConnectorGenerationAttemptRow,
+		"organizationId" | "payerUserId" | "userId"
+	>,
+): MeteringSubject {
 	return {
 		actorUserId: row.userId,
 		...(row.organizationId ? { organizationId: row.organizationId } : {}),
+		...(row.payerUserId ? { payerUserId: row.payerUserId } : {}),
 	};
 }

@@ -97,6 +97,11 @@ export class TurnStreamRelayService {
 	 * promote the next waiting turn.
 	 */
 	async relay(options: {
+		/**
+		 * True when the reader is a member of the paying workspace or the project owner.
+		 * Otherwise the `done` frame leaves out `receipt`, because it holds the payer balance.
+		 */
+		canReadPayerBalance: boolean;
 		/** First frame: the `CreateTurnResponse`. The create route and the resume route send it. */
 		first?: CreateTurnResponse;
 		/** Called once with the done payload after the terminal frame. */
@@ -112,6 +117,7 @@ export class TurnStreamRelayService {
 		turnId: string;
 	}): Promise<void> {
 		const {
+			canReadPayerBalance,
 			first,
 			onDone,
 			releaseSlot = true,
@@ -265,8 +271,10 @@ export class TurnStreamRelayService {
 							type: "error",
 						});
 					} else {
+						// Security: an external collaborator must not read the pool balance of the owner or the team.
+						const { receipt, ...doneWithoutReceipt } = event.data;
 						await this.writeChunk(raw, {
-							data: event.data,
+							data: canReadPayerBalance ? event.data : doneWithoutReceipt,
 							id: "turn-done",
 							type: "data-turn-done",
 						});

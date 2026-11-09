@@ -617,6 +617,48 @@
       "when": 1793051815555,
       "tag": "0087_app-commit-source-theme",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793727427117,
+      "tag": "0088_app-ai-gateway-operation",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793824626739,
+      "tag": "0089_github-sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793825329642,
+      "tag": "0090_mcp-oauth-provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793829707504,
+      "tag": "0091_workspaces-sharing",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793893323294,
+      "tag": "0092_desktop-apps",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1794050737719,
+      "tag": "0093_theme-design-operation",
+      "breakpoints": true
     }
   ]
 }

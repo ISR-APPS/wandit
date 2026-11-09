@@ -24,6 +24,7 @@ import type {
 	ListProjectsPageResponse,
 	ListProjectsQuery,
 	ListProjectsResponse,
+	ListSharedProjectsResponse,
 	Project,
 	UpdateProjectBody,
 } from "@wandit/contracts";
@@ -99,6 +100,24 @@ export class ProjectsService {
 		};
 	}
 
+	/**
+	 * `GET /api/v2/shared-projects`: projects with a direct grant for the
+	 * caller, with the caller's role and the project's workspace.
+	 */
+	async listShared(actorUserId: string): Promise<ListSharedProjectsResponse> {
+		const rows = await this.projectsRepository.listSharedWithActor(actorUserId);
+
+		return {
+			projects: rows.flatMap((row) => {
+				const project = mapProjectRow(row);
+
+				// No `access` means the owner has no personal org row. GET
+				// /api/v1/workspaces of that owner creates it again.
+				return project.access ? [{ ...project, access: project.access }] : [];
+			}),
+		};
+	}
+
 	// Load one project if it is accessible in this workspace scope.
 	async get(scope: ProjectScope, projectId: string): Promise<Project> {
 		const row = await this.projectsRepository.findByIdForScope(
@@ -122,7 +141,7 @@ export class ProjectsService {
 		// Attachment URLs must be Wandit-hosted assets (contract §10.4) — the
 		// composer uploads through /api/v1/attachments first, so anything else
 		// is a forged reference. Uploads are actor-owned even in org scope.
-		assertWanditHostedAttachments(scope.userId, body.attachments);
+		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
 
 		const derivedName = deriveProjectName(body.prompt);
 		const projectId = randomUUID();
@@ -181,14 +200,14 @@ export class ProjectsService {
 				event: "first_prompt_sent",
 				idempotencyKey: lifecycleEventIdempotencyKey(
 					"first_prompt_sent",
-					scope.userId,
+					scope.actorUserId,
 				),
-				userId: scope.userId,
+				userId: scope.actorUserId,
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			this.logger.error(
-				`First prompt lifecycle enqueue failed for user ${scope.userId}: ${message}`,
+				`First prompt lifecycle enqueue failed for user ${scope.actorUserId}: ${message}`,
 			);
 		}
 
@@ -310,7 +329,7 @@ export class ProjectsService {
 				input.scope.kind === "org" ? input.scope.organizationId : null,
 			prompt: input.prompt,
 			usageEventId: input.usageEventId,
-			userId: input.scope.userId,
+			userId: input.scope.actorUserId,
 		});
 
 		if (generatedTitle === input.derivedName) {
@@ -335,7 +354,7 @@ export class ProjectsService {
 	): Promise<Project> {
 		if (body.logoUrl !== undefined && body.logoUrl !== null) {
 			// Logo uploads are actor-owned even in org scope.
-			this.assertValidLogoUrl(scope.userId, body.logoUrl);
+			this.assertValidLogoUrl(scope.actorUserId, body.logoUrl);
 		}
 
 		const row = await this.projectsRepository.updateByIdForScope(
@@ -389,7 +408,7 @@ export class ProjectsService {
 		if (deleted.engine === "v2_app" && this.deleteAppProjectStarter !== null) {
 			try {
 				await this.deleteAppProjectStarter.start({
-					actorUserId: scope.userId,
+					actorUserId: scope.actorUserId,
 					organizationId: scope.kind === "org" ? scope.organizationId : null,
 					projectId,
 				});

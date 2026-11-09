@@ -1,9 +1,12 @@
 /**
  * The `set_theme` host tool of the builder turn: the agent changes the app theme on the user's words.
- * `BuilderHostToolRegistry` builds it once per build turn of a web-app@1.1.0+ project.
+ * `BuilderHostToolRegistry` builds it once per build turn of a web-app@1.1.0+ or desktop-app@1.0.0+ project.
  * It parses the input with parseThemePatch and applies it with applyThemePatch to the theme that the
  * runtime trusts. It writes src/styles/theme.json through app-theme-file.ts. A world source reads the V1 world registry.
+ * A patch that keeps the source keeps the file name, when the name has no control character.
  */
+import { isDeepStrictEqual } from "node:util";
+
 import {
 	type SetThemeHostToolInput,
 	setThemeHostToolInputSchema,
@@ -12,6 +15,7 @@ import {
 	APP_LOOK_IDS,
 	APP_THEME_OPTIONS,
 	type AppThemeFile,
+	appThemeNameSchema,
 	buildAppThemeFile,
 } from "@wandit/contracts/v2/app-theme";
 import { APP_THEME_CATEGORIES } from "@wandit/contracts/v2/app-theme-catalog";
@@ -121,7 +125,16 @@ export function createSetThemeTool(
 				if (source.kind === "world" && world === undefined) {
 					return `Theme not changed. world "${source.world}" is not a design world with a preview. Use the folder name of a design world skill.`;
 				}
+				// A tweak such as "make it dark" keeps the source, so it keeps the name, for example of an AI theme.
+				// A new source takes its default name. An agent can write the disk file, and a line break in its
+				// name would add a fake git trailer to the commit "Theme: <name>". So that name also falls back.
 				const file = buildAppThemeFile({
+					name:
+						current !== null &&
+						isDeepStrictEqual(current.selection.source, source) &&
+						appThemeNameSchema.safeParse(current.name).success
+							? current.name
+							: undefined,
 					origin: next.origin,
 					selection: next.selection,
 					world,

@@ -1,12 +1,14 @@
 /**
  * Builds the Better Auth instances: createAuth for the web and native apps, createAdminAuth for the admin app.
  * The server AuthModule calls createAuth with its delivery and signup hooks.
+ * With V2_BUILDER_ENABLED, createAuth is also the OAuth provider of the MCP server (mcp-oauth-provider.ts).
  * Both instances write users, sessions, and accounts to Postgres through the Drizzle adapter.
  */
 import { expo } from "@better-auth/expo";
 import { isStaffRole } from "@wandit/contracts";
-import { and, createDb, eq, sql } from "@wandit/db";
+import { and, createDb, eq, gt, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
+import * as oauthProviderSchema from "@wandit/db/schema/oauth-provider";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
 import {
@@ -19,15 +21,15 @@ import {
 	type BetterAuthRateLimitStorage,
 	betterAuth,
 	type GoogleOptions,
-	type RateLimit,
 	type SecondaryStorage,
 } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
 	APIError,
 	createAuthMiddleware,
-	getIp,
+	getIP,
 	getOAuthState,
+	getSessionFromCtx,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import {
@@ -37,6 +39,7 @@ import {
 	magicLink,
 	organization,
 } from "better-auth/plugins";
+import { z } from "zod";
 import { adminAccessControl, adminRoles } from "./admin-permissions";
 import { isDevPasswordLoginEnabled } from "./dev-password-login";
 import { canonicalizeEmail } from "./email-canonical";
@@ -45,13 +48,29 @@ import {
 	assertTrustedAuthorizationUrl,
 	EXPO_AUTHORIZATION_PROXY_PATH,
 } from "./expo-authorization-proxy";
+import {
+	createMcpOAuthPlugins,
+	MCP_OAUTH_DISABLED_PATHS,
+	type OnMcpConsentChange,
+} from "./mcp-oauth-provider";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
+import {
+	isPersonalWorkspaceSlug,
+	isViewerOnly,
+	memberRoleUpdateRefusal,
+	splitWorkspaceRoles,
+	WORKSPACE_INVITATION_EXPIRES_IN_DAYS,
+	type WorkspaceKindFacts,
+	type WorkspaceRuleRefusal,
+	workspaceInviteRefusal,
+} from "./workspace-membership-rules";
 
 // The drizzle adapter resolves models by key on the object below — the
 // organization plugin needs `organization`, `member`, and `invitation` present
 // or every /api/auth/organization/* route fails with "model not found".
-const schema = { ...authSchema, ...orgSchema };
+// The OAuth provider plugins need `jwks` and the `oauth*` models the same way.
+const schema = { ...authSchema, ...orgSchema, ...oauthProviderSchema };
 const db = createDb();
 
 // The admin plugin is kept for its schema fields (role/banned/banExpires), but
@@ -112,6 +131,19 @@ export type OrganizationInvitationCreated = {
 	inviterUserId: string;
 };
 
+/**
+ * A member lost access in a workspace: removed, left, or changed to viewer only.
+ * The server runs the cleanup of workspaces-sharing.md 2.1 with it.
+ */
+export type MembershipReduction = {
+	organizationId: string;
+	userId: string;
+	/** `removed`: remove-member. `left`: the user left. `viewer`: a role update left only `viewer`. */
+	change: "removed" | "left" | "viewer";
+	/** Client IP for the turn-cancel audit rows. Null in the plugin hooks, because they get no request. */
+	ipAddress: string | null;
+};
+
 // Surfaced to the web client as result.error.code — keep the string stable.
 export const EMAIL_AUTH_DISABLED_ERROR_CODE = "EMAIL_AUTH_DISABLED";
 
@@ -148,10 +180,11 @@ export type EmailAuthDelivery = {
 
 export type CreateAuthOptions = {
 	/**
-	 * Server-owned secondary storage for distributed rate-limit counters.
+	 * Server-owned atomic counter (Redis INCR) for distributed rate limits.
+	 * The factory reads only `increment`. It never sets it as root secondaryStorage.
 	 * If it is absent, the factory keeps its existing database rate limiter.
 	 */
-	secondaryStorage?: SecondaryStorage;
+	secondaryStorage?: Pick<SecondaryStorage, "increment">;
 	onUserCreated?: OnUserCreated;
 	/**
 	 * Admission gate for workspace creation — wired to the
@@ -160,9 +193,13 @@ export type CreateAuthOptions = {
 	 */
 	canCreateOrganization?: (user: { id: string }) => Promise<boolean> | boolean;
 	/**
-	 * Invitation delivery hook. No email infra exists yet: the web surfaces a
-	 * copyable invite link and in-app pending invitations; this callback only
-	 * records analytics today.
+	 * The `organizationsEnabled` product setting. Absent means closed: invites
+	 * and accepts into a personal workspace fail (workspaces-sharing.md 3.4).
+	 */
+	isOrganizationsEnabled?: () => Promise<boolean> | boolean;
+	/**
+	 * Invitation delivery hook. The server records analytics and sends the
+	 * invitation email. The copyable invite link and the in-app banner stay the fallback.
 	 */
 	onInvitationCreated?: (
 		invitation: OrganizationInvitationCreated,
@@ -187,13 +224,23 @@ export type CreateAuthOptions = {
 	guardInviteEmail?: (data: { email: string }) => Promise<void>;
 	/**
 	 * Analytics: a user became a member. Invitation accepts do NOT fire the
-	 * plugin's afterAddMember hook (crud-invites.mjs:280), so this is wired to
+	 * plugin's afterAddMember hook (crud-invites.mjs:345), so this is wired to
 	 * BOTH afterAddMember and afterAcceptInvitation.
 	 */
 	onMemberJoined?: (data: {
 		organizationId: string;
 		userId: string;
 	}) => Promise<void> | void;
+	/**
+	 * Cleanup after a removal, a leave, or a change to viewer. It runs after the member
+	 * row changed. On an error the hook undoes the change and rethrows, so a retry runs it again.
+	 */
+	onMembershipReduced?: (data: MembershipReduction) => Promise<void>;
+	/**
+	 * Audit of coding-agent grants: a consent accepted or revoked. Runs only
+	 * when the MCP OAuth provider is on (V2_BUILDER_ENABLED).
+	 */
+	onMcpConsentChange?: OnMcpConsentChange;
 };
 
 function createBaseAuthOptions() {
@@ -258,93 +305,20 @@ function createBaseAuthOptions() {
 
 const baseAuthOptions = createBaseAuthOptions();
 
-function parseRateLimit(value: unknown): RateLimit | null {
-	let parsed = value;
-
-	if (typeof value === "string") {
-		try {
-			parsed = JSON.parse(value);
-		} catch {
-			return null;
-		}
-	}
-
-	if (
-		typeof parsed !== "object" ||
-		parsed === null ||
-		!("key" in parsed) ||
-		typeof parsed.key !== "string" ||
-		!("count" in parsed) ||
-		typeof parsed.count !== "number" ||
-		!("lastRequest" in parsed) ||
-		typeof parsed.lastRequest !== "number"
-	) {
-		return null;
-	}
-
-	return parsed as RateLimit;
-}
-
 /**
- * Use the injected SecondaryStorage-shaped port only for rate limiting.
- * Better Auth 1.6.22 routes session-list and bulk-revocation operations to
- * root secondaryStorage without a database fallback, even when
- * storeSessionInDatabase is true.
+ * Adapts the injected counter to Better Auth rate-limit storage.
+ * One atomic increment per request, so concurrent requests cannot pass a stale read.
  */
 function createRateLimitStorage(
-	secondaryStorage: SecondaryStorage,
+	secondaryStorage: Pick<SecondaryStorage, "increment">,
 ): BetterAuthRateLimitStorage {
 	return {
 		async consume(key, rule) {
-			if (secondaryStorage.increment) {
-				const count = await secondaryStorage.increment(key, rule.window);
+			const count = await secondaryStorage.increment(key, rule.window);
 
-				return count <= rule.max
-					? { allowed: true, retryAfter: null }
-					: { allowed: false, retryAfter: rule.window };
-			}
-
-			// Compatibility path for a minimal get/set/delete port. The server's
-			// Redis implementation uses atomic increment instead.
-			const now = Date.now();
-			const current = parseRateLimit(await secondaryStorage.get(key));
-			const windowInMs = rule.window * 1_000;
-
-			if (!current || now - current.lastRequest > windowInMs) {
-				await secondaryStorage.set(
-					key,
-					JSON.stringify({ count: 1, key, lastRequest: now }),
-					rule.window,
-				);
-				return { allowed: true, retryAfter: null };
-			}
-
-			if (current.count >= rule.max) {
-				return {
-					allowed: false,
-					retryAfter: Math.max(
-						1,
-						Math.ceil((current.lastRequest + windowInMs - now) / 1_000),
-					),
-				};
-			}
-
-			await secondaryStorage.set(
-				key,
-				JSON.stringify({
-					...current,
-					count: current.count + 1,
-					lastRequest: now,
-				}),
-				rule.window,
-			);
-			return { allowed: true, retryAfter: null };
-		},
-		async get(key) {
-			return parseRateLimit(await secondaryStorage.get(key));
-		},
-		async set(key, value) {
-			await secondaryStorage.set(key, JSON.stringify(value));
+			return count <= rule.max
+				? { allowed: true, retryAfter: null }
+				: { allowed: false, retryAfter: rule.window };
 		},
 	};
 }
@@ -424,10 +398,201 @@ function createGoogleProviderOptions(): GoogleOptions {
 }
 
 /**
+ * The body fields of `/organization/invite-member` that the role rule reads.
+ * `organizationId` is required: the session's active organization can be stale.
+ */
+const inviteMemberBodySchema = z.object({
+	organizationId: z.string().min(1),
+	role: z.union([z.string(), z.array(z.string())]),
+	resend: z.boolean().optional(),
+});
+
+/** The member row that `/organization/leave` answers on success. An APIError fails this parse. */
+const leftMemberSchema = z.object({
+	id: z.string(),
+	organizationId: z.string(),
+	userId: z.string(),
+	role: z.string(),
+	// The plugin answers the adapter row, so this is a Date; coerce also takes an ISO string.
+	createdAt: z.coerce.date(),
+});
+
+/** A `member` row that remove-member or leave deleted. The undo inserts it again. */
+type DeletedMemberRow = typeof orgSchema.member.$inferSelect;
+
+/**
+ * Runs the membership cleanup of workspaces-sharing.md 2.1. On a failure it undoes the
+ * member change and rethrows. The member keeps the old access, and a retry runs the cleanup again.
+ */
+async function reduceMembershipOrUndo(input: {
+	reduction: MembershipReduction;
+	cleanup: CreateAuthOptions["onMembershipReduced"];
+	/** Writes the member row back as it was before the request. */
+	undo: () => Promise<void>;
+}): Promise<void> {
+	if (!input.cleanup) {
+		return;
+	}
+	try {
+		await input.cleanup(input.reduction);
+	} catch (error) {
+		// The plugin already wrote the change. Without the undo, a retry finds no member
+		// row or no role change, so nothing runs the cleanup again.
+		try {
+			await input.undo();
+		} catch (undoError) {
+			throw new AggregateError(
+				[error, undoError],
+				`Membership cleanup and its undo failed for user ${input.reduction.userId} in ${input.reduction.organizationId}`,
+			);
+		}
+		throw error;
+	}
+}
+
+/** Inserts a deleted member row again with its id and `created_at`, so the earliest-owner order stays. */
+async function restoreMemberRow(row: DeletedMemberRow): Promise<void> {
+	// A parallel join can add the user first. The unique (organization, user) index keeps that row.
+	await db.insert(orgSchema.member).values(row).onConflictDoNothing();
+}
+
+/** Sets the previous role back while the row still holds the new role, so a later change wins. */
+async function restoreMemberRole(input: {
+	memberId: string;
+	/** The raw `member.role` value that the plugin wrote (comma-separated). */
+	newRole: string;
+	/** The raw `member.role` value before the request. */
+	previousRole: string;
+}): Promise<void> {
+	await db
+		.update(orgSchema.member)
+		.set({ role: input.previousRole })
+		.where(
+			and(
+				eq(orgSchema.member.id, input.memberId),
+				eq(orgSchema.member.role, input.newRole),
+			),
+		);
+}
+
+function workspaceRuleError(refusal: WorkspaceRuleRefusal): APIError {
+	return APIError.from("FORBIDDEN", refusal);
+}
+
+function reservedSlugError(): APIError {
+	return APIError.from("BAD_REQUEST", {
+		code: "ORGANIZATION_SLUG_RESERVED",
+		message: "Slugs that start with personal- are reserved.",
+	});
+}
+
+/** `organization.personal_owner_user_id` gives the kind: set is personal, null is team. */
+function workspaceKindOf(
+	personalOwnerUserId: string | null,
+): WorkspaceKindFacts {
+	return personalOwnerUserId === null
+		? { kind: "team" }
+		: { kind: "personal", ownerUserId: personalOwnerUserId };
+}
+
+/** The kind of one organization. Null when the row does not exist. */
+async function findWorkspaceKind(
+	organizationId: string,
+): Promise<WorkspaceKindFacts | null> {
+	const [row] = await db
+		.select({
+			personalOwnerUserId: orgSchema.organization.personalOwnerUserId,
+		})
+		.from(orgSchema.organization)
+		.where(eq(orgSchema.organization.id, organizationId))
+		.limit(1);
+	return row ? workspaceKindOf(row.personalOwnerUserId) : null;
+}
+
+/**
+ * Applies the invite role rule of workspaces-sharing.md 2.1 before the plugin runs.
+ * It throws an APIError to refuse. It returns when the plugin must answer (no session, no member row).
+ */
+async function assertWorkspaceInviteAllowed(input: {
+	/** The raw request body, before the zod parse. */
+	body: unknown;
+	/** The canonical invitee email. */
+	email: string;
+	/** The session user id; null when the request has no session. */
+	callerUserId: string | null;
+	isOrganizationsEnabled: () => Promise<boolean>;
+}): Promise<void> {
+	// No session: the plugin session middleware answers 401.
+	if (input.callerUserId === null) {
+		return;
+	}
+	const parsed = inviteMemberBodySchema.safeParse(input.body);
+	if (!parsed.success) {
+		throw APIError.from("BAD_REQUEST", {
+			code: "VALIDATION_ERROR",
+			message: "An invitation needs organizationId and role.",
+		});
+	}
+	const { organizationId, resend, role } = parsed.data;
+	const [caller] = await db
+		.select({
+			personalOwnerUserId: orgSchema.organization.personalOwnerUserId,
+			role: orgSchema.member.role,
+		})
+		.from(orgSchema.member)
+		.innerJoin(
+			orgSchema.organization,
+			eq(orgSchema.organization.id, orgSchema.member.organizationId),
+		)
+		.where(
+			and(
+				eq(orgSchema.member.organizationId, organizationId),
+				eq(orgSchema.member.userId, input.callerUserId),
+			),
+		)
+		.limit(1);
+	// Not a member: the plugin answers MEMBER_NOT_FOUND.
+	if (!caller) {
+		return;
+	}
+	// Same "pending" rule as the plugin: status pending and not expired.
+	const [pending] = await db
+		.select({ id: orgSchema.invitation.id })
+		.from(orgSchema.invitation)
+		.where(
+			and(
+				eq(orgSchema.invitation.organizationId, organizationId),
+				eq(orgSchema.invitation.email, input.email),
+				eq(orgSchema.invitation.status, "pending"),
+				gt(orgSchema.invitation.expiresAt, new Date()),
+			),
+		)
+		.limit(1);
+	const refusal = workspaceInviteRefusal({
+		callerRoles: splitWorkspaceRoles(caller.role),
+		callerUserId: input.callerUserId,
+		hasPendingInvitation: pending !== undefined,
+		organizationsEnabled: await input.isOrganizationsEnabled(),
+		requestedRoles: splitWorkspaceRoles(role),
+		resend: resend ?? false,
+		workspace: workspaceKindOf(caller.personalOwnerUserId),
+	});
+	if (refusal) {
+		throw workspaceRuleError(refusal);
+	}
+}
+
+/**
  * Builds the Better Auth instance for the web and native apps. On a local
  * development API it also accepts the DEV_USER password, from localhost only.
  */
 export function createAuth(options: CreateAuthOptions = {}) {
+	// Closed by default, like `canCreateOrganization`.
+	const isOrganizationsEnabled = async (): Promise<boolean> =>
+		options.isOrganizationsEnabled
+			? await options.isOrganizationsEnabled()
+			: false;
+
 	const isDevPasswordLogin = isDevPasswordLoginEnabled({
 		authUrl: env.BETTER_AUTH_URL,
 		nodeEnv: env.NODE_ENV,
@@ -464,9 +629,8 @@ export function createAuth(options: CreateAuthOptions = {}) {
 						customStorage: createRateLimitStorage(options.secondaryStorage),
 						storage: "secondary-storage" as const,
 					},
-					// Keep durable auth records in Postgres. Do not set Better Auth's
-					// root secondaryStorage here; in 1.6.22 it also takes over session
-					// list and bulk-revocation reads without a database fallback.
+					// Keep durable auth records in Postgres. The injected port is only a
+					// rate-limit counter, so Better Auth gets no root secondaryStorage.
 					session: {
 						storeSessionInDatabase: true,
 						// `organization.create` updates the DB session but leaves
@@ -503,6 +667,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		disabledPaths: [
 			...baseAuthOptions.disabledPaths,
 			...EMAIL_OTP_DISABLED_PATHS,
+			...MCP_OAUTH_DISABLED_PATHS,
 		],
 		trustedOrigins: [
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
@@ -521,7 +686,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			? { emailAndPassword: { disableSignUp: true, enabled: true } }
 			: {}),
 		hooks: {
-			// The before hook has four jobs that MUST run in the hook pipeline (hook
+			// The before hook has five jobs that MUST run in the hook pipeline (hook
 			// errors always propagate to the client; the email-otp plugin
 			// backgrounds its send callback, so in-callback errors would be
 			// swallowed into a fake `success: true`):
@@ -536,6 +701,8 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			// 3. Pin the expo authorization proxy target (second branch below).
 			// 4. Refuse the dev password from a host that is not localhost
 			//    (first branch below).
+			// 5. Apply the workspace invite role rule. The plugin cancels or
+			//    resends a pending invitation before its own hooks run.
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
 				// 4. The DEV_USER password is public, and a local API can sit behind
@@ -553,8 +720,8 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					});
 				}
 				// 3. Pin the expo authorization proxy to the Google URL this API
-				//    issues (see expo-authorization-proxy.ts): no open redirect, no
-				//    state-cookie fixation. Runs before the plugin's own handler.
+				//    issues (see expo-authorization-proxy.ts): no open redirect.
+				//    It does not check `state`. Runs before the plugin's own handler.
 				if (path === EXPO_AUTHORIZATION_PROXY_PATH) {
 					const query = ctx.query as { authorizationURL?: unknown } | undefined;
 					assertTrustedAuthorizationUrl(query?.authorizationURL, {
@@ -588,6 +755,14 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				const email = canonicalizeEmail(body.email);
 				if (isInvitePath) {
 					await options.guardInviteEmail?.({ email });
+					// 5. The invite role rule (workspaces-sharing.md 2.1).
+					const session = await getSessionFromCtx(ctx);
+					await assertWorkspaceInviteAllowed({
+						body,
+						callerUserId: session?.user.id ?? null,
+						email,
+						isOrganizationsEnabled,
+					});
 				}
 				if (sendKind !== null) {
 					// Sign-in is the only OTP flow this product has — no
@@ -611,7 +786,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					await emailAuth.guardSend({
 						email,
 						ipAddress: ctx.request
-							? getIp(ctx.request, ctx.context.options)
+							? getIP(ctx.request, ctx.context.options)
 							: null,
 						kind: sendKind,
 					});
@@ -624,6 +799,25 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				};
 			}),
 			after: createAuthMiddleware(async (ctx) => {
+				// Leave has no plugin hook, so this matcher runs the cleanup of workspaces-sharing.md 2.1.
+				if (ctx.path === "/organization/leave") {
+					const left = leftMemberSchema.safeParse(ctx.context.returned);
+					if (left.success) {
+						await reduceMembershipOrUndo({
+							cleanup: options.onMembershipReduced,
+							reduction: {
+								change: "left",
+								ipAddress: ctx.request
+									? getIP(ctx.request, ctx.context.options)
+									: null,
+								organizationId: left.data.organizationId,
+								userId: left.data.userId,
+							},
+							undo: () => restoreMemberRow(left.data),
+						});
+					}
+					return;
+				}
 				if (ctx.path !== "/sign-in/email-otp") {
 					return;
 				}
@@ -701,16 +895,99 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				// defaults to NO check for built-in opaque invitation ids.
 				requireEmailVerificationOnInvitation: true,
 				// "Unlimited seats" is the Business promise; the default (100) would
-				// hard-cap paid orgs at invitation-accept (crud-invites.mjs:275).
+				// hard-cap paid orgs at invitation-accept (crud-invites.mjs:279).
 				// 10k is an abuse bound, not a product limit.
 				membershipLimit: 10_000,
 				// Physical deletion is disabled: it is non-transactional upstream and
 				// our RESTRICT FKs (projects/ledger/subscriptions) would abort it
 				// mid-flight anyway. Workspace offboarding is a later batch.
 				disableOrganizationDeletion: true,
-				invitationExpiresIn: 60 * 60 * 24 * 7,
+				// Better Auth reads seconds; the email copy reads days.
+				invitationExpiresIn:
+					WORKSPACE_INVITATION_EXPIRES_IN_DAYS * 24 * 60 * 60,
 				cancelPendingInvitationsOnReInvite: true,
 				organizationHooks: {
+					// `personal-` slugs belong to personal workspaces (workspaces-sharing.md 1).
+					beforeCreateOrganization: async ({ organization: org }) => {
+						if (org.slug !== undefined && isPersonalWorkspaceSlug(org.slug)) {
+							throw reservedSlugError();
+						}
+					},
+					beforeUpdateOrganization: async ({ organization: data }) => {
+						if (data.slug !== undefined && isPersonalWorkspaceSlug(data.slug)) {
+							throw reservedSlugError();
+						}
+					},
+					// A personal workspace keeps exactly one owner: its personal owner.
+					beforeUpdateMemberRole: async ({ member, newRole, organization }) => {
+						const workspace = await findWorkspaceKind(organization.id);
+						const refusal = workspace
+							? memberRoleUpdateRefusal({
+									memberUserId: member.userId,
+									newRoles: splitWorkspaceRoles(newRole),
+									workspace,
+								})
+							: null;
+						if (refusal) {
+							throw workspaceRuleError(refusal);
+						}
+					},
+					afterUpdateMemberRole: async ({ member, previousRole }) => {
+						// Only a change to viewer takes away the right to run turns.
+						if (
+							!isViewerOnly(splitWorkspaceRoles(member.role)) ||
+							isViewerOnly(splitWorkspaceRoles(previousRole))
+						) {
+							return;
+						}
+						await reduceMembershipOrUndo({
+							cleanup: options.onMembershipReduced,
+							reduction: {
+								change: "viewer",
+								ipAddress: null,
+								organizationId: member.organizationId,
+								userId: member.userId,
+							},
+							undo: () =>
+								restoreMemberRole({
+									memberId: member.id,
+									newRole: member.role,
+									previousRole,
+								}),
+						});
+					},
+					afterRemoveMember: async ({ member }) => {
+						await reduceMembershipOrUndo({
+							cleanup: options.onMembershipReduced,
+							reduction: {
+								change: "removed",
+								ipAddress: null,
+								organizationId: member.organizationId,
+								userId: member.userId,
+							},
+							undo: () =>
+								restoreMemberRow({
+									createdAt: member.createdAt,
+									id: member.id,
+									organizationId: member.organizationId,
+									role: member.role,
+									userId: member.userId,
+								}),
+						});
+					},
+					// The toggle stops new members in personal workspaces (workspaces-sharing.md 3.4).
+					beforeAcceptInvitation: async ({ organization }) => {
+						const workspace = await findWorkspaceKind(organization.id);
+						if (
+							workspace?.kind === "personal" &&
+							!(await isOrganizationsEnabled())
+						) {
+							throw workspaceRuleError({
+								code: "ORGANIZATIONS_DISABLED",
+								message: "Workspaces are disabled",
+							});
+						}
+					},
 					afterCreateOrganization: async ({ organization: org, member }) => {
 						try {
 							await options.onOrganizationCreated?.({
@@ -815,6 +1092,11 @@ export function createAuth(options: CreateAuthOptions = {}) {
 							],
 						}),
 					]
+				: []),
+			// Railway production forces V2_BUILDER_ENABLED to false, so production
+			// has no OAuth endpoints until V2 ships (D29 rollout gate).
+			...(env.V2_BUILDER_ENABLED
+				? createMcpOAuthPlugins(options.onMcpConsentChange)
 				: []),
 		],
 	});

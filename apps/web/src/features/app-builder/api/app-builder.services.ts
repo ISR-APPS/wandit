@@ -7,7 +7,9 @@
  */
 
 import {
+	type ActiveTurnStateResponse,
 	type AppProject as ApiAppProject,
+	activeTurnStateResponseSchema,
 	appBuilderRoutes,
 	appProjectSchema,
 	type BuilderModelsResponse,
@@ -103,19 +105,25 @@ export async function getAppProject(
 
 /**
  * Maps the V2 project answer to the UI project. The app kind comes from
- * `targetPlatform`; a null platform counts as web.
+ * `targetPlatform`; a null platform counts as web. The `desktop-app`
+ * template also makes a desktop project.
  */
 export function toUiAppProject(project: ApiAppProject): AppProject {
 	return {
 		id: project.id,
 		name: project.name,
-		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		// The API builds an installer only for the `desktop-app` template (docs/v2/desktop-apps.md, section 8).
+		kind:
+			project.framework === "desktop-app"
+				? "desktop"
+				: (project.targetPlatform ?? "web"),
 		languages: project.languages,
 		templateVersion: project.templateVersion,
 		engine: project.engine,
 		versionNumber: project.versionNumber,
 		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
+		access: project.access,
 	};
 }
 
@@ -158,6 +166,20 @@ export async function cancelTurn(
 		appBuilderRoutes.cancelTurn(projectId, turnId),
 	);
 	return cancelTurnResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/turns/active` answers the id of the running turn
+ * and the `main` head sha. use-builder-chat.ts polls it to follow a turn or
+ * a commit of another client, such as a coding agent over MCP.
+ */
+export async function getActiveTurnState(
+	projectId: string,
+): Promise<ActiveTurnStateResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.activeTurn(projectId),
+	);
+	return activeTurnStateResponseSchema.parse(data);
 }
 
 /**

@@ -1,9 +1,9 @@
 /**
  * Port: the durable git store for app code (D21 — code.storage).
- * The project-create flow calls `GitStore`; the sandbox-wake path calls
- * `RepoRestorer` to push the repo back into a fresh sandbox. WANDIT-171
- * implements both. The theme service reads one committed file through
- * `GitFileReader`.
+ * `commitTurn`, the mobile build, the GitHub sync, and the project delete
+ * call `GitStore`. The sandbox-wake path calls `RepoRestorer` to push the repo back into a
+ * fresh sandbox. WANDIT-171 implements both. The theme service reads one
+ * committed file through `GitFileReader`.
  */
 import type { SandboxHandle } from "./sandbox-provider";
 
@@ -15,12 +15,15 @@ export const REPO_RESTORER = Symbol.for("app-builder.repo-restorer");
 
 /**
  * What a git credential may do. "read" only fetches: the mobile build
- * worker and the restorer use it, so a leaked token cannot change the
- * repository. "push-main" also pushes `main`: no force push, no other
- * branch, no tag (WANDIT-282). It can still delete `main` and create it
+ * worker, the restorer, and the GitHub sync use it, so a leaked token cannot
+ * change the repository. "push-main" also pushes `main`: no force push, no
+ * other branch, no tag (WANDIT-282). It can still delete `main` and create it
  * again; see the LIMIT at `PUSH_MAIN_REFS`. Only `commitTurn` uses it.
+ * "push-github-mirror" pushes only the branch `github/main`, force included,
+ * and never `main`. Only the `github-sync` worker task uses it: it copies
+ * GitHub `main` there for an Update.
  */
-export type GitCredentialAccess = "read" | "push-main";
+export type GitCredentialAccess = "read" | "push-main" | "push-github-mirror";
 
 /** Repository lifecycle on code.storage. */
 export interface GitStore {

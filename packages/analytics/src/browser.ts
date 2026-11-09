@@ -7,6 +7,7 @@ import posthog, { type BeforeSendFn } from "posthog-js";
 
 import {
 	DEFAULT_POSTHOG_HOST,
+	redactInviteLinkToken,
 	sanitizeUrlProperties,
 	type WanditAnalyticsOptions,
 } from "./internal/shared";
@@ -66,8 +67,11 @@ export function initBrowserAnalytics(options: WanditAnalyticsOptions): void {
 			recordBody: false,
 			recordHeaders: false,
 			// Network timing is a PostHog project setting. It records the preview iframe URL, and its host label is a bearer secret.
+			// The replay also passes each page URL through this function, so an invite link token is redacted here too.
 			maskCapturedNetworkRequestFn: (request) =>
-				isPreviewUrl(request.name) ? null : request,
+				isPreviewUrl(request.name)
+					? null
+					: { ...request, name: redactInviteLinkToken(request.name) },
 		},
 		before_send: sanitizeBeforeSend,
 	});

@@ -151,6 +151,34 @@ describe("ArchiveTemplateInit", () => {
 			join(emptyDir, "web-app-1.0.0.tar.gz"),
 		);
 	});
+
+	it("installs the current template when the archive of an older pin is not shipped", async () => {
+		const provider = new FakeSandboxProvider();
+		for (const command of ["mkdir", "tar", "pnpm"]) {
+			provider.respondTo(command, OK);
+		}
+		for (const result of [FAIL, OK, OK, OK]) {
+			provider.respondTo("git", result);
+		}
+		const handle = await provider.getOrCreate("p1", CREATE_OPTIONS);
+		const dir = await mkdtemp(join(tmpdir(), "wandit-tpl-current-"));
+		await writeFile(join(dir, "web-app-1.1.0.tar.gz"), "current-archive");
+		await mkdir(join(dir, "web-app"));
+		await writeFile(
+			join(dir, "web-app", "template_version"),
+			"web-app@1.1.0\n2026-11-03\n",
+		);
+
+		await new ArchiveTemplateInit(dir).apply(handle, {
+			framework: "web-app",
+			templateVersion: "web-app@1.0.0",
+		});
+
+		// The commit names the files on the disk, not the pin of the project.
+		expect(execLines(provider).at(-1)).toContain(
+			"init: template web-app@1.1.0",
+		);
+	});
 });
 
 // Packs `files` with the system tar, like templates/*/scripts/pack.mjs,
@@ -284,6 +312,7 @@ describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
 		}
 		const callsBefore = provider.calls.length;
 		return {
+			dir,
 			handle,
 			init: new ArchiveTemplateInit(dir, logger),
 			/** Vendor calls after the setup, by method name. */
@@ -361,7 +390,29 @@ describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
 		expect(await viteConfig()).toBe(OLD_VITE_CONFIG);
 	});
 
-	it("replaces the settings.json that lacks the git restore, stash, and clean denies", async () => {
+	it("keeps the old vite config of an older pin, because the current config needs a file the project lacks", async () => {
+		const { dir, init, handle, viteConfig } = await setup(OLD_VITE_CONFIG);
+		await mkdir(join(dir, "web-app"));
+		await writeFile(
+			join(dir, "web-app", "template_version"),
+			"web-app@1.0.0\n",
+		);
+
+		await init.replaceOldTemplateFiles(handle, {
+			framework: "web-app",
+			templateVersion: "web-app@0.9.0",
+		});
+
+		expect(await viteConfig()).toBe(OLD_VITE_CONFIG);
+	});
+
+	it.each([
+		["the pin", "mobile-app-1.0.0.tar.gz"],
+		[
+			"the current version when the pin is not shipped",
+			"mobile-app-1.2.0.tar.gz",
+		],
+	])("replaces the settings.json that lacks the git restore, stash, and clean denies from the archive of %s", async (_case, archiveName) => {
 		const current = await readFile(
 			resolve(
 				dirname(fileURLToPath(import.meta.url)),
@@ -391,8 +442,13 @@ describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
 		expect(old).not.toBe(current);
 		const dir = await mkdtemp(join(tmpdir(), "wandit-tpl-settings-"));
 		await writeFile(
-			join(dir, "mobile-app-1.0.0.tar.gz"),
+			join(dir, archiveName),
 			await pack({ ".claude/settings.json": current }, "202601010000"),
+		);
+		await mkdir(join(dir, "mobile-app"));
+		await writeFile(
+			join(dir, "mobile-app", "template_version"),
+			"mobile-app@1.2.0\n",
 		);
 		const provider = new FakeSandboxProvider();
 		const handle = await provider.getOrCreate("p1", {

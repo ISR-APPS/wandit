@@ -1,6 +1,12 @@
-import type {
-	MemberCreditLimitDetails,
-	PaymentRequiredDetails,
+/**
+ * Turns billing refusals (402 credits, 403 member limit) into one intent for the billing modal.
+ * Callers: api error handlers and the builder chat, through dispatchBillingError.
+ * billing-modal-provider.tsx subscribes and opens the plan picker or a notice.
+ */
+import {
+	creditPayerSchema,
+	type MemberCreditLimitDetails,
+	type PaymentRequiredDetails,
 } from "@wandit/contracts";
 
 const BILLING_ERROR_CODES = new Set([
@@ -66,6 +72,8 @@ export function toUpgradeModalIntent(
 		return null;
 	}
 
+	// The payer crosses the HTTP boundary unchecked by the guard above. Older servers omit it.
+	const payer = creditPayerSchema.safeParse(candidate.details.payer);
 	return {
 		code: candidate.code as UpgradeModalIntent["code"],
 		requiredCredits: candidate.details.requiredCredits,
@@ -76,6 +84,7 @@ export function toUpgradeModalIntent(
 		candidate.details.heldCredits >= 0
 			? { heldCredits: candidate.details.heldCredits }
 			: {}),
+		...(payer.success ? { payer: payer.data } : {}),
 	};
 }
 

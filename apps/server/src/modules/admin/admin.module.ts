@@ -9,6 +9,7 @@ import { Sentry } from "@wandit/observability/nestjs";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AuditEventsService } from "../app-builder/application/services/audit-events.service";
 import { AuditEventsRepository } from "../app-builder/infrastructure/persistence/audit-events.repository";
+import { DesktopBuildsRepository } from "../app-builder/infrastructure/persistence/desktop-builds.repository";
 import { BillingWebhookEventsRepository } from "../billing/infrastructure/persistence/billing-webhook-events.repository";
 import { TriggerBillingWebhookDispatcherService } from "../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { CreditsModule } from "../credits/credits.module";
@@ -31,7 +32,11 @@ import { AdminPublicationsService } from "./application/services/admin-publicati
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
-import { PublicationSuspensionService } from "./application/services/publication-suspension.service";
+import {
+	DESKTOP_RELEASE_OBJECTS,
+	PublicationSuspensionService,
+	r2DesktopReleaseObjects,
+} from "./application/services/publication-suspension.service";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
 import { AdminAnalyticsRepository } from "./infrastructure/persistence/admin-analytics.repository";
 import { AdminAuditRepository } from "./infrastructure/persistence/admin-audit.repository";
@@ -110,6 +115,12 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 			inject: [AuditEventsRepository],
 		},
 		BillingWebhookEventsRepository,
+		// The suspend switch withdraws the desktop release: it clears the
+		// current build and every installer key, then deletes `desktop/<id>/`
+		// on R2. AppBuilderModule may not load, so this module registers the
+		// repository itself.
+		DesktopBuildsRepository,
+		{ provide: DESKTOP_RELEASE_OBJECTS, useValue: r2DesktopReleaseObjects },
 		PublicationSuspensionService,
 		TriggerBillingWebhookDispatcherService,
 	],

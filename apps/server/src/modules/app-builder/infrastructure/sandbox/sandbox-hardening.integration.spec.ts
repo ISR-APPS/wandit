@@ -8,7 +8,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { describe, expect, it } from "vitest";
-
+import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import { CodeService } from "../../application/services/code.service";
 import type { SandboxCreateOptions } from "../../domain/ports/sandbox-provider";
 import { LoggingRepoRestorer } from "../git/logging-repo-restorer";
@@ -233,7 +233,7 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 				},
 				{ findRunning: async () => handle },
 			);
-			const scope = { kind: "personal", userId: "integration-user" } as const;
+			const scope = projectScopeFrom(undefined, "integration-user");
 			expect(await code.file(scope, projectId, "code-view-a.txt")).toEqual({
 				binary: false,
 				content: "hi\n",

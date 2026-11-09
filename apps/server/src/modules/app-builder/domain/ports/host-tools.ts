@@ -1,9 +1,10 @@
 /**
  * Port: the host-side tool set the agent may call during a turn.
  * `builder-turn.runtime.ts` calls `build` once per turn after the sandbox
- * exists. `BuilderHostToolRegistry` implements it with `generate_image`,
- * `request_network_host`, `set_theme`, and the backend tools of WANDIT-186,
- * or with the Plan Mode tools. AI SDK `ToolSet` only: vendor packages stay out.
+ * exists. `BuilderHostToolRegistry` implements it with `generate_image` and
+ * `set_theme`, plus `request_network_host` and the backend tools of WANDIT-186
+ * (web and mobile) or `add_local_migration` (desktop), or with the Plan Mode
+ * tools. AI SDK `ToolSet` only: vendor packages stay out.
  */
 import type { BuilderTurnMode } from "@wandit/contracts";
 import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
@@ -41,7 +42,12 @@ export type HostToolContext = {
 	sandbox: SandboxHandle;
 	/** `spec.mode` of the turn. `plan` gets only the tools that ask the user. */
 	mode: BuilderTurnMode;
-	/** `projects.templateVersion`, for example "web-app@1.1.0". `set_theme` exists from web-app@1.1.0. */
+	/**
+	 * `projects.framework`, for example "web-app" or "desktop-app". A desktop
+	 * app gets `add_local_migration` and no backend tool.
+	 */
+	framework: string;
+	/** `projects.templateVersion`, for example "web-app@1.1.0". `set_theme` exists from web-app@1.1.0 and desktop-app@1.0.0. */
 	templateVersion: string;
 	/**
 	 * Called after a host tool wrote src/styles/theme.json. The turn-end guard

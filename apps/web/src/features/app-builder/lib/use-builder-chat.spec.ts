@@ -6,7 +6,11 @@ import {
 	type QueryKey,
 } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { CreateTurnResponse } from "@wandit/contracts";
+import type {
+	ActiveTurnStateResponse,
+	ChatHistoryPage,
+	CreateTurnResponse,
+} from "@wandit/contracts";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -109,9 +113,21 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 		},
 	);
 
+	// The answer of the poll route. A case sets a turn or a head of another client.
+	let activeTurnState: ActiveTurnStateResponse = {
+		activeTurnId: null,
+		headSha: null,
+	};
+	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
+		async () => activeTurnState,
+	);
+
 	return {
 		requests,
-		deps: { fetch: fetchImpl, cancelTurn },
+		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+		setActiveTurnState: (next: ActiveTurnStateResponse) => {
+			activeTurnState = next;
+		},
 		postAbortSignal: () => postAbortSignal,
 		cancelSawAbort: () => cancelSawAbort,
 		// Writes the done frame and the [DONE] terminator like the relay, then
@@ -817,7 +833,336 @@ describe("useBuilderChat", () => {
 			]),
 		);
 	});
+
+	// The MCP tool `send_prompt` or a teammate starts a turn. The chat must show
+	// it as a reload does: the stored user row first, then the replayed reply.
+	it("follows a turn that another client starts once, with its stored user row above the reply", async () => {
+		const fake = createDeps();
+		let getCount = 0;
+		let followedStream: ReadableStreamDefaultController<Uint8Array> | null =
+			null;
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: async () => {
+				getCount += 1;
+				// The mount resume finds no turn. The follow replays the turn of the other client.
+				return getCount === 1
+					? new Response(null, { status: 204 })
+					: openTurnStream("agent reply", (controller) => {
+							followedStream = controller;
+						});
+			},
+		};
+		const queryClient = new QueryClient();
+		// The stored chat. The other client's send adds its user row.
+		const storedRows: ChatHistoryPage["items"] = [];
+		await queryClient.prefetchInfiniteQuery({
+			queryKey: appBuilderKeys.chatHistory(PROJECT_ID),
+			queryFn: async (): Promise<ChatHistoryPage> => ({
+				items: [...storedRows],
+				nextCursor: null,
+			}),
+			initialPageParam: null,
+		});
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+			queryClient,
+		);
+		await waitFor(() => expect(getCount).toBe(1));
+		await act(async () => {});
+
+		storedRows.push({
+			id: crypto.randomUUID(),
+			chatId: CHAT_ID,
+			role: "user",
+			parts: [{ type: "text", text: "change the title" }],
+			metadata: null,
+			seq: 1,
+			createdAt: "2026-11-07T00:00:00.000Z",
+		});
+		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: null });
+		// The next poll tick. The history query has no observer here, so only the poll refetches.
+		await act(async () => {
+			await queryClient.refetchQueries({ type: "active" });
+		});
+
+		await waitFor(() =>
+			expect(messageTexts(result.current.messages)).toEqual([
+				"change the title",
+				"agent reply",
+			]),
+		);
+		act(() => {
+			followedStream?.enqueue(
+				new TextEncoder().encode(
+					`data: ${JSON.stringify(doneFrame)}\n\ndata: [DONE]\n\n`,
+				),
+			);
+			followedStream?.close();
+		});
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+		// A later poll still shows the id of the ended turn.
+		await act(async () => {
+			await queryClient.refetchQueries({ type: "active" });
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		});
+		expect(getCount).toBe(2);
+	});
+
+	// The MCP tool `apply_changes` commits with no turn. The versions, the Code
+	// view, and the chat must load again, but not on the first poll answer.
+	it("refreshes the turn caches and the chat when another client moves the head", async () => {
+		const fake = createDeps();
+		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		const queryClient = new QueryClient();
+		const versionsKey = appBuilderKeys.versions(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		queryClient.setQueryData(versionsKey, null);
+		queryClient.setQueryData(historyKey, null);
+		const isStale = (key: QueryKey) =>
+			queryClient.getQueryState(key)?.isInvalidated;
+		renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			fake.deps,
+			queryClient,
+		);
+		await waitFor(() =>
+			expect(fake.deps.getActiveTurnState).toHaveBeenCalled(),
+		);
+		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+		expect([isStale(versionsKey), isStale(historyKey)]).toEqual([false, false]);
+
+		fake.setActiveTurnState({ activeTurnId: null, headSha: "b".repeat(40) });
+		await act(async () => {
+			await queryClient.refetchQueries({ type: "active" });
+		});
+
+		await waitFor(() =>
+			expect([isStale(versionsKey), isStale(historyKey)]).toEqual([true, true]),
+		);
+	});
+
+	// The poll can answer the id of the page's own turn after its stream ended.
+	// A follow would replay the turn a second time.
+	it("does not follow the page's own finished turn when a poll still shows its id", async () => {
+		const fake = createDeps();
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			fake.deps,
+		);
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+		await act(async () => {});
+		act(() => {
+			void result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: null });
+		const pollCount = fake.deps.getActiveTurnState.mock.calls.length;
+
+		fake.endPostStream();
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+		// The poll runs again once the stream ended.
+		await waitFor(() =>
+			expect(fake.deps.getActiveTurnState.mock.calls.length).toBeGreaterThan(
+				pollCount,
+			),
+		);
+		// The wait lets a follow GET go out, if the rule took the id for a new turn.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+		expect(
+			fake.requests.filter((request) => request.init?.method !== "POST"),
+		).toHaveLength(1);
+	});
+
+	// A failed turn leaves useChat in `error` until the next send. A turn that
+	// Claude Code starts after it must still show.
+	it("follows a turn that another client starts after the page's own turn failed", async () => {
+		const fake = createDeps();
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			// The relay ends a failed turn with an `error` chunk.
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? Promise.resolve(
+							sseResponse([
+								createdFrame,
+								{ type: "error", errorText: "agent failed" },
+							]),
+						)
+					: fake.deps.fetch(input, init),
+		};
+		const queryClient = new QueryClient();
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+			queryClient,
+		);
+		const getCount = () =>
+			fake.requests.filter((request) => request.init?.method !== "POST").length;
+		await waitFor(() => expect(getCount()).toBe(1));
+		await act(async () => {});
+		act(() => {
+			void result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.status).toBe("error"));
+
+		fake.setActiveTurnState({
+			activeTurnId: crypto.randomUUID(),
+			headSha: null,
+		});
+		await act(async () => {
+			await queryClient.refetchQueries({ type: "active" });
+		});
+
+		// The follow opens the replay of that turn.
+		await waitFor(() => expect(getCount()).toBe(2));
+	});
+
+	// A Stop of this page commits the work so far while its row still cancels.
+	// The history then hides the stopped reply, so a reseed would drop it.
+	it("keeps the chat history when the page's own Stop moves the head", async () => {
+		const fake = createDeps();
+		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		const queryClient = new QueryClient();
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		queryClient.setQueryData(historyKey, null);
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			fake.deps,
+			queryClient,
+		);
+		await waitFor(() =>
+			expect(fake.deps.getActiveTurnState).toHaveBeenCalled(),
+		);
+		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+		act(() => {
+			void result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: "b".repeat(40) });
+		const pollCount = fake.deps.getActiveTurnState.mock.calls.length;
+
+		await act(() => result.current.cancel());
+		await waitFor(() =>
+			expect(fake.deps.getActiveTurnState.mock.calls.length).toBeGreaterThan(
+				pollCount,
+			),
+		);
+		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+		expect(queryClient.getQueryState(historyKey)?.isInvalidated).toBe(false);
+	});
+
+	// The page's own turn waits behind a turn of another client, which commits
+	// first. Only the head rule then loads the rows of that other turn.
+	it("reloads the chat after the page's own turn waited behind another turn", async () => {
+		const fake = createDeps();
+		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? Promise.resolve(
+							sseResponse([
+								{
+									...createdFrame,
+									data: {
+										...createdFrame.data,
+										status: "waiting",
+										queued: true,
+									},
+								},
+								{
+									type: "data-turn-done",
+									id: "turn-done",
+									data: {
+										status: "succeeded",
+										outputCommitSha: "c".repeat(40),
+									},
+								},
+							]),
+						)
+					: fake.deps.fetch(input, init),
+		};
+		const queryClient = new QueryClient();
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		queryClient.setQueryData(historyKey, null);
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+			queryClient,
+		);
+		await waitFor(() =>
+			expect(fake.deps.getActiveTurnState).toHaveBeenCalled(),
+		);
+		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+		// The poll after the stream shows the head of the page's own commit.
+		fake.setActiveTurnState({ activeTurnId: null, headSha: "c".repeat(40) });
+
+		act(() => {
+			void result.current.send({ text: "hello" });
+		});
+
+		await waitFor(() =>
+			expect(queryClient.getQueryState(historyKey)?.isInvalidated).toBe(true),
+		);
+	});
 });
+
+/** A closed SSE answer that holds these chunks, as the relay writes them. */
+function sseResponse<Chunk extends { type: string }>(
+	chunks: Chunk[],
+): Response {
+	const encoder = new TextEncoder();
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks) {
+					controller.enqueue(
+						encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+					);
+				}
+				controller.close();
+			},
+		}),
+		{ status: 200, headers: { "content-type": "text/event-stream" } },
+	);
+}
 
 /**
  * A turn stream as the relay sends it: the created frame and the start of a

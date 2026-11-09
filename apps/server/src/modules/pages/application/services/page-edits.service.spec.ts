@@ -14,7 +14,10 @@ import {
 	pageHtmlKey,
 	putPageHtml,
 } from "../../../../infrastructure/storage/r2";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	type PagesRepository,
 	VersionConflictError,
@@ -34,7 +37,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 }));
 
 const USER_ID = "user_1";
-const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, USER_ID);
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const ARTIFACT_ID = "33333333-3333-4333-8333-333333333333";

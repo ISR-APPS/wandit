@@ -64,6 +64,7 @@ import type { DomainRoutingService } from "../modules/domains/infrastructure/clo
 import { SlugTakenError } from "../modules/sites/domain/errors/site.errors";
 import {
 	pickFreeSlug,
+	type SlugSuffix,
 	slugifyProjectName,
 } from "../modules/sites/domain/slugify";
 import type { DeploymentsRepository } from "../modules/sites/infrastructure/persistence/deployments.repository";
@@ -158,6 +159,8 @@ export type PublishAppDeps = {
 	authUrlSync: ProjectDomainHook;
 	/** `env.SITES_DOMAIN`: the zone of the `{slug}.{domain}` host. */
 	sitesDomain: string;
+	/** `env.SITES_SLUG_SUFFIX`: `"-stg"` on staging. A first publish puts it at the end of the new slug. */
+	sitesSlugSuffix: SlugSuffix;
 	/** `Sentry.captureException` with the run tags. */
 	captureException: (
 		error: unknown,
@@ -791,8 +794,10 @@ async function goLive(
 	// with the V1 rules.
 	const slug =
 		live?.slug ??
-		(await pickFreeSlug(project.name, (candidate) =>
-			deps.deployments.isSlugTakenByOther(candidate, projectId),
+		(await pickFreeSlug(
+			project.name,
+			(candidate) => deps.deployments.isSlugTakenByOther(candidate, projectId),
+			deps.sitesSlugSuffix,
 		));
 	const pending = await deps.publish.insertPendingDeployment({
 		buildId: row.id,

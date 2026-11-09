@@ -1,13 +1,14 @@
 /**
  * Maps one `ProjectQueryRow` to the V1 `Project` contract.
- * `ProjectsService` calls it for the list, get, and update answers, and
- * `mapAppProjectRow` builds the V2 answer on top of it.
+ * `ProjectsService` calls it for the list, shared list, get, and update
+ * answers, and `mapAppProjectRow` builds the V2 answer on top of it.
  */
 import type { Project } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
 import type { ProjectQueryRow } from "../persistence/projects.repository";
 
+/** One row to one `Project`. `liveUrl` and `status` come from the deployment columns. */
 export function mapProjectRow(row: ProjectQueryRow): Project {
 	return {
 		createdAt: row.createdAt.toISOString(),
@@ -35,6 +36,8 @@ export function mapProjectRow(row: ProjectQueryRow): Project {
 				: "draft",
 		thumbnailSeed: thumbnailSeed(row.id),
 		updatedAt: row.updatedAt.toISOString(),
+		// The repository resolved the caller's role. No workspace row means no field.
+		...(row.access === null ? {} : { access: row.access }),
 	};
 }
 

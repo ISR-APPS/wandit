@@ -152,6 +152,7 @@ import {
 import {
 	profileForFramework,
 	TEMPLATE_PROFILES,
+	type TemplateProfile,
 } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
 import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
@@ -159,8 +160,10 @@ import type { ChatMessageText } from "../modules/generation/infrastructure/persi
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
+	meteringSubjectOfEvent,
 } from "../modules/metering/application/services/metering.service";
 import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
+import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
 // 60 s: refreshes the lock, the vendor sandbox deadline, and activity.
@@ -178,6 +181,10 @@ const CHECKPOINT_STEP_USD_MICROS = 250_000;
 // screen rules; the design-worlds-mobile skill holds the looks.
 const MOBILE_APP_INSTRUCTION =
 	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
+// The platform sentence of a desktop app. The template CLAUDE.md holds the
+// data rules; the host tool holds the migration allow list.
+const DESKTOP_APP_INSTRUCTION =
+	"This is a desktop app for Windows and macOS (Tauri) with a local SQLite database and no cloud backend: follow CLAUDE.md, read and write data only through src/lib/db.ts, and change the schema only with the add_local_migration tool.";
 // 100 ms between two in-flight reads while the settle waits for the
 // proxy rows of the run.
 const PROXY_ROWS_POLL_MS = 100;
@@ -221,6 +228,25 @@ const BACKEND_WAKE_TIMEOUT_MS = 180_000;
  */
 function mobileWorldsInstruction(projectId: string): string {
 	return `The design world order of this project is: ${worldOrder(projectId, mobileWorldCards).join(", ")}. On the first build, ask for the design world with the app language, as the design-worlds-mobile skill says; without that skill, ignore it.`;
+}
+
+/**
+ * The platform sentences of one project, one branch per template profile.
+ * Desktop gets the web recipe sentence. The sentence tells the agent to ignore it
+ * when the template has no app-dashboard skill.
+ */
+function platformInstructionOf(
+	profile: Readonly<TemplateProfile>,
+	projectId: string,
+): string {
+	if (profile === TEMPLATE_PROFILES.mobile) {
+		return `${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`;
+	}
+	if (profile === TEMPLATE_PROFILES.desktop) {
+		return `${DESKTOP_APP_INSTRUCTION} ${appRecipeInstruction(projectId)}`;
+	}
+	// TEMPLATE_PROFILES.web: `profileForFramework` refuses a framework without a profile.
+	return appRecipeInstruction(projectId);
 }
 
 /** Why the turn stopped on its own. */
@@ -335,7 +361,6 @@ export type BuilderTurnInput = {
 	actorUserId: string;
 	/** Org workspace of the project, or null for a personal project. */
 	organizationId: string | null;
-	actorIsLimitExempt?: boolean;
 	/**
 	 * `ctx.run.id` on Trigger.dev, `hostRunIdOf(turnId)` on the host. It
 	 * binds the proxy token claims, and on Trigger also the row claim.
@@ -407,7 +432,7 @@ export type BuilderTurnDeps = {
 		MeteringService,
 		| "acquireExecutionLease"
 		| "checkpoint"
-		| "findByIdempotencyKey"
+		| "findByIdempotencyKeyAnyPayer"
 		| "heartbeatExecutionLease"
 		| "monthlySpendCredits"
 		| "refund"
@@ -488,6 +513,19 @@ export type BuilderTurnDeps = {
 };
 
 /**
+ * True when `hold` is the `agent_session` hold that the API reserved for this
+ * turn: the same project, actor, and team workspace as the task payload.
+ */
+function isHoldOfTurn(hold: AiUsageEvent, input: BuilderTurnInput): boolean {
+	return (
+		hold.operation === "agent_session" &&
+		hold.projectId === input.projectId &&
+		hold.userId === input.actorUserId &&
+		hold.organizationId === input.organizationId
+	);
+}
+
+/**
  * Cancel finalizers keyed by run id; the task's `onCancel` calls them
  * after the run's own grace window. Memoized inside the run, so the
  * aborted-catch and the hook can never settle the same turn twice.
@@ -519,11 +557,11 @@ export async function runBuilderTurn(
 	// one, and Postgres rejects it. One token per run: the heartbeat matches
 	// only this run's lease.
 	const leaseToken = randomUUID();
-	const subject: MeteringSubject = {
+	// The payer of the turn. With billing on, the hold row replaces this
+	// value before the plan read (workspaces-sharing.md 4). With billing off
+	// no hold exists, so the payload actor and org, plus the personal owner, stand in.
+	let subject: MeteringSubject = {
 		actorUserId: input.actorUserId,
-		...(input.actorIsLimitExempt === undefined
-			? {}
-			: { actorIsLimitExempt: input.actorIsLimitExempt }),
 		organizationId: input.organizationId,
 	};
 
@@ -545,12 +583,14 @@ export async function runBuilderTurn(
 	}
 	const chatId = turn.chatId;
 
-	/** The `builder-turn:<turnId>` hold row, or null on lookup failure. */
+	/**
+	 * The `builder-turn:<turnId>` hold row, or null on lookup failure. No payer
+	 * check: the row itself names the payer.
+	 */
 	const findHold = async () => {
 		try {
-			return await deps.metering.findByIdempotencyKey(
+			return await deps.metering.findByIdempotencyKeyAnyPayer(
 				`builder-turn:${turnId}`,
-				subject,
 			);
 		} catch (error) {
 			logger.warn(
@@ -1565,8 +1605,11 @@ export async function runBuilderTurn(
 		// The dev command and port come from the template. An unknown
 		// framework throws here, before any sandbox work.
 		const templateProfile = profileForFramework(project.framework);
-		// Only web-app@1.1.0+ has src/styles/theme.json and the theme features.
+		// Only web-app@1.1.0+ and desktop-app have src/styles/theme.json and the theme features.
 		const hasAppTheme = supportsAppTheme(project.templateVersion);
+		// A desktop app keeps its data in a local SQLite file. It has no cloud
+		// backend to wake, to put in .env, to allow in the egress, or to name.
+		const hasCloudBackend = templateProfile !== TEMPLATE_PROFILES.desktop;
 
 		const sessionRow = await deps.sessions.findByChatId(chatId);
 		// jsonb returns unknown; the envelope schema is the boundary.
@@ -1604,7 +1647,7 @@ export async function runBuilderTurn(
 		const modeSwitch =
 			resumeState !== null && switchesMode(resumeState, spec.mode);
 		// The session row is saved at the end of each agent turn, so its
-		// `updatedAt` tells whether the agent ran after a restore.
+		// `updatedAt` tells whether the agent ran after a restore or an Update.
 		const restoreNote = restoreNoteOf(
 			await deps.versions.findLatest(projectId),
 			sessionRow?.updatedAt ?? null,
@@ -1714,10 +1757,32 @@ export async function runBuilderTurn(
 		const caps = await deps.caps.findByProjectId(projectId);
 		perTurnCapCredits = caps?.perTurnCapCredits ?? DEFAULT_PER_TURN_CAP_CREDITS;
 		monthlyCapCredits = caps?.monthlyCapCredits ?? null;
-		const plan = await deps.resolvePlan(subject);
 		// The hold is loaded once: the pulse tick checkpoints against it.
 		const hold = await findHold();
 		holdId = hold?.id ?? null;
+		if (!deps.billingDisabled) {
+			// Money check: the payer comes from the hold that the API reserved,
+			// never from the payload. A missing hold, or a hold of another actor
+			// or project, would run the turn free or bill the wrong pool.
+			if (hold === null || !isHoldOfTurn(hold, input)) {
+				// The catch at the end reads `code` into the row's failure code.
+				throw Object.assign(
+					new Error(
+						`The credit hold of turn ${turnId} is missing or does not match the turn`,
+					),
+					{ code: "hold_missing" },
+				);
+			}
+			subject = meteringSubjectOfEvent(hold);
+		} else if (
+			project.organizationId === null &&
+			project.userId !== input.actorUserId
+		) {
+			// With billing off no hold names the payer. The personal owner pays, as a
+			// hold would say, so set_secret and enable_ai find the owner's project.
+			subject = { ...subject, payerUserId: project.userId };
+		}
+		const plan = await deps.resolvePlan(subject);
 		// The stranded-hold sweep refunds a hold that waited too long in the
 		// queue. A turn without a hold would run for free, so it fails here.
 		if (hold?.status === "refunded" && !deps.billingDisabled) {
@@ -1819,7 +1884,9 @@ export async function runBuilderTurn(
 		// still sends the token of the paused turn; the binding bills it here.
 		await deps.counters.bindChat(chatId, billing, LLM_PROXY_TOKEN_TTL_SECONDS);
 
-		let backend = await deps.backends.findByProjectId(projectId);
+		let backend = hasCloudBackend
+			? await deps.backends.findByProjectId(projectId)
+			: null;
 		// A paused backend wakes before the env is built, so the app has its
 		// database in this turn. A Cloud tab restore leaves `restoring`; the
 		// wake waits for that one too.
@@ -1850,7 +1917,7 @@ export async function runBuilderTurn(
 		// Without an active row here, getOrCreate builds the policy with no
 		// backend host. The `.env` re-read after it writes only the file, so it
 		// keeps this flag.
-		backendHostMissing = supabase === null;
+		backendHostMissing = hasCloudBackend && supabase === null;
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
@@ -1889,9 +1956,9 @@ export async function runBuilderTurn(
 		// the sandbox row is not `running` yet, so its own write skips this
 		// sandbox. So the turn reads the row again here.
 		try {
-			const envBackend = activeBackendEnvOf(
-				await deps.backends.findByProjectId(projectId),
-			);
+			const envBackend = hasCloudBackend
+				? activeBackendEnvOf(await deps.backends.findByProjectId(projectId))
+				: null;
 			if (envBackend !== null) {
 				await syncBackendEnvFile(sandbox, envBackend);
 			}
@@ -1976,8 +2043,11 @@ export async function runBuilderTurn(
 						result.tool === "ask_user" || result.tool === "present_plan",
 				) === true);
 
-		// The note applies only when no active backend row exists.
-		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
+		// The note applies only when a project with a backend has no active row.
+		const backendNote =
+			hasCloudBackend && supabase === null
+				? "Backend not ready yet"
+				: undefined;
 		// The card says "Starting the session" only for a cold session. A
 		// stored session resumes with no status; `startSession` writes one
 		// when the resume fails and a fresh session starts instead.
@@ -1987,6 +2057,7 @@ export async function runBuilderTurn(
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
+			framework: project.framework,
 			holdEventId: holdId,
 			mode: spec.mode,
 			organizationId: input.organizationId,
@@ -2049,8 +2120,9 @@ export async function runBuilderTurn(
 			env: sandboxEnv,
 			hostTools,
 			// The product rules for every project, plus the platform sentences:
-			// the Expo rule and the design world order for a mobile app, the app
-			// design recipe for a web app. A project keeps the CLAUDE.md of its
+			// the Expo rule and the design world order for a mobile app, the
+			// desktop data rule and the app design recipe for a desktop app, the
+			// app design recipe for a web app. A project keeps the CLAUDE.md of its
 			// template version, so a rule that must reach old projects goes here.
 			// The template CLAUDE.md in the workspace root holds every other rule.
 			// projects.languages holds the wandit UI locale at creation, not a
@@ -2062,7 +2134,7 @@ export async function runBuilderTurn(
 				"After the first build, ask only when you cannot decide yourself. Ask the app language on the first build (CLAUDE.md), unless the user says not to ask. Put every question of one step in ONE call. " +
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
-				"End with a short answer in plain words: at most 100 words, plus the test account. " +
+				"End with a short answer in plain words: at most 100 words, plus the test account when this turn created one. " +
 				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
 				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
 				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +
@@ -2072,10 +2144,8 @@ export async function runBuilderTurn(
 				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine. " +
 				// Wandit is an Algerian company. A Morocco option can hurt it, because of the political tension between the two countries.
 				"Most wandit users are in Algeria. When a question, an option, or sample data needs a country, a city, a currency, or a phone format, use Algeria first: its wilayas and cities, DZD, and +213. " +
-				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first." +
-				(templateProfile === TEMPLATE_PROFILES.mobile
-					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
-					: ` ${appRecipeInstruction(projectId)}`),
+				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first. " +
+				platformInstructionOf(templateProfile, projectId),
 			mode: spec.mode,
 			model,
 			sandbox,
@@ -2736,7 +2806,7 @@ async function copyAnswerFile(
 	}
 }
 
-/** What the theme file steps of a web-app@1.1.0+ turn need from the run. */
+/** What the theme file steps of a web-app@1.1.0+ or desktop-app turn need from the run. */
 type ThemeFileContext = {
 	logger: BuilderTurnLogger;
 	projectId: string;
@@ -3005,21 +3075,24 @@ async function wakeBackend(
 }
 
 /**
- * The note for the agent when the newest version is a restore that the
- * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
- * the chat's session row, or null when the chat has none.
+ * The note for the agent when the newest version is a restore or a GitHub
+ * Update that the agent did not see yet, else null. `sessionSavedAt` is the
+ * `updatedAt` of the chat's session row, or null when the chat has none.
  */
 export function restoreNoteOf(
 	latest: LatestAppCommit | null,
 	sessionSavedAt: Date | null,
 ): string | null {
-	if (latest?.source !== "restore") {
+	if (latest?.source !== "restore" && latest?.source !== "github") {
 		return null;
 	}
-	// A restore holds the turn lock, so it never overlaps a turn. A session
-	// saved after the restore commit already ran on the restored code.
+	// A restore and an Update hold the turn lock, so they never overlap a turn.
+	// A session saved after the commit already ran on the new code.
 	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
 		return null;
+	}
+	if (latest.source === "github") {
+		return "The code was updated from GitHub. Read the files again before you edit.";
 	}
 	// The version the user picked, not the new commit that copies it forward.
 	const version = latest.restoredFromSha ?? latest.sha;

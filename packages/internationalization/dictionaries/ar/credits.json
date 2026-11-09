@@ -48,6 +48,9 @@
 		"sandbox": "وقت الصندوق الرملي",
 		"mobile_build": "بناء التطبيق",
 		"mobile_preview": "المعاينة على جهاز",
+		"app_ai_gateway": "استدعاء ذكاء اصطناعي من التطبيق",
+		"desktop_build": "بناء تطبيق سطح المكتب",
+		"theme_design": "تصميم السمة",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

@@ -8,7 +8,10 @@ import { env } from "@wandit/env/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettledCreditBalance } from "../../../credits/application/services/credits.service";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import type {
 	AppBranchHead,
 	ScopedAppProject,
@@ -27,15 +30,18 @@ const PROJECT_ID = "0f3a9c1b-4e7d-4a2b-9c3d-1e2f3a4b5c6d";
 const BUILD_ID = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
 const SOURCE_BUILD_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const REQUEST_KEY = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
-const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
 // A member of an org workspace who did not create the project ("user-1").
-// The owner checks read only `userId`.
+// The owner checks read only `actorUserId`.
 const OTHER_MEMBER: ProjectScope = {
 	actorIsLimitExempt: false,
+	actorRoles: ["member"],
 	kind: "org",
 	organizationId: "org-1",
-	userId: "user-2",
+	actorUserId: "user-2",
 };
+// The owner of team "org-1" who did not create the project ("user-1").
+const TEAM_OWNER: ProjectScope = { ...OTHER_MEMBER, actorRoles: ["owner"] };
 const HEAD_SHA = "b".repeat(40);
 const IP = "203.0.113.9";
 const ROLLBACK_BODY = { deploymentId: "deployment-1", requestKey: REQUEST_KEY };
@@ -437,6 +443,30 @@ describe("PublishService.publishHead", () => {
 
 		expect(build.status).toBe("building");
 		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	// An MCP agent writes its own requestKey and can reuse it after a new version.
+	it.each([
+		["the earlier build of the key", "early"],
+		["the row of a parallel call with the same key", "parallel"],
+	] as const)("answers REQUEST_KEY_REUSED when %s has another commit than the head", async (_label, replayPath) => {
+		const { publish, service } = setup();
+		const otherVersionBuild = buildRow({
+			commitSha: "c".repeat(40),
+			status: "building",
+		});
+		if (replayPath === "early") {
+			publish.findByRequestKey.mockResolvedValue(otherVersionBuild);
+		} else {
+			publish.insertQueued.mockResolvedValueOnce({
+				kind: "request_exists",
+				row: otherVersionBuild,
+			});
+		}
+
+		await expect(
+			service.publishHead(SCOPE, PROJECT_ID, { requestKey: REQUEST_KEY }),
+		).rejects.toMatchObject({ response: { code: "REQUEST_KEY_REUSED" } });
 	});
 
 	it("answers the queued build when the run id write fails", async () => {
@@ -920,6 +950,14 @@ describe("PublishService.status", () => {
 			latest: buildRow({ gateFindings: [RLS_FINDING], status: "blocked" }),
 			project: projectRow(),
 			scope: OTHER_MEMBER,
+		},
+		// Design 2.2: the team owner holds the role `owner` on every team project.
+		{
+			allowed: true,
+			label: "a team owner who did not create the project",
+			latest: buildRow({ gateFindings: [RLS_FINDING], status: "blocked" }),
+			project: projectRow({ organizationId: "org-1" }),
+			scope: TEAM_OWNER,
 		},
 		{
 			allowed: false,

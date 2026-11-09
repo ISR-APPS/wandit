@@ -28,6 +28,11 @@ export type ConnectorGenerationAttemptRow = {
 	userId: string;
 	/** Payer snapshot: org pool when queued from an org workspace. */
 	organizationId: string | null;
+	/**
+	 * Payer snapshot of a personal pool that is not the actor's: the owner of
+	 * the personal workspace. Null when the org or the actor pays.
+	 */
+	payerUserId: string | null;
 	connectorSlug: string;
 	toolName: string;
 	args: unknown;
@@ -65,6 +70,8 @@ export class ConnectorGenerationsRepository {
 	async insertAttempt(input: {
 		userId: string;
 		organizationId: string | null;
+		/** `subjectPayerUserId` of the queue-time subject; recovery rebuilds the payer from it. */
+		payerUserId: string | null;
 		chatId: string | null;
 		requestKey: string;
 		connectorSlug: string;
@@ -201,13 +208,7 @@ export class ConnectorGenerationsRepository {
 			return [];
 		}
 
-		const scopePredicate =
-			scope.kind === "personal"
-				? and(
-						eq(connectorGenerationAttempts.userId, scope.userId),
-						isNull(connectorGenerationAttempts.organizationId),
-					)
-				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+		const scopePredicate = attemptPoolPredicate(scope);
 
 		return this.db
 			.select({
@@ -224,25 +225,19 @@ export class ConnectorGenerationsRepository {
 			);
 	}
 
-	// Ownership is by user id (the MCP connection is per-user). Missing and
-	// not-owned are indistinguishable to the caller on purpose.
-	// Mirrors projectScopePredicate semantics on the attempt's own payer
-	// snapshot: personal = creator equality, org = workspace membership (the
-	// guard proved it) — so a teammate polling a shared org chat's card is
-	// not 404'd just because another member queued the generation.
+	// Access follows the pool that paid for the attempt. Missing and not-owned
+	// are indistinguishable to the caller on purpose. Personal = the owner's
+	// pool: the owner's own attempts and the attempts of shared-personal members
+	// (`payer_user_id` = the owner). Org = workspace membership (the guard
+	// proved it), so a teammate polling a shared org chat's card is not 404'd
+	// just because another member queued the generation.
 	async findAccessibleAttempt(
 		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttemptRow | null> {
 		await this.settleStaleAttempt(attemptId);
 
-		const scopePredicate =
-			scope.kind === "personal"
-				? and(
-						eq(connectorGenerationAttempts.userId, scope.userId),
-						isNull(connectorGenerationAttempts.organizationId),
-					)
-				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+		const scopePredicate = attemptPoolPredicate(scope);
 
 		const [row] = await this.db
 			.select()
@@ -376,4 +371,23 @@ function connectorInfrastructureFailure(error: unknown): NormalizedAiError {
 			surface: "connector",
 		}) as NormalizedAiError)
 	);
+}
+
+/**
+ * Attempts paid by the scope's pool. A personal pool also holds the attempts
+ * of members of a shared personal workspace (`payer_user_id` = the owner).
+ */
+function attemptPoolPredicate(scope: ProjectScope) {
+	return scope.kind === "personal"
+		? and(
+				isNull(connectorGenerationAttempts.organizationId),
+				or(
+					and(
+						eq(connectorGenerationAttempts.userId, scope.ownerUserId),
+						isNull(connectorGenerationAttempts.payerUserId),
+					),
+					eq(connectorGenerationAttempts.payerUserId, scope.ownerUserId),
+				),
+			)
+		: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
 }

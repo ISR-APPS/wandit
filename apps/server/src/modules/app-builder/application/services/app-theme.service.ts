@@ -29,7 +29,7 @@ import { worldCardOf } from "../../../ai-chat/agent/worlds";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	fallbackThemeSelection,
-	supportsAppTheme,
+	isThemeEditable,
 } from "../../domain/app-theme-deal";
 import {
 	GIT_FILE_READER,
@@ -37,6 +37,10 @@ import {
 	type GitFileReader,
 	type GitStore,
 } from "../../domain/ports/git-store";
+import {
+	GITHUB_SYNC_SCHEDULER,
+	type GithubSyncScheduler,
+} from "../../domain/ports/github-sync-scheduler";
 import {
 	SANDBOX_PROVIDER,
 	type SandboxProvider,
@@ -96,6 +100,9 @@ export class AppThemeService {
 		private readonly objects: Pick<VersionsObjectStore, "putPatch">,
 		@Inject(BuilderTurnsRepository)
 		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
+		// `commitTurn` schedules the GitHub push of a linked project after the theme commit.
+		@Inject(GITHUB_SYNC_SCHEDULER)
+		private readonly githubSync: GithubSyncScheduler,
 	) {}
 
 	/**
@@ -123,7 +130,8 @@ export class AppThemeService {
 
 	/**
 	 * Writes the selection as theme.json with origin "user", and commits only that file with source
-	 * "theme" and the message "Theme: <name>". It never boots a sandbox. 409 answers:
+	 * "theme" and the message "Theme: <name>". The body name, when given, replaces the default name.
+	 * It never boots a sandbox. 409 answers:
 	 * BUILDER_TURN_RUNNING while a turn or a restore holds the lock, BUILDER_TURN_WAITING while a turn
 	 * waits for the user, PREVIEW_NOT_RUNNING without a running sandbox, and THEME_HEAD_MOVED when the
 	 * sandbox HEAD is not `expectedHeadSha`, or when the head CAS fails after the push.
@@ -135,7 +143,7 @@ export class AppThemeService {
 		body: PutAppThemeBody,
 	): Promise<PutAppThemeResponse> {
 		const project = await this.requireV2Project(scope, projectId);
-		// Product rule: a project before web-app@1.1.0 has no theme file. The GET answers it as not editable.
+		// Product rule: only a web-app@1.1.0+ or desktop-app@1.0.0+ project has a theme file. The GET answers other projects as not editable.
 		if (!isThemeEditable(project)) {
 			throw new NotFoundException();
 		}
@@ -149,7 +157,9 @@ export class AppThemeService {
 				message: `No design world "${source.world}" with a preview`,
 			});
 		}
+		// `name` comes from an AI theme draft. Without it, the file takes the look, world, or seeds name.
 		const file = buildAppThemeFile({
+			name: body.name,
 			origin: "user",
 			selection: body.selection,
 			world,
@@ -210,6 +220,7 @@ export class AppThemeService {
 					sandbox,
 					{
 						appCommits: this.appCommits,
+						githubSync: this.githubSync,
 						gitStore: this.gitStore,
 						putPatch: this.objects.putPatch,
 					},
@@ -223,7 +234,7 @@ export class AppThemeService {
 						source: "theme",
 						summary: `Theme: ${file.name}`,
 						turnId: null,
-						userId: scope.userId,
+						userId: scope.actorUserId,
 					},
 				);
 				return { headSha: result.sha, theme: file };
@@ -326,17 +337,9 @@ export class AppThemeService {
 	}
 }
 
-/** True for a web-app@1.1.0+ project: only these projects have src/styles/theme.json. */
-function isThemeEditable(project: ScopedAppProject): boolean {
-	return (
-		project.templateVersion !== null &&
-		supportsAppTheme(project.templateVersion)
-	);
-}
-
 /**
  * The theme of a project with no readable file. Before web-app@1.1.0 it is the template default.
- * From web-app@1.1.0 it is the file that the pre-turn fallback of the next turn writes.
+ * From web-app@1.1.0 or desktop-app@1.0.0 it is the file that the pre-turn fallback of the next turn writes.
  */
 function defaultThemeOf(projectId: string, editable: boolean): AppThemeFile {
 	return editable

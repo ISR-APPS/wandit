@@ -1,8 +1,9 @@
 /**
- * The theme deal, the set_theme patch, and the version gate of a V2 web app. Pure functions, no I/O.
+ * The theme deal, the set_theme patch, and the version gate of a V2 web or desktop app. Pure functions, no I/O.
  * builder-turn.runtime.ts deals the 3 cards of a theme question and writes the card of the answer.
  * AppThemeService answers the fallback selection for a project with no readable theme.json.
  * The set_theme host tool parses the agent input with parseThemePatch and applies it with applyThemePatch.
+ * The theme services gate their routes with isThemeEditable.
  * The coherence rules come from "@wandit/contracts/v2/app-theme", the looks from "/v2/app-theme-catalog".
  */
 import type {
@@ -64,19 +65,38 @@ export type ThemePatch = {
 
 // LIMIT: web-app@1.0.0 projects keep their old look system and get no theme features. Upgrade: a template migration that adds theme.json.
 /**
- * True for "web-app@1.1.0" and later: only these projects have src/styles/theme.json. The theme cards,
- * set_theme, the pre-turn fallback, and the turn-end guard all check it. Any other text answers false.
+ * True for "web-app@1.1.0" and "desktop-app@1.0.0" and later: only these projects have src/styles/theme.json.
+ * The theme cards, set_theme, the pre-turn fallback, and the turn-end guard all check it. Any other text answers false.
  */
 export function supportsAppTheme(templateVersion: string): boolean {
-	const version = /^web-app@(?<major>\d+)\.(?<minor>\d+)\.\d+$/.exec(
-		templateVersion,
-	)?.groups;
+	const version =
+		/^(?<template>web-app|desktop-app)@(?<major>\d+)\.(?<minor>\d+)\.\d+$/.exec(
+			templateVersion,
+		)?.groups;
 	if (version === undefined) {
 		return false;
 	}
+	// The desktop template has the theme system of web-app 1.1.0 from its first version.
+	const firstThemedMinor = version.template === "desktop-app" ? 0 : 1;
 	const major = Number(version.major);
 	// Compare numbers, not text: "1.10.0" is later than "1.2.0".
-	return major > 1 || (major === 1 && Number(version.minor) >= 1);
+	return (
+		major > 1 || (major === 1 && Number(version.minor) >= firstThemedMinor)
+	);
+}
+
+/**
+ * True when the theme routes may read and write theme.json. A project with no template version answers false.
+ * AppThemeService and AppThemeDesignService call it on the scoped project row.
+ */
+export function isThemeEditable(project: {
+	/** The `projects.template_version` column, for example "web-app@1.1.0". The column is nullable. */
+	templateVersion: string | null;
+}): boolean {
+	return (
+		project.templateVersion !== null &&
+		supportsAppTheme(project.templateVersion)
+	);
 }
 
 /**

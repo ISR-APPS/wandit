@@ -1,0 +1,116 @@
+{
+	"roles": {
+		"owner": "Owner",
+		"admin": "Admin",
+		"editor": "Can edit",
+		"viewer": "Can view"
+	},
+	"workspaceAccess": {
+		"can_edit": "Can edit",
+		"can_view": "Can view",
+		"restricted": "Restricted"
+	},
+	"share": {
+		"button": "Share",
+		"title": "Share {name}",
+		"description": "Invite people to view or edit this project.",
+		"inviteLabel": "Invite by email",
+		"invitePlaceholder": "name@company.com, other@company.com",
+		"inviteRole": "Role of the invited people",
+		"inviteSubmit": "Invite",
+		"inviteSent": "Invitations sent",
+		"inviteInvalid": "Enter 1 to {max} valid email addresses.",
+		"viewerNote": "You can view this project. People who can edit it invite others.",
+		"peopleTitle": "People with access",
+		"you": "You",
+		"changeRole": "Change the role of {name}",
+		"remove": "Remove access",
+		"leave": "Leave project",
+		"removed": "Access removed",
+		"left": "You left the project",
+		"roleChanged": "Role changed",
+		"pendingTitle": "Pending invitations",
+		"copyInviteLink": "Copy invite link",
+		"cancelInvitation": "Cancel invitation",
+		"invitationCanceled": "Invitation canceled",
+		"linkCopied": "Link copied",
+		"copyFailed": "The browser blocked the copy. Select the link and copy it.",
+		"workspaceAccessTitle": "Workspace access",
+		"workspaceAccessHelp": "What the people in {workspace} can do",
+		"workspaceAccessSaved": "Workspace access changed",
+		"restrictedOwnerOnly": "Only the owner can set or clear Restricted.",
+		"linkTitle": "Invite link",
+		"linkRole": "Role of the link",
+		"linkNone": "No active link.",
+		"linkCreate": "Create link",
+		"linkCreated": "New link created",
+		"linkHelp": "Anyone with the link joins with this role. The link expires on {date}.",
+		"linkCopy": "Copy",
+		"linkRevoke": "Turn off",
+		"linkRevoked": "Link turned off"
+	},
+	"readOnly": {
+		"composer": "You can view this project. Ask its owner for edit access to change it.",
+		"editorsOnly": "Only people who can edit this project can do this."
+	},
+	"credits": {
+		"payerEmpty": "The workspace of this project is out of credits. Ask its owner to add credits."
+	},
+	"domains": {
+		"managersOnly": "Owners and admins of the workspace of this project manage its domains.",
+		"otherWorkspace": "Owners and admins of the workspace of this project manage its domains. Open the project from that workspace."
+	},
+	"settings": {
+		"capsAdminsOnly": "Only the owner and the admins of this project can see and change the spending limits.",
+		"capsOwnerOnly": "Only the owner of this project can see and change the spending limits.",
+		"deleteOwnerOnly": "Only the owner of this project can delete it.",
+		"transferTitle": "Transfer ownership",
+		"transferHelp": "Make another owner, admin, or editor of {workspace} the owner of this project.",
+		"transferPerson": "New owner",
+		"transferPlaceholder": "Choose a person",
+		"transferNoCandidates": "No other owner, admin, or editor is in this workspace.",
+		"transferSubmit": "Transfer",
+		"transferConfirmTitle": "Make {name} the owner?",
+		"transferConfirmBody": "After the transfer, your workspace role decides your access to this project.",
+		"transferred": "Ownership transferred",
+		"moveTitle": "Move to another workspace",
+		"moveHelp": "The new workspace pays for this project from now on. The backend and the secrets move with it.",
+		"moveDestination": "Destination workspace",
+		"movePlaceholder": "Choose a workspace",
+		"moveNoDestinations": "You have no other workspace where you can create projects.",
+		"moveKeepCollaborators": "Keep the people invited to this project",
+		"moveSubmit": "Move",
+		"moveConfirmTitle": "Move this project to {workspace}?",
+		"moveConfirmBody": "The invite link stops working. Members of this workspace lose access, unless they have a direct invitation that you keep.",
+		"moved": "Project moved",
+		"moveBlocked": {
+			"turn_active": "A builder turn is still running or waiting. Stop it, then move the project.",
+			"usage_reserved": "Credits are still held for this project. Try again in a few minutes.",
+			"publish_in_flight": "A publish is in progress. Try again when it ends.",
+			"mobile_build_in_flight": "A mobile build is in progress. Try again when it ends.",
+			"desktop_build_in_flight": "A desktop build is in progress. Try again when it ends.",
+			"device_session_active": "A phone preview session is open. Close it, then move the project.",
+			"custom_domain_attached": "A custom domain is connected. Remove it, then move the project.",
+			"backend_slot_unavailable": "The destination workspace has no free backend slot."
+		},
+		"cancel": "Cancel"
+	},
+	"sharedWithMe": {
+		"title": "Shared with me"
+	},
+	"projectMenu": {
+		"share": "Share"
+	},
+	"invite": {
+		"title": "Project invitation",
+		"signInFirst": "Sign in with the email address that got the invitation.",
+		"invitedTo": "{inviter} invited you to the project {project} in {workspace}.",
+		"role": "Your role: {role}",
+		"accept": "Accept",
+		"decline": "Decline",
+		"declined": "Invitation declined",
+		"invalid": "This invitation is not valid. It can be for another email address.",
+		"expired": "This invitation has expired. Ask {inviter} to invite you again.",
+		"notPending": "This invitation was already used or canceled."
+	}
+}

@@ -150,7 +150,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
     The host adds 3 look cards and a "You choose" button.
   - `<category>` is the closest of: medical, beauty, fitness, restaurant, real-estate, construction, automotive,
     services, education, creative-agency, ecommerce, travel, events, tech-saas, finance, logistics, hr, crm,
-    inventory, dev-tools, other.
+    inventory, dev-tools, legal, hospitality, agriculture, nonprofit, media, other.
   - The host writes the look before you continue. The answer says "Theme set: <name>" or "Theme kept: <name>".
     Then call `set_theme` only for a change that the user typed in the answer. Send only the changed fields.
     For example, "but in dark": `mode: "dark"`. No typed change: do not call `set_theme`.
@@ -364,6 +364,7 @@ Run these before you say that the work is done:
 - `run_sql_write`: writes data. The user approves each call first.
 - `deploy_function`: deploys the Edge Function in `supabase/functions/<slug>/`.
 - `set_secret`: gives one secret to the Edge Functions as an env variable.
+- `enable_ai`: turns on the AI gateway. The user approves the call. See AI features.
 - Change the database and the functions only with these tools.
 - Keep each Edge Function in one flat folder. `index.ts` is the entrypoint.
 - `pnpm run typecheck` does not check `supabase/functions/`: that code is Deno code.
@@ -380,7 +381,76 @@ Run these before you say that the work is done:
 - On `missing`, tell the user the secret name. The user adds it in the Cloud tab.
 - A key the app makes, for example a signing key: `set_secret` with `source: "generate"`.
 - `generate` keeps an existing value. It never replaces a key the app uses.
-- Names that start with `SUPABASE_` are reserved. Edge Functions get them already.
+- Names that start with `SUPABASE_` or `WANDIT_` are reserved. The host sets them.
+  `enable_ai` sets the `WANDIT_` names.
+
+## AI features
+
+- The app calls AI models through the wandit AI gateway. Each call uses the wandit credits of the project.
+- Call `enable_ai` once, before you build the first AI feature. The user approves the call.
+  It answers `defaultModel` and `models`. Use `defaultModel`, or another id from `models`.
+- `enable_ai` puts two secrets in the Edge Functions: `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`.
+  You never see the key. Never ask the user for it.
+- Only an Edge Function calls the gateway. Never put the key in the code, the chat, `.env`,
+  or a `VITE_` name.
+- The gateway uses the OpenAI chat format: `POST <WANDIT_AI_GATEWAY_URL>/chat/completions`.
+  Use `fetch`. Do not install an AI package.
+- When the feature is behind sign-in, the function first checks the user with `supabase.auth.getUser()`.
+  No user: it answers 401. Without this check, any visitor can spend the credits.
+- The function sets the system message and the model. The client sends only the chat turns.
+  Never forward a client system message, a client `model`, or a list without a cap.
+  A public feature removes only the `getUser` check and keeps the caps.
+- The function answers `OPTIONS` and sends CORS headers on every answer.
+- The app calls the function from `features/<feature>/api/` with
+  `getSupabase().functions.invoke("<slug>", { body })`.
+  On an error, `error.context.status` holds the HTTP status.
+- 402: the credits are used up. 429: too many calls. Show each case to the user in the user's
+  language. Never retry a 402.
+- `stream: true` sends the text while it arrives, as Server-Sent Events. Use it for a chat.
+  Without it, the answer is one JSON object.
+- With `stream: true`, `invoke` gives the raw `Response` as `data`. Read `data.body`, parse each
+  `data:` line as JSON, and append `choices[0].delta.content`. `data: [DONE]` ends the stream.
+
+Example `supabase/functions/ai-chat/index.ts`:
+
+```ts
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
+const SYSTEM_PROMPT = "You are the cooking helper of this app. Answer in short steps.";
+const MAX_TURNS = 20;
+const MAX_TURN_CHARS = 4000;
+
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Only a signed-in user spends the credits. A public feature removes this block and keeps the caps.
+  const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
+    global: { headers: { Authorization: request.headers.get("Authorization") ?? "" } },
+  });
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return Response.json({ error: "sign-in" }, { status: 401, headers: corsHeaders });
+  // The client sends only user and assistant turns. The function sets the system message and the model.
+  const { messages } = await request.json().catch(() => ({}));
+  const turns = Array.isArray(messages) ? messages.slice(-MAX_TURNS) : [];
+  const valid = turns.length > 0 && turns.every((turn) =>
+    (turn?.role === "user" || turn?.role === "assistant") && typeof turn.content === "string" && turn.content.length <= MAX_TURN_CHARS);
+  if (!valid) return Response.json({ error: "input" }, { status: 400, headers: corsHeaders });
+  const chat = [{ role: "system", content: SYSTEM_PROMPT }, ...turns.map((turn) => ({ role: turn.role, content: turn.content }))];
+  const upstream = await fetch(`${Deno.env.get("WANDIT_AI_GATEWAY_URL")}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${Deno.env.get("WANDIT_AI_API_KEY")}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "google/gemini-3-flash", messages: chat, stream: true }),
+  });
+  if (upstream.status === 402) return Response.json({ error: "credits" }, { status: 402, headers: corsHeaders });
+  if (upstream.status === 429) return Response.json({ error: "busy" }, { status: 429, headers: corsHeaders });
+  // Any other refusal (a 401 after the user turns AI off, a 400) is not a sign-in error for the app.
+  if (!upstream.ok) {
+    console.error("ai gateway", upstream.status, await upstream.text());
+    return Response.json({ error: "ai" }, { status: 502, headers: corsHeaders });
+  }
+  return new Response(upstream.body, { status: upstream.status, headers: { ...corsHeaders, "Content-Type": "text/event-stream" } });
+});
+```
 
 ## Public form contract
 

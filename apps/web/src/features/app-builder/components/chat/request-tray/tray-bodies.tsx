@@ -30,7 +30,7 @@ import type {
 } from "./types";
 import { ensureWorldFontsLoaded } from "./world-fonts";
 
-// The mockup parses the theme with the contracts schema, which holds the 74 KB look catalog.
+// The mockup parses the theme with the contracts schema, which holds the 177 KB look catalog.
 const ThemeMockup = lazy(() => import("./theme-mockup"));
 
 /** The answer wiring of the bodies, from lib/use-request-tray.ts. */

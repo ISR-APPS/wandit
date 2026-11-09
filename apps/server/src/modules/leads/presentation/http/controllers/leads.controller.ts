@@ -1,5 +1,6 @@
 // Workspace Leads tab endpoints. All behind the global AuthGuard; ownership
-// is proven in repository joins.
+// is proven in repository joins. The two writes need `project:update`, so a
+// workspace Viewer only reads.
 import {
 	Body,
 	Controller,
@@ -29,7 +30,10 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
-import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import {
+	CurrentWorkspace,
+	RequireWorkspacePermission,
+} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { LeadsService } from "../../../application/services/leads.service";
 
 @Controller("v1")
@@ -72,6 +76,7 @@ export class LeadsController {
 		);
 	}
 
+	@RequireWorkspacePermission("project", "update")
 	@Patch("projects/:projectId/leads/:leadId/status")
 	updateStatus(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -91,6 +96,7 @@ export class LeadsController {
 		);
 	}
 
+	@RequireWorkspacePermission("project", "update")
 	@Patch("projects/:projectId/leads/:leadId/archive")
 	archive(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))

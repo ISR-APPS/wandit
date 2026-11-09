@@ -1,10 +1,15 @@
+/**
+ * Answers the stamped HTML of one V1 page version for the admin dashboard.
+ * AdminProjectsController calls it. It reads the project through AdminRepository,
+ * the version through PagesRepository with a system scope, and the HTML from R2.
+ */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AdminProjectVersionHtmlResponse } from "@wandit/contracts";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
 import { stampHtml } from "../../../pages/domain/stamp";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { systemProjectScope } from "../../../projects/domain/project-scope";
 import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 
 @Injectable()
@@ -26,14 +31,11 @@ export class AdminPagePreviewService {
 			throw new NotFoundException();
 		}
 
-		const scope: ProjectScope = project.organizationId
-			? {
-					actorIsLimitExempt: true,
-					kind: "org",
-					organizationId: project.organizationId,
-					userId: project.ownerId,
-				}
-			: { kind: "personal", userId: project.ownerId };
+		const scope = systemProjectScope(
+			{ organizationId: project.organizationId, userId: project.ownerId },
+			project.ownerId,
+			true,
+		);
 		const version = await this.pagesRepository.findAccessibleVersionById(
 			scope,
 			versionId,

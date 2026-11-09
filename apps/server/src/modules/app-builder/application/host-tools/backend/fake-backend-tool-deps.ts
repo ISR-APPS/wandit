@@ -129,6 +129,7 @@ export async function createBackendToolFixture(
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId: null,
 		knownThemeFile: () => null,
 		mode: "build",

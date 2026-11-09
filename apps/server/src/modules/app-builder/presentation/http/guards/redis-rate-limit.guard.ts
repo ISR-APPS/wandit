@@ -4,7 +4,7 @@
  * fixed window. Over a limit, it throws a 429 with `Retry-After`. Mode
  * `open` counts SSE slots instead: a slot frees on `release`, or when its
  * window ends. A Redis error lets the request through and sends a Sentry
- * warning.
+ * warning. The MCP tools count their buckets with `findRateLimitDenial`.
  */
 import {
 	type CanActivate,
@@ -85,6 +85,60 @@ export const RATE_LIMIT_STORE = Symbol.for("app-builder.rate-limit-store");
 export const TURN_STREAM_BUCKET = "turn-stream";
 
 /**
+ * The open slots of the web turn streams and of the MCP `get_turn` waits: 5 per user.
+ * A slot stays taken until the stream or the wait ends, or until its window ends.
+ * The window is 16 min: Railway ends every HTTP response at 15 min, and the browser then reopens the stream.
+ * So no live stream holds a slot for more than 15 min.
+ */
+// LIMIT: a slot that a killed API never released frees at most 16 min after its window opened.
+// A stream that outlives its window releases into the next window, so the cap is soft there.
+// Upgrade: one key per stream.
+export const TURN_STREAM_RATE_LIMIT = {
+	key: TURN_STREAM_BUCKET,
+	limit: 5,
+	mode: "open",
+	windowMs: 16 * 60_000,
+} satisfies RateLimitOptions;
+
+/**
+ * `POST .../turns` and the MCP `send_prompt` tool: 30 per user and 90 per IP in 10 min.
+ * A human cannot click faster. The IP cap is three times the user cap (WANDIT-181).
+ * Three people behind one office IP still fit. The cap stops one person who uses many accounts.
+ */
+export const TURN_CREATE_RATE_LIMIT = {
+	ipLimit: 90,
+	key: "turn-create",
+	limit: 30,
+	windowMs: 600_000,
+} satisfies RateLimitOptions;
+
+/** `POST .../turns/:turnId/cancel` and the MCP `cancel_turn` tool: 30 per user in 10 min. */
+export const TURN_CANCEL_RATE_LIMIT = {
+	key: "turn-cancel",
+	limit: 30,
+	windowMs: 600_000,
+} satisfies RateLimitOptions;
+
+/** `POST .../sandbox/wake` and the MCP `wake_sandbox` tool: 6 per user in 10 min. */
+export const SANDBOX_WAKE_RATE_LIMIT = {
+	key: "sandbox-wake",
+	limit: 6,
+	windowMs: 10 * 60_000,
+} satisfies RateLimitOptions;
+
+/**
+ * `POST .../publish`, the gate override, and the MCP `publish_app` tool: 10 per user and
+ * 30 per IP in 1 h (WANDIT-181). Each publish wakes a sandbox and runs a build, so the cap
+ * stops a script that publishes in a loop. The IP cap is three times the user cap, as above.
+ */
+export const APP_PUBLISH_RATE_LIMIT = {
+	ipLimit: 30,
+	key: "app-publish",
+	limit: 10,
+	windowMs: 60 * 60_000,
+} satisfies RateLimitOptions;
+
+/**
  * Full Redis key for one subject in one bucket. The subject is a user id,
  * or `ip:<client ip>` for the IP cap.
  */
@@ -160,9 +214,74 @@ export class RedisRateLimitStore implements RateLimitStore, OnModuleDestroy {
 	}
 }
 
+/**
+ * Counts one hit of `userId` in the bucket. When the user is under its cap, it also counts
+ * one hit of the client IP. Returns the hit over a limit, or null. A Redis error returns null
+ * and sends a Sentry warning. So the route guard and the MCP tools fail open the same way.
+ * @param clientIp The trusted client IP from `readTrustedClientIp`, or null: then no IP key counts.
+ */
+export async function findRateLimitDenial(
+	store: RateLimitStore,
+	options: RateLimitOptions,
+	userId: string,
+	clientIp: string | null,
+): Promise<RateLimitHit | null> {
+	try {
+		const userHit = await store.hit(
+			rateLimitKey(options.key, userId),
+			options.windowMs,
+		);
+		if (userHit.count > options.limit) {
+			return userHit;
+		}
+		if (
+			options.ipLimit === undefined ||
+			options.mode === "open" ||
+			clientIp === null
+		) {
+			return null;
+		}
+		// Only requests under the user cap count on the IP key. So the
+		// denied retries of one user do not use the budget of a shared IP.
+		// The IP key only adds a cap and never grants access.
+		const ipHit = await store.hit(
+			rateLimitKey(options.key, `ip:${clientIp}`),
+			options.windowMs,
+		);
+		return ipHit.count > options.ipLimit ? ipHit : null;
+	} catch (error) {
+		// Fail open: a Redis outage must not take the builder down.
+		// LIMIT: an `open` slot that passes here still gets a release when
+		// its stream closes, so the user can hold one extra stream for each
+		// Redis error until the count floors at 0. Upgrade: fail closed for
+		// `open` mode.
+		// LIMIT: one Sentry event per request while Redis is down. Upgrade:
+		// one warning per minute per process.
+		Sentry.captureMessage("Rate limit store failed; request allowed", {
+			extra: { error: getErrorMessage(error) },
+			level: "warning",
+			tags: { bucket: options.key },
+		});
+		return null;
+	}
+}
+
 // `Retry-After` for denied open slots is capped low: a slot frees the
 // moment a stream closes, so the honest wait is seconds, not the TTL.
 const OPEN_SLOT_RETRY_AFTER_CAP_MS = 60_000;
+
+/** Seconds until a denied bucket frees, for `Retry-After`. At least 1. */
+export function retryAfterSecondsOf(
+	deniedHit: RateLimitHit,
+	options: RateLimitOptions,
+): number {
+	const ttlMs = deniedHit.ttlMs > 0 ? deniedHit.ttlMs : options.windowMs;
+	const waitMs =
+		options.mode === "open"
+			? Math.min(ttlMs, OPEN_SLOT_RETRY_AFTER_CAP_MS)
+			: ttlMs;
+	return Math.max(1, Math.ceil(waitMs / 1000));
+}
 
 @Injectable()
 export class RedisRateLimitGuard implements CanActivate {
@@ -185,61 +304,28 @@ export class RedisRateLimitGuard implements CanActivate {
 		const http = context.switchToHttp();
 		const request = http.getRequest<MaybeAuthenticatedRequest>();
 		const response = http.getResponse<FastifyReply>();
-		const isOpenSlot = options.mode === "open";
 		// The global AuthGuard attaches a user first; an anonymous caller
 		// still gets counted under a shared bucket rather than slipping by.
-		const userKey = rateLimitKey(options.key, request.user?.id ?? "anonymous");
+		const userId = request.user?.id ?? "anonymous";
 
 		// A caller with no trusted IP (no `TRUSTED_PROXY_CIDRS` match) gets no
 		// IP key: a shared proxy address must not become one bucket for all.
-		const clientIp = readTrustedClientIp(request);
-		let deniedHit: RateLimitHit | undefined;
-		try {
-			const userHit = await this.store.hit(userKey, options.windowMs);
-			if (userHit.count > options.limit) {
-				deniedHit = userHit;
-			} else if (
-				options.ipLimit !== undefined &&
-				!isOpenSlot &&
-				clientIp !== null
-			) {
-				// Only requests under the user cap count on the IP key. So the
-				// denied retries of one user do not use the budget of a shared IP.
-				// The IP key only adds a cap and never grants access.
-				const ipHit = await this.store.hit(
-					rateLimitKey(options.key, `ip:${clientIp}`),
-					options.windowMs,
-				);
-				if (ipHit.count > options.ipLimit) {
-					deniedHit = ipHit;
-				}
-			}
-		} catch (error) {
-			// Fail open: a Redis outage must not take the builder down.
-			// LIMIT: an `open` slot that passes here still gets a release when
-			// its stream closes, so the user can hold one extra stream for each
-			// Redis error until the count floors at 0. Upgrade: fail closed for
-			// `open` mode.
-			// LIMIT: one Sentry event per request while Redis is down. Upgrade:
-			// one warning per minute per process.
-			Sentry.captureMessage("Rate limit store failed; request allowed", {
-				extra: { error: getErrorMessage(error) },
-				level: "warning",
-				tags: { bucket: options.key },
-			});
-			return true;
-		}
-
+		const deniedHit = await findRateLimitDenial(
+			this.store,
+			options,
+			userId,
+			readTrustedClientIp(request),
+		);
 		if (!deniedHit) {
 			return true;
 		}
 
-		if (isOpenSlot) {
+		if (options.mode === "open") {
 			// The denied request still ran `INCR`; give the slot back so failed
 			// opens cannot pile up against the cap. A failed release keeps the
 			// 429 and does not become a 500: the slot TTL frees the slot.
 			try {
-				await this.store.release(userKey);
+				await this.store.release(rateLimitKey(options.key, userId));
 			} catch (error) {
 				Sentry.captureMessage("Rate limit slot release failed", {
 					extra: { error: getErrorMessage(error) },
@@ -249,14 +335,12 @@ export class RedisRateLimitGuard implements CanActivate {
 			}
 		}
 
-		const ttlMs = deniedHit.ttlMs > 0 ? deniedHit.ttlMs : options.windowMs;
-		const waitMs = isOpenSlot
-			? Math.min(ttlMs, OPEN_SLOT_RETRY_AFTER_CAP_MS)
-			: ttlMs;
-		const retryAfterSeconds = Math.max(1, Math.ceil(waitMs / 1000));
 		// Set on the reply before throwing: ApiExceptionFilter sends on the
 		// same object, so the header survives.
-		response.header("Retry-After", String(retryAfterSeconds));
+		response.header(
+			"Retry-After",
+			String(retryAfterSecondsOf(deniedHit, options)),
+		);
 		throw new HttpException(
 			{ code: "RATE_LIMITED", message: "Rate limit exceeded" },
 			HttpStatus.TOO_MANY_REQUESTS,

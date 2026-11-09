@@ -40,6 +40,7 @@ describe("TurnProjectRepository.findForTurn", () => {
 			languages: ["ar", "fr"],
 			networkAllowedHosts: ["api.example.com"],
 			organizationId: null,
+			suspendedReasonCode: null,
 			templateVersion: "tpl-1",
 			userId: "user-1",
 		};

@@ -120,7 +120,8 @@ export class PreviewTokenService {
 			jti: randomUUID(),
 			pid,
 			rid: row.id,
-			uid: scope.userId,
+			// The actor: each collaborator gets an own frame host (workspaces-sharing.md 3.2).
+			uid: scope.actorUserId,
 			up: `https://${row.previewHost}`,
 		};
 		const token = await signPreviewToken(claims, signingKey);
@@ -161,7 +162,7 @@ export class PreviewTokenService {
 		if (query.client === "phone") {
 			this.logger.log("preview.phone-token.minted", {
 				projectId: pid,
-				userId: scope.userId,
+				userId: scope.actorUserId,
 			});
 		}
 

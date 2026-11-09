@@ -1,8 +1,17 @@
+/**
+ * Sentry setup of the Trigger.dev worker process.
+ * `apps/server/src/trigger/init.ts` calls `initTriggerSentry` before any task runs.
+ * It calls `@sentry/node` and the shared `scrubEvent` of `internal/shared.ts`.
+ */
 import * as Sentry from "@sentry/node";
 import { tasks } from "@trigger.dev/sdk";
 
 import { normalizeSentryRelease } from "./internal/release";
-import { isEnabled, type WanditSentryOptions } from "./internal/shared";
+import {
+	isEnabled,
+	scrubEvent,
+	type WanditSentryOptions,
+} from "./internal/shared";
 
 /**
  * Sentry for the Trigger.dev runtime — a separate deployed process that never
@@ -42,6 +51,8 @@ export function initTriggerSentry(options: WanditSentryOptions): void {
 		// failures correlate with the deploy that shipped them.
 		release: normalizeSentryRelease(options.release, "server"),
 		sendDefaultPii: false,
+		// The worker holds GitHub tokens. scrubEvent masks them. mustRunGit masks the code.storage JWT.
+		beforeSend: scrubEvent,
 	});
 	tasks.onFailure(({ payload, error, ctx }) => {
 		Sentry.withScope((scope) => {

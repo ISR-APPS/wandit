@@ -89,6 +89,8 @@ export const runConnectorGenerationTask = task({
 					chatId: string | null;
 					connectorSlug: string;
 					organizationId: string | null;
+					/** The owner of another user's personal pool that pays; else null. */
+					payerUserId: string | null;
 					toolName: string;
 					userId: string;
 			  }
@@ -164,6 +166,7 @@ export const runConnectorGenerationTask = task({
 				chatId: attempt.chatId,
 				connectorSlug: attempt.connectorSlug,
 				organizationId: attempt.organizationId,
+				payerUserId: attempt.payerUserId,
 				toolName: attempt.toolName,
 				userId: attempt.userId,
 			};
@@ -571,6 +574,9 @@ export const runConnectorGenerationTask = task({
 								actorUserId: claimedAttempt.userId,
 								...(claimedAttempt.organizationId
 									? { organizationId: claimedAttempt.organizationId }
+									: {}),
+								...(claimedAttempt.payerUserId
+									? { payerUserId: claimedAttempt.payerUserId }
 									: {}),
 							},
 							payload.attemptId,

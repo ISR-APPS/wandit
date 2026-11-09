@@ -106,7 +106,7 @@ export type RequestNetworkHostToolOutput = z.infer<
 >;
 
 /**
- * Input of the `set_theme` host tool (web-app@1.1.0+). Every field is an
+ * Input of the `set_theme` host tool (web-app@1.1.0+ or desktop-app@1.0.0+). Every field is an
  * optional string, so a wrong value never fails the call: the tool parses
  * each one with tolerance (case, spaces) and answers the allowed values.
  * Only the named fields change; `src/styles/theme.json` holds the rest.
@@ -179,7 +179,7 @@ export const askUserHostToolQuestionSchema = z.object({
 	helper: z.string().optional(),
 	// Upload limit of an `attachments` question; the tray uses 3 when absent.
 	maxFiles: z.int().optional(),
-	// Marks the theme question of a web-app@1.1.0+ project. The agent sends
+	// Marks the theme question of a web-app@1.1.0+ or desktop-app@1.0.0+ project. The agent sends
 	// no options: the task adds 3 theme cards dealt for `business`, a
 	// category of `set_theme` (an unknown one counts as "other").
 	theme: z.object({ business: z.string() }).optional(),

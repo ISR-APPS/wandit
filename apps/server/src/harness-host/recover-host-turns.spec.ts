@@ -71,6 +71,7 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
+		payerUserId: null,
 		pricingSnapshot: null,
 		projectId: "project-1",
 		provider: null,
@@ -109,7 +110,7 @@ async function setup(rows: BuilderTurnRow[]) {
 		lock,
 		logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 		metering: {
-			findByIdempotencyKey: vi.fn(async () => holdEvent()),
+			findByIdempotencyKeyAnyPayer: vi.fn(async () => holdEvent()),
 			refund: vi.fn(async () => holdEvent({ status: "refunded" })),
 		},
 		promoteNext: vi.fn(async (_projectId: string, _endedTurnId: string) => {}),

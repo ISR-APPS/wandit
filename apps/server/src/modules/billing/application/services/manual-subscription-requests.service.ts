@@ -30,7 +30,10 @@ import { EmailService } from "../../../email/application/services/email.service"
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { ManualPaymentsDisabledError } from "../../../settings/domain/errors/manual-payments-disabled.error";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
-import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
+import {
+	WorkspaceNotSupportedError,
+	WorkspacePermissionDeniedError,
+} from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import {
@@ -179,6 +182,11 @@ export class ManualSubscriptionRequestsService {
 		user: Pick<AuthUser, "id">,
 		workspace: WorkspaceContext | undefined,
 	): BillingScope {
+		// Another user's personal workspace: the owner's pool pays, and billing is owner-only.
+		if (workspace?.kind === "shared-personal") {
+			throw new WorkspacePermissionDeniedError();
+		}
+
 		if (workspace?.kind !== "org") {
 			return { organizationId: null, owner: userOwner(user.id) };
 		}

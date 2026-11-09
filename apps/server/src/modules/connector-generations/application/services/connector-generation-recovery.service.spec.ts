@@ -25,6 +25,7 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 		{ kind: "image", url: "https://assets.test/two.webp" },
 	],
 	organizationId: null,
+	payerUserId: null,
 	status: "running",
 	sentryEventId: null,
 	toolName: "generate_image",

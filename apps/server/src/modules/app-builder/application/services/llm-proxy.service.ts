@@ -314,9 +314,11 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 5. Per-user daily spend cap.
+		// 5. Per-user daily spend cap. LLM_DAILY_CAP_OFF removes only this cap,
+		// for staging tests; the run cap above still stops a turn.
 		if (
 			!spendCapsOff &&
+			this.env.LLM_DAILY_CAP_OFF !== true &&
 			admission.userSpendMicros >= LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000
 		) {
 			await this.reject(reply, claims, input, startedAt, {
@@ -400,7 +402,9 @@ export class LlmProxyService {
 		}
 	}
 
-	private requireEnv(name: keyof LlmProxyEnv): string {
+	private requireEnv(
+		name: Exclude<keyof LlmProxyEnv, "LLM_DAILY_CAP_OFF">,
+	): string {
 		const value = this.env[name];
 		if (value === undefined) {
 			throw new ServiceUnavailableException({

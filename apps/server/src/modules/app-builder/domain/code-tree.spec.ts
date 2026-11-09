@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCodeTree,
 	isReadableCodePath,
+	isWritableCodePath,
 	pickDefaultFilePath,
 	pickPrefetchPaths,
 } from "./code-tree";
@@ -34,6 +35,46 @@ describe("isReadableCodePath", () => {
 		["a nested .env file", "apps/web/.env"],
 	])("rejects %s", (_label, path) => {
 		expect(isReadableCodePath(path)).toBe(false);
+	});
+});
+
+describe("isWritableCodePath", () => {
+	it.each([
+		["a source file", "src/routes/index.tsx", true],
+		["a nested readme", "docs/README.md", true],
+		// The sandbox file system is case-sensitive: dotenv reads `.env` only.
+		["an upper-case .ENV file", "A/.ENV", true],
+		[
+			"a theme file outside the root styles folder",
+			"lib/styles/theme.json",
+			true,
+		],
+		// Only the dot-segment rule refuses these two paths: no other rule matches package.json.
+		["a dot segment", "./package.json", false],
+		["a parent segment", "src/../package.json", false],
+		["a .envrc file", ".envrc", false],
+		["a nested .env.local file", "src/.env.local", false],
+		["the root CLAUDE.md", "CLAUDE.md", false],
+		["a nested CLAUDE.md", "docs/CLAUDE.md", false],
+		["a nested AGENTS.md", "packages/ui/AGENTS.md", false],
+		["a .claude folder", ".claude/settings.json", false],
+		["a nested node_modules folder", "src/node_modules/x.js", false],
+		["the root theme.json", "src/styles/theme.json", false],
+		["the root template_version", "template_version", false],
+		["a backslash", "src\\app.tsx", false],
+		["an absolute path", "/workspace/src/app.tsx", false],
+		["an empty segment", "src//app.tsx", false],
+		["a NUL byte", "src/app.tsx\0", false],
+		// Bash `$(dirname)` and `$(basename)` drop a trailing newline, so these paths wrote the protected file.
+		["a newline after CLAUDE.md", "CLAUDE.md\n", false],
+		["a newline after the .claude folder", ".claude\n/settings.json", false],
+		["a newline after the .git folder", ".git\n/config", false],
+		["a newline in the root theme path", "src/styles\n/theme.json", false],
+		["a carriage return after AGENTS.md", "AGENTS.md\r", false],
+		["a tab", "a\tb.ts", false],
+		["a DEL character", "src/app.tsx\u007f", false],
+	])("%s: %s -> %s", (_label, path, expected) => {
+		expect(isWritableCodePath(path)).toBe(expected);
 	});
 });
 

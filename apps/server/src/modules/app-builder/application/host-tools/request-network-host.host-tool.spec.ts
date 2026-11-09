@@ -80,6 +80,7 @@ async function setup(failingStep?: FailingStep) {
 	const context: HostToolContext = {
 		actorUserId: "user-1",
 		chatId: "chat-1",
+		framework: "web-app",
 		holdEventId: null,
 		knownThemeFile: () => null,
 		mode: "build",

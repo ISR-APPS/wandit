@@ -2,9 +2,10 @@
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
- * mode menu picks the app type, web or mobile, through `platformChoice`,
+ * mode menu picks the app type, web, mobile, or desktop, through `platformChoice`,
  * the Plan chip of the app-builder feature sets `planChoice`, and its
- * model menu sets `modelChoice`.
+ * model menu sets `modelChoice`. With `acceptsLongText`, a long paste becomes
+ * a text chip that goes with the prompt (lib/pasted-text.ts).
  * Calls the attachments upload service and the voice dictation hook.
  */
 
@@ -16,6 +17,7 @@ import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { CpuIcon } from "@phosphor-icons/react/Cpu";
+import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
@@ -37,11 +39,13 @@ import { TargetIcon } from "@phosphor-icons/react/Target";
 import { TruckIcon } from "@phosphor-icons/react/Truck";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import {
+	builderMessageMaxLength,
 	type ComposerMetadata,
 	projectPromptMaxLength,
 	type TargetPlatform,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
+import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -91,6 +95,7 @@ import {
 import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Spark } from "@/components/logo";
 import {
 	type BuilderModelPick,
@@ -120,6 +125,12 @@ import {
 	uploadAttachment,
 } from "../api/attachments.services";
 import { MAX_VISIBLE_SKILLS } from "../lib/constants";
+import {
+	describePastedText,
+	joinPastedText,
+	type PastedText,
+	readLongPaste,
+} from "../lib/pasted-text";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image";
@@ -277,6 +288,7 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
 	{ id: "web", icon: BrowserIcon },
 	{ id: "mobile", icon: DeviceMobileIcon },
+	{ id: "desktop", icon: DesktopIcon },
 ];
 
 // The hero chips copy the landing pills. A chip at rest has a soft night tint.
@@ -937,17 +949,25 @@ function AttachedSkillChips({
 	);
 }
 
+/** The chip row of the files and of the long pastes. It renders nothing while both lists are empty. */
 function AttachmentChips({
 	attachments,
 	onRemove,
 	onRetry,
+	pastedTexts,
+	onRemovePastedText,
 }: {
 	attachments: readonly ComposerAttachment[];
 	onRemove: (id: string) => void;
 	onRetry: (id: string) => void;
+	/** Long pastes that go with the prompt. Always empty without `acceptsLongText`. */
+	pastedTexts: readonly PastedText[];
+	/** Drops the paste chip with this id; its text is then not sent. */
+	onRemovePastedText: (id: string) => void;
 }) {
 	const pb = useDictionary().projects.promptBox;
-	if (attachments.length === 0) return null;
+	const { t, locale } = useTranslation();
+	if (attachments.length === 0 && pastedTexts.length === 0) return null;
 
 	return (
 		<div className="flex flex-wrap gap-1.5 px-4 pt-3 sm:px-5">
@@ -1026,6 +1046,35 @@ function AttachmentChips({
 									? "text-destructive hover:bg-destructive/15"
 									: "text-muted-foreground hover:bg-primary/10 hover:text-foreground",
 							)}
+						>
+							<X className="size-3" />
+						</button>
+					</span>
+				);
+			})}
+			{pastedTexts.map((pasted) => {
+				const { preview, size } = describePastedText(pasted.text, locale);
+				return (
+					<span
+						key={pasted.id}
+						className="inline-flex h-9 max-w-full items-center gap-2 rounded-xl border border-border bg-muted/60 px-1.5 text-foreground text-xs"
+					>
+						<span className="grid size-6 shrink-0 place-items-center rounded-lg border border-border bg-background text-muted-foreground">
+							<FileText className="size-3" />
+						</span>
+						<span className="min-w-0">
+							<span dir="auto" className="block max-w-36 truncate">
+								{preview}
+							</span>
+							<span className="block text-[10px] text-muted-foreground">
+								{t("projects.promptBox.attachments.pastedText", { size })}
+							</span>
+						</span>
+						<button
+							type="button"
+							aria-label={pb.attachments.remove}
+							onClick={() => onRemovePastedText(pasted.id)}
+							className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
 						>
 							<X className="size-3" />
 						</button>
@@ -1640,8 +1689,8 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
-	/** Set only for a V2 create. The mode menu then lists web app and mobile
-	 * app instead of the V1 modes, and the "+" menu shows no connectors. */
+	/** Set only for a V2 create. The mode menu then lists web app, mobile app,
+	 * and desktop app instead of the V1 modes, and the "+" menu shows no connectors. */
 	platformChoice?: {
 		/** App type of the new project. The caller owns this state. */
 		value: TargetPlatform;
@@ -1677,8 +1726,13 @@ export type PromptBoxProps = {
 	submitOverride?: PromptBoxSubmitOverride;
 	/** Observe the draft as it changes (and when it clears on submit) — lets
 	 * the chat pane derive tray states like "typing overrides the chips"
-	 * without taking over this component's own value state. */
+	 * without taking over this component's own value state. The value is the
+	 * trimmed draft joined to the pasted texts, so `submitOverride` sends both. */
 	onValueChange?: (value: string) => void;
+	/** True for a V2 create: the box takes `builderMessageMaxLength` chars and
+	 * turns a long paste into a text chip. False or absent keeps the V1 limit
+	 * and pastes into the textarea, because the V1 routes refuse a longer prompt. */
+	acceptsLongText?: boolean;
 	/** Reports the dev builder pick as a gateway model id (or "default") so
 	 * chat chrome can use it only when the transcript has no build truth yet. */
 	onBuilderModelChange?: (modelId: string) => void;
@@ -1702,10 +1756,11 @@ export function PromptBox({
 	topSlot,
 	submitOverride,
 	onValueChange,
+	acceptsLongText = false,
 	onBuilderModelChange,
 	className,
 }: PromptBoxProps) {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	const { data: session } = useSession();
 	const pb = useDictionary().projects.promptBox;
 	const initialRouteMode = initialComposer?.mode ?? "auto";
@@ -1763,6 +1818,7 @@ export function PromptBox({
 		),
 	);
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [pastedTexts, setPastedTexts] = useState<PastedText[]>([]);
 	const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 	const [isLocallySubmitting, setIsLocallySubmitting] = useState(false);
 	const [connectorsOpen, setConnectorsOpen] = useState(false);
@@ -1805,8 +1861,12 @@ export function PromptBox({
 		!disabled &&
 		!submissionPending &&
 		hasAttachmentCapacity;
-	const hasRequiredInput =
-		value.trim().length > 0 || readyAttachments.length > 0;
+	// The text the box sends. It is the trimmed draft while no paste chip exists.
+	const prompt = joinPastedText(value, pastedTexts);
+	const hasRequiredInput = prompt.length > 0 || readyAttachments.length > 0;
+	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
+		max: formatNumber(builderMessageMaxLength, locale),
+	});
 	const canSubmit =
 		!disabled &&
 		(submitOverride
@@ -1832,7 +1892,13 @@ export function PromptBox({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: value/chip counts are intentional re-measure triggers
 	useEffect(() => {
 		resize();
-	}, [resize, value, attachedSkills.length, attachments.length]);
+	}, [
+		resize,
+		value,
+		attachedSkills.length,
+		attachments.length,
+		pastedTexts.length,
+	]);
 
 	const runUpload = useCallback(async (id: string, file: File) => {
 		try {
@@ -2024,12 +2090,35 @@ export function PromptBox({
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		const next = e.target.value;
 		setValue(next);
-		onValueChange?.(next);
+		onValueChange?.(joinPastedText(next, pastedTexts));
 		resize();
+	};
+
+	const changePastedTexts = (next: PastedText[]) => {
+		setPastedTexts(next);
+		onValueChange?.(joinPastedText(value, next));
+	};
+
+	const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+		const text = acceptsLongText ? readLongPaste(e) : null;
+		if (text === null) return;
+		e.preventDefault();
+		const next = [...pastedTexts, { id: crypto.randomUUID(), text }];
+		// The create route refuses a prompt over the limit, so the paste stops here.
+		if (joinPastedText(value, next).length > builderMessageMaxLength) {
+			toast.error(tooLongText);
+			return;
+		}
+		changePastedTexts(next);
 	};
 
 	const handleSubmit = async () => {
 		if (disabled || submitInFlightRef.current) return;
+		// The textarea can grow after the chips came, so the submit checks the whole prompt again.
+		if (prompt.length > builderMessageMaxLength) {
+			toast.error(tooLongText);
+			return;
+		}
 
 		if (submitOverride) {
 			if (
@@ -2048,6 +2137,7 @@ export function PromptBox({
 				const result = await submitOverride.onSubmit(uploadedAttachments);
 				if (clearOnSubmit && result !== false) {
 					setValue("");
+					setPastedTexts([]);
 					onValueChange?.("");
 					clearAttachments();
 					setSelectedSkillIds([]);
@@ -2062,7 +2152,6 @@ export function PromptBox({
 			return;
 		}
 
-		const prompt = value.trim();
 		if (
 			submissionPending ||
 			hasUploadingAttachment ||
@@ -2082,8 +2171,10 @@ export function PromptBox({
 				uploadedAttachments,
 			);
 			if (result !== false) {
+				// The paste chips are part of the draft, so they clear with it.
 				if (clearOnSubmit) {
 					setValue("");
+					setPastedTexts([]);
 					onValueChange?.("");
 					clearAttachments();
 					// A skill applies to the message it was picked for. Dropping the
@@ -2200,6 +2291,10 @@ export function PromptBox({
 					attachments={attachments}
 					onRemove={removeAttachment}
 					onRetry={retryAttachment}
+					pastedTexts={pastedTexts}
+					onRemovePastedText={(id) =>
+						changePastedTexts(pastedTexts.filter((pasted) => pasted.id !== id))
+					}
 				/>
 				{attachmentsEnabled ? (
 					<input
@@ -2221,16 +2316,21 @@ export function PromptBox({
 					value={value}
 					onChange={handleChange}
 					onKeyDown={handleKeyDown}
+					onPaste={handlePaste}
 					placeholder={resolvedPlaceholder}
 					rows={1}
-					maxLength={projectPromptMaxLength}
+					maxLength={
+						acceptsLongText ? builderMessageMaxLength : projectPromptMaxLength
+					}
 					disabled={submissionPending || disabled}
 					className={cn(
 						isHero
 							? // The base textarea drops to text-sm from md up, so the hero size repeats at md.
 								"min-h-[84px] w-full overflow-y-auto px-5 py-0 pb-1 text-[1.0625rem] text-night leading-relaxed caret-ember placeholder:text-night/40 disabled:opacity-60 md:text-[1.0625rem] dark:text-foreground dark:placeholder:text-foreground/40"
 							: "min-h-[38px] w-full overflow-y-auto px-4 py-0 pb-0 text-[15px] text-foreground leading-[1.5] placeholder:text-muted-foreground disabled:opacity-60",
-						attachedSkills.length > 0 || attachments.length > 0
+						attachedSkills.length > 0 ||
+							attachments.length > 0 ||
+							pastedTexts.length > 0
 							? "pt-2"
 							: isHero
 								? "pt-5"

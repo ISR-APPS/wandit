@@ -1,8 +1,9 @@
 /**
- * The account menu: the avatar opens billing, the languages, and sign-out.
- * Signed out, it is a sign-in button that opens the auth modal. The top bars
- * render the round avatar. The dashboard sidebar renders the full row with
- * the name and the email. Calls the session hooks and signOut.
+ * The account menu: the avatar opens billing, coding agents (V2 only), the
+ * languages, and sign-out. Signed out, it is a sign-in button that opens the
+ * auth modal. The top bars render the round avatar. The dashboard sidebar
+ * renders the full row with the name and the email. Calls the session hooks
+ * and signOut.
  */
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { DotsThreeVerticalIcon } from "@phosphor-icons/react/DotsThreeVertical";
@@ -27,6 +28,7 @@ import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
+import { CodingAgentsMenuItem } from "@/features/coding-agents";
 import { useTranslation } from "@/lib/i18n";
 import { signOut, useSession } from "../lib/session";
 import { useAuthModal } from "./auth-modal";
@@ -144,6 +146,7 @@ export function UserMenu({
 						{t("billing.page.title")}
 					</Link>
 				</DropdownMenuItem>
+				<CodingAgentsMenuItem />
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>{t("common.language")}</DropdownMenuLabel>
 				<LanguageSwitcherMenuItems />

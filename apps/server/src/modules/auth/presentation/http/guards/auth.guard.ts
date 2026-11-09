@@ -16,7 +16,7 @@ import {
 	UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { AdminAuth, Auth, AuthUser } from "@wandit/auth";
+import type { AdminAuth, Auth } from "@wandit/auth";
 import { sql } from "@wandit/db";
 import { Sentry } from "@wandit/observability/nestjs";
 
@@ -32,6 +32,7 @@ import {
 	AUTH_INSTANCE,
 	AUTH_SURFACE_KEY,
 } from "../../../auth.constants";
+import { isBanActive } from "../../../domain/ban";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import type { MaybeAuthenticatedRequest } from "../types/authenticated-request";
 
@@ -136,12 +137,4 @@ export class AuthGuard implements CanActivate {
 				this.logger.warn(`Failed to refresh last_seen_at for ${userId}`, error);
 			});
 	}
-}
-
-function isBanActive(user: AuthUser): boolean {
-	if (!user.banned) {
-		return false;
-	}
-
-	return !user.banExpires || new Date(user.banExpires).getTime() > Date.now();
 }

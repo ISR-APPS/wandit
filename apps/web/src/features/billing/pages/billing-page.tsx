@@ -100,10 +100,12 @@ function BillingContent() {
 	const { openPlanPicker } = useBillingModal();
 	const [ledgerPage, setLedgerPage] = useState(1);
 	const balanceQuery = useCreditBalanceQuery();
-	const activityQuery = useCreditActivityQuery({
-		page: ledgerPage,
-		pageSize: LEDGER_PAGE_SIZE,
-	});
+	// Only a billing manager sees the ledger below. The API refuses the activity of
+	// another user's personal pool to a member who is not an admin.
+	const activityQuery = useCreditActivityQuery(
+		{ page: ledgerPage, pageSize: LEDGER_PAGE_SIZE },
+		{ enabled: actorCanManageBilling },
+	);
 	const subscriptionQuery = useBillingSubscriptionQuery();
 	const manualRequestQuery = useManualSubscriptionRequestQuery();
 	const settingsQuery = usePublicSettingsQuery();

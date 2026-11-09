@@ -13,6 +13,7 @@ const SUMMARY_ROW = {
 	projectsCount: 1,
 	plan: "starter",
 	creditsBalance: 700,
+	personalOwnerUserId: null,
 } satisfies AdminOrganizationSummaryRow;
 
 describe("mapAdminOrganizationSummary", () => {

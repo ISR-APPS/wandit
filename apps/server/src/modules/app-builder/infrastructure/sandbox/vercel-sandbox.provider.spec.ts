@@ -226,6 +226,8 @@ class FakeVercelSdk implements VercelSandboxSdk {
 	listFailWith: Error | null = null;
 	/** When set, a create from a snapshot `source` answers this HTTP status. 404 is a deleted snapshot. */
 	rejectSnapshotSourceWith: number | null = null;
+	/** When set, each new sandbox answers its first `pnpm` command with it: the failed-install path. */
+	pnpmResult: FakeFinished | null = null;
 
 	listSnapshots(
 		params: VercelListSnapshotsParams,
@@ -281,6 +283,9 @@ class FakeVercelSdk implements VercelSandboxSdk {
 			params.ports ?? [],
 			params.networkPolicy,
 		);
+		if (this.pnpmResult) {
+			created.respondTo("pnpm", this.pnpmResult);
+		}
 		if (name) {
 			this.instances.set(name, created);
 			this.gone.delete(name);
@@ -296,7 +301,7 @@ class FakeTemplateInit implements TemplateInit {
 	failWith: Error | null = null;
 	/** What `contentHash` answers; a spec changes it to change the template files. */
 	hash = "content-hash-1";
-	/** When set, `contentHash` rejects with it: an archive that is not shipped. */
+	/** When set, `contentHash` rejects with it: no archive is packed, as in a local run. */
 	hashFailWith: Error | null = null;
 
 	contentHash(): Promise<string> {
@@ -325,9 +330,10 @@ class FakeTemplateInit implements TemplateInit {
 class FakeRepoRestorer implements RepoRestorer {
 	readonly restored: string[] = [];
 
-	restore(projectId: string, _sandbox: SandboxHandle): Promise<void> {
+	async restore(projectId: string, sandbox: SandboxHandle): Promise<void> {
 		this.restored.push(projectId);
-		return Promise.resolve();
+		// A marker: a spec can check which commands run after the restore.
+		await sandbox.exec("restore-marker", []);
 	}
 }
 
@@ -576,6 +582,42 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		);
 	});
 
+	it("installs the restored lockfile before the dev server starts, and a failed install still starts", async () => {
+		const { logger, provider, sdk, sessions } = setup();
+		sdk.pnpmResult = {
+			exitCode: 1,
+			stderr: () => Promise.resolve(""),
+			stdout: () => Promise.resolve("ERR_PNPM_FETCH_404"),
+		};
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		const commands = sdk.instances.get("p1")?.commands ?? [];
+		const restore = commands.findIndex(
+			(command) => command.cmd === "restore-marker",
+		);
+		const install = commands.findIndex((command) => command.cmd === "pnpm");
+		const devLoop = commands.findIndex((command) =>
+			command.args?.[1]?.includes("pnpm dev"),
+		);
+		expect(commands[install]?.args).toEqual([
+			"install",
+			"--frozen-lockfile",
+			"--prefer-offline",
+		]);
+		expect(restore).toBeGreaterThan(-1);
+		expect(restore).toBeLessThan(install);
+		expect(install).toBeLessThan(devLoop);
+		expect(logger.warn).toHaveBeenCalledWith(
+			"sandbox.repo-restore.install-failed",
+			expect.objectContaining({
+				error: "exit 1: ERR_PNPM_FETCH_404",
+				projectId: "p1",
+			}),
+		);
+		expect((await sessions.findLiveByProjectId("p1"))?.status).toBe("running");
+	});
+
 	it("deletes a fresh sandbox when its setup fails", async () => {
 		const { provider, sdk, sessions, templateInit } = setup();
 		templateInit.failWith = new Error("upload failed");
@@ -723,7 +765,7 @@ describe("VercelSandboxProvider template snapshot boot", () => {
 		expect(templateInit.applied).toEqual([]);
 	});
 
-	it("resumes an older project with no shipped archive and logs no warning", async () => {
+	it("resumes a stopped sandbox and logs no warning when no archive is packed", async () => {
 		const { logger, provider, templateInit } = setup();
 		await provider.getOrCreate("p1", OPTIONS);
 		await provider.stop("p1");
@@ -913,7 +955,8 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 
 	// A start that dies after the vendor call, or fails and stops the
 	// sandbox, leaves a row that is not running. The next start must finish
-	// that boot. The last column counts the restores of that start. A
+	// that boot. The last column counts the restores of that start, and
+	// each restore has one package install. A
 	// `creating` row can lack the repository on disk; a dead resume kept it.
 	it.each<
 		[string, (fixture: ReturnType<typeof setup>) => Promise<void>, number]
@@ -975,6 +1018,13 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 		await fixture.provider.getOrCreate("p1", OPTIONS);
 
 		expect(fixture.restorer.restored.length - restoredBefore).toBe(restores);
+		const commands =
+			sandbox?.commands.slice(before).map(({ cmd }) => cmd) ?? [];
+		expect(commands.filter((cmd) => cmd === "pnpm")).toHaveLength(restores);
+		// Only an install after the restore reads the lockfile of the project.
+		expect(commands.indexOf("pnpm")).toBe(
+			restores === 0 ? -1 : commands.indexOf("restore-marker") + 1,
+		);
 		const row = await fixture.sessions.findLiveByProjectId("p1");
 		expect(row?.status).toBe("running");
 		expect(row?.previewHost).toBe("p1-3000.vercel.run");

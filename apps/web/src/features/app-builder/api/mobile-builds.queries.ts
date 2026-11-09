@@ -14,6 +14,7 @@ import {
 
 import { creditsKeys } from "@/features/credits";
 import type { apiClient } from "@/lib/api-client";
+import { hasEndedLiveBuild } from "../lib/helpers";
 import { appBuilderKeys } from "./app-builder.queries";
 import { listMobileBuilds } from "./mobile-builds.services";
 
@@ -64,17 +65,8 @@ export const mobileBuildsQuery = (
 		queryFn: async ({ client, queryKey }) => {
 			const cached = client.getQueryData<ListMobileBuildsResponse>(queryKey);
 			const list = await listMobileBuilds(projectId, MOBILE_BUILDS_LIMIT, get);
-			// A build end settles or refunds its held credits. No other surface
-			// refreshes the balance and the activity list then.
-			const liveIds = new Set(
-				cached?.items
-					.filter((build) => LIVE_STATUSES.has(build.status))
-					.map((build) => build.id),
-			);
-			const hasEndedBuild = list.items.some(
-				(build) => liveIds.has(build.id) && !LIVE_STATUSES.has(build.status),
-			);
-			if (hasEndedBuild) {
+			// No other surface refreshes the balance and the activity list when a build ends.
+			if (hasEndedLiveBuild(cached?.items, list.items, LIVE_STATUSES)) {
 				void client.invalidateQueries({ queryKey: creditsKeys.scope() });
 			}
 			return list;

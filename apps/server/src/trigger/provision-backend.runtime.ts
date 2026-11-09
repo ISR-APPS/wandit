@@ -60,6 +60,7 @@ import {
 	SupabaseManagementError,
 	supabaseWorkerClientFromEnv,
 } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { systemProjectScope } from "../modules/projects/domain/project-scope";
 import { ProjectsRepository } from "../modules/projects/infrastructure/persistence/projects.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
@@ -214,15 +215,7 @@ export async function runProvisionBackend(
 	// The writes of the run carry the owner of the row; a task has no IP.
 	const actor: SecretActor = {
 		ip: null,
-		scope:
-			row.organizationId === null
-				? { kind: "personal", userId: row.userId }
-				: {
-						actorIsLimitExempt: false,
-						kind: "org",
-						organizationId: row.organizationId,
-						userId: row.userId,
-					},
+		scope: systemProjectScope(row, row.userId, false),
 	};
 	let ref = row.ref;
 	const startedAt = deps.now();

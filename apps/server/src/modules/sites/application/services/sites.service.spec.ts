@@ -10,7 +10,10 @@ import {
 	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
 import type { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	type ProjectScope,
+	projectScopeFrom,
+} from "../../../projects/domain/project-scope";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
@@ -70,7 +73,7 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const FORM_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user-1";
-const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
+const SCOPE: ProjectScope = projectScopeFrom(undefined, USER_ID);
 
 function deploymentRow(overrides: Partial<DeploymentRow> = {}): DeploymentRow {
 	return {

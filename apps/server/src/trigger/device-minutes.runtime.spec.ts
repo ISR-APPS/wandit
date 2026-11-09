@@ -32,6 +32,7 @@ function row(
 		id,
 		minutes: null,
 		organizationId: null,
+		payerUserId: null,
 		platform: "ios",
 		projectId: "11111111-1111-4111-8111-111111111111",
 		startedAt: new Date(NOW.getTime() - options.startedMinutesAgo * MINUTE_MS),
@@ -100,7 +101,7 @@ describe("runDeviceMinutes", () => {
 		expect(billed.get("s1")).toBe(3);
 		expect(recordFreeUsage).toHaveBeenCalledWith(
 			"mobile_preview",
-			{ actorUserId: "user-1", organizationId: null },
+			{ actorUserId: "user-1", organizationId: null, payerUserId: null },
 			expect.objectContaining({
 				evidence: expect.objectContaining({
 					chargedUsdMicros: 180_000,
