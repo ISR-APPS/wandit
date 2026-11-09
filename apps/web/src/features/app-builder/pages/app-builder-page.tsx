@@ -278,6 +278,7 @@ export default function AppBuilderPage({
 			onPlanModeChange={thread.setPlanMode}
 			modelPick={modelPick}
 			chatCost={chatCost}
+			contextFullPercent={thread.contextFullPercent}
 			onCancel={() =>
 				void thread
 					.cancel()

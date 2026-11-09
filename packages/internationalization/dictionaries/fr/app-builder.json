@@ -541,6 +541,12 @@
 		"retry": "Réessayer",
 		"reconnect": "Se reconnecter",
 		"stopped": "Arrêté",
+		"compaction": {
+			"title": "Contexte compacté",
+			"detail": "Les anciens messages ont été résumés pour libérer de la place",
+			"tokens": "{before} → {after} jetons"
+		},
+		"contextFull": "Le contexte est presque plein ({percent} %). Le chat résume automatiquement les anciens messages.",
 		"receipt": "{credits} · {tokens} jetons",
 		"receiptCache": "cache : {read} lus, {write} écrits",
 		"errors": {

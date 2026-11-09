@@ -21,6 +21,12 @@ PostHog flag `v2-builder`).
   Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
   Claude Code call, also helper and subagent calls, to it. The harness
   then turns off the experimental betas, tool search, and WebSearch.
+- Claude Code compacts the conversation by itself. On a 1M-window Claude
+  model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
+  and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
+  167,000. At each turn end the bridge fork reads Claude Code's own count.
+  The task writes it as the `data-turn-context` part, and the chat shows
+  "context getting full" from 50,000 tokens before the compaction point.
 - The turn stream is the Trigger.dev stream `ui`, read by the API and
   relayed as SSE (D20 — one box for the whole stream).
 - The durable git store is code.storage (D21).

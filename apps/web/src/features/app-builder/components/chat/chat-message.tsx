@@ -5,10 +5,10 @@
  * In the production view, one summary line opens the details panel, and
  * only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the plan card,
- * the error with Retry, the stopped line, and the receipt. The receipt
- * shows the cache counts only outside production. The developer view (local
- * dev only) renders every part in stream order, with the thinking text. A
- * Copy action ends a reply that has a final answer. Rendered by
+ * the compaction line, the error with Retry, the stopped line, and the
+ * receipt. The receipt shows the cache counts only outside production. The
+ * developer view (local dev only) renders every part in stream order, with
+ * the thinking text. A Copy action ends a reply that has a final answer. Rendered by
  * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
@@ -341,6 +341,36 @@ function MessagePartView({
 					{t("appBuilder.chat.stopped")}
 				</p>
 			);
+		case "data-compaction": {
+			const { tokensBefore, tokensAfter } = part.data;
+			return (
+				<div className="flex items-center gap-3 font-grotesk text-[12px] text-night/50 dark:text-foreground/50">
+					<span
+						aria-hidden
+						className="h-px flex-1 bg-night/[0.08] dark:bg-white/[0.08]"
+					/>
+					<p className="flex flex-col items-center text-center tabular-nums">
+						<span className="font-medium text-night/65 dark:text-foreground/65">
+							{t("appBuilder.chat.compaction.title")}
+						</span>
+						<span>
+							{t("appBuilder.chat.compaction.detail")}
+							{/* Claude Code can omit the counts; the line then shows no numbers. */}
+							{tokensBefore !== undefined && tokensAfter !== undefined
+								? ` · ${t("appBuilder.chat.compaction.tokens", {
+										before: formatNumber(tokensBefore, locale),
+										after: formatNumber(tokensAfter, locale),
+									})}`
+								: null}
+						</span>
+					</p>
+					<span
+						aria-hidden
+						className="h-px flex-1 bg-night/[0.08] dark:bg-white/[0.08]"
+					/>
+				</div>
+			);
+		}
 		case "data-receipt":
 			return (
 				<p className="flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">

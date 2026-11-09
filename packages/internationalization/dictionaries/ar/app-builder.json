@@ -577,6 +577,12 @@
 		"retry": "إعادة المحاولة",
 		"reconnect": "إعادة الاتصال",
 		"stopped": "تم الإيقاف",
+		"compaction": {
+			"title": "تم ضغط السياق",
+			"detail": "تم تلخيص الرسائل القديمة لتوفير مساحة",
+			"tokens": "{before} ← {after} رمزًا"
+		},
+		"contextFull": "السياق يقترب من الامتلاء ({percent}٪). تلخّص المحادثة الرسائل القديمة تلقائيًا.",
 		"receipt": "{credits} · {tokens} رمزًا",
 		"receiptCache": "الذاكرة المؤقتة: {read} مقروءة، {write} مكتوبة",
 		"errors": {

@@ -1,7 +1,8 @@
 /**
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
- * `toBuilderMessages`, `livePhaseOf`, and `latestTurnModeOf`. chat-pane.tsx calls
+ * `toBuilderMessages`, `livePhaseOf`, `latestTurnModeOf`, and
+ * `contextFullPercentOf`. chat-pane.tsx calls
  * `liveStatusOf` for its status line; the chat and the details panel call
  * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
  * copy: the components translate each row.
@@ -13,6 +14,8 @@ import {
 	deployFunctionToolInputSchema,
 	generateImageHostToolInputSchema,
 	generateImageHostToolOutputSchema,
+	HARNESS_COMPACTION_TOOL_NAME,
+	harnessCompactionOutputSchema,
 	requestNetworkHostToolInputSchema,
 	runSqlToolInputSchema,
 	setSecretToolInputSchema,
@@ -69,8 +72,10 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 
 // Tools that get no row. The to-do list, the task list, the tool search, and
 // the plan mode are agent bookkeeping. The questions show in the tray, and
-// the plan of `present_plan` shows as the plan card.
+// the plan of `present_plan` shows as the plan card. A compaction shows as
+// its own divider line (assistantPartsOf).
 const HIDDEN_TOOL_NAMES = new Set([
+	HARNESS_COMPACTION_TOOL_NAME,
 	"TodoWrite",
 	"TaskCreate",
 	"TaskGet",
@@ -109,6 +114,12 @@ const DETAIL_MAX_LINES = 40;
 
 /** 2 KB of shell output, counted in characters. A run row shows the end of the output. */
 const RUN_OUTPUT_MAX_CHARS = 2_048;
+
+/**
+ * Tokens before the compaction point where the "context getting full"
+ * notice starts. Zack's rule: on the 300,000 point it starts at 250,000.
+ */
+const CONTEXT_NOTICE_MARGIN_TOKENS = 50_000;
 
 const toolOutputStatusSchema = z.object({ status: z.string() });
 
@@ -607,6 +618,42 @@ export function latestTurnModeOf(
 	return "build";
 }
 
+/**
+ * How full the conversation is, in whole percent of the Claude Code
+ * compaction point, at most 100. Reads the newest `data-turn-context` part.
+ * Null when no turn wrote one, while the count is below the notice point,
+ * or when a newer reply compacted.
+ * The chat pane shows the "context getting full" strip with it.
+ */
+export function contextFullPercentOf(
+	messages: readonly TurnMessage[],
+): number | null {
+	for (const message of messages.toReversed()) {
+		const context = message.parts.findLast(
+			(part): part is Extract<TurnMessagePart, { type: "data-turn-context" }> =>
+				part.type === "data-turn-context",
+		);
+		if (context === undefined) {
+			// A failed, stopped, or paused turn writes no count. When it compacted,
+			// the older count is out of date, so the strip hides.
+			// LIMIT: after a paused turn (plan, question, approval), the strip shows the
+			// lower count of an older turn. Upgrade: read the count on the pause settle.
+			const compacted = message.parts.some(
+				(part) =>
+					isToolUIPart(part) &&
+					getToolName(part) === HARNESS_COMPACTION_TOOL_NAME,
+			);
+			if (compacted) return null;
+			continue;
+		}
+		const { tokens, compactAtTokens } = context.data;
+		// Product rule: the notice starts CONTEXT_NOTICE_MARGIN_TOKENS before the point.
+		if (tokens < compactAtTokens - CONTEXT_NOTICE_MARGIN_TOKENS) return null;
+		return Math.min(100, Math.round((tokens / compactAtTokens) * 100));
+	}
+	return null;
+}
+
 /** A part of the turn activity: the details panel shows it, the production chat does not. */
 type ActivityPart = Extract<
 	BuilderMessagePart,
@@ -731,8 +778,9 @@ function hasAssistantMessageAfter(
 /**
  * The parts of one assistant message in stream order: text and notes, a
  * thought row per reasoning block, a step row per visible tool call (a run
- * of reads and searches merges into one row), the summary, the question,
- * approval, and plan cards, then the error, the stopped line, and the receipt.
+ * of reads and searches merges into one row), a compaction line, the summary,
+ * the question, approval, and plan cards, then the error, the stopped line,
+ * and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -791,6 +839,23 @@ function assistantPartsOf(
 			continue;
 		}
 		if (isToolUIPart(part)) {
+			if (getToolName(part) === HARNESS_COMPACTION_TOOL_NAME) {
+				// The stored reply comes back from the database, so the output is
+				// parsed. The vendor writes the call and its result together: a
+				// pending part is only a flash and shows nothing.
+				const output =
+					part.state === "output-available"
+						? harnessCompactionOutputSchema.safeParse(part.output)
+						: null;
+				if (output?.success) {
+					parts.push({
+						type: "data-compaction",
+						id: part.toolCallId,
+						data: output.data,
+					});
+				}
+				continue;
+			}
 			const step = stepOf(part, isLive);
 			if (step === null) continue;
 			const previous = parts.at(-1);

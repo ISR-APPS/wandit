@@ -9,9 +9,11 @@
  * `onReconnect` is set.
  * When the agent asks the user something, the request tray opens on top of
  * the composer. While the payer has no credits, the send locks and an
- * upgrade strip shows above the composer. A failed last reply gets a Retry
- * button that sends its user message again, except a stop on the daily AI
- * limit, and while the payer has no credits. The plan card's
+ * upgrade strip shows above the composer. When the payer has credits and the
+ * conversation nears the Claude Code compaction point, a "context getting
+ * full" strip shows there. A failed last reply gets a Retry button that
+ * sends its user message again, except a stop on the daily AI limit, and
+ * while the payer has no credits. The plan card's
  * "Build this plan" sends a build turn. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
@@ -23,6 +25,7 @@
  */
 
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
+import { GaugeIcon } from "@phosphor-icons/react/Gauge";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
@@ -40,7 +43,7 @@ import { AnimatePresence, MotionConfig } from "motion/react";
 import { useRef, useState } from "react";
 
 import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
-import { useTranslation } from "@/lib/i18n";
+import { formatNumber, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
 import { isActivityPart, liveStatusOf } from "../../lib/turn-parts";
@@ -105,6 +108,8 @@ export type ChatPaneProps = {
 	modelPick: BuilderModelPick;
 	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
 	chatCost?: ChatCostResponse;
+	/** Whole percent of the compaction point the conversation fills, from useBuilderThread. Null hides the "context getting full" strip. */
+	contextFullPercent: number | null;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
 	/** Sentence of the last rejected send or lost stream, or null. Shown as an alert under the list. */
@@ -148,6 +153,7 @@ export function ChatPane({
 	onPlanModeChange,
 	modelPick,
 	chatCost,
+	contextFullPercent,
 	onCancel,
 	errorText,
 	onReconnect,
@@ -158,7 +164,7 @@ export function ChatPane({
 	onLoadOlderMessages,
 	className,
 }: ChatPaneProps) {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	const listRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [draft, setDraft] = useState("");
@@ -396,10 +402,27 @@ export function ChatPane({
 				{/* The strip sits above the composer and does not wrap it. The banner
 				changes its root element when `active` flips, so a wrapped composer
 				remounts and loses its draft and files. */}
+				{/* Only one strip shows: the credit lock blocks the send, so it wins. */}
 				{outOfCredits ? (
 					<OutOfCreditsBanner active className="mb-2">
 						{null}
 					</OutOfCreditsBanner>
+				) : contextFullPercent !== null ? (
+					<div
+						role="status"
+						className="mb-2 flex min-h-9 items-center gap-2 rounded-[1.25rem] bg-spark/[0.14] py-1.5 ps-4 pe-3 dark:bg-spark/[0.12]"
+					>
+						<GaugeIcon
+							weight="bold"
+							className="size-3.5 shrink-0 text-spark-deep dark:text-spark"
+							aria-hidden
+						/>
+						<p className="min-w-0 flex-1 text-night text-xs dark:text-foreground">
+							{t("appBuilder.chat.contextFull", {
+								percent: formatNumber(contextFullPercent, locale),
+							})}
+						</p>
+					</div>
 				) : null}
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}

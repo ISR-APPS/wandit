@@ -28,7 +28,12 @@ import { chatHistoryQuery } from "../api/app-builder.queries";
 import type { SendBuilderMessageInput } from "../api/app-builder.services";
 import type { BuilderMessage } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
-import { latestTurnModeOf, livePhaseOf, toBuilderMessages } from "./turn-parts";
+import {
+	contextFullPercentOf,
+	latestTurnModeOf,
+	livePhaseOf,
+	toBuilderMessages,
+} from "./turn-parts";
 import {
 	type BuilderChatDeps,
 	type BuilderChatSend,
@@ -115,6 +120,11 @@ export type BuilderThreadState = {
 	loadOlderMessages: () => void;
 	/** Mode of the newest turn the thread knows (latestTurnModeOf). The preview shows the planning note for `plan`. */
 	latestTurnMode: BuilderTurnMode;
+	/**
+	 * Whole percent of the compaction point that the conversation fills, from
+	 * contextFullPercentOf. Null below the notice point: the pane hides its strip.
+	 */
+	contextFullPercent: number | null;
 	/**
 	 * State of the Plan toggle: the user's pick, else true when the newest
 	 * turn was a Plan Mode turn. A send shows its own mode at once. The next
@@ -275,6 +285,10 @@ export function useBuilderThread(
 		() => latestTurnModeOf([...olderHistoryMessages, ...chat.messages]),
 		[olderHistoryMessages, chat.messages],
 	);
+	const contextFullPercent = useMemo(
+		() => contextFullPercentOf([...olderHistoryMessages, ...chat.messages]),
+		[olderHistoryMessages, chat.messages],
+	);
 	// The user's pick of the Plan toggle, with its project; null follows the
 	// newest turn. A project switch in place keeps this hook, so the pick of
 	// another project reads as none.
@@ -391,6 +405,7 @@ export function useBuilderThread(
 			if (!historyQuery.isFetchingNextPage) void historyQuery.fetchNextPage();
 		},
 		latestTurnMode,
+		contextFullPercent,
 		isPlanMode,
 		setPlanMode: setPlanModePick,
 		chatId,
