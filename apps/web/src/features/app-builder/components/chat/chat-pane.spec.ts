@@ -176,6 +176,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 							modelId: undefined,
 							setModelId: vi.fn(),
 						},
+						contextFullPercent: null,
 						onCancel: () => {},
 						errorText: null,
 						onReconnect: null,

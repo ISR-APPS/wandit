@@ -660,6 +660,55 @@ export const turnSummaryDataPartSchema = z.object({
 export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
 
 /**
+ * `data` of the `data-turn-context` part the task writes once, at the end
+ * of a turn that ended normally. A turn that pauses for the user writes none.
+ * Both counts come from Claude Code. The
+ * chat shows a "context getting full" notice when `tokens` nears
+ * `compactAtTokens`. `ClaudeCodeHarness` parses the bridge value with it too.
+ */
+export const turnContextDataSchema = z.object({
+	// Tokens of the conversation that Claude Code sends on its next model call.
+	tokens: z.int().nonnegative(),
+	// Claude Code summarizes the conversation when `tokens` reaches this
+	// count: 300,000 on a 1M-window Claude model, 167,000 on other models.
+	compactAtTokens: z.int().positive(),
+});
+
+/** One `data-turn-context` part; id is `context-${turnId}`. */
+export const turnContextDataPartSchema = z.object({
+	type: z.literal("data-turn-context"),
+	id: z.string(),
+	data: turnContextDataSchema,
+});
+
+/** Inferred from `turnContextDataSchema`; the conversation size after one turn. */
+export type TurnContextData = z.infer<typeof turnContextDataSchema>;
+
+/**
+ * Name of the dynamic tool part that `HarnessAgent` (`@ai-sdk/harness`)
+ * writes when Claude Code compacts the conversation. The stored reply keeps
+ * the part, so the chat shows the compaction line after a reload too.
+ */
+export const HARNESS_COMPACTION_TOOL_NAME = "compaction";
+
+/**
+ * `output` of the compaction tool part. The vendor output also holds the
+ * summary text; the chat does not show it, so the parse drops it.
+ */
+export const harnessCompactionOutputSchema = z.object({
+	// `auto` when Claude Code reached its compaction point, `manual` for `/compact`.
+	trigger: z.enum(["auto", "manual"]),
+	// Conversation tokens before and after the summary. Claude Code can omit them.
+	tokensBefore: z.int().nonnegative().optional(),
+	tokensAfter: z.int().nonnegative().optional(),
+});
+
+/** Inferred from `harnessCompactionOutputSchema`; one compaction of the conversation. */
+export type HarnessCompactionOutput = z.infer<
+	typeof harnessCompactionOutputSchema
+>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
@@ -678,6 +727,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnThoughtDataPartSchema,
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
+	turnContextDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -701,4 +751,5 @@ export type TurnDataParts = {
 	// The input type: live parts skip the zod parse, so `mode` can be absent
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;
+	"turn-context": TurnContextData;
 };

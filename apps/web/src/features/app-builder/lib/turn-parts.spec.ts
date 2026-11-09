@@ -14,6 +14,7 @@ import type {
 	TurnMessagePart,
 } from "../api/dto";
 import {
+	contextFullPercentOf,
 	type LiveStatus,
 	latestTurnModeOf,
 	livePhaseOf,
@@ -1070,6 +1071,142 @@ describe("toBuilderMessages", () => {
 		expect(
 			toBuilderMessages(messages, IDLE).map((message) => message.id),
 		).toEqual(["u1"]);
+	});
+
+	// The stored reply comes back from the database, so a bad output must
+	// drop. A compaction is no step: the answer before it stays the final text.
+	it.each<{
+		name: string;
+		part: DynamicToolUIPart;
+		/** Each output part as its type and its text or compaction data; null for a step. */
+		expected: [string, string | BuilderDataParts["compaction"] | null][];
+	}>([
+		{
+			name: "maps a valid output and drops the summary text",
+			part: doneCall(
+				"compaction",
+				{},
+				{
+					trigger: "auto",
+					summary: "The user builds a shop.",
+					tokensBefore: 301_000,
+					tokensAfter: 42_000,
+				},
+			),
+			expected: [
+				["data-step", null],
+				["text", "Done."],
+				[
+					"data-compaction",
+					{ trigger: "auto", tokensBefore: 301_000, tokensAfter: 42_000 },
+				],
+			],
+		},
+		{
+			name: "drops an output that does not parse",
+			part: doneCall("compaction", {}, { summary: "No trigger." }),
+			expected: [
+				["data-step", null],
+				["text", "Done."],
+			],
+		},
+	])("maps a compaction part: $name", ({ part, expected }) => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					doneCall("edit", { file_path: "src/a.css" }),
+					{ type: "text", text: "Done." },
+					part,
+				],
+			},
+		] satisfies TurnMessage[];
+		expect(
+			toBuilderMessages(messages, IDLE)[0].parts.map((mapped) => {
+				if (mapped.type === "text") return [mapped.type, mapped.text];
+				if (mapped.type === "data-compaction") {
+					return [mapped.type, mapped.data];
+				}
+				return [mapped.type, null];
+			}),
+		).toEqual(expected);
+	});
+});
+
+describe("contextFullPercentOf", () => {
+	/** A stored reply with the context count of its turn on a 300,000 point. */
+	function contextReply(id: string, tokens: number): TurnMessage {
+		return {
+			id,
+			role: "assistant",
+			parts: [
+				{
+					type: "data-turn-context",
+					id: `context-${id}`,
+					data: { tokens, compactAtTokens: 300_000 },
+				},
+			],
+		};
+	}
+	const userMessage: TurnMessage = {
+		id: "u1",
+		role: "user",
+		parts: [{ type: "text", text: "Add a cart" }],
+	};
+
+	// Zack's rule: on the 300,000 point the notice starts at 250,000.
+	it.each<{ name: string; messages: TurnMessage[]; expected: number | null }>([
+		{
+			name: "one token below the notice point",
+			messages: [contextReply("a1", 249_999)],
+			expected: null,
+		},
+		{
+			name: "the notice point",
+			messages: [contextReply("a1", 250_000)],
+			expected: 83,
+		},
+		{
+			name: "a count above the compaction point",
+			messages: [contextReply("a1", 320_000)],
+			expected: 100,
+		},
+		{
+			name: "the smaller count of the turn after a compaction",
+			messages: [
+				contextReply("a1", 290_000),
+				userMessage,
+				contextReply("a2", 40_000),
+			],
+			expected: null,
+		},
+		{
+			name: "the reply before a failed reply with no count",
+			messages: [
+				contextReply("a1", 260_000),
+				userMessage,
+				{ id: "a2", role: "assistant", parts: [{ type: "text", text: "…" }] },
+			],
+			expected: 87,
+		},
+		{
+			name: "a failed reply that compacted",
+			messages: [
+				contextReply("a1", 290_000),
+				userMessage,
+				{
+					id: "a2",
+					role: "assistant",
+					parts: [
+						doneCall("compaction", {}, { trigger: "auto", summary: "…" }),
+					],
+				},
+			],
+			expected: null,
+		},
+	])("returns $expected for $name", ({ messages, expected }) => {
+		expect(contextFullPercentOf(messages)).toBe(expected);
 	});
 });
 

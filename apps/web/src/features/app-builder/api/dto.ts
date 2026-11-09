@@ -9,6 +9,7 @@ import type {
 	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
+	HarnessCompactionOutput,
 	ProjectAccess,
 	ProjectEngine,
 	TargetPlatform,
@@ -101,8 +102,9 @@ export type BuilderDiffLine = {
  * `approval` waits for the user to allow a tool call. `plan` is the plan
  * of a Plan Mode turn that waits for "Build this plan". `error` is a turn
  * failure. `stopped` marks a turn the user stopped. `receipt` is the
- * settled cost of a turn. `targets` sits in a user message: the elements it
- * picked in the preview.
+ * settled cost of a turn. `compaction` marks the point where Claude Code
+ * summarized the older conversation; both views show it. `targets` sits in
+ * a user message: the elements it picked in the preview.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -192,6 +194,8 @@ export type BuilderDataParts = {
 		/** Prompt tokens the model wrote to its cache. Not part of `inputTokens`. */
 		cacheWriteTokens: number;
 	};
+	/** The parsed `output` of the harness `compaction` tool part: the trigger and the token counts. */
+	compaction: HarnessCompactionOutput;
 	targets: TurnTargetsData;
 };
 

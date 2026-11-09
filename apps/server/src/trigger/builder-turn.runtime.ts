@@ -17,6 +17,7 @@ import type {
 	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
+	TurnContextData,
 	TurnDoneData,
 	TurnErrorData,
 	TurnPlanData,
@@ -824,6 +825,8 @@ export async function runBuilderTurn(
 		inputTokens: 0,
 		outputTokens: 0,
 	};
+	/** The harness count of the conversation at the stream end; null until the usage event. */
+	let turnContext: TurnContextData | null = null;
 	/** The model the turn runs on: the paused turn's model, the row's pick, or the env default. */
 	let resolvedModel: string | null = deps.model;
 	/**
@@ -2300,6 +2303,7 @@ export async function runBuilderTurn(
 				usage.cacheWriteTokens += event.cacheWriteTokens;
 				usage.inputTokens += event.inputTokens;
 				usage.outputTokens += event.outputTokens;
+				turnContext = event.context ?? turnContext;
 				continue;
 			}
 			// A harness error chunk ends the turn as failed. `failTurn` writes
@@ -2438,6 +2442,19 @@ export async function runBuilderTurn(
 			};
 			await writeEvent({ data: summaryPart, type: "part" });
 
+			// The chat's "context getting full" notice reads the newest of these
+			// parts. The stored message keeps it, so a reload shows the notice too.
+			const contextParts: UIMessage["parts"] = [];
+			if (turnContext !== null) {
+				const contextPart: UIMessage["parts"][number] = {
+					data: turnContext satisfies TurnContextData,
+					id: `context-${turnId}`,
+					type: "data-turn-context",
+				};
+				await writeEvent({ data: contextPart, type: "part" });
+				contextParts.push(contextPart);
+			}
+
 			// One stream part and one message part per card the user must
 			// answer; the cards are what the next turn answers.
 			const cardParts: UIMessage["parts"] = [];
@@ -2540,7 +2557,7 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...finalParts, summaryPart, ...cardParts],
+					parts: [...finalParts, summaryPart, ...contextParts, ...cardParts],
 					turnId,
 				}),
 			);

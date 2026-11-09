@@ -11,6 +11,7 @@ import type {
 	BuilderTurnMode,
 	HarnessPendingInteraction,
 	PresentPlanHostToolOutput,
+	TurnContextData,
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 
@@ -108,6 +109,12 @@ export type HarnessStreamEvent =
 			outputTokens: number;
 			cacheReadTokens: number;
 			cacheWriteTokens: number;
+			/**
+			 * The conversation size after the turn and the compaction point, both
+			 * counted by the harness. Absent on a paused turn or when the harness
+			 * cannot count.
+			 */
+			context?: TurnContextData;
 	  }
 	| {
 			type: "error";

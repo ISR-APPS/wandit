@@ -630,6 +630,12 @@
 		"retry": "Retry",
 		"reconnect": "Reconnect",
 		"stopped": "Stopped",
+		"compaction": {
+			"title": "Context compacted",
+			"detail": "Older messages were summarized to free space",
+			"tokens": "{before} → {after} tokens"
+		},
+		"contextFull": "Context is getting full ({percent}%). The chat summarizes older messages automatically.",
 		"receipt": "{credits} · {tokens} tokens",
 		"receiptCache": "cache: {read} read, {write} written",
 		"errors": {

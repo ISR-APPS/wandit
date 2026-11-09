@@ -40,9 +40,11 @@ import {
 	presentPlanHostToolInputSchema,
 	presentPlanHostToolOutputSchema,
 	resolveAskUserKind,
+	turnContextDataSchema,
 } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
+	ProviderMetadata,
 	ToolApprovalResponse,
 	ToolResultPart,
 	UIMessageChunk,
@@ -138,6 +140,31 @@ const TOKEN_EPOCH_MS = 30 * 60_000;
 const KEPT_SESSION_IDLE_MS = 20 * 60_000;
 
 /**
+ * The window Claude Code compacts in, as the `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+ * value. Claude Code 2.1.281 compacts 33,000 tokens below it (a 20,000 summary
+ * reserve plus a 13,000 buffer), so at 300,000 tokens (Zack, 2026-11-04).
+ * Claude Code uses the smaller of this value and the model window.
+ */
+const AUTO_COMPACT_WINDOW_TOKENS = "333000";
+
+/**
+ * The builder models of `LLM_MODEL_PRICES` with a 1M-token window. Claude
+ * Code 2.1.281 assumes 200K for these gateway ids and compacts at 167,000.
+ * The `[1m]` suffix gives it the real window. It sends the id without the
+ * suffix, plus the `context-1m-2025-08-07` beta. A 200K model must stay out:
+ * Claude Code would then wait for 300,000 tokens that the API refuses.
+ * A new 1M row in `LLM_MODEL_PRICES` needs its id here too.
+ */
+const MILLION_TOKEN_WINDOW_MODELS: ReadonlySet<string> = new Set([
+	"anthropic/claude-sonnet-5",
+	"anthropic/claude-opus-5.5",
+	"anthropic/claude-opus-5.5-fast",
+	"anthropic/claude-opus-5",
+	"anthropic/claude-opus-5-fast",
+	"anthropic/claude-fable-5.1",
+]);
+
+/**
  * The HTTP status in a Claude Code error text. Claude Code writes
  * "API Error: 529 Overloaded", "API Error: Repeated 529 Overloaded errors",
  * and "API Error: Request rejected (429) · ...". The vendor bridge writes
@@ -158,6 +185,11 @@ export type ClaudeCodeStreamResult = {
 		onError?: (error: unknown) => string;
 	}): AsyncIterable<UIMessageChunk>;
 	totalUsage: PromiseLike<LanguageModelUsage>;
+	/**
+	 * The `harnessMetadata` of the bridge `finish` event. The bridge fork puts
+	 * the context count under `"claude-code".context`. Undefined on a paused turn.
+	 */
+	providerMetadata: PromiseLike<ProviderMetadata | undefined>;
 };
 
 /**
@@ -945,9 +977,20 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			}
 		}
 		const usage = await result.totalUsage;
+		// The bridge fork writes this value inside the sandbox, so it is parsed
+		// here. A paused turn, or a CLI that did not answer, has no value.
+		const rawContext = (await result.providerMetadata)?.["claude-code"]
+			?.context;
+		const context = turnContextDataSchema.safeParse(rawContext);
+		if (!context.success && rawContext !== undefined) {
+			this.logger.warn(
+				`Claude Code context count has a bad shape: ${context.error.message}`,
+			);
+		}
 		yield {
 			cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
 			cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
+			...(context.success ? { context: context.data } : {}),
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			type: "usage",
@@ -994,6 +1037,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// LIMIT: one Bash call runs at most 3.5 min.
 					// Upgrade: reset the stall timer on CLI tool_progress heartbeats, then raise this cap.
 					BASH_MAX_TIMEOUT_MS: "210000",
+					// A `[1m]` model without this window compacts only after the API
+					// refuses a too-long prompt, near 1M tokens (Claude Code 2.1.281).
+					CLAUDE_CODE_AUTO_COMPACT_WINDOW: AUTO_COMPACT_WINDOW_TOKENS,
 					// The bridge fork keeps one Claude Code process between turns.
 					// A background task or a cron prompt can end after the turn.
 					// Then it starts a turn that no host reads. The next turn ends
@@ -1036,7 +1082,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				startupTimeoutMs: BRIDGE_STARTUP_TIMEOUT_MS,
 			}),
 			instructions: input.instructions,
-			model: input.model,
+			model: MILLION_TOKEN_WINDOW_MODELS.has(input.model)
+				? `${input.model}[1m]`
+				: input.model,
 			// The model asks through the `ask_user` host tool only. It carries
 			// the kinds and the world cards; the built-in question tool has none.
 			// A build session has no subagents. The bridge drops subagent output,

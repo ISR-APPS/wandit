@@ -421,11 +421,14 @@ async function driveTurn(query, start, turn) {
 			query.turn = null;
 		}
 	}
+	const context = await readContext(query);
 	emit({
 		finishReason: { raw: "stop", unified: "stop" },
 		totalUsage: turnUsage ?? query.state.stepUsage ?? defaultUsage(),
 		type: "finish",
-		...(totalCostUsd !== void 0 || lastClaudeSessionId !== void 0
+		...(totalCostUsd !== void 0 ||
+		lastClaudeSessionId !== void 0 ||
+		context !== void 0
 			? {
 					harnessMetadata: {
 						"claude-code": {
@@ -433,9 +436,48 @@ async function driveTurn(query, start, turn) {
 							...(lastClaudeSessionId !== void 0
 								? { sessionId: lastClaudeSessionId }
 								: {}),
+							...(context !== void 0 ? { context } : {}),
 						},
 					},
 				}
 			: {}),
 	});
+}
+
+/**
+ * Claude Code's own count of the conversation and its compaction point,
+ * `{ tokens, compactAtTokens }`. The host turns it into the chat's
+ * context notice. Summary mode answers from memory and sends no model call.
+ * Undefined when the CLI fails or does not answer in time.
+ */
+async function readContext(query) {
+	let timer;
+	try {
+		const usage = await Promise.race([
+			query.q.getContextUsage({ detail: "summary" }),
+			// 2 s: the CLI answers in milliseconds. A stuck CLI must not hold the turn end.
+			new Promise((resolve) => {
+				timer = setTimeout(resolve, 2e3);
+			}),
+		]);
+		if (usage === void 0) {
+			process.stderr.write(
+				"[harness:claude-code:warn] context usage read timed out\n",
+			);
+			return void 0;
+		}
+		// The host parses both fields; an absent threshold means no notice.
+		return {
+			compactAtTokens: usage.autoCompactThreshold,
+			tokens: usage.totalTokens,
+		};
+	} catch (error) {
+		// The notice is a hint; the turn still ends normally.
+		process.stderr.write(
+			`[harness:claude-code:warn] context usage read failed: ${error?.message ?? error}\n`,
+		);
+		return void 0;
+	} finally {
+		clearTimeout(timer);
+	}
 }
