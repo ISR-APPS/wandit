@@ -3,8 +3,10 @@
  * the end side; a long one folds, with a Show more button. Its files sit
  * above it, and the chips of its preview picks sit above the files. An
  * assistant message starts with the Wandit byline.
- * In the production view, one summary line opens the details panel, and
- * only the parts the user reads or acts on follow: the final answer, a
+ * In the production view, one summary line opens the details panel. A strip
+ * of thumbnails follows it: the image files the agent read, for example its
+ * screenshots, and the images it made. A click on a thumbnail also opens the
+ * details panel. Then only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the plan card,
  * the compaction line, the error with Retry, the stopped line, and the
  * receipt. The receipt shows the cache counts only outside production. The
@@ -92,7 +94,7 @@ export type ChatMessageViewProps = {
 	message: BuilderMessage;
 	/** True renders every part inline, with the thinking text. Only the local dev switch sets it. */
 	isDeveloperView: boolean;
-	/** Opens the details panel of this message. The production summary line calls it with `message.id`. */
+	/** Opens the details panel of this message. The production summary line and the image strip call it with `message.id`. */
 	onOpenActivity: (messageId: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
@@ -196,6 +198,7 @@ export function ChatMessageView({
 			) : (
 				<>
 					<SummaryLine message={message} onOpenActivity={onOpenActivity} />
+					<ImageStrip message={message} onOpenActivity={onOpenActivity} />
 					{/* The steps, the notes, and the summary show in the details panel only. */}
 					{message.parts.map((part, index) => {
 						const key = `${message.id}-${index}`;
@@ -248,6 +251,47 @@ function SummaryLine({
 				aria-hidden
 			/>
 		</button>
+	);
+}
+
+/**
+ * The production thumbnails of the step images, in stream order. turn-parts.ts
+ * lets only https: and raster data: URLs into `imageUrl`. A click opens the
+ * details panel, which shows the full image. Null when no step has an image.
+ */
+function ImageStrip({
+	message,
+	onOpenActivity,
+}: Pick<ChatMessageViewProps, "message" | "onOpenActivity">) {
+	const { t } = useTranslation();
+	const images = message.parts.flatMap((part, index) =>
+		part.type === "data-step" && part.data.imageUrl !== null
+			? [{ url: part.data.imageUrl, index }]
+			: [],
+	);
+	if (images.length === 0) return null;
+	return (
+		<div className="flex flex-wrap gap-2">
+			{images.map(({ url, index }, position) => (
+				<button
+					key={`${message.id}-${index}`}
+					type="button"
+					aria-label={t("appBuilder.chat.showImage", { number: position + 1 })}
+					onClick={() => onOpenActivity(message.id)}
+					// 128 x 80 px (width x height): a 16:10 box, the ratio of a 1280 x 800 desktop screenshot. Other ratios crop.
+					className="h-20 w-32 shrink-0 overflow-hidden rounded-[12px] border border-night/[0.08] bg-night/[0.03] outline-none transition-colors duration-150 hover:border-night/25 focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:border-white/25"
+				>
+					{/* The button label names the image, so the image itself is decorative. */}
+					<img
+						src={url}
+						alt=""
+						loading="lazy"
+						decoding="async"
+						className="size-full object-cover object-top"
+					/>
+				</button>
+			))}
+		</div>
 	);
 }
 

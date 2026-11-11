@@ -59,6 +59,23 @@ call:
   backend host throws. A `backendUrl` that is not a URL gives no backend
   host.
 
+The template snapshot builder (`ensureTemplateSnapshot`) is a separate
+sandbox with no secret and no user code. Only this builder also reaches
+four install hosts for `agent-browser` and its Chrome:
+
+- `archive.ubuntu.com` and `security.ubuntu.com`: the apt mirrors that
+  give the system libraries of Chrome. The vendor firewall allows a host
+  only over HTTPS, so the build first changes the apt sources to
+  `https://`.
+- `googlechromelabs.github.io` and `storage.googleapis.com`: Chrome for
+  Testing, its version list and its download.
+
+After the install, the builder sets its live policy back to
+`registry.npmjs.org` only. So the template and harness install code never
+reaches these hosts. A turn never gets them: they are not in
+`GLOBAL_ALLOWED_HOSTS`. `storage.googleapis.com` serves every GCS bucket,
+so turn code could send data out through it.
+
 Two leak paths stay open (WANDIT-283):
 
 - The vendor matches the SNI only. Sandbox code can send the SNI of its
@@ -326,6 +343,17 @@ launchers not in `WRAPPERS` (`setsid`, `flock`); Debian binary names
 (`nc.openbsd`); `perl -i` and `awk` file writes. Upgrade: a shell
 parser package in the image.
 
+The hook also does not check the output path of `agent-browser`
+(`screenshot`, `pdf`, `download`, `state save`, `record start`). This is
+an open bypass of the same class as the `node -e` writes, with the same
+upgrade. `download` writes the bytes that the page serves, and the agent
+writes that page. So it can replace `.claude/hooks/pre-tool-use.mjs` with
+any code. A file that node cannot parse makes the hook exit 1 before
+its fail-closed `catch` runs. Claude Code does not block on exit 1, so
+the tool call runs (fail open). A file that is not JSON on
+`.claude/settings.json` makes Claude Code drop the project settings at
+its next start. That removes the hook and the deny rules.
+
 ## 8. Telemetry
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` appears in
@@ -333,7 +361,10 @@ parser package in the image.
 (`claude-code.harness.ts`). Deny-by-default egress makes the Claude
 Code telemetry and update calls fail and log noise, so the CLI must
 not make them. `buildSandboxEnv` writes the flag last, so `extra`
-cannot re-enable them.
+cannot re-enable them. For the same reason, `buildAgent` sets
+`AGENT_BROWSER_NO_VERSION_CHECK=1` in the env of the Claude Code process:
+the agent-browser version check fetches a Google blog host. The
+thumbnail capture script sets the same flag on its own command.
 
 ## 9. No platform secret in the VM
 
@@ -434,6 +465,9 @@ app runs on the worker:
 `view` and `cancel` call the EAS GraphQL API with the token, so the API can
 cancel a build without the eas CLI. The GraphQL API is the one eas-cli
 uses; Expo does not document it as a public contract (UNVERIFIED).
+
+The dashboard thumbnail follows the same rule: `agent-browser` runs Chrome
+in the project sandbox, never on the worker.
 
 ## 13. Open items
 

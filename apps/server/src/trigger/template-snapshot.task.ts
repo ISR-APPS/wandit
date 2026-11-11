@@ -27,8 +27,8 @@ import { runTemplateSnapshotBuild } from "./template-snapshot.runtime";
 export const templateSnapshotTask = schedules.task({
 	id: "template-snapshot",
 	cron: { pattern: "*/10 * * * *", timezone: "UTC" },
-	// 900 s: two builds of about 1 to 3 minutes each, with a margin for a
-	// slow package install.
+	// 900 s: three platform builds of about 2 to 4 minutes each. A run that
+	// stops at the limit leaves the rest to the next tick.
 	maxDuration: 900,
 	// One build at a time: two runs must not build the same snapshot.
 	queue: { concurrencyLimit: 1 },

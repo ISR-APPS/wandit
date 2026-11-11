@@ -1,8 +1,9 @@
 /**
  * Builds the real `BuilderTurnDeps`: the repositories on a fresh pool, the
- * sandbox provider, the harness, the host tools, metering, and the Redis
- * clients. The `builder-turn` task imports this file lazily for one turn;
- * the harness host builds it once for all its turns. `close` ends every client.
+ * sandbox provider, the harness, the host tools, metering, the thumbnail
+ * scheduler, and the Redis clients. The `builder-turn` task imports this
+ * file lazily for one turn; the harness host builds it once for all its
+ * turns. `close` ends every client.
  */
 import { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
@@ -49,6 +50,7 @@ import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/san
 import { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/supabase-rate-limiter";
 import { TriggerGithubSyncScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
+import { TriggerThumbnailCaptureScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-thumbnail-capture-scheduler";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
 import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
@@ -156,6 +158,8 @@ export async function createBuilderTurnDeps(
 		const backends = new AppBackendsRepository(db);
 		const audit = new AuditEventsRepository(db);
 		const secretsRepo = new ProjectSecretsRepository(db);
+		// The process logger: the Trigger Sentry client drops `Sentry.logger` lines.
+		const thumbnails = new TriggerThumbnailCaptureScheduler(logger);
 		const supabase =
 			supabaseToken && supabaseOrganizationSlug && supabaseRateLimiter
 				? new SupabaseManagementClient({
@@ -250,6 +254,8 @@ export async function createBuilderTurnDeps(
 			resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 			sandboxSessions,
 			sandboxes,
+			scheduleThumbnail: (projectId, commitSha) =>
+				thumbnails.schedule(projectId, commitSha),
 			sessions: new BuilderSessionsRepository(db),
 			turns,
 			// The service already converts AI_USD_PER_CREDIT at build.
