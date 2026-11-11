@@ -659,6 +659,8 @@ function makeWorld(over?: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
+	/** Every `scheduleThumbnail` call, in call order. */
+	const thumbnails: { commitSha: string; projectId: string }[] = [];
 	/** Every audit row the run wrote, in call order. */
 	const audited: AuditRecord[] = [];
 	const warnings: string[] = [];
@@ -851,6 +853,9 @@ function makeWorld(over?: {
 			},
 		},
 		sandboxes,
+		scheduleThumbnail: async (projectId, commitSha) => {
+			thumbnails.push({ commitSha, projectId });
+		},
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
@@ -883,6 +888,7 @@ function makeWorld(over?: {
 		sandboxes,
 		sessions,
 		stream,
+		thumbnails,
 		timings,
 		touched,
 		turns,
@@ -2882,6 +2888,47 @@ describe("runBuilderTurn", () => {
 		expect(world.infos).toContain("builder-turn.commit-skipped");
 		expect(world.turns.completeCalls[0]?.input.outputCommitSha).toBeNull();
 		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it.each([
+		{
+			commits: true,
+			expected: [{ commitSha: "commit-sha-1", projectId: PROJECT_ID }],
+			name: "a succeeded turn with a commit",
+			paused: false,
+		},
+		{
+			commits: false,
+			expected: [],
+			name: "a succeeded turn without a commit",
+			paused: false,
+		},
+		{
+			commits: true,
+			expected: [],
+			name: "a turn that waits for an answer, with a commit",
+			paused: true,
+		},
+	])("schedules a thumbnail only for a succeeded commit: $name", async ({
+		commits,
+		expected,
+		paused,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		if (!commits) {
+			world.deps.commit = async () => null;
+		}
+		if (paused) {
+			world.harness.unfinishedTurn = true;
+			world.harness.pendingOnSuspend = [PENDING_QUESTION];
+		}
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.thumbnails).toEqual(expected);
 	});
 
 	it("sends the attachment URLs together with the message text", async () => {

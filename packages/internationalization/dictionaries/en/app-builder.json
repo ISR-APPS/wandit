@@ -485,6 +485,7 @@
 		"copied": "Copied",
 		"showMore": "Show more",
 		"showLess": "Show less",
+		"showImage": "Show image {number} in full",
 		"placeholder": "Ask Wandit…",
 		"attach": "Attach a file",
 		"estimate": {

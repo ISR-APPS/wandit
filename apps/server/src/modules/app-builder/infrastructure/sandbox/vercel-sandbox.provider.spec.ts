@@ -41,6 +41,7 @@ type FakeRunParams = {
 	detached?: boolean;
 	env?: Record<string, string>;
 	signal?: AbortSignal;
+	sudo?: boolean;
 	timeoutMs?: number;
 };
 
@@ -226,8 +227,8 @@ class FakeVercelSdk implements VercelSandboxSdk {
 	listFailWith: Error | null = null;
 	/** When set, a create from a snapshot `source` answers this HTTP status. 404 is a deleted snapshot. */
 	rejectSnapshotSourceWith: number | null = null;
-	/** When set, each new sandbox answers its first `pnpm` command with it: the failed-install path. */
-	pnpmResult: FakeFinished | null = null;
+	/** Command name → the answer of its first run in each new sandbox: a failed-step path. */
+	readonly firstResults = new Map<string, FakeFinished>();
 
 	listSnapshots(
 		params: VercelListSnapshotsParams,
@@ -283,8 +284,8 @@ class FakeVercelSdk implements VercelSandboxSdk {
 			params.ports ?? [],
 			params.networkPolicy,
 		);
-		if (this.pnpmResult) {
-			created.respondTo("pnpm", this.pnpmResult);
+		for (const [cmd, result] of this.firstResults) {
+			created.respondTo(cmd, result);
 		}
 		if (name) {
 			this.instances.set(name, created);
@@ -584,11 +585,11 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 
 	it("installs the restored lockfile before the dev server starts, and a failed install still starts", async () => {
 		const { logger, provider, sdk, sessions } = setup();
-		sdk.pnpmResult = {
+		sdk.firstResults.set("pnpm", {
 			exitCode: 1,
 			stderr: () => Promise.resolve(""),
 			stdout: () => Promise.resolve("ERR_PNPM_FETCH_404"),
-		};
+		});
 
 		await provider.getOrCreate("p1", OPTIONS);
 
@@ -836,9 +837,17 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(sdk.getOrCreateCalls).toEqual([]);
 	});
 
-	it("builds the template and the harness in a sandbox with no secret, then snapshots it", async () => {
+	it("installs agent-browser, then builds the template and the harness under the npm registry only, then snapshots it", async () => {
 		const { provider, sdk, templateInit } = setup();
 		const { harness, prepared } = harnessFake();
+		const apply = templateInit.apply.bind(templateInit);
+		let policyAtApply: NetworkPolicy | undefined;
+		templateInit.apply = (sandbox, options) => {
+			policyAtApply = sdk.instances.get(
+				sandbox.providerSandboxId,
+			)?.sessionPolicy;
+			return apply(sandbox, options);
+		};
 
 		const outcome = await provider.ensureTemplateSnapshot(TEMPLATE, harness);
 
@@ -852,6 +861,23 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(params?.image).toBe("registry.test/wandit/sandbox:1");
 		expect(params?.env).toBeUndefined();
 		expect(params?.networkPolicy).toEqual({
+			allow: [
+				"registry.npmjs.org",
+				"archive.ubuntu.com",
+				"security.ubuntu.com",
+				"googlechromelabs.github.io",
+				"storage.googleapis.com",
+			],
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+		// Only the apt rewrite runs as root: a root install puts Chrome under /root.
+		expect(
+			sdk.instances
+				.get(name ?? "")
+				?.commands.map(({ cmd, sudo }) => `${cmd}${sudo ? " (sudo)" : ""}`),
+		).toEqual(["sed (sudo)", "npm", "agent-browser", "git"]);
+		// Security: template install code never reaches the Chrome and apt hosts.
+		expect(policyAtApply).toEqual({
 			allow: ["registry.npmjs.org"],
 			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
 		});
@@ -895,6 +921,24 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(outcome).toBe("built");
 		expect(crashed?.deleted).toBe(true);
 		expect(sdk.instances.get(name)).not.toBe(crashed);
+	});
+
+	it("deletes the builder and takes no snapshot when the agent-browser install fails", async () => {
+		const { provider, sdk, templateInit } = setup();
+		sdk.firstResults.set("agent-browser", {
+			exitCode: 1,
+			stderr: () => Promise.resolve("E: Unable to fetch some archives"),
+			stdout: () => Promise.resolve(""),
+		});
+
+		await expect(
+			provider.ensureTemplateSnapshot(TEMPLATE, harnessFake().harness),
+		).rejects.toThrow("Unable to fetch some archives");
+
+		const sandbox = sdk.instances.get(sdk.listedNames[0] ?? "");
+		expect(sandbox?.deleted).toBe(true);
+		expect(sandbox?.snapshotExpiration).toBeNull();
+		expect(templateInit.applied).toEqual([]);
 	});
 
 	it("deletes the sandbox and takes no snapshot when a build step fails", async () => {

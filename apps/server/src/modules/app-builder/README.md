@@ -129,9 +129,15 @@ partial unique index guarantees at most one live row per project.
   `TEMPLATE_SNAPSHOT_BUILD_VERSION`, the template files
   (`hashTemplateArchive`, file times ignored), the image, and
   `BuilderHarness.bootstrapKey`, so a change of any of them gives a new
-  build. Increase the build version when the build steps change. The
-  builder sandbox is not persistent, holds no env, and reaches only
-  `registry.npmjs.org`. The build checks the template commit and takes the
+  build. Increase the build version when the build steps change. The name
+  also hashes the `AGENT_BROWSER_PACKAGE` pin. The builder sandbox is not
+  persistent and holds no env. It first installs agent-browser and its
+  Chrome: it changes the apt mirrors to `https://` (the vendor firewall
+  allows a host only over HTTPS), runs `npm install -g`, then
+  `agent-browser install --with-deps`. Only this step reaches
+  `TEMPLATE_SNAPSHOT_INSTALL_HOSTS` (the Ubuntu mirrors and Chrome for
+  Testing). Then the policy narrows to `registry.npmjs.org` before the
+  template and harness installs. The build checks the template commit and takes the
   snapshot on its first session, so a lost disk never becomes the
   snapshot. A snapshot expires 30 days after the last boot from it; a
   project sandbox made from it still resumes after that (checked on the
@@ -376,14 +382,40 @@ then marks the live app deployment `unpublished`. The backend step
 (WANDIT-184) moves the `app_backends` row
 to `deleting`, pauses a running Supabase project, and deletes the
 `project_secrets` rows; the pause sweep deletes the Supabase project after
-the grace window. Then it drains the five `v2ProjectPrefixes` and deletes
+the grace window. Then it drains the six `v2ProjectPrefixes` and deletes
 the code.storage repository. The prefixes are `git/<id>/`,
-`sites/<id>/assets/`, `published/<id>/builds/` (the stored publish
+`sites/<id>/assets/`, `sites/<id>/thumbnails/` (the dashboard card
+images), `published/<id>/builds/` (the stored publish
 outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
 (the build input and staged installer), never the whole `published/<id>/` root.
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
+
+## Agent browser and thumbnails
+
+- The template snapshot holds the agent-browser CLI and headless Chrome.
+  `browserInstructionOf` in `builder-turn.runtime.ts` tells the agent to
+  use it through Bash: open `localhost:<devPort>`, read `snapshot -i`,
+  `--json console`, and `--json errors`, and save screenshots under
+  `/tmp`. The text is in every turn, Plan Mode too, because it is part of
+  the CLI process key. A sandbox from an older snapshot has no CLI; the
+  agent checks `command -v agent-browser` and skips the browser.
+- `buildAgent` sets `AGENT_BROWSER_NO_VERSION_CHECK=1`, because the
+  version check reaches a host that the egress policy blocks.
+- The chat shows a strip of the step images under the summary line: the
+  screenshots the agent reads and the images it makes.
+- Dashboard thumbnail: after a `succeeded` turn with a commit,
+  `settleTurn` calls `TriggerThumbnailCaptureScheduler.schedule`. It
+  triggers `capture-project-thumbnail` with the idempotency key
+  `<projectId>:<commitSha>` and never throws. The task runs on the
+  `project-thumbnail` queue, one run per project. It skips when a turn is
+  active, the branch head moved, or the sandbox stopped. It runs
+  agent-browser inside the project sandbox (never on the worker, see
+  `docs/v2/security.md` section 12), checks the JPEG bytes and the 5 MB
+  cap, uploads to `projectThumbnailKey`, and writes
+  `projects.preview_image_url`. The write keeps `updated_at`, so the
+  card order does not change.
 
 ## Code view (WANDIT-271)
 

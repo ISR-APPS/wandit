@@ -1048,6 +1048,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
 					CLAUDE_CODE_DISABLE_CRON: "1",
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+					// Deny-by-default egress: the agent-browser version check fetches
+					// a Google blog host and fails. The Bash calls of the agent inherit this env.
+					AGENT_BROWSER_NO_VERSION_CHECK: "1",
 					// Claude Code 2.1.281 adds a `<total_tokens>` system message after
 					// each user prompt. Through the LLM proxy and the gateway, each new
 					// one changed the prompt prefix ahead of the chat history, so every

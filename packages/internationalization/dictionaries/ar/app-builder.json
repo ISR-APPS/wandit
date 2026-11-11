@@ -497,6 +497,7 @@
 		"copied": "تم النسخ",
 		"showMore": "عرض المزيد",
 		"showLess": "عرض أقل",
+		"showImage": "عرض الصورة {number} كاملة",
 		"placeholder": "اسأل Wandit…",
 		"attach": "إرفاق ملف",
 		"estimate": {

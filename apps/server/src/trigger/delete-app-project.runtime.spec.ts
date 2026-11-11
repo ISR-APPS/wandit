@@ -213,6 +213,7 @@ describe("runDeleteAppProject", () => {
 			"desktop-app",
 			"objects:git/project-1/",
 			"objects:sites/project-1/assets/",
+			"objects:sites/project-1/thumbnails/",
 			"objects:published/project-1/builds/",
 			"objects:desktop/project-1/",
 			"objects:desktop-temp/project-1/",
@@ -227,7 +228,7 @@ describe("runDeleteAppProject", () => {
 			// The default project never published.
 			deployment: "none",
 			desktopAppsDeleted: 1,
-			objectsDeleted: 5,
+			objectsDeleted: 8,
 			repository: "deleted",
 			sandbox: "destroyed",
 			secretsDeleted: 2,
@@ -306,7 +307,7 @@ describe("runDeleteAppProject", () => {
 		expect(result.backend).toBe("error");
 		expect(deps.backends.markDeleting).toHaveBeenCalledWith("project-1");
 		expect(result.secretsDeleted).toBe(2);
-		expect(result.objectsDeleted).toBe(5);
+		expect(result.objectsDeleted).toBe(8);
 		expect(result.repository).toBe("deleted");
 		expect(result.auditWritten).toBe(true);
 		expect(deps.logger.error).toHaveBeenCalledWith(
@@ -450,7 +451,7 @@ describe("runDeleteAppProject", () => {
 					backend: "skipped",
 					deployment: "none",
 					desktopAppsDeleted: 1,
-					objectsDeleted: 5,
+					objectsDeleted: 8,
 					repository: "deleted",
 					sandbox: "error",
 					secretsDeleted: 2,
@@ -500,7 +501,7 @@ describe("runDeleteAppProject", () => {
 				backend: "skipped",
 				deployment: "none",
 				desktopAppsDeleted: 1,
-				objectsDeleted: 5,
+				objectsDeleted: 8,
 				repository: "deleted",
 				sandbox: "destroyed",
 				secretsDeleted: 2,
@@ -513,7 +514,7 @@ describe("runDeleteAppProject", () => {
 			targetType: "project",
 		});
 		expect(deps.capture).toHaveBeenCalledWith("user-1", "v2_project_deleted", {
-			objectsDeleted: 5,
+			objectsDeleted: 8,
 			organizationId: "org-1",
 			projectId: "project-1",
 			repository: "deleted",
@@ -549,7 +550,7 @@ describe("runDeleteAppProject", () => {
 		const result = await runDeleteAppProject(deps, INPUT);
 
 		expect(result.worker).toBe("error");
-		expect(result.objectsDeleted).toBe(5);
+		expect(result.objectsDeleted).toBe(8);
 		expect(result.repository).toBe("deleted");
 		expect(result.auditWritten).toBe(true);
 		expect(deps.logger.error).toHaveBeenCalledWith(
@@ -591,8 +592,8 @@ describe("runDeleteAppProject", () => {
 
 		const result = await runDeleteAppProject(deps, INPUT);
 
-		// The 4 other prefixes still drain: 3 keys each.
-		expect(result.objectsDeleted).toBe(12);
+		// The 5 other prefixes still drain: 3 keys each.
+		expect(result.objectsDeleted).toBe(15);
 		expect(deps.logger.error).toHaveBeenCalledWith(
 			"app-project.delete.objects-failed",
 			expect.objectContaining({ prefix: "git/project-1/" }),
