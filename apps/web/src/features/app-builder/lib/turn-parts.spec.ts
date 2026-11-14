@@ -14,6 +14,10 @@ import type {
 	TurnMessagePart,
 } from "../api/dto";
 import {
+	type ContextTone,
+	type ContextUsage,
+	contextToneOf,
+	contextUsageOf,
 	type LiveStatus,
 	latestTurnModeOf,
 	livePhaseOf,
@@ -1046,6 +1050,39 @@ describe("toBuilderMessages", () => {
 		).toEqual(["text", "data-error", "data-receipt"]);
 	});
 
+	// Retry reads this mode. Without it, a failed scan retries as a build turn with write tools.
+	it("gives a relay error with no mode the mode of the live created frame", () => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-turn-created",
+						id: "turn-created",
+						data: {
+							turnId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c01",
+							chatId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c02",
+							runId: null,
+							status: "running",
+							streamUrl: "/api/v2/projects/p1/turns/active/stream",
+							mode: "security_scan",
+						},
+					},
+					{
+						type: "data-turn-error",
+						id: "turn-error",
+						data: { code: "STREAM_LOST", message: "Lost", retryable: true },
+					},
+				],
+			},
+		] satisfies TurnMessage[];
+		const error = toBuilderMessages(messages, IDLE)[0].parts.find(
+			(part) => part.type === "data-error",
+		);
+		expect(error?.data.mode).toBe("security_scan");
+	});
+
 	it("drops a reply that holds only the created frame, as after a cancel", () => {
 		const messages = [
 			{ id: "u1", role: "user", parts: [{ type: "text", text: "hello" }] },
@@ -1070,6 +1107,170 @@ describe("toBuilderMessages", () => {
 		expect(
 			toBuilderMessages(messages, IDLE).map((message) => message.id),
 		).toEqual(["u1"]);
+	});
+
+	// The stored reply comes back from the database, so a bad output must
+	// drop. A compaction is no step: the answer before it stays the final text.
+	it.each<{
+		name: string;
+		part: DynamicToolUIPart;
+		/** Each output part as its type and its text or compaction data; null for a step. */
+		expected: [string, string | BuilderDataParts["compaction"] | null][];
+	}>([
+		{
+			name: "maps a valid output and drops the summary text",
+			part: doneCall(
+				"compaction",
+				{},
+				{
+					trigger: "auto",
+					summary: "The user builds a shop.",
+					tokensBefore: 301_000,
+					tokensAfter: 42_000,
+				},
+			),
+			expected: [
+				["data-step", null],
+				["text", "Done."],
+				[
+					"data-compaction",
+					{ trigger: "auto", tokensBefore: 301_000, tokensAfter: 42_000 },
+				],
+			],
+		},
+		{
+			name: "drops an output that does not parse",
+			part: doneCall("compaction", {}, { summary: "No trigger." }),
+			expected: [
+				["data-step", null],
+				["text", "Done."],
+			],
+		},
+	])("maps a compaction part: $name", ({ part, expected }) => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					doneCall("edit", { file_path: "src/a.css" }),
+					{ type: "text", text: "Done." },
+					part,
+				],
+			},
+		] satisfies TurnMessage[];
+		expect(
+			toBuilderMessages(messages, IDLE)[0].parts.map((mapped) => {
+				if (mapped.type === "text") return [mapped.type, mapped.text];
+				if (mapped.type === "data-compaction") {
+					return [mapped.type, mapped.data];
+				}
+				return [mapped.type, null];
+			}),
+		).toEqual(expected);
+	});
+});
+
+describe("contextUsageOf", () => {
+	/** A stored reply with the context count of its turn on a 300,000 point. */
+	function contextReply(id: string, tokens: number): TurnMessage {
+		return {
+			id,
+			role: "assistant",
+			parts: [
+				{
+					type: "data-turn-context",
+					id: `context-${id}`,
+					data: { tokens, compactAtTokens: 300_000 },
+				},
+			],
+		};
+	}
+	const userMessage: TurnMessage = {
+		id: "u1",
+		role: "user",
+		parts: [{ type: "text", text: "Add a cart" }],
+	};
+
+	it.each<{
+		name: string;
+		messages: TurnMessage[];
+		expected: ContextUsage | null;
+	}>([
+		{
+			name: "a count below the notice margin",
+			messages: [contextReply("a1", 249_999)],
+			expected: { tokens: 249_999, compactAtTokens: 300_000, percent: 83 },
+		},
+		{
+			name: "a count above the compaction point",
+			messages: [contextReply("a1", 320_000)],
+			expected: { tokens: 320_000, compactAtTokens: 300_000, percent: 100 },
+		},
+		{
+			name: "the smaller count of the turn after a compaction",
+			messages: [
+				contextReply("a1", 290_000),
+				userMessage,
+				contextReply("a2", 40_000),
+			],
+			expected: { tokens: 40_000, compactAtTokens: 300_000, percent: 13 },
+		},
+		{
+			name: "the reply before a failed reply with no count",
+			messages: [
+				contextReply("a1", 260_000),
+				userMessage,
+				{ id: "a2", role: "assistant", parts: [{ type: "text", text: "…" }] },
+			],
+			expected: { tokens: 260_000, compactAtTokens: 300_000, percent: 87 },
+		},
+		{
+			name: "a failed reply that compacted",
+			messages: [
+				contextReply("a1", 290_000),
+				userMessage,
+				{
+					id: "a2",
+					role: "assistant",
+					parts: [
+						doneCall("compaction", {}, { trigger: "auto", summary: "…" }),
+					],
+				},
+			],
+			expected: null,
+		},
+	])("reads $name", ({ messages, expected }) => {
+		expect(contextUsageOf(messages)).toEqual(expected);
+	});
+});
+
+describe("contextToneOf", () => {
+	// Zack's rule: on the 300,000 point the warning starts at 250,000.
+	it.each<{ name: string; tokens: number; percent: number; tone: ContextTone }>(
+		[
+			{
+				name: "one token below the margin",
+				tokens: 249_999,
+				percent: 83,
+				tone: "neutral",
+			},
+			{
+				name: "the start of the margin",
+				tokens: 250_000,
+				percent: 83,
+				tone: "warning",
+			},
+			{
+				name: "the compaction point",
+				tokens: 300_000,
+				percent: 100,
+				tone: "full",
+			},
+		],
+	)("is $tone at $name", ({ tokens, percent, tone }) => {
+		expect(contextToneOf({ tokens, compactAtTokens: 300_000, percent })).toBe(
+			tone,
+		);
 	});
 });
 

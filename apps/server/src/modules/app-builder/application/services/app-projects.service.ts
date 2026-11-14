@@ -1,6 +1,7 @@
 /**
- * Orchestration behind the V2 app-project routes: create, get, the cost of
- * one chat, and the project cost caps. Called by `app-projects.controller.ts`
+ * Orchestration behind the V2 app-project routes: create, get, the
+ * conversations of a project, the cost of one chat, and the project cost
+ * caps. Called by `app-projects.controller.ts`
  * and `cost-caps.controller.ts`. Create order: 1. the template version of the
  * platform. 2. the attachment and model checks. 3. the settled-balance gate. 4. one
  * transaction (project, chat, first message, builder session). 5. the
@@ -21,6 +22,8 @@ import {
 	type ChatCostResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
+	type CreateProjectChatResponse,
+	type ProjectChatListResponse,
 	type ProjectCostCaps,
 	type TurnErrorData,
 	turnErrorDataSchema,
@@ -109,7 +112,11 @@ export class AppProjectsService {
 		@Inject(ChatsRepository)
 		private readonly chats: Pick<
 			ChatsRepository,
-			"findAccessibleChatById" | "insertUiMessagesIfAbsent"
+			| "createProjectChat"
+			| "findAccessibleChatById"
+			| "findEmptyProjectChat"
+			| "insertUiMessagesIfAbsent"
+			| "listProjectChats"
 		>,
 		/** Sums the proxy rows of one chat for `chatCost`. */
 		@Inject(LlmProxyRequestsRepository)
@@ -326,6 +333,55 @@ export class AppProjectsService {
 	}
 
 	/**
+	 * `GET /v2/projects/:id/chats`: every conversation of the project, the
+	 * most recent activity first. All members of the project read the same
+	 * list. Same 404 rule as the turn routes.
+	 */
+	async listChats(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ProjectChatListResponse> {
+		await this.requireV2AppProject(scope, projectId);
+
+		const rows = await this.chats.listProjectChats(projectId);
+		return {
+			chats: rows.map((row) => ({
+				createdAt: row.createdAt.toISOString(),
+				id: row.id,
+				lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+				title: row.title,
+			})),
+		};
+	}
+
+	/**
+	 * `POST /v2/projects/:id/chats`: a new, empty conversation. It writes no
+	 * `builder_sessions` row: the first turn of the chat creates it. Same 404
+	 * rule as the turn routes.
+	 */
+	async createChat(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<CreateProjectChatResponse> {
+		await this.requireV2AppProject(scope, projectId);
+
+		// Product rule: a chat with no message is the "new conversation". A
+		// second click answers the same row, so the list gets no empty twin.
+		// LIMIT: no lock, so two creates at the same instant can insert two empty rows. Upgrade: a lock on the project row.
+		const chat =
+			(await this.chats.findEmptyProjectChat(projectId)) ??
+			(await this.chats.createProjectChat(projectId));
+		return {
+			chat: {
+				createdAt: chat.createdAt.toISOString(),
+				id: chat.id,
+				lastMessageAt: null,
+				title: null,
+			},
+		};
+	}
+
+	/**
 	 * `GET /v2/projects/:id/chats/:chatId/cost`: the full cost of one chat,
 	 * so a user can compare models. Same 404 rule as the turn routes.
 	 */
@@ -381,7 +437,7 @@ export class AppProjectsService {
 	}
 
 	/**
-	 * The cost-cap and chat-cost routes share the turn routes' rule: one 404 for
+	 * The cost-cap and chat routes share the turn routes' rule: one 404 for
 	 * "missing", "out of scope", and "not a V2 project".
 	 */
 	private async requireV2AppProject(

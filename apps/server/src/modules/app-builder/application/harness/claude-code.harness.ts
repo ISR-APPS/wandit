@@ -40,13 +40,16 @@ import {
 	presentPlanHostToolInputSchema,
 	presentPlanHostToolOutputSchema,
 	resolveAskUserKind,
+	turnContextDataSchema,
 } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
+	ProviderMetadata,
 	ToolApprovalResponse,
 	ToolResultPart,
 	UIMessageChunk,
 } from "ai";
+import { z } from "zod";
 
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
 import { isAnthropicModel } from "../../domain/llm-upstream";
@@ -120,6 +123,16 @@ const PLAN_MODE_BLOCKED_TOOLS = [
 ] as const;
 
 /**
+ * The built-in tools a `security_scan` session cannot use. It keeps `write`
+ * for the skill output folder in /tmp and `bash` for the skill validator.
+ * The prompt forbids a project file change, and the block list removes every
+ * other tool that edits or starts an agent.
+ */
+const SECURITY_SCAN_BLOCKED_TOOLS = PLAN_MODE_BLOCKED_TOOLS.filter(
+	(tool) => tool !== "write" && tool !== "bash",
+);
+
+/**
  * 30 s for a bridge start or an attach, against the adapter default of 120 s.
  * A dead bridge after an idle stop retried its socket for the whole window.
  */
@@ -136,6 +149,31 @@ const TOKEN_EPOCH_MS = 30 * 60_000;
 
 /** 20 min, the window of the `sandbox-idle-sweep` task: a kept session goes after it. */
 const KEPT_SESSION_IDLE_MS = 20 * 60_000;
+
+/**
+ * The window Claude Code compacts in, as the `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+ * value. Claude Code 2.1.281 compacts 33,000 tokens below it (a 20,000 summary
+ * reserve plus a 13,000 buffer), so at 300,000 tokens (Zack, 2026-11-04).
+ * Claude Code uses the smaller of this value and the model window.
+ */
+const AUTO_COMPACT_WINDOW_TOKENS = "333000";
+
+/**
+ * The builder models of `LLM_MODEL_PRICES` with a 1M-token window. Claude
+ * Code 2.1.281 assumes 200K for these gateway ids and compacts at 167,000.
+ * The `[1m]` suffix gives it the real window. It sends the id without the
+ * suffix, plus the `context-1m-2025-08-07` beta. A 200K model must stay out:
+ * Claude Code would then wait for 300,000 tokens that the API refuses.
+ * A new 1M row in `LLM_MODEL_PRICES` needs its id here too.
+ */
+const MILLION_TOKEN_WINDOW_MODELS: ReadonlySet<string> = new Set([
+	"anthropic/claude-sonnet-5",
+	"anthropic/claude-opus-5.5",
+	"anthropic/claude-opus-5.5-fast",
+	"anthropic/claude-opus-5",
+	"anthropic/claude-opus-5-fast",
+	"anthropic/claude-fable-5.1",
+]);
 
 /**
  * The HTTP status in a Claude Code error text. Claude Code writes
@@ -158,6 +196,11 @@ export type ClaudeCodeStreamResult = {
 		onError?: (error: unknown) => string;
 	}): AsyncIterable<UIMessageChunk>;
 	totalUsage: PromiseLike<LanguageModelUsage>;
+	/**
+	 * The `harnessMetadata` of the bridge `finish` event. The bridge fork puts
+	 * the context count under `"claude-code".context`. Undefined on a paused turn.
+	 */
+	providerMetadata: PromiseLike<ProviderMetadata | undefined>;
 };
 
 /**
@@ -205,6 +248,16 @@ export type ClaudeCodeHarnessDeps = {
 	/** Clock of the token epoch and the idle window; defaults to `Date.now`. */
 	now?: () => number;
 };
+
+/**
+ * The one field of the stored adapter `data` that this file reads.
+ * It is the id of the Claude conversation of the chat.
+ * `@ai-sdk/harness-claude-code` writes it at each detach and suspend
+ * (1.0.137 resume schema). An old state has none.
+ */
+const storedConversationSchema = z.object({
+	data: z.object({ claudeSessionId: z.string() }),
+});
 
 /** The options of `resumeSession`, see `BuilderHarness`. */
 type ResumeOptions = { dropPausedTurn: boolean; bridgeDead: boolean };
@@ -270,7 +323,8 @@ type KeptSession = {
  * The pattern `[b]ridge` does not match the script's own shell, so the
  * script does not kill itself. The glob sorts pids as text ("1865" before
  * "733"), so a self-match can stop the script before it reaches the bridge.
- * Called by `createSession` and by `resumeStored` after a sandbox wake.
+ * Called by `createSession`, and by `resumeStored` after a sandbox wake or
+ * a turn of another chat.
  */
 const KILL_STALE_BRIDGE_SCRIPT =
 	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q '[b]ridge\\.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
@@ -428,12 +482,24 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const parsed = harnessResumeStateSchema.parse(
 			JSON.parse(resumeState.payload),
 		);
+		// A new bridge resumes the conversation by its id. Without the id, the
+		// adapter sends "continue", which opens the newest conversation of the
+		// work directory. With two chats, that can be the other chat.
+		if (
+			options.bridgeDead &&
+			!storedConversationSchema.safeParse(parsed).success
+		) {
+			throw new Error(
+				`The stored session of chat ${input.chatId} names no Claude conversation, so a new bridge cannot resume it`,
+			);
+		}
 
 		const epoch = this.tokenEpoch();
 		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
 		// A wake can reuse a live vendor sandbox after a failed stop, and its
-		// old bridge holds the port. After a real boot, the kill does nothing.
+		// old bridge holds the port. So does the bridge of another chat that
+		// ran the last turn. After a real boot, the kill does nothing.
 		if (options.bridgeDead) {
 			await input.sandbox.exec("sh", ["-c", KILL_STALE_BRIDGE_SCRIPT]);
 		}
@@ -945,9 +1011,20 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			}
 		}
 		const usage = await result.totalUsage;
+		// The bridge fork writes this value inside the sandbox, so it is parsed
+		// here. A paused turn, or a CLI that did not answer, has no value.
+		const rawContext = (await result.providerMetadata)?.["claude-code"]
+			?.context;
+		const context = turnContextDataSchema.safeParse(rawContext);
+		if (!context.success && rawContext !== undefined) {
+			this.logger.warn(
+				`Claude Code context count has a bad shape: ${context.error.message}`,
+			);
+		}
 		yield {
 			cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
 			cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
+			...(context.success ? { context: context.data } : {}),
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			type: "usage",
@@ -994,6 +1071,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// LIMIT: one Bash call runs at most 3.5 min.
 					// Upgrade: reset the stall timer on CLI tool_progress heartbeats, then raise this cap.
 					BASH_MAX_TIMEOUT_MS: "210000",
+					// A `[1m]` model without this window compacts only after the API
+					// refuses a too-long prompt, near 1M tokens (Claude Code 2.1.281).
+					CLAUDE_CODE_AUTO_COMPACT_WINDOW: AUTO_COMPACT_WINDOW_TOKENS,
 					// The bridge fork keeps one Claude Code process between turns.
 					// A background task or a cron prompt can end after the turn.
 					// Then it starts a turn that no host reads. The next turn ends
@@ -1002,6 +1082,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
 					CLAUDE_CODE_DISABLE_CRON: "1",
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+					// Deny-by-default egress: the agent-browser version check fetches
+					// a Google blog host and fails. The Bash calls of the agent inherit this env.
+					AGENT_BROWSER_NO_VERSION_CHECK: "1",
 					// Claude Code 2.1.281 adds a `<total_tokens>` system message after
 					// each user prompt. Through the LLM proxy and the gateway, each new
 					// one changed the prompt prefix ahead of the chat history, so every
@@ -1036,24 +1119,22 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				startupTimeoutMs: BRIDGE_STARTUP_TIMEOUT_MS,
 			}),
 			instructions: input.instructions,
-			model: input.model,
+			model: MILLION_TOKEN_WINDOW_MODELS.has(input.model)
+				? `${input.model}[1m]`
+				: input.model,
 			// The model asks through the `ask_user` host tool only. It carries
 			// the kinds and the world cards; the built-in question tool has none.
 			// A build session has no subagents. The bridge drops subagent output,
 			// so the stall watchdog sees a long subagent as a dead harness.
-			inactiveTools:
-				input.mode === "plan"
-					? [
-							ASK_USER_QUESTIONS_TOOL_NAME,
-							...PLAN_MODE_BLOCKED_TOOLS,
-							...otherProviderBlockedTools,
-						]
-					: [
-							ASK_USER_QUESTIONS_TOOL_NAME,
-							"Agent",
-							"Workflow",
-							...otherProviderBlockedTools,
-						],
+			inactiveTools: [
+				ASK_USER_QUESTIONS_TOOL_NAME,
+				...(input.mode === "plan"
+					? PLAN_MODE_BLOCKED_TOOLS
+					: input.mode === "security_scan"
+						? SECURITY_SCAN_BLOCKED_TOOLS
+						: ["Agent", "Workflow"]),
+				...otherProviderBlockedTools,
+			],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the

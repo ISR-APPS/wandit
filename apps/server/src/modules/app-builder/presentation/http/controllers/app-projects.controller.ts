@@ -1,5 +1,6 @@
 /**
- * HTTP routes for V2 app projects: create, get, and the cost of one chat.
+ * HTTP routes for V2 app projects: create, get, the conversations of a
+ * project, and the cost of one chat.
  * `V2BuilderEnabledGuard` gates the whole controller, and
  * `RedisRateLimitGuard` reads the `@RateLimit` on create. Create reads the
  * workspace header; the `:projectId` routes use the global ProjectAccessGuard. Platform,
@@ -22,7 +23,9 @@ import {
 	type ChatCostResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
+	type CreateProjectChatResponse,
 	createAppProjectRequestSchema,
+	type ProjectChatListResponse,
 	uuidSchema,
 } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
@@ -65,7 +68,7 @@ export class AppProjectsController {
 		@Inject(AppProjectsService)
 		private readonly appProjects: Pick<
 			AppProjectsService,
-			"chatCost" | "create" | "get"
+			"chatCost" | "create" | "createChat" | "get" | "listChats"
 		>,
 	) {}
 
@@ -99,6 +102,37 @@ export class AppProjectsController {
 		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<AppProject> {
 		return this.appProjects.get(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
+	}
+
+	// Every member of the project reads all its conversations.
+	@RequireProjectRole("viewer")
+	@Get(":projectId/chats")
+	listChats(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+	): Promise<ProjectChatListResponse> {
+		return this.appProjects.listChats(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
+	}
+
+	// A new conversation is a write, like a turn create: it needs the editor role.
+	// The route takes no body.
+	@RequireProjectRole("editor")
+	@Post(":projectId/chats")
+	createChat(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+	): Promise<CreateProjectChatResponse> {
+		return this.appProjects.createChat(
 			projectScopeFromAccess(access, user.id),
 			projectId,
 		);

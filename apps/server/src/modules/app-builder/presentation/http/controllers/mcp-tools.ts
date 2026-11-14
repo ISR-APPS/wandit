@@ -189,7 +189,7 @@ export class McpTools {
 		@Inject(ChatsRepository)
 		private readonly chats: Pick<
 			ChatsRepository,
-			"findAccessibleChatByProjectId"
+			"findAccessibleChatByProjectId" | "listProjectChats"
 		>,
 		@Inject(AppProjectsService)
 		private readonly appProjects: Pick<AppProjectsService, "get">,
@@ -203,7 +203,10 @@ export class McpTools {
 			"create" | "cancel" | "assertStreamAccess"
 		>,
 		@Inject(BuilderTurnsRepository)
-		private readonly turnRows: Pick<BuilderTurnsRepository, "findCardParts">,
+		private readonly turnRows: Pick<
+			BuilderTurnsRepository,
+			"findBusyChatId" | "findCardParts"
+		>,
 		@Inject(SandboxWakeService)
 		private readonly sandboxWake: Pick<SandboxWakeService, "wake">,
 		@Inject(McpChangesService)
@@ -693,6 +696,7 @@ export class McpTools {
 			denyApprovalId?: string;
 		},
 	) {
+		// The scoped read proves access; its row is only the last fallback.
 		const chat = await this.chats.findAccessibleChatByProjectId(
 			scope,
 			input.projectId,
@@ -700,11 +704,18 @@ export class McpTools {
 		if (chat === null) {
 			throw projectNotFound();
 		}
+		// Product rule: one conversation at a time uses the project. A denial or a
+		// prompt goes to the conversation that holds it, else to the one the user
+		// used last. `turns.create` checks the scope of that chat again.
+		const chatId =
+			(await this.turnRows.findBusyChatId(input.projectId)) ??
+			(await this.chats.listProjectChats(input.projectId)).at(0)?.id ??
+			chat.id;
 		const created = await this.turns.create(
 			scope,
 			input.projectId,
 			{
-				chatId: chat.id,
+				chatId,
 				message: input.message,
 				// Security: an agent may only deny. The user approves in the web app.
 				...(input.denyApprovalId === undefined

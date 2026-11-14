@@ -179,8 +179,11 @@ export function useRequestTray({
 	 * question it replaces the chips when none is picked, else it is a note.
 	 */
 	draft: string;
-	/** Sends the round: the user bubble summary and one answer per question. */
-	onSubmit: (input: { message: string; answers: TurnQuestionAnswer[] }) => void;
+	/** Sends the round: the user bubble summary and one answer per question. Resolves false when the API admitted no turn. */
+	onSubmit: (input: {
+		message: string;
+		answers: TurnQuestionAnswer[];
+	}) => Promise<boolean>;
 	/** Test seam; production uploads through the projects feature. */
 	upload?: (file: File) => Promise<UploadAttachmentResponse>;
 }): RequestTray {
@@ -279,9 +282,10 @@ export function useRequestTray({
 	/**
 	 * Stores one step answer and shows the next step, or sends the round. The
 	 * last step is not stored: the send closes the questions, and a rejected
-	 * send shows the same step again with its picks.
+	 * send shows the same step again with its picks. Resolves false when the
+	 * API refuses the round, so the composer puts the text back.
 	 */
-	const advance = (stepAnswer: StepAnswer) => {
+	const advance = (stepAnswer: StepAnswer): Promise<boolean> => {
 		const answered = [...round.answered, stepAnswer];
 		if (!isLastStep) {
 			update((current) => ({
@@ -289,7 +293,8 @@ export function useRequestTray({
 				answered,
 				stepIndex: current.stepIndex + 1,
 			}));
-			return;
+			// The round holds the answer now, so the composer can drop the text.
+			return Promise.resolve(true);
 		}
 		// One question: the bubble shows the answer. Several: one line each.
 		const message =
@@ -301,10 +306,13 @@ export function useRequestTray({
 								`${questions[index]?.question ?? ""}\n${entry.summary}`,
 						)
 						.join("\n\n");
-		onSubmit({
-			// The turn route refuses a longer message. The agent reads `answers`,
-			// so a cut bubble loses nothing.
-			message: message.slice(0, projectPromptMaxLength),
+		return onSubmit({
+			// The bubble keeps the short V1 limit. The agent reads `answers`,
+			// so a cut bubble loses nothing. The cut can split a UTF-16 pair;
+			// Postgres jsonb refuses half a pair, so each one becomes U+FFFD.
+			message: message
+				.slice(0, projectPromptMaxLength)
+				.replace(/\p{Cs}/gu, "\uFFFD"),
 			answers: answered.map((entry) => entry.answer),
 		});
 	};
@@ -476,13 +484,17 @@ export function useRequestTray({
 					disabled: answerNow === null,
 					onSubmit: (text) => {
 						const stepAnswer = currentAnswer(text);
-						if (stepAnswer !== null) advance(stepAnswer);
+						// No answer took the text, so the composer puts it back.
+						return stepAnswer === null
+							? Promise.resolve(false)
+							: advance(stepAnswer);
 					},
 				}
 			: null,
 		delegate: () => {
 			if (question === null) return;
-			advance({
+			// A refused delegate has no text to give back; the tray stays on the step.
+			void advance({
 				answer: {
 					toolCallId: question.toolCallId,
 					questionId: question.questionId,

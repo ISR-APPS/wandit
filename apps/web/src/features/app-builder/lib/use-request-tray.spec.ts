@@ -118,7 +118,7 @@ describe("useRequestTray", () => {
 			label: "Choose this option",
 			disabled: false,
 		});
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		expect(onSubmit).toHaveBeenCalledWith({
 			message: "Bold",
 			answers: [
@@ -138,7 +138,7 @@ describe("useRequestTray", () => {
 		const questions = [question({})];
 		const { result, rerender, onSubmit } = renderTray(questions);
 		act(() => result.current.bodyCallbacks.onPick("warm"));
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		// The running answer turn closes the questions.
 		rerender({ draft: "", questions: [] });
 		expect(result.current.state).toBeNull();
@@ -148,7 +148,7 @@ describe("useRequestTray", () => {
 			label: "Choose this option",
 			disabled: false,
 		});
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		expect(onSubmit).toHaveBeenCalledTimes(2);
 		expect(onSubmit.mock.calls[1]?.[0].answers[0].optionIds).toEqual(["warm"]);
 	});
@@ -167,9 +167,9 @@ describe("useRequestTray", () => {
 		];
 		const { result, rerender, onSubmit } = renderTray(questions);
 		act(() => result.current.bodyCallbacks.onPick("warm"));
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		rerender({ draft: longAnswer, questions });
-		act(() => result.current.submit?.onSubmit(longAnswer));
+		act(() => void result.current.submit?.onSubmit(longAnswer));
 		const sent = onSubmit.mock.calls[0]?.[0];
 		expect(sent.message.length).toBe(projectPromptMaxLength);
 		expect(sent.answers[1].text).toBe(longAnswer);
@@ -200,7 +200,7 @@ describe("useRequestTray", () => {
 		});
 		expect(result.current.state?.typedTextEffect).toBe("replacesOptions");
 		expect(result.current.submit?.label).toBe("Answer");
-		act(() => result.current.submit?.onSubmit("Something green"));
+		act(() => void result.current.submit?.onSubmit("Something green"));
 		expect(onSubmit.mock.calls[0]?.[0].answers[0]).toMatchObject({
 			optionIds: [],
 			text: "Something green",
@@ -215,7 +215,7 @@ describe("useRequestTray", () => {
 		act(() => result.current.bodyCallbacks.onPick("bold"));
 		expect(result.current.state?.typedTextEffect).toBe("addsNote");
 		expect(result.current.submit?.label).toBe("Choose this option");
-		act(() => result.current.submit?.onSubmit("In green"));
+		act(() => void result.current.submit?.onSubmit("In green"));
 		expect(onSubmit).toHaveBeenCalledWith({
 			message: "Bold\nIn green",
 			answers: [
@@ -240,7 +240,7 @@ describe("useRequestTray", () => {
 		act(() => result.current.bodyCallbacks.onToggle("bold"));
 		act(() => result.current.bodyCallbacks.onToggle("warm"));
 		expect(result.current.submit?.label).toBe("Next");
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		expect(result.current.state?.question).toBe("Your brand color?");
 		expect(result.current.submit?.disabled).toBe(true);
 		rerender({ draft: "Green", questions });
@@ -248,7 +248,7 @@ describe("useRequestTray", () => {
 			label: "Answer",
 			disabled: false,
 		});
-		act(() => result.current.submit?.onSubmit("Green"));
+		act(() => void result.current.submit?.onSubmit("Green"));
 		expect(onSubmit).toHaveBeenCalledWith({
 			message: "Which pages?\nBold\n\nYour brand color?\nGreen",
 			answers: [
@@ -278,7 +278,7 @@ describe("useRequestTray", () => {
 		await waitFor(() =>
 			expect(result.current.submit?.label).toBe("Send 1 image"),
 		);
-		act(() => result.current.submit?.onSubmit(""));
+		act(() => void result.current.submit?.onSubmit(""));
 		expect(onSubmit).toHaveBeenCalledWith({
 			message: "1 image sent",
 			answers: [

@@ -275,6 +275,8 @@ export default function DashboardPage() {
 											: undefined
 									}
 									modelChoice={v2Enabled ? modelPick : undefined}
+									// The V2 create route takes long prompts; the V1 route keeps 2,000 chars.
+									acceptsLongText={v2Enabled}
 									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={restoredPrompt}

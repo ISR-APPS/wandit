@@ -1,15 +1,19 @@
 /**
  * One message of the builder thread. A user message is a cream bubble at
- * the end side. Its files sit above it, and the chips of its preview picks
- * sit above the files. An assistant message starts with the Wandit byline.
- * In the production view, one summary line opens the details panel, and
- * only the parts the user reads or acts on follow: the final answer, a
+ * the end side; a long one folds, with a Show more button. Its files sit
+ * above it, and the chips of its preview picks sit above the files. An
+ * assistant message starts with the Wandit byline.
+ * In the production view, one summary line opens the details panel. A strip
+ * of thumbnails follows it: the image files the agent read, for example its
+ * screenshots, and the images it made. A click on a thumbnail also opens the
+ * details panel. Then only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the plan card,
- * the error with Retry, the stopped line, and the receipt. The receipt
- * shows the cache counts only outside production. The developer view (local
- * dev only) renders every part in stream order, with the thinking text. A
- * footer ends a reply: the Copy action when it has a final answer, then the
- * receipt. Rendered by chat-pane.tsx; working-row.tsx reuses the byline.
+ * the security report card, the compaction line, the error with Retry, the
+ * stopped line, and the receipt. The receipt shows the cache counts only
+ * outside production. The developer view (local dev only) renders every
+ * part in stream order, with the thinking text. A footer ends a reply: the
+ * Copy action when it has a final answer, then the receipt. Rendered by
+ * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
@@ -26,6 +30,7 @@ import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
+import { useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
@@ -42,6 +47,7 @@ import { MessageActions } from "./message-actions";
 import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
 import { PlanCard } from "./plan-card";
 import { QuestionReceipt } from "./question-receipt";
+import { SecurityReportCard } from "./security-report-card";
 import { StepRow } from "./step-row";
 import { TargetChip } from "./target-chip";
 import { ThoughtRow } from "./thought-row";
@@ -55,17 +61,54 @@ const showsCacheTokens =
 	env.VITE_SENTRY_ENVIRONMENT === "development" ||
 	(env.VITE_SENTRY_ENVIRONMENT === undefined && import.meta.env.DEV);
 
+// About 24 lines in the bubble. A shorter message shows in full, as before.
+const USER_TEXT_FOLD_MIN_LENGTH = 1_200;
+
+// Full cream, not a tint: a lighter cream fades into the sand desk.
+const USER_BUBBLE_CLASS =
+	"max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground";
+
+/** The text bubble of a user message. A text over `USER_TEXT_FOLD_MIN_LENGTH` chars folds to 12 lines. */
+function UserTextBubble({ text }: { text: string }) {
+	const { t } = useTranslation();
+	const [isExpanded, setIsExpanded] = useState(false);
+	if (text.length <= USER_TEXT_FOLD_MIN_LENGTH) {
+		return (
+			<div dir="auto" className={USER_BUBBLE_CLASS}>
+				{text}
+			</div>
+		);
+	}
+	return (
+		<div dir="auto" className={USER_BUBBLE_CLASS}>
+			<div className={cn(!isExpanded && "line-clamp-12")}>{text}</div>
+			<button
+				type="button"
+				aria-expanded={isExpanded}
+				onClick={() => setIsExpanded((current) => !current)}
+				className="mt-1 rounded-sm font-grotesk font-semibold text-[13px] text-night/60 underline-offset-2 outline-none transition-colors hover:text-night hover:underline focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/60 dark:hover:text-foreground"
+			>
+				{t(
+					isExpanded ? "appBuilder.chat.showLess" : "appBuilder.chat.showMore",
+				)}
+			</button>
+		</div>
+	);
+}
+
 /** Props of one message, as chat-pane.tsx passes them. */
 export type ChatMessageViewProps = {
 	message: BuilderMessage;
 	/** True renders every part inline, with the thinking text. Only the local dev switch sets it. */
 	isDeveloperView: boolean;
-	/** Opens the details panel of this message. The production summary line calls it with `message.id`. */
+	/** Opens the details panel of this message. The production summary line and the image strip call it with `message.id`. */
 	onOpenActivity: (messageId: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
 	/** Sends the build turn of an open plan card. Null while a send is in flight: the button is disabled. */
 	onBuildPlan: (() => void) | null;
+	/** Opens the Security panel from the card of a `security_scan` turn. */
+	onOpenSecurityReport: () => void;
 	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
 	trayQuestionKey: string | null;
 	/** Sends the user message of this failed reply again. Set only on the last reply when it holds an error. */
@@ -81,6 +124,7 @@ export function ChatMessageView({
 	onOpenActivity,
 	onDecideApproval,
 	onBuildPlan,
+	onOpenSecurityReport,
 	trayQuestionKey,
 	onRetry,
 	onOpenSecrets,
@@ -113,15 +157,7 @@ export function ChatMessageView({
 					</div>
 				) : null}
 				{/* A message with files only has no text bubble. */}
-				{text !== "" ? (
-					// Full cream, not a tint: a lighter cream fades into the sand desk.
-					<div
-						dir="auto"
-						className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground"
-					>
-						{text}
-					</div>
-				) : null}
+				{text !== "" ? <UserTextBubble text={text} /> : null}
 			</div>
 		);
 	}
@@ -135,6 +171,7 @@ export function ChatMessageView({
 			part={part}
 			onDecideApproval={onDecideApproval}
 			onBuildPlan={onBuildPlan}
+			onOpenSecurityReport={onOpenSecurityReport}
 			trayQuestionKey={trayQuestionKey}
 			onRetry={onRetry}
 		/>
@@ -174,6 +211,7 @@ export function ChatMessageView({
 			) : (
 				<>
 					<SummaryLine message={message} onOpenActivity={onOpenActivity} />
+					<ImageStrip message={message} onOpenActivity={onOpenActivity} />
 					{/* The steps, the notes, and the summary show in the details panel only. */}
 					{message.parts.map((part, index) => {
 						const key = `${message.id}-${index}`;
@@ -247,6 +285,47 @@ function SummaryLine({
 }
 
 /**
+ * The production thumbnails of the step images, in stream order. turn-parts.ts
+ * lets only https: and raster data: URLs into `imageUrl`. A click opens the
+ * details panel, which shows the full image. Null when no step has an image.
+ */
+function ImageStrip({
+	message,
+	onOpenActivity,
+}: Pick<ChatMessageViewProps, "message" | "onOpenActivity">) {
+	const { t } = useTranslation();
+	const images = message.parts.flatMap((part, index) =>
+		part.type === "data-step" && part.data.imageUrl !== null
+			? [{ url: part.data.imageUrl, index }]
+			: [],
+	);
+	if (images.length === 0) return null;
+	return (
+		<div className="flex flex-wrap gap-2">
+			{images.map(({ url, index }, position) => (
+				<button
+					key={`${message.id}-${index}`}
+					type="button"
+					aria-label={t("appBuilder.chat.showImage", { number: position + 1 })}
+					onClick={() => onOpenActivity(message.id)}
+					// 128 x 80 px (width x height): a 16:10 box, the ratio of a 1280 x 800 desktop screenshot. Other ratios crop.
+					className="h-20 w-32 shrink-0 overflow-hidden rounded-[12px] border border-night/[0.08] bg-night/[0.03] outline-none transition-colors duration-150 hover:border-night/25 focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:border-white/25"
+				>
+					{/* The button label names the image, so the image itself is decorative. */}
+					<img
+						src={url}
+						alt=""
+						loading="lazy"
+						decoding="async"
+						className="size-full object-cover object-top"
+					/>
+				</button>
+			))}
+		</div>
+	);
+}
+
+/**
  * One part of an assistant message outside the feed rows. Both views use
  * it; the production view never passes a note or a summary. The receipt
  * shows in the reply footer (ReceiptLine), so it renders nothing here. A
@@ -256,15 +335,20 @@ function MessagePartView({
 	part,
 	onDecideApproval,
 	onBuildPlan,
+	onOpenSecurityReport,
 	trayQuestionKey,
 	onRetry,
 }: Pick<
 	ChatMessageViewProps,
-	"onDecideApproval" | "onBuildPlan" | "trayQuestionKey" | "onRetry"
+	| "onDecideApproval"
+	| "onBuildPlan"
+	| "onOpenSecurityReport"
+	| "trayQuestionKey"
+	| "onRetry"
 > & {
 	part: BuilderMessagePart;
 }) {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	switch (part.type) {
 		case "text":
 		case "data-note":
@@ -310,6 +394,13 @@ function MessagePartView({
 					plan={part.data}
 					isOpen={part.data.isOpen}
 					onBuild={onBuildPlan}
+				/>
+			);
+		case "data-security-report":
+			return (
+				<SecurityReportCard
+					report={part.data}
+					onOpenReport={onOpenSecurityReport}
 				/>
 			);
 		case "data-error":
@@ -365,6 +456,36 @@ function MessagePartView({
 					{t("appBuilder.chat.stopped")}
 				</p>
 			);
+		case "data-compaction": {
+			const { tokensBefore, tokensAfter } = part.data;
+			return (
+				<div className="flex items-center gap-3 font-grotesk text-[12px] text-night/50 dark:text-foreground/50">
+					<span
+						aria-hidden
+						className="h-px flex-1 bg-night/[0.08] dark:bg-white/[0.08]"
+					/>
+					<p className="flex flex-col items-center text-center tabular-nums">
+						<span className="font-medium text-night/65 dark:text-foreground/65">
+							{t("appBuilder.chat.compaction.title")}
+						</span>
+						<span>
+							{t("appBuilder.chat.compaction.detail")}
+							{/* Claude Code can omit the counts; the line then shows no numbers. */}
+							{tokensBefore !== undefined && tokensAfter !== undefined
+								? ` · ${t("appBuilder.chat.compaction.tokens", {
+										before: formatNumber(tokensBefore, locale),
+										after: formatNumber(tokensAfter, locale),
+									})}`
+								: null}
+						</span>
+					</p>
+					<span
+						aria-hidden
+						className="h-px flex-1 bg-night/[0.08] dark:bg-white/[0.08]"
+					/>
+				</div>
+			);
+		}
 		default:
 			return null;
 	}

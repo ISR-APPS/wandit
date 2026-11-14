@@ -97,6 +97,8 @@ export * from "./push-tokens";
 // Mobile push-notification device tokens.
 // V2 provider sandbox lifecycle.
 export * from "./sandbox-sessions";
+// V2 security scan reports, one per `security_scan` turn.
+export * from "./security-scans";
 // Story-link campaign and click analytics tables.
 export * from "./story-links";
 // Authenticated-user daily activity analytics.

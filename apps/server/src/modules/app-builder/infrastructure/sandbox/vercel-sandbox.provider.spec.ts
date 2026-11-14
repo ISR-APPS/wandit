@@ -41,6 +41,7 @@ type FakeRunParams = {
 	detached?: boolean;
 	env?: Record<string, string>;
 	signal?: AbortSignal;
+	sudo?: boolean;
 	timeoutMs?: number;
 };
 
@@ -226,6 +227,8 @@ class FakeVercelSdk implements VercelSandboxSdk {
 	listFailWith: Error | null = null;
 	/** When set, a create from a snapshot `source` answers this HTTP status. 404 is a deleted snapshot. */
 	rejectSnapshotSourceWith: number | null = null;
+	/** Command name → the answer of its first run in each new sandbox: a failed-step path. */
+	readonly firstResults = new Map<string, FakeFinished>();
 
 	listSnapshots(
 		params: VercelListSnapshotsParams,
@@ -281,6 +284,9 @@ class FakeVercelSdk implements VercelSandboxSdk {
 			params.ports ?? [],
 			params.networkPolicy,
 		);
+		for (const [cmd, result] of this.firstResults) {
+			created.respondTo(cmd, result);
+		}
 		if (name) {
 			this.instances.set(name, created);
 			this.gone.delete(name);
@@ -296,7 +302,7 @@ class FakeTemplateInit implements TemplateInit {
 	failWith: Error | null = null;
 	/** What `contentHash` answers; a spec changes it to change the template files. */
 	hash = "content-hash-1";
-	/** When set, `contentHash` rejects with it: an archive that is not shipped. */
+	/** When set, `contentHash` rejects with it: no archive is packed, as in a local run. */
 	hashFailWith: Error | null = null;
 
 	contentHash(): Promise<string> {
@@ -325,9 +331,10 @@ class FakeTemplateInit implements TemplateInit {
 class FakeRepoRestorer implements RepoRestorer {
 	readonly restored: string[] = [];
 
-	restore(projectId: string, _sandbox: SandboxHandle): Promise<void> {
+	async restore(projectId: string, sandbox: SandboxHandle): Promise<void> {
 		this.restored.push(projectId);
-		return Promise.resolve();
+		// A marker: a spec can check which commands run after the restore.
+		await sandbox.exec("restore-marker", []);
 	}
 }
 
@@ -576,6 +583,42 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		);
 	});
 
+	it("installs the restored lockfile before the dev server starts, and a failed install still starts", async () => {
+		const { logger, provider, sdk, sessions } = setup();
+		sdk.firstResults.set("pnpm", {
+			exitCode: 1,
+			stderr: () => Promise.resolve(""),
+			stdout: () => Promise.resolve("ERR_PNPM_FETCH_404"),
+		});
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		const commands = sdk.instances.get("p1")?.commands ?? [];
+		const restore = commands.findIndex(
+			(command) => command.cmd === "restore-marker",
+		);
+		const install = commands.findIndex((command) => command.cmd === "pnpm");
+		const devLoop = commands.findIndex((command) =>
+			command.args?.[1]?.includes("pnpm dev"),
+		);
+		expect(commands[install]?.args).toEqual([
+			"install",
+			"--frozen-lockfile",
+			"--prefer-offline",
+		]);
+		expect(restore).toBeGreaterThan(-1);
+		expect(restore).toBeLessThan(install);
+		expect(install).toBeLessThan(devLoop);
+		expect(logger.warn).toHaveBeenCalledWith(
+			"sandbox.repo-restore.install-failed",
+			expect.objectContaining({
+				error: "exit 1: ERR_PNPM_FETCH_404",
+				projectId: "p1",
+			}),
+		);
+		expect((await sessions.findLiveByProjectId("p1"))?.status).toBe("running");
+	});
+
 	it("deletes a fresh sandbox when its setup fails", async () => {
 		const { provider, sdk, sessions, templateInit } = setup();
 		templateInit.failWith = new Error("upload failed");
@@ -723,7 +766,7 @@ describe("VercelSandboxProvider template snapshot boot", () => {
 		expect(templateInit.applied).toEqual([]);
 	});
 
-	it("resumes an older project with no shipped archive and logs no warning", async () => {
+	it("resumes a stopped sandbox and logs no warning when no archive is packed", async () => {
 		const { logger, provider, templateInit } = setup();
 		await provider.getOrCreate("p1", OPTIONS);
 		await provider.stop("p1");
@@ -794,9 +837,17 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(sdk.getOrCreateCalls).toEqual([]);
 	});
 
-	it("builds the template and the harness in a sandbox with no secret, then snapshots it", async () => {
+	it("installs agent-browser, then builds the template and the harness under the npm registry only, then snapshots it", async () => {
 		const { provider, sdk, templateInit } = setup();
 		const { harness, prepared } = harnessFake();
+		const apply = templateInit.apply.bind(templateInit);
+		let policyAtApply: NetworkPolicy | undefined;
+		templateInit.apply = (sandbox, options) => {
+			policyAtApply = sdk.instances.get(
+				sandbox.providerSandboxId,
+			)?.sessionPolicy;
+			return apply(sandbox, options);
+		};
 
 		const outcome = await provider.ensureTemplateSnapshot(TEMPLATE, harness);
 
@@ -810,6 +861,23 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(params?.image).toBe("registry.test/wandit/sandbox:1");
 		expect(params?.env).toBeUndefined();
 		expect(params?.networkPolicy).toEqual({
+			allow: [
+				"registry.npmjs.org",
+				"archive.ubuntu.com",
+				"security.ubuntu.com",
+				"googlechromelabs.github.io",
+				"storage.googleapis.com",
+			],
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+		// Only the apt rewrite runs as root: a root install puts Chrome under /root.
+		expect(
+			sdk.instances
+				.get(name ?? "")
+				?.commands.map(({ cmd, sudo }) => `${cmd}${sudo ? " (sudo)" : ""}`),
+		).toEqual(["sed (sudo)", "npm", "agent-browser", "git"]);
+		// Security: template install code never reaches the Chrome and apt hosts.
+		expect(policyAtApply).toEqual({
 			allow: ["registry.npmjs.org"],
 			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
 		});
@@ -853,6 +921,24 @@ describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
 		expect(outcome).toBe("built");
 		expect(crashed?.deleted).toBe(true);
 		expect(sdk.instances.get(name)).not.toBe(crashed);
+	});
+
+	it("deletes the builder and takes no snapshot when the agent-browser install fails", async () => {
+		const { provider, sdk, templateInit } = setup();
+		sdk.firstResults.set("agent-browser", {
+			exitCode: 1,
+			stderr: () => Promise.resolve("E: Unable to fetch some archives"),
+			stdout: () => Promise.resolve(""),
+		});
+
+		await expect(
+			provider.ensureTemplateSnapshot(TEMPLATE, harnessFake().harness),
+		).rejects.toThrow("Unable to fetch some archives");
+
+		const sandbox = sdk.instances.get(sdk.listedNames[0] ?? "");
+		expect(sandbox?.deleted).toBe(true);
+		expect(sandbox?.snapshotExpiration).toBeNull();
+		expect(templateInit.applied).toEqual([]);
 	});
 
 	it("deletes the sandbox and takes no snapshot when a build step fails", async () => {
@@ -913,7 +999,8 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 
 	// A start that dies after the vendor call, or fails and stops the
 	// sandbox, leaves a row that is not running. The next start must finish
-	// that boot. The last column counts the restores of that start. A
+	// that boot. The last column counts the restores of that start, and
+	// each restore has one package install. A
 	// `creating` row can lack the repository on disk; a dead resume kept it.
 	it.each<
 		[string, (fixture: ReturnType<typeof setup>) => Promise<void>, number]
@@ -975,6 +1062,13 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 		await fixture.provider.getOrCreate("p1", OPTIONS);
 
 		expect(fixture.restorer.restored.length - restoredBefore).toBe(restores);
+		const commands =
+			sandbox?.commands.slice(before).map(({ cmd }) => cmd) ?? [];
+		expect(commands.filter((cmd) => cmd === "pnpm")).toHaveLength(restores);
+		// Only an install after the restore reads the lockfile of the project.
+		expect(commands.indexOf("pnpm")).toBe(
+			restores === 0 ? -1 : commands.indexOf("restore-marker") + 1,
+		);
 		const row = await fixture.sessions.findLiveByProjectId("p1");
 		expect(row?.status).toBe("running");
 		expect(row?.previewHost).toBe("p1-3000.vercel.run");

@@ -61,6 +61,7 @@ import {
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
+import { BuilderOtherChatBusyError } from "../../domain/errors/builder-other-chat-busy.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
 import { llmModelPrice } from "../../domain/llm-model-prices";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
@@ -215,7 +216,8 @@ export class TurnsService {
 	 * `POST /v2/projects/:id/turns`. Reserves a credit hold. Then it queues
 	 * the turn behind an active one (`waiting` row, `queued: true`).
 	 * Otherwise it takes the project lock and starts `builder-turn` at once. A
-	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project
+	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project that
+	 * another conversation holds answers 409 BUILDER_OTHER_CHAT_BUSY. A project
 	 * whose last turn waits on an approval card answers 409
 	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
 	 * message also starts an `error` or missing backend row again. With
@@ -273,6 +275,13 @@ export class TurnsService {
 				assertSameReplayedMessage(replayed, body.message);
 				return turnCreatedResponseOf(replayed, body.chatId, null);
 			}
+		}
+
+		// Product rule: one conversation at a time uses the project. The refusal
+		// comes before the credit hold, so no hold exists.
+		const busyChatId = await this.turns.findBusyChatId(projectId);
+		if (busyChatId !== null && busyChatId !== body.chatId) {
+			throw new BuilderOtherChatBusyError(busyChatId);
 		}
 
 		// A paused approval card must be answered before a new turn starts;
@@ -389,6 +398,14 @@ export class TurnsService {
 			// queue. A new submit must park behind it, never jump the slot.
 			const oldestWaiting =
 				active === null ? await this.turns.findOldestWaiting(projectId) : null;
+			// Product rule: two conversations can pass the first check at the same
+			// time. The loser must not park behind the other conversation. The
+			// catch below refunds the hold. No row and no lock exist yet.
+			// One window stays: the other conversation holds the lock and has no row yet. This turn then parks and runs later, which is safe.
+			const blockingChatId = (active ?? oldestWaiting)?.chatId ?? null;
+			if (blockingChatId !== null && blockingChatId !== body.chatId) {
+				throw new BuilderOtherChatBusyError(blockingChatId);
+			}
 			const acquired =
 				active === null &&
 				oldestWaiting === null &&
@@ -751,6 +768,8 @@ export class TurnsService {
 	/**
 	 * `GET /v2/projects/:id/turns/active`. The builder page polls it every 5 s
 	 * to show a turn or a commit of another client, such as the MCP tools.
+	 * `busyChatId` names the conversation that holds the project, so another
+	 * conversation can lock its composer before a send.
 	 * The same 404 as `findActiveTurn` comes before the head read.
 	 */
 	async activeTurnState(
@@ -759,7 +778,11 @@ export class TurnsService {
 	): Promise<ActiveTurnStateResponse> {
 		const turn = await this.findActiveTurn(scope, projectId);
 		const branch = await this.commits.findBranch(projectId);
-		return { activeTurnId: turn?.id ?? null, headSha: branch?.headSha ?? null };
+		return {
+			activeTurnId: turn?.id ?? null,
+			busyChatId: await this.turns.findBusyChatId(projectId),
+			headSha: branch?.headSha ?? null,
+		};
 	}
 
 	/**

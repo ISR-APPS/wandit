@@ -1,6 +1,7 @@
 /**
  * Pure helpers of the app builder, with no React. Three list and test the
- * panels of the More view and pick the open one. Five pairs store the open
+ * panels of the More view and pick the open one. One picks the open
+ * conversation. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
  * the Expo Go username, and the model pick. Two pair a model with its Fast
  * variant for the model menu. One copies text to the clipboard. One puts an
@@ -21,6 +22,7 @@ import {
 	creditsToCentiCredits,
 	expoUsernameSchema,
 	type LlmModelPrice,
+	type ProjectChat,
 	type UpdateProjectCostCapsRequest,
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
@@ -86,6 +88,33 @@ export function resolvePanel(
 	// Product rule: the backend is the main content of a project, so Database opens first.
 	// Analytics is listed for every kind, so it is a valid fallback while the gate is closed.
 	return isCloudTabEnabled ? "database" : "analytics";
+}
+
+/** The conversation the builder shows. The page makes it with `openChatOf` and gives it to useBuilderThread. */
+export type OpenChat = {
+	/** Id of the conversation, a row id of `chats`. */
+	id: string;
+	/** True when no conversation of the project is older. Only that conversation can hold the first turn of the project. */
+	isOldest: boolean;
+};
+
+/**
+ * The conversation the builder opens for the `?chat=` request. `chats` is
+ * the conversation list of the project, the most recent activity first. An
+ * id that the list does not hold, or no request, opens the first
+ * conversation. Null while the list is empty, as during its load.
+ */
+export function openChatOf(
+	chats: readonly ProjectChat[],
+	requestedChatId: string | undefined,
+): OpenChat | null {
+	const chat = chats.find((row) => row.id === requestedChatId) ?? chats.at(0);
+	if (chat === undefined) return null;
+	const createdAtMs = Date.parse(chat.createdAt);
+	return {
+		id: chat.id,
+		isOldest: chats.every((row) => Date.parse(row.createdAt) >= createdAtMs),
+	};
 }
 
 /** Open state of the chat pane from the last visit. Open when nothing is stored or storage fails. */

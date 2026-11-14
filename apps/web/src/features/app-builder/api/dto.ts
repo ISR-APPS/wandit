@@ -9,12 +9,15 @@ import type {
 	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
+	HarnessCompactionOutput,
 	ProjectAccess,
 	ProjectEngine,
 	TargetPlatform,
 	TurnDataParts,
+	TurnErrorData,
 	TurnPlanData,
 	TurnQuestionOption,
+	TurnSecurityReportData,
 	TurnSummaryData,
 	TurnTargetsData,
 } from "@wandit/contracts";
@@ -101,8 +104,10 @@ export type BuilderDiffLine = {
  * `approval` waits for the user to allow a tool call. `plan` is the plan
  * of a Plan Mode turn that waits for "Build this plan". `error` is a turn
  * failure. `stopped` marks a turn the user stopped. `receipt` is the
- * settled cost of a turn. `targets` sits in a user message: the elements it
- * picked in the preview.
+ * settled cost of a turn. `compaction` marks the point where Claude Code
+ * summarized the older conversation; both views show it. `security-report`
+ * ends a `security_scan` turn: the counts of its findings. `targets` sits in
+ * a user message: the elements it picked in the preview.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -176,8 +181,11 @@ export type BuilderDataParts = {
 	 * card shows the "Build this plan" button.
 	 */
 	plan: TurnPlanData & { isOpen: boolean };
-	/** The `data-turn-error` payload as the stream sends it. */
-	error: { code: string; message: string; retryable: boolean };
+	/**
+	 * The `data-turn-error` payload. `mode` is the mode of the failed turn,
+	 * from the payload or the live `data-turn-created` frame. Retry reads it.
+	 */
+	error: TurnErrorData;
 	/** The `data-turn-done` status of a turn the user stopped. */
 	stopped: { status: "canceled" };
 	receipt: {
@@ -192,6 +200,10 @@ export type BuilderDataParts = {
 		/** Prompt tokens the model wrote to its cache. Not part of `inputTokens`. */
 		cacheWriteTokens: number;
 	};
+	/** The parsed `output` of the harness `compaction` tool part: the trigger and the token counts. */
+	compaction: HarnessCompactionOutput;
+	/** The `data-security-report` payload as the stream sends it. The chat card shows it; the panel reads the full report. */
+	"security-report": TurnSecurityReportData;
 	targets: TurnTargetsData;
 };
 

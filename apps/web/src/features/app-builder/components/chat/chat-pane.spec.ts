@@ -165,6 +165,10 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onChangeDeveloperView: null,
 						onOpenActivity,
 						isReady: true,
+						chats: [],
+						openChatId: "chat-open",
+						busyChatId: null,
+						onOpenChat: () => {},
 						onSend,
 						onDecideApproval,
 						onAnswerQuestions,
@@ -176,10 +180,12 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 							modelId: undefined,
 							setModelId: vi.fn(),
 						},
+						contextUsage: null,
 						onCancel: () => {},
 						errorText: null,
 						onReconnect: null,
 						onCollapse: () => {},
+						onOpenSecurityReport: () => {},
 						hasOlderMessages: false,
 						isLoadingOlderMessages: false,
 						onLoadOlderMessages: () => {},
@@ -282,6 +288,37 @@ describe("ChatPane", () => {
 		);
 	});
 
+	// Without the mode, the toggle makes the retry a build turn with write tools.
+	it("sends Retry of a failed security scan as a scan again", () => {
+		const { onSend } = renderPane({
+			messages: [
+				{ id: "u1", role: "user", parts: [{ type: "text", text: "Scan it" }] },
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{
+							type: "data-error",
+							id: "e1",
+							data: {
+								code: "SANDBOX_LOST",
+								message: "Turn failed",
+								retryable: true,
+								mode: "security_scan",
+							},
+						},
+					],
+				},
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onSend).toHaveBeenCalledWith({
+			text: "Scan it",
+			files: [],
+			mode: "security_scan",
+		});
+	});
+
 	it("locks the composer while the chat id is unknown", () => {
 		renderPane({ isReady: false });
 		const textarea = screen.getByRole("textbox");
@@ -301,6 +338,12 @@ describe("ChatPane", () => {
 		{
 			name: "the project payer has no credits",
 			props: { payerOutOfCredits: true, isPayerActiveWorkspace: false },
+			composer: "locked",
+		},
+		// Product rule: one conversation at a time uses the project.
+		{
+			name: "another conversation holds the project",
+			props: { busyChatId: "chat-other" },
 			composer: "locked",
 		},
 		{

@@ -134,12 +134,19 @@ function setup() {
 		hasFileChanges: vi.fn(async () => false),
 	};
 	const chats = {
+		createProjectChat: vi.fn<ChatsRepository["createProjectChat"]>(),
 		findAccessibleChatById: vi.fn<ChatsRepository["findAccessibleChatById"]>(
+			async () => null,
+		),
+		findEmptyProjectChat: vi.fn<ChatsRepository["findEmptyProjectChat"]>(
 			async () => null,
 		),
 		insertUiMessagesIfAbsent: vi.fn<
 			ChatsRepository["insertUiMessagesIfAbsent"]
 		>(async () => undefined),
+		listProjectChats: vi.fn<ChatsRepository["listProjectChats"]>(
+			async () => [],
+		),
 	};
 	const proxyRequests = {
 		sumByChat: vi.fn<LlmProxyRequestsRepository["sumByChat"]>(),
@@ -582,6 +589,27 @@ describe("AppProjectsService.chatCost", () => {
 			service.chatCost(SCOPE, "project-1", "chat-1"),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(proxyRequests.sumByChat).not.toHaveBeenCalled();
+	});
+});
+
+describe("AppProjectsService.createChat", () => {
+	// A second click on "new conversation" must not add a second empty row.
+	it("answers the empty chat of the project and inserts no row", async () => {
+		const { chats, service } = setup();
+		chats.findEmptyProjectChat.mockResolvedValue({
+			createdAt: new Date("2026-08-02T10:00:00.000Z"),
+			id: "chat-empty",
+		});
+
+		const result = await service.createChat(SCOPE, "project-1");
+
+		expect(result.chat).toEqual({
+			createdAt: "2026-08-02T10:00:00.000Z",
+			id: "chat-empty",
+			lastMessageAt: null,
+			title: null,
+		});
+		expect(chats.createProjectChat).not.toHaveBeenCalled();
 	});
 });
 

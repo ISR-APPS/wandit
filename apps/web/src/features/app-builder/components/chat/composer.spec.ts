@@ -1,13 +1,23 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Composer, type ComposerProps } from "./composer";
+import {
+	Composer,
+	type ComposerProps,
+	type ComposerSubmitOverride,
+} from "./composer";
 
 // The page mounts one TooltipProvider; the icon buttons need it too.
 function renderComposer(props: Partial<ComposerProps> = {}) {
@@ -40,6 +50,7 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 						modelId: undefined,
 						setModelId: vi.fn(),
 					},
+					contextUsage: null,
 					...props,
 				}),
 			),
@@ -104,7 +115,9 @@ describe("Composer", () => {
 	});
 
 	it("answers the tray with an empty draft when the override allows it", () => {
-		const onSubmit = vi.fn();
+		const onSubmit = vi.fn<ComposerSubmitOverride["onSubmit"]>(
+			async () => true,
+		);
 		const { onSend } = renderComposer({
 			submitOverride: {
 				label: "Choose this option",
@@ -119,7 +132,9 @@ describe("Composer", () => {
 	});
 
 	it("sends the typed draft to the override on Enter and clears it", () => {
-		const onSubmit = vi.fn();
+		const onSubmit = vi.fn<ComposerSubmitOverride["onSubmit"]>(
+			async () => true,
+		);
 		const { textarea } = renderComposer({
 			submitOverride: { label: "Answer", disabled: false, onSubmit },
 		});
@@ -128,8 +143,25 @@ describe("Composer", () => {
 		expect(textarea.value).toBe("");
 	});
 
+	it("puts the typed text and the long paste back when the API refuses the tray answer", async () => {
+		const onSubmit = vi.fn<ComposerSubmitOverride["onSubmit"]>(
+			async () => false,
+		);
+		const { textarea } = renderComposer({
+			submitOverride: { label: "Answer", disabled: false, onSubmit },
+		});
+		const pasted = "a".repeat(2_000);
+		fireEvent.paste(textarea, { clipboardData: { getData: () => pasted } });
+		typeAndEnter(textarea, "Use green");
+		expect(onSubmit).toHaveBeenCalledWith(`Use green\n\n${pasted}`);
+		await waitFor(() => expect(textarea.value).toBe("Use green"));
+		expect(screen.getByText("Text · 2K chars")).toBeTruthy();
+	});
+
 	it("locks the answer button while the override is incomplete", () => {
-		const onSubmit = vi.fn();
+		const onSubmit = vi.fn<ComposerSubmitOverride["onSubmit"]>(
+			async () => true,
+		);
 		const { textarea } = renderComposer({
 			submitOverride: { label: "Choose an option", disabled: true, onSubmit },
 		});

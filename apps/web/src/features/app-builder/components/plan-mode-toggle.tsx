@@ -25,6 +25,8 @@ export type PlanModeToggleProps = {
 	disabled?: boolean;
 	/** `md` is 36 px high, for the dashboard hero box. `sm` is 32 px, for the builder composer. */
 	size?: "sm" | "md";
+	/** Extra classes of the "Plan" text. The builder composer makes it screen-reader only in a narrow row. */
+	labelClassName?: string;
 };
 
 /**
@@ -36,6 +38,7 @@ export function PlanModeToggle({
 	onPlanModeChange,
 	disabled = false,
 	size = "sm",
+	labelClassName,
 }: PlanModeToggleProps) {
 	const { t } = useTranslation();
 	return (
@@ -64,7 +67,9 @@ export function PlanModeToggle({
 						className="size-4 shrink-0"
 						aria-hidden
 					/>
-					{t("appBuilder.chat.plan.toggle.label")}
+					<span className={labelClassName}>
+						{t("appBuilder.chat.plan.toggle.label")}
+					</span>
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent side="top" className="max-w-64 text-center">

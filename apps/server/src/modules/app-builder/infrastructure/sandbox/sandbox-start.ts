@@ -3,7 +3,8 @@
  * of a turn and no LLM proxy token. `VersionsService.restore` and
  * `pullFromGithub`, `SandboxWakeService`, and the `publish-app` task call it. It reads the
  * projects row and the `app_backends` row, calls `getOrCreate`, and after a
- * boot writes the backend `.env` through `syncBackendEnvFile`.
+ * boot writes the backend `.env` through `syncBackendEnvFile`. It also holds
+ * the package install that runs after a repo restore.
  */
 import { appBuilderRoutes } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -33,6 +34,37 @@ export function llmProxyBaseUrl(): string {
 		appBuilderRoutes.llmProxyBase,
 		env.V2_LLM_PROXY_PUBLIC_URL ?? env.BETTER_AUTH_URL,
 	).toString();
+}
+
+/**
+ * 120 s. A warm pnpm store installs in a few seconds. A cold store downloads
+ * every package.
+ */
+const WORKSPACE_INSTALL_TIMEOUT_MS = 120_000;
+
+/**
+ * Installs the packages of the workspace lockfile. git does not track
+ * `node_modules`, so a repo reset needs it. Returns null on success, else
+ * the failure text for the caller to log. It never throws: the caller keeps
+ * its work, and the next turn can install. `VercelSandboxProvider` and
+ * `VersionsService` call it.
+ */
+export async function installWorkspacePackages(
+	sandbox: Pick<SandboxHandle, "exec" | "workspaceDir">,
+): Promise<string | null> {
+	try {
+		const install = await sandbox.exec(
+			"pnpm",
+			["install", "--frozen-lockfile", "--prefer-offline"],
+			{ cwd: sandbox.workspaceDir, timeoutMs: WORKSPACE_INSTALL_TIMEOUT_MS },
+		);
+		// pnpm prints its error at the end of stdout. 500 characters keep the cause.
+		return install.exitCode === 0
+			? null
+			: `exit ${install.exitCode}: ${`${install.stdout}${install.stderr}`.slice(-500)}`;
+	} catch (error) {
+		return getErrorMessage(error);
+	}
 }
 
 /** What `startSandboxWithoutTurn` reads and calls. */

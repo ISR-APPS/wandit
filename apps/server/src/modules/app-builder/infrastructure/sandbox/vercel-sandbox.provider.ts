@@ -51,6 +51,7 @@ import {
 	type SandboxSessionsStore,
 } from "../persistence/sandbox-sessions.repository";
 import { buildNetworkPolicy, SANDBOX_DENIED_RANGES } from "./network-policy";
+import { installWorkspacePackages } from "./sandbox-start";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
 import { TEMPLATE_PROFILES } from "./template-profiles";
 
@@ -94,8 +95,30 @@ const TEMPLATE_SNAPSHOT_NAME_PREFIX = "wandit-template-";
  * Part of the template snapshot name. Increase it when the build steps
  * change what the disk holds: `ensureTemplateSnapshot`,
  * `ArchiveTemplateInit.apply`, or `BuilderHarness.prepareSandbox`.
+ * A new `AGENT_BROWSER_PACKAGE` pin needs no increase: the name hashes it.
  */
-const TEMPLATE_SNAPSHOT_BUILD_VERSION = "1";
+const TEMPLATE_SNAPSHOT_BUILD_VERSION = "2";
+
+/**
+ * The agent-browser CLI in the template snapshot. The agent drives Chrome
+ * with it to debug its app, and the thumbnail task takes a screenshot.
+ */
+const AGENT_BROWSER_PACKAGE = "agent-browser@0.41.2";
+
+/**
+ * Hosts that only the template snapshot builder reaches, for the
+ * agent-browser install. Never add them to `GLOBAL_ALLOWED_HOSTS`:
+ * storage.googleapis.com serves every GCS bucket, so turn code could
+ * send data out through it.
+ */
+const TEMPLATE_SNAPSHOT_INSTALL_HOSTS = [
+	// The apt mirrors give the system libraries of Chrome.
+	"archive.ubuntu.com",
+	"security.ubuntu.com",
+	// Chrome for Testing: the version list, then the browser download.
+	"googlechromelabs.github.io",
+	"storage.googleapis.com",
+] as const;
 
 /**
  * 30 days, the vendor default. Each boot from the snapshot resets the
@@ -111,6 +134,8 @@ type VercelRunCommandParams = {
 	cwd?: string;
 	env?: Record<string, string>;
 	signal?: AbortSignal;
+	/** True runs the command as root. The default user is `ubuntu`, with HOME `/vercel`. */
+	sudo?: boolean;
 	timeoutMs?: number;
 };
 
@@ -672,8 +697,9 @@ export class VercelSandboxProvider implements SandboxProvider {
 	/**
 	 * Builds the template snapshot of this template, image, and harness when
 	 * none is ready. A new project sandbox then boots with the template, its
-	 * packages, and the harness already on disk. The `template-snapshot`
-	 * task calls it; a failure throws and leaves no snapshot.
+	 * packages, the harness, and agent-browser with its Chrome already on
+	 * disk. The `template-snapshot` task calls it; a failure throws and
+	 * leaves no snapshot.
 	 */
 	async ensureTemplateSnapshot(
 		template: { framework: string; templateVersion: string },
@@ -692,17 +718,25 @@ export class VercelSandboxProvider implements SandboxProvider {
 		// A crashed build leaves its sandbox with no snapshot. Delete it, so
 		// the new build gets the name.
 		await (await this.getVendorSandbox(name))?.delete();
-		// The build installs npm packages only and holds no secret, so the
-		// npm registry is its only host.
-		const policy: SandboxNetworkPolicy = {
+		// The build holds no secret and no user code. The template and the
+		// harness install only npm packages, so the npm registry is their only host.
+		const templatePolicy: SandboxNetworkPolicy = {
 			allowedHosts: ["registry.npmjs.org"],
 			deniedRanges: [...SANDBOX_DENIED_RANGES],
+		};
+		// The agent-browser install runs first and also needs apt and Chrome for Testing.
+		const installPolicy: SandboxNetworkPolicy = {
+			allowedHosts: [
+				...templatePolicy.allowedHosts,
+				...TEMPLATE_SNAPSHOT_INSTALL_HOSTS,
+			],
+			deniedRanges: templatePolicy.deniedRanges,
 		};
 		const sandbox = await this.sdk.getOrCreate({
 			...this.credentials(),
 			image,
 			name,
-			networkPolicy: toVendorNetworkPolicy(policy),
+			networkPolicy: toVendorNetworkPolicy(installPolicy),
 			// Not persistent: a persistent sandbox takes a snapshot at each stop,
 			// so a crashed build would leave a half-built snapshot.
 			persistent: false,
@@ -711,11 +745,42 @@ export class VercelSandboxProvider implements SandboxProvider {
 			timeout: SANDBOX_TIMEOUT_MS,
 		});
 		// The handle methods resume a stopped session on an empty disk. The
-		// check and the snapshot use this first session, so a lost disk fails
-		// the build and never becomes the shared snapshot.
+		// installs, the check, and the snapshot use this first session, so a
+		// lost disk fails the build and never becomes the shared snapshot.
 		const session = sandbox.currentSession();
 		try {
-			const handle = new VercelSandboxHandle(name, sandbox, policy);
+			const handle = new VercelSandboxHandle(name, sandbox, installPolicy);
+			const installSteps = [
+				// The vendor firewall allows a host only over HTTPS, and the image
+				// lists its apt mirrors with http://.
+				{
+					args: [
+						"-i",
+						"s#http://#https://#g",
+						"/etc/apt/sources.list.d/ubuntu.sources",
+					],
+					cmd: "sed",
+					sudo: true,
+				},
+				// The npm prefix belongs to the default user, so no sudo.
+				{ args: ["install", "-g", AGENT_BROWSER_PACKAGE], cmd: "npm" },
+				// Not sudo: as root, Chrome lands under /root. The agent runs the
+				// CLI as the default user, so it looks under /vercel. The CLI calls
+				// sudo for apt itself.
+				{ args: ["install", "--with-deps"], cmd: "agent-browser" },
+			] satisfies VercelRunCommandParams[];
+			for (const step of installSteps) {
+				const result = await session.runCommand(step);
+				if (result.exitCode !== 0) {
+					// The last 500 characters of stderr hold the cause and keep the log short.
+					throw new Error(
+						`Template snapshot ${name}: "${step.cmd} ${step.args.join(" ")}" exited ${result.exitCode}: ${(await result.stderr()).slice(-500)}`,
+					);
+				}
+			}
+			// Security: the template and harness install code runs next. It must
+			// not reach the install hosts.
+			await handle.setNetworkPolicy(templatePolicy);
 			await this.templateInit.apply(handle, template);
 			await harness.prepare(handle);
 			const commit = await session.runCommand({
@@ -920,6 +985,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 					});
 				}
 				await this.repoRestorer.restore(projectId, handle);
+				await this.installRestoredPackages(projectId, handle);
 				// The restored repo can bring back an old template file.
 				await this.templateInit.replaceOldTemplateFiles(handle, options);
 				await this.bootServices(projectId, sandbox, options);
@@ -951,6 +1017,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 						!(await hasUncommittedWork(handle))
 					) {
 						await this.repoRestorer.restore(projectId, handle);
+						await this.installRestoredPackages(projectId, handle);
 					}
 					// A sandbox from before the template fix still holds the old files.
 					await this.templateInit.replaceOldTemplateFiles(handle, options);
@@ -1020,6 +1087,25 @@ export class VercelSandboxProvider implements SandboxProvider {
 					});
 				});
 			throw error;
+		}
+	}
+
+	/**
+	 * Installs the packages of the restored lockfile. The disk still holds
+	 * the template packages. A failed install only logs: the dev server
+	 * starts, and a turn can install.
+	 */
+	private async installRestoredPackages(
+		projectId: string,
+		handle: SandboxHandle,
+	): Promise<void> {
+		const failure = await installWorkspacePackages(handle);
+		if (failure !== null) {
+			this.logger.warn("sandbox.repo-restore.install-failed", {
+				error: failure,
+				projectId,
+				sandboxId: handle.providerSandboxId,
+			});
 		}
 	}
 
@@ -1169,8 +1255,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 
 	/**
 	 * `wandit-template-<framework>-<16 hex>`. A change of the build steps, the
-	 * template files, the image, or the harness install gives a new name, so
-	 * a new build.
+	 * template files, the image, the harness install, or the agent-browser pin
+	 * gives a new name, so a new build.
 	 */
 	private async templateSnapshotName(
 		template: { framework: string; templateVersion: string },
@@ -1184,6 +1270,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 					await this.templateInit.contentHash(template),
 					image,
 					harnessKey,
+					AGENT_BROWSER_PACKAGE,
 				].join("\n"),
 			)
 			.digest("hex");
@@ -1218,8 +1305,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 			);
 		} catch (error) {
 			// The snapshot only saves time, so the boot continues from the image.
-			// A deploy ships only the current archive: an older project that
-			// resumes has no archive and needs none, so that case logs nothing.
+			// An older pin reads the current archive. This error means that no
+			// archive is packed, as in a local run, so it logs nothing.
 			if (!(error instanceof TemplateArchiveMissingError)) {
 				this.logger.warn("sandbox.template-snapshot.lookup-failed", {
 					error: errorMessage(error),

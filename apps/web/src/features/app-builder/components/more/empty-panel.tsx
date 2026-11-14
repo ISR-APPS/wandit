@@ -1,7 +1,7 @@
 /**
- * "Soon" state of a More panel that Wandit cannot set up yet: Analytics
- * and Security. It shows an hourglass on the night tile, a title, and a hint.
- * The planned action is a disabled pill with a "Soon" chip.
+ * "Soon" state of a More panel that Wandit cannot set up yet: Analytics.
+ * It shows an hourglass on the night tile, a title, and a hint. The
+ * planned action is a disabled pill with a "Soon" chip.
  * Rendered by components/more/more-view.tsx inside PanelShell, which shows
  * the icon of the panel in its header.
  */
