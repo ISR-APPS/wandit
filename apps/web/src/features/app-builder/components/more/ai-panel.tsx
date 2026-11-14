@@ -50,7 +50,7 @@ const MUTED_TEXT_CLASS =
 /** Props of AiPanel. more-view.tsx passes them. */
 export type AiPanelProps = {
 	projectId: string;
-	/** True while the More view is on screen. The status read waits for it. */
+	/** True while this panel is on screen: the More view is open and the code screen does not cover it. The status read waits for it. */
 	isActive: boolean;
 };
 

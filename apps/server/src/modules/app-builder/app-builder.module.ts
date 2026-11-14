@@ -340,7 +340,8 @@ export function createCloudSupabaseClient(
 				new TriggerGithubSyncScheduler(links, Sentry.logger),
 			inject: [ProjectGithubLinksRepository],
 		},
-		// The same code.storage store reads one committed file for the theme GET.
+		// The same code.storage store reads committed code: theme.json for the theme GET,
+		// and the tree and the files for the Code view routes.
 		{ provide: GIT_FILE_READER, useExisting: GIT_STORE },
 		// Null without both Langfuse keys: the LLM proxy then traces nothing.
 		{ provide: LangfuseExporter, useFactory: langfuseExporterFromEnv },

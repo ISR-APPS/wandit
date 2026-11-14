@@ -10,7 +10,6 @@
  * here and places each half over its card.
  */
 
-import { CodeIcon } from "@phosphor-icons/react/Code";
 import { EyeIcon } from "@phosphor-icons/react/Eye";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
@@ -106,7 +105,7 @@ export function ProjectBar({
 export type WorkBarProps = {
 	/** The open project, from appProjectQuery in the page. */
 	project: AppProject;
-	/** The open view: `preview`, `code`, or `more`. The page reads it from `?view=` of the URL. */
+	/** The open view: `preview` or `more`. The page reads it from `?view=` of the URL. */
 	view: BuilderView;
 	/** Writes the picked view to `?view=` of the URL. The view switcher calls it. */
 	onChangeView: (view: BuilderView) => void;
@@ -150,9 +149,10 @@ export function WorkBar({
 export type ViewSwitcherProps = Pick<WorkBarProps, "view" | "onChangeView">;
 
 /**
- * The Preview, Code, and More switch at the start of the work bar. From the
+ * The Preview and More switch at the start of the work bar. From the
  * sm width, only the open view shows its label; below it, icons only. More
- * holds every project panel, the Cloud panels too. Exported for the spec.
+ * holds every project panel, the Cloud panels and the code screen too.
+ * Exported for the spec.
  */
 export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 	const { t } = useTranslation();
@@ -170,12 +170,6 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 					label: t("appBuilder.views.preview"),
 					icon: EyeIcon,
 					iconOnly: view !== "preview",
-				},
-				{
-					value: "code",
-					label: t("appBuilder.views.code"),
-					icon: CodeIcon,
-					iconOnly: view !== "code",
 				},
 				{
 					value: "more",

@@ -1,15 +1,16 @@
 /**
- * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
- * and devices. Also the storage keys and panel widths of the chat column,
- * the storage key of the model pick, the easing and detail pace of the
- * start-up screens, and the length of a short commit sha. Read by
- * the route search schema, the shell, the More view, the Cloud panels, the
+ * Fixed values of the V2 app builder workspace: views, More and Cloud panels
+ * (the code screen too), and devices. Also the storage keys and panel
+ * widths of the chat column, the storage key of the model pick, the easing
+ * and detail pace of the start-up screens, and the length of a short commit
+ * sha. Read by the route search schema, the shell, the More view, the Cloud panels, the
  * preview, and the chat. No logic and no React here.
  */
 
 import type { Icon } from "@phosphor-icons/react";
 import { CalendarDotsIcon } from "@phosphor-icons/react/CalendarDots";
 import { ChartLineUpIcon } from "@phosphor-icons/react/ChartLineUp";
+import { CodeIcon } from "@phosphor-icons/react/Code";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { DatabaseIcon } from "@phosphor-icons/react/Database";
 import { FunctionIcon } from "@phosphor-icons/react/Function";
@@ -32,14 +33,15 @@ import type { AppProjectKind } from "../api/dto";
 
 /**
  * Main views of the workspace. `more` opens the project panels: the More
- * panels and, behind the Cloud rollout gate, the Cloud panels.
+ * panels, the code screen, and, behind the Cloud rollout gate, the Cloud panels.
  */
-export const BUILDER_VIEWS = ["preview", "code", "more"] as const;
+export const BUILDER_VIEWS = ["preview", "more"] as const;
 export type BuilderView = (typeof BUILDER_VIEWS)[number];
 
 /**
  * Panels of the More view, in nav order. `domains` is web only, `appStores` is
- * mobile only. A desktop app lists neither `signIn` nor `payments`.
+ * mobile only. A desktop app lists neither `signIn` nor `payments`. `code`
+ * is not a panel in the shell: it fills the whole More view with the code screen.
  */
 export const MORE_PANELS = [
 	"analytics",
@@ -51,6 +53,7 @@ export const MORE_PANELS = [
 	"domains",
 	"appStores",
 	"security",
+	"code",
 	"settings",
 ] as const;
 export type MorePanel = (typeof MORE_PANELS)[number];
@@ -73,6 +76,12 @@ export type CloudPanel = (typeof CLOUD_PANELS)[number];
 
 /** A panel that the More view can open: a More panel, or a Cloud panel behind the gate. */
 export type ProjectPanel = MorePanel | CloudPanel;
+
+/**
+ * A panel that renders inside PanelShell, with its title and description.
+ * Every panel except `code`, whose code screen replaces the nav and the shell.
+ */
+export type ShellPanel = Exclude<ProjectPanel, "code">;
 
 /** Phosphor icon of each Cloud panel in the More nav. The label is `workspace.cloud.panels.<id>`. */
 export const CLOUD_PANEL_ICONS: Record<CloudPanel, Icon> = {
@@ -119,12 +128,18 @@ export type MobilePreviewTarget = (typeof MOBILE_PREVIEW_TARGETS)[number];
 export const WEB_VIEWPORTS = ["desktop", "mobile"] as const;
 export type WebViewport = (typeof WEB_VIEWPORTS)[number];
 
-type MorePanelMeta = {
+/** What the More nav needs for one row. The `code` row has only this: its screen shows no title and no description. */
+type MorePanelNavMeta = {
 	/** Phosphor icon of the nav row and of the empty state of the panel. */
 	icon: Icon;
 	/** Project kinds that list the panel in the More nav. */
 	kinds: readonly AppProjectKind[];
 	title: TranslationKey;
+};
+
+/** Nav row and PanelShell copy of a panel that renders inside the shell. */
+type MorePanelMeta = MorePanelNavMeta & {
+	/** Line under the title in PanelShell. */
 	description: TranslationKey;
 };
 
@@ -132,8 +147,11 @@ type MorePanelMeta = {
 // So the sign-in methods, the payments, and the AI gateway of a hosted app do not apply to it.
 const HOSTED_KINDS: readonly AppProjectKind[] = ["web", "mobile"];
 
-/** Icon, visibility, and copy keys of each More panel. */
-export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
+/** Icon, visibility, and copy keys of each More panel. Only `code` has no description. */
+export const MORE_PANEL_META: Record<
+	Exclude<MorePanel, "code">,
+	MorePanelMeta
+> & { code: MorePanelNavMeta } = {
 	analytics: {
 		icon: ChartLineUpIcon,
 		kinds: targetPlatforms,
@@ -188,6 +206,12 @@ export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 		kinds: targetPlatforms,
 		title: "appBuilder.panels.security.title",
 		description: "appBuilder.panels.security.description",
+	},
+	// The code routes allow a project viewer, so every kind and every role lists the row.
+	code: {
+		icon: CodeIcon,
+		kinds: targetPlatforms,
+		title: "appBuilder.panels.code.title",
 	},
 	settings: {
 		icon: GearSixIcon,

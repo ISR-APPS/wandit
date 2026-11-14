@@ -294,11 +294,13 @@ function toCodeFile(file: CodeFileResponse): CodeFile {
 }
 
 /**
- * `GET /api/v2/projects/:id/code` answers the file tree of the running
- * sandbox and the small files the server read with it. A 409
- * `SANDBOX_NOT_RUNNING` answers null: the server never wakes a sandbox for
- * a read, only the next turn does. `signal` stops a request that a newer
- * fetch replaced. `get` is the test seam.
+ * `GET /api/v2/projects/:id/code` answers the file tree of the last saved
+ * (committed) version and the small files the server read with it. Only a
+ * project with no saved version reads the running sandbox. A 409
+ * `SANDBOX_NOT_RUNNING` means no saved version and no running sandbox. It
+ * answers null. The server never wakes a sandbox for a read; only the next
+ * turn does. `signal` stops a request that a newer fetch replaced. `get` is
+ * the test seam.
  */
 export async function getCodeSnapshot(
 	projectId: string,

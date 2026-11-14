@@ -72,7 +72,7 @@ PostHog flag `v2-builder`).
 - `TurnLock` — the per-project lock serializing turns.
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
   back into a fresh sandbox (D21). `GitFileReader` reads one committed
-  file for the theme GET.
+  file for the theme GET, and the committed tree and files for the Code view.
 - `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
 - `MobileBuildTaskStarter` — queues the `mobile-build` Trigger task.
 
@@ -468,9 +468,34 @@ and the catch block refunds its hold.
   and `defaultFilePath`. `GET .../code/file?path=<path>` answers one file
   as `{ path, content, size, binary }`. Both sit behind
   `V2BuilderEnabledGuard`; read = any member, like `GET /:projectId`.
-  `CodeService` reads only a running sandbox through
-  `SandboxProvider.findRunning`, which never wakes, boots, or changes it; a
-  stopped sandbox answers 409 `SANDBOX_NOT_RUNNING`. The tree comes from
+  The MCP tools `list_files` and `read_file` call the same service.
+- Committed code first. When `app_branches` has a `main` head,
+  `CodeService` reads that commit on code.storage through `GitFileReader`,
+  with no sandbox call: a stopped sandbox still shows its code. The tree is
+  one page of `GET /repos/files` (blobs only, at most 5000 paths). The
+  prefetched files come from one `POST /repos/archive` tar.gz without
+  `.claude/**`, read in parallel with the tree. The archive read makes one
+  attempt of at most 5 s, with no retry. The archive is a speed-up
+  only: a failure, a bad tar header, more than 4 MB of gzip, or more than
+  16 MB of tar logs a warning and answers `files: []`. An entry after a pax `x` header has a
+  cut path and is skipped. One file is `GET /repos/file` with a 512 KB
+  ceiling: a larger Content-Length or body answers 413 before the API
+  holds the bytes. The path rule runs before any call. The Code view shows
+  the last commit: files of a running turn show after its commit.
+- The committed tree answers `ETag: "code-v<format>-<sha>"` and
+  `Cache-Control: private, no-cache`. An If-None-Match that holds the tag
+  (also `W/` or in a list) answers 304 with no body and no code.storage
+  call, after the scope check and the head read. A tree whose archive read
+  failed, and a sandbox tree, answer `no-store` with no ETag. A tree whose
+  archive is over a ceiling keeps the ETag: that fact does not change for one sha. Bump
+  `SNAPSHOT_ETAG_VERSION` when a deploy changes the answer for one sha.
+- Sandbox fallback. A project with no stored head (before its first
+  commit), or a head that code.storage answers 404 for, reads a running
+  sandbox through `SandboxProvider.findRunning`, which never wakes, boots,
+  or changes it; a stopped sandbox answers 409 `SANDBOX_NOT_RUNNING`. With
+  a head, when code.storage has no file at a path, `file` reads the running
+  sandbox. With no running sandbox, it answers 404 `CODE_FILE_NOT_FOUND`. The
+  sandbox tree comes from
   `git ls-files --cached --others --exclude-standard`, so ignored files
   never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
   never listed or read, also not through a symlink: the real path must stay
@@ -478,19 +503,21 @@ and the catch block refunds its hold.
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
-- One file read is one sandbox command. The script opens the file, reads
-  the real path of the open descriptor from `/proc/self/fd`, and prints
+- On the sandbox path, one file read is one sandbox command. The script
+  opens the file, reads the real path of the open descriptor from
+  `/proc/self/fd`, and prints
   bytes only for a file inside the worktree that is not `.git` or `.env*`.
   TS checks the same rule again. A file that the sandbox user cannot open
   answers 404.
-- `GET .../code` also answers `files`: the small files that one more
-  command reads with the tree, so the web shows them with no request.
+- `GET .../code` also answers `files`: small files that the web shows
+  with no request. On the sandbox path, one more command reads them with
+  the tree. On the committed path, they come from the archive.
   `pickPrefetchPaths` picks the default file first, then `src/`, then the
-  rest, never `.claude/`, at most 300 paths. The script reads at most 64 KB
-  per file and 512 KB in total, with the same path rule as a file read. A
-  failed prefetch logs a warning and answers `files: []`; the tree answer
-  never fails because of it. `code-scripts.linux.spec.ts` runs both scripts
-  on a real worktree in CI (Linux only).
+  rest, never `.claude/`, at most 300 paths. Both paths keep at most 64 KB
+  per file and 512 KB in total. The sandbox script uses the same path rule
+  as a file read. A failed prefetch logs a warning and answers `files: []`.
+  The tree answer never fails because of it. `code-scripts.linux.spec.ts`
+  runs both scripts on a real worktree in CI (Linux only).
 
 ## Backend provisioning (WANDIT-183)
 

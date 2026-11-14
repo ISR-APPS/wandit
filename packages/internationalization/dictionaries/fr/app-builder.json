@@ -22,7 +22,6 @@
 	},
 	"views": {
 		"preview": "Aperçu",
-		"code": "Code",
 		"more": "Plus"
 	},
 	"viewport": {
@@ -188,6 +187,7 @@
 			"go": "aller"
 		},
 		"files": "Fichiers",
+		"back": "Retour",
 		"asleepTitle": "Ton app est en veille",
 		"noFilesTitle": "Pas encore de fichiers",
 		"binaryTitle": "Fichier binaire",
@@ -238,6 +238,9 @@
 		"security": {
 			"title": "Sécurité",
 			"description": "Analyse ton app pour trouver les problèmes de sécurité, puis demande à l'IA de les corriger."
+		},
+		"code": {
+			"title": "Code"
 		},
 		"settings": {
 			"title": "Paramètres",

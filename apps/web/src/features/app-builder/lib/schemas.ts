@@ -22,9 +22,10 @@ const FILE_PATH_MAX_LENGTH = 512;
 
 /**
  * validateSearch of routes/_auth/app.$projectId.tsx parses the URL with it.
- * An unknown value becomes undefined, so an old `?view=cloud` or
- * `?viewport=tablet` link opens the default. `panel` holds a More panel id
- * or a Cloud panel id. `device` is the mobile preview target. `chat` is the
+ * An unknown value becomes undefined, so an old `?view=cloud`, `?view=code`,
+ * or `?viewport=tablet` link opens the default. `panel` holds a More panel id
+ * (`code` opens the code screen) or a Cloud panel id. `file` is the open file
+ * of the code screen. `device` is the mobile preview target. `chat` is the
  * id of the open conversation, a row id of `chats`. The GitHub return params
  * are not here: `useGithubReturnToast` in the root reads them on every page.
  */

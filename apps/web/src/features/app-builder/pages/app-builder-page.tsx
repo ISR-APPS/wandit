@@ -4,7 +4,8 @@
  * split moves the work pane controls with the main card. On phones the open
  * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
- * project query. The URL search params hold the view state and the open
+ * project query. The URL search params hold the view state: Preview or
+ * More, the More panel (the code screen too), the open file, and the open
  * conversation. The page reads the conversation list, picks the open
  * conversation, and switches it in place: the preview stays mounted.
  * The Backend group of the More view shows only behind useCloudTabEnabled and for an editor,
@@ -61,7 +62,6 @@ import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
-import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
@@ -489,15 +489,7 @@ export default function AppBuilderPage({
 					/>
 				)}
 			</div>
-			{view === "code" ? (
-				<CodeView
-					projectId={project.id}
-					filePath={search.file}
-					onSelectFile={(path) => setSearch({ file: path }, true)}
-					isTurnRunning={thread.isTurnRunning}
-				/>
-			) : null}
-			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its Cloud queries wait for isActive. */}
+			{/* Hidden, not unmounted: the SQL draft, the open page, and the code screen stay. Its Cloud queries wait for isActive. */}
 			<div
 				className={cn(
 					"h-full min-h-0 flex-col",
@@ -512,6 +504,9 @@ export default function AppBuilderPage({
 					isActive={view === "more"}
 					showBackendGroup={showBackendGroup}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
+					codeFilePath={search.file}
+					onSelectCodeFile={(path) => setSearch({ file: path }, true)}
+					isTurnRunning={thread.isTurnRunning}
 					canSendTurn={canEdit && thread.isReady && !thread.isSending}
 					onRunSecurityScan={() =>
 						sendSecurityTurn(

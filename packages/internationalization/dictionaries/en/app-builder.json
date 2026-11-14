@@ -22,7 +22,6 @@
 	},
 	"views": {
 		"preview": "Preview",
-		"code": "Code",
 		"more": "More"
 	},
 	"viewport": {
@@ -188,6 +187,7 @@
 			"go": "go"
 		},
 		"files": "Files",
+		"back": "Back",
 		"asleepTitle": "Your app is asleep",
 		"noFilesTitle": "No files yet",
 		"binaryTitle": "Binary file",
@@ -238,6 +238,9 @@
 		"security": {
 			"title": "Security",
 			"description": "Scan your app for security problems, then ask the AI to fix them."
+		},
+		"code": {
+			"title": "Code"
 		},
 		"settings": {
 			"title": "Settings",

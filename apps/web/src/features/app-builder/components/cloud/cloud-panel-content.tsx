@@ -20,9 +20,9 @@ import { UsersPanel } from "./users-panel";
 /** Props of CloudPanelContent. The More view owns the open panel through `?panel=`. */
 export type CloudPanelContentProps = {
 	projectId: string;
-	/** True while the More view is on screen. The view stays mounted, so every Cloud query waits for it. */
+	/** True while this panel is on screen: the More view is open and the code screen does not cover it. The view stays mounted, so every Cloud query waits for it. */
 	isActive: boolean;
-	/** Open panel, from `?panel=`, already checked against the Cloud gate by resolvePanel. */
+	/** The last open panel that is not `code`, from `?panel=`, already checked against the Cloud gate by resolvePanel. */
 	panel: CloudPanel;
 	/** Filter Logs opens with. "View logs" of the Functions panel sets it; a nav click clears it. */
 	logsFilter: LogsFilter | undefined;

@@ -177,7 +177,15 @@ export const chatHistoryQuery = (
 	});
 
 /**
- * null data means the sandbox is asleep; the Code view waits for a turn.
+ * 30 min, a long session. The snapshot and the prefetched files stay in the
+ * cache that long. Then a later open of the code screen shows no skeleton.
+ */
+const CODE_GC_TIME_MS = 30 * 60 * 1000;
+
+/**
+ * The tree of the last saved (committed) version. Only a project with no
+ * saved version reads the running sandbox. null data means that project
+ * has no running sandbox either; the Code view waits for a turn.
  * The answer also puts each prefetched file into its `codeFile` entry, so
  * a click on that file shows it with no request. `get` is the test seam.
  */
@@ -187,6 +195,12 @@ export const codeSnapshotQuery = (
 ) =>
 	queryOptions({
 		queryKey: appBuilderKeys.code(projectId),
+		// No staleTime here, so the 30 s default of lib/query-client.ts applies.
+		// The server sends an ETag, so a refetch is a cheap 304.
+		// more-view.tsx refetches at each open of the code screen. Then the tree
+		// and the prefetched files of a head that another client moved show.
+		// LIMIT: a cached file that the snapshot does not prefetch stays old after another client moves the head. Upgrade: invalidate the code(projectId) prefix at each open.
+		gcTime: CODE_GC_TIME_MS,
 		// The signal matters: a turn end cancels a running fetch, and an old
 		// answer that still arrived would write old text over new text.
 		queryFn: async ({ client, signal }) => {
@@ -198,33 +212,35 @@ export const codeSnapshotQuery = (
 				// gcTime; an unopened prefetched file must stay for 30 min.
 				client
 					.getQueryCache()
-					.build(client, { queryKey, gcTime: CODE_FILE_GC_TIME_MS });
+					.build(client, { queryKey, gcTime: CODE_GC_TIME_MS });
 				client.setQueryData(queryKey, file);
 			}
 			return answer.snapshot;
 		},
 	});
 
-/** 30 min. The prefetched files must stay in the cache for a long session. */
-const CODE_FILE_GC_TIME_MS = 30 * 60 * 1000;
-
 /** 3 s. A new sandbox boots from the template snapshot in about 4 s. */
 const CODE_SETUP_POLL_MS = 3_000;
 
 /**
  * The poll delay of the code snapshot. It polls only while a turn runs and
- * no sandbox answered yet, so the files show before the turn ends.
+ * no sandbox answered yet, so the files show before the turn ends. A hidden
+ * code screen does not poll; the refetch at the turn end still runs.
  */
 export function codeSnapshotPollMs(
 	snapshot: CodeSnapshot | null | undefined,
 	isTurnRunning: boolean,
+	/** True while the code screen is on screen, from CodeView. */
+	isActive: boolean,
 ): number | false {
 	// The server pushes no event when the sandbox starts, so the view asks.
-	return isTurnRunning && snapshot === null ? CODE_SETUP_POLL_MS : false;
+	return isActive && isTurnRunning && snapshot === null
+		? CODE_SETUP_POLL_MS
+		: false;
 }
 
 /**
- * One file of the sandbox. Its key is a child of `code(projectId)`, so one
+ * One file of the project. Its key is a child of `code(projectId)`, so one
  * invalidation of that key refetches the tree and the open file.
  */
 export const codeFileQuery = (projectId: string, path: string) =>
@@ -232,9 +248,10 @@ export const codeFileQuery = (projectId: string, path: string) =>
 		queryKey: appBuilderKeys.codeFile(projectId, path),
 		queryFn: ({ signal }) => getCodeFile(projectId, path, signal),
 		// Only a turn end or a restore changes a file, and both invalidate
-		// the `code(projectId)` prefix. Until then the cached text is right.
+		// the `code(projectId)` prefix. Until then the cached text is right,
+		// except for the LIMIT of codeSnapshotQuery.
 		staleTime: Number.POSITIVE_INFINITY,
-		gcTime: CODE_FILE_GC_TIME_MS,
+		gcTime: CODE_GC_TIME_MS,
 	});
 
 /**
