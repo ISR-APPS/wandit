@@ -49,7 +49,8 @@ export type HarnessSessionInput = {
 	hostTools: HostToolSet;
 	/**
 	 * `spec.mode` of the turn. `plan` blocks the built-in tools that write,
-	 * run, or start an agent. The harness fixes them when a session starts.
+	 * run, or start an agent; `security_scan` keeps write and bash. The
+	 * harness fixes them when a session starts.
 	 */
 	mode: BuilderTurnMode;
 };

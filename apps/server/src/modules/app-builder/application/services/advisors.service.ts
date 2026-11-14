@@ -2,8 +2,9 @@
  * Collects the backend findings of one V2 app: the Supabase security and
  * performance advisors plus the wandit RLS check on the `public` schema
  * (WANDIT-186). The `get_advisors` host tool calls it; the publish gate of
- * WANDIT-190 calls it later. It reads through `SupabaseManagementClient`.
- * No Nest decorator: the builder-turn task composes it by hand.
+ * WANDIT-190 calls it later. The `security_scan` turn calls `runSecurity`.
+ * It reads through `SupabaseManagementClient`. No Nest decorator: the
+ * builder-turn task composes it by hand.
  */
 import type { GateFinding, SupabaseAdvisorLint } from "@wandit/contracts";
 import { z } from "zod";
@@ -60,15 +61,33 @@ export class AdvisorsService {
 		// and three round trips after a migration are fast enough.
 		const security = await this.client.getAdvisors(backend, "security");
 		const performance = await this.client.getAdvisors(backend, "performance");
+		return [
+			...(await this.rlsFindings(backend)),
+			...[...security, ...performance].flatMap(lintFinding),
+		];
+	}
+
+	/**
+	 * The security findings only: the wandit RLS findings first, then the
+	 * Supabase security advisors. The `security_scan` turn calls it before the
+	 * agent starts. An upstream error propagates.
+	 */
+	async runSecurity(backend: BackendRef): Promise<GateFinding[]> {
+		const security = await this.client.getAdvisors(backend, "security");
+		return [
+			...(await this.rlsFindings(backend)),
+			...security.flatMap(lintFinding),
+		];
+	}
+
+	/** One `wandit_rls_missing` finding per `public` table without RLS or without a policy. */
+	private async rlsFindings(backend: BackendRef): Promise<GateFinding[]> {
 		const unprotected = await this.client.runQuery(backend, {
 			readOnly: true,
 			rowSchema: rlsCheckRowSchema,
 			sql: RLS_CHECK_SQL,
 		});
-		return [
-			...unprotected.map(rlsFinding),
-			...[...security, ...performance].flatMap(lintFinding),
-		];
+		return unprotected.map(rlsFinding);
 	}
 }
 
