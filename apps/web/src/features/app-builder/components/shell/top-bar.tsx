@@ -59,12 +59,12 @@ export function ProjectBar({
 	return (
 		// On phones it grows, so the work controls sit at the end. From md it keeps its width, and a long name truncates.
 		<div className="flex min-w-0 flex-1 items-center gap-2 md:flex-initial">
-			{/* The brand tile of the dashboard sidebar is the way back. */}
+			{/* The brand tile of the dashboard sidebar is the way back. It stays night in dark mode, so the amber drop of the dark key is off. */}
 			{/* On phones the project menu's "All projects" item is the way back, so the tile hides. */}
 			<IconAction label={t("appBuilder.topBar.backToDashboard")}>
 				<Link
 					to="/dashboard"
-					className="group/logo hidden size-8 shrink-0 place-items-center rounded-[10px] bg-night outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid dark:ring-1 dark:ring-white/10"
+					className="group/logo hidden size-8 shrink-0 place-items-center rounded-[10px] bg-night shadow-key outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid dark:shadow-none dark:ring-1 dark:ring-white/10"
 				>
 					<Spark className="size-4.5 text-spark transition-transform duration-500 ease-out group-hover/logo:rotate-90 motion-reduce:transition-none" />
 				</Link>

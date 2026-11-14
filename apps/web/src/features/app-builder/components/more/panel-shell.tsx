@@ -1,10 +1,12 @@
 /**
  * Frame and shared look of every panel of the More view, except the code
  * screen. The code screen fills the view with no shell. PanelShell draws the
- * title and the description of the open panel above its body. The class
+ * icon tile, the title, and the description of the open panel above its body. The class
  * constants, PanelChip, and PanelMessage give all panels one look for cards,
  * chips, inputs, tabs, and empty states.
  * Rendered by more-view.tsx; the panels of more/ and cloud/ import the rest.
+ * The feature barrel exports the class constants, so the MCP pages of
+ * features/coding-agents have the same look.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -12,7 +14,11 @@ import { cn } from "@wandit/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { useTranslation } from "@/lib/i18n";
-import { MORE_PANEL_META, type ShellPanel } from "../../lib/constants";
+import {
+	CLOUD_PANEL_ICONS,
+	MORE_PANEL_META,
+	type ShellPanel,
+} from "../../lib/constants";
 import { isCloudPanel } from "../../lib/helpers";
 
 /** Props of PanelShell. more-view.tsx passes the last open panel that is not `code`. */
@@ -24,8 +30,10 @@ export type PanelShellProps = {
 };
 
 /**
- * Title, description, and body of one panel. A Cloud panel gets a wider body:
- * its tables have more columns than the cards of a More panel.
+ * Icon tile, title, description, and body of one panel. The tile repeats the
+ * icon of the open nav row, so each panel has its own face. A Cloud panel
+ * gets a wider body: its tables have more columns than the cards of a More
+ * panel.
  */
 export function PanelShell({ panel, children }: PanelShellProps) {
 	const { t } = useTranslation();
@@ -36,31 +44,51 @@ export function PanelShell({ panel, children }: PanelShellProps) {
 	const description = isCloud
 		? t(`workspace.cloud.descriptions.${panel}`)
 		: t(MORE_PANEL_META[panel].description);
+	const PanelIcon = isCloud
+		? CLOUD_PANEL_ICONS[panel]
+		: MORE_PANEL_META[panel].icon;
 
 	return (
-		<div className={cn("flex flex-col", isCloud ? "max-w-5xl" : "max-w-3xl")}>
-			<h1 className="font-extrabold font-grotesk text-[1.75rem] text-night leading-tight tracking-[-0.03em] dark:text-foreground">
-				{title}
-			</h1>
-			<p className="mt-1.5 max-w-2xl font-sans text-[15px] text-night/60 leading-relaxed dark:text-foreground/60">
-				{description}
-			</p>
-			<div className="mt-6 flex min-w-0 flex-col gap-4">{children}</div>
+		// The column sits in the middle of a wide stage, so no empty band stays at the end side.
+		<div
+			className={cn(
+				"mx-auto flex w-full flex-col",
+				isCloud ? "max-w-5xl" : "max-w-3xl",
+			)}
+		>
+			<header className="flex items-start gap-4">
+				{/* On a phone the nav strip above already shows the icon, and the title needs the width. */}
+				<span
+					aria-hidden
+					className="hidden size-12 shrink-0 place-items-center rounded-[16px] bg-night text-spark shadow-key sm:grid dark:bg-spark dark:text-night"
+				>
+					<PanelIcon weight="duotone" className="size-6" />
+				</span>
+				<div className="min-w-0">
+					<h1 className="font-extrabold font-grotesk text-[1.875rem] text-night leading-[1.1] tracking-[-0.03em] dark:text-foreground">
+						{title}
+					</h1>
+					<p className="mt-1.5 max-w-2xl font-sans text-[15px] text-night/60 leading-relaxed dark:text-foreground/60">
+						{description}
+					</p>
+				</div>
+			</header>
+			<div className="mt-7 flex min-w-0 flex-col gap-4">{children}</div>
 		</div>
 	);
 }
 
-/** Face of every card inside a panel: white with a navy hairline. On the white stage card, the hairline draws the edge. */
+/** Face of every card inside a panel: white with a navy hairline and a soft drop. It lifts off the sand ground that more-view.tsx puts under the panel. */
 export const PANEL_CARD_CLASS =
-	"rounded-[20px] border border-night/[0.08] bg-white dark:border-white/[0.08] dark:bg-white/[0.03]";
+	"rounded-[20px] border border-night/[0.08] bg-white shadow-raised dark:border-white/[0.08] dark:bg-white/[0.03]";
 
 /** Title of a card. The Settings and Integrations panels use it. */
 export const PANEL_CARD_TITLE_CLASS =
 	"font-grotesk font-semibold text-[15px] text-night dark:text-foreground";
 
-/** Hint line under a card title or a field. */
+/** Hint line under a card title or a field. Navy at 60 % keeps 13 px text over 4.5:1 on the white card. */
 export const PANEL_HINT_CLASS =
-	"font-sans text-[13px] text-night/55 dark:text-foreground/55";
+	"font-sans text-[13px] text-night/60 dark:text-foreground/60";
 
 /** Label above a field of a card. */
 export const PANEL_FIELD_LABEL_CLASS =
@@ -76,28 +104,34 @@ export const PANEL_INPUT_CLASS =
 
 /**
  * Main ember pill of the panels, for the kit Button with the default variant.
- * A disabled pill turns navy-grey, not a faded ember, so it reads as "not yet".
+ * It has the top light and the ember glow of the Publish key. A disabled
+ * pill turns flat navy-grey, not a faded ember, so it reads as "not yet".
  */
 export const PANEL_PRIMARY_BUTTON_CLASS =
-	"font-grotesk font-semibold disabled:bg-night/10 disabled:text-night/40 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-foreground/40";
+	"font-grotesk font-semibold shadow-ember hover:bg-ember-deep active:translate-y-px disabled:bg-night/10 disabled:text-night/40 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/40";
 
 /**
  * Secondary pill button of the panels, for the kit Button with
- * `variant="outline"`. The kit Button is already round.
+ * `variant="outline"`. It is a raised white pill, one step under the ember
+ * pill. The kit Button is already round. A Select trigger that uses it turns
+ * the lift and the press off.
  */
 export const PANEL_SECONDARY_BUTTON_CLASS =
-	"border-night/[0.12] bg-white font-grotesk font-medium text-night shadow-none hover:bg-night/[0.04] hover:text-night dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+	"border-night/[0.1] bg-white font-grotesk font-medium text-night shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px disabled:shadow-none dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
 
 /**
- * Track of a kit TabsList: the segmented pill of the dashboard filter. The
+ * Track of a kit TabsList: the recessed well of shell/segmented-control.tsx. The
  * height repeats the group variant of the kit, because a plain h-10 loses to it.
  */
 export const PANEL_TABS_LIST_CLASS =
-	"rounded-full border-0 bg-night/[0.05] p-1 group-data-[orientation=horizontal]/tabs:h-10 dark:bg-white/[0.06]";
+	"rounded-full border-0 bg-night/[0.055] p-1 shadow-well group-data-[orientation=horizontal]/tabs:h-10 dark:bg-white/[0.06]";
 
-/** One kit TabsTrigger on PANEL_TABS_LIST_CLASS. The open tab is a night pill, a spark pill in dark mode. */
+/**
+ * One kit TabsTrigger on PANEL_TABS_LIST_CLASS. The open tab is a night key, a spark key in dark mode.
+ * The shadow class repeats the variant chain of the kit trigger, so it replaces the kit shadow in the merge.
+ */
 export const PANEL_TABS_TRIGGER_CLASS =
-	"h-8 flex-none rounded-full px-3.5 font-grotesk font-medium text-night/60 hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper data-[state=active]:shadow-none dark:text-foreground/60 dark:hover:text-foreground dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night";
+	"h-8 flex-none rounded-full px-3.5 font-grotesk font-medium text-night/60 hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper group-data-[variant=default]/tabs-list:data-[state=active]:shadow-key dark:text-foreground/60 dark:hover:text-foreground dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night";
 
 /** Text and ground of each chip tone. Each tone keeps its text readable on the white card. */
 const CHIP_TONE_CLASS = {
@@ -178,7 +212,7 @@ export function PanelMessage({
 				className={cn(
 					"grid shrink-0 place-items-center",
 					isFeature
-						? "size-16 rounded-[20px] bg-night text-spark shadow-[0_12px_28px_-14px_rgb(11_16_51/0.6)] dark:bg-spark dark:text-night dark:shadow-none"
+						? "size-16 rounded-[20px] bg-night text-spark shadow-key dark:bg-spark dark:text-night"
 						: "size-12 rounded-[16px] bg-night/[0.05] text-night/55 dark:bg-white/[0.06] dark:text-foreground/60",
 				)}
 			>

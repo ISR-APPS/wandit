@@ -9,12 +9,12 @@ import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@wandit/ui/lib/utils";
 import type { ComponentProps } from "react";
 
-/** A card of the thread: a white face with a navy hairline. Dark: a faint lift with a white hairline. */
+/** A card of the thread: a white face with a navy hairline. A soft drop lifts it off the sand desk. Dark: a faint lift with a white hairline. */
 export function MessageCard({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			className={cn(
-				"rounded-[20px] border border-night/[0.08] bg-white p-3.5 dark:border-white/[0.08] dark:bg-white/[0.04]",
+				"rounded-[20px] border border-night/[0.08] bg-white p-3.5 shadow-raised dark:border-white/[0.08] dark:bg-white/[0.04]",
 				className,
 			)}
 			{...props}

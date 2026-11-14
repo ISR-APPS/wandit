@@ -109,7 +109,8 @@ export function SqlEditor({ projectId, postSql }: SqlEditorProps) {
 						{run.isIdle ? t("workspace.cloud.database.sql.hint") : null}
 					</p>
 					<Button
-						className={PANEL_PRIMARY_BUTTON_CLASS}
+						// The card clips 6 px under the button, so the ember glow is off here.
+						className={cn(PANEL_PRIMARY_BUTTON_CLASS, "shadow-none")}
 						onClick={runDraft}
 						disabled={run.isPending || draft.trim() === ""}
 					>

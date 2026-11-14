@@ -4,13 +4,19 @@
  * It shows who asks and for what, then sends Allow or Deny with `submitConsent`.
  * It shows the live `authClient.useSession()` account, because Allow grants access to the cookie session.
  * The client name is untrusted text: plain text only, no link, no logo.
+ * The buttons have the V2 panel look of features/app-builder, through its barrel.
  */
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import {
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+} from "@/features/app-builder";
 import { authClient, type SessionUser, signOut } from "@/features/auth";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
@@ -25,6 +31,7 @@ import {
 } from "../api/coding-agents.services";
 import {
 	InvalidOAuthRequest,
+	OAUTH_TITLE_CLASS,
 	OAuthCard,
 	OAuthMessage,
 	OAuthPending,
@@ -37,6 +44,9 @@ import {
 	parseRequestedScopes,
 	readSignedOAuthQuery,
 } from "../lib/helpers";
+
+// A small grey line of the page: the name note, "Signed in as", the revoke hint. 60 % navy keeps 12 px text readable on white.
+const NOTE_CLASS = "font-sans text-night/60 text-xs dark:text-foreground/60";
 
 /** 1 s. A double-click takes about 0.5 s, so its second click ends before Allow works. */
 const ALLOW_ARM_DELAY_MS = 1000;
@@ -223,30 +233,30 @@ function ConsentCard({
 
 	return (
 		<OAuthCard>
-			<h1 className="font-display font-semibold text-2xl tracking-tight">
+			<h1 className={OAUTH_TITLE_CLASS}>
 				{t("auth.codingAgents.consent.title")}
 			</h1>
 
-			<div className="mt-5 rounded-xl border bg-background p-4">
+			<div className="mt-6 rounded-[16px] border border-night/[0.08] bg-night/[0.02] p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
 				<p
 					dir="auto"
-					className="line-clamp-3 break-words font-grotesk font-semibold text-base"
+					className="line-clamp-3 break-words font-grotesk font-semibold text-base text-night dark:text-foreground"
 				>
 					{clientName ?? t("auth.codingAgents.client.unnamed")}
 				</p>
 				{clientName ? (
-					<p className="mt-0.5 text-muted-foreground text-xs">
+					<p className={cn(NOTE_CLASS, "mt-0.5")}>
 						{t("auth.codingAgents.client.givenByApp")}
 					</p>
 				) : null}
 				{addresses.length > 0 ? (
-					<dl className="mt-3 flex flex-col gap-1 text-xs">
+					<dl className="mt-3 flex flex-col gap-1 font-sans text-night text-xs dark:text-foreground">
 						{addresses.map((address) => (
 							<div
 								key={address.kind}
 								className="flex flex-wrap items-baseline gap-x-2 gap-y-1"
 							>
-								<dt className="text-muted-foreground">
+								<dt className="text-night/60 dark:text-foreground/60">
 									{address.kind === "client_id"
 										? t("auth.codingAgents.client.clientIdAddress")
 										: t("auth.codingAgents.client.redirectAddress")}
@@ -255,13 +265,13 @@ function ConsentCard({
 									{/* An address reads left to right in every locale. */}
 									<code
 										dir="ltr"
-										className="break-all rounded-md bg-muted px-1.5 py-0.5 font-mono"
+										className="break-all rounded-md bg-night/[0.06] box-decoration-clone px-1.5 py-0.5 font-mono dark:bg-white/[0.08]"
 									>
 										{address.address}
 									</code>
 								</dd>
 								{address.opensLocalApp ? (
-									<dd className="basis-full text-muted-foreground">
+									<dd className="basis-full text-night/60 dark:text-foreground/60">
 										{t("auth.codingAgents.client.localAppHint")}
 									</dd>
 								) : null}
@@ -271,27 +281,30 @@ function ConsentCard({
 				) : null}
 			</div>
 
-			<h2 className="mt-6 font-grotesk font-semibold text-sm">
+			<h2 className="mt-6 font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 				{t("auth.codingAgents.consent.accessTitle")}
 			</h2>
 			<div className="mt-3">
 				<ScopeList scopes={parseRequestedScopes(request.scope)} />
 			</div>
-			<p className="mt-4 text-muted-foreground text-sm">
+			<p className="mt-4 font-sans text-[13px] text-night/60 leading-relaxed dark:text-foreground/60">
 				{t("auth.codingAgents.consent.accessCoverage")}
 			</p>
 
-			<div className="mt-6 rounded-xl bg-muted px-4 py-3 text-sm">
-				<p className="text-muted-foreground text-xs">
+			<div className="mt-6 rounded-[16px] bg-night/[0.04] px-4 py-3 dark:bg-white/[0.05]">
+				<p className={NOTE_CLASS}>
 					{t("auth.codingAgents.consent.signedInAs")}
 				</p>
-				<p dir="ltr" className="ph-no-capture break-all text-start font-medium">
+				<p
+					dir="ltr"
+					className="ph-no-capture break-all text-start font-grotesk font-medium text-[14px] text-night dark:text-foreground"
+				>
 					{shownUser.displayEmail ?? shownUser.email}
 				</p>
 				<Button
 					variant="link"
 					size="sm"
-					className="mt-1 h-auto px-0"
+					className="mt-1 h-auto px-0 font-grotesk text-ember-text"
 					disabled={isBusy}
 					onClick={() => void switchAccount()}
 				>
@@ -302,7 +315,7 @@ function ConsentCard({
 			<div className="mt-6 grid grid-cols-2 gap-3">
 				<Button
 					variant="outline"
-					className="h-11 rounded-full"
+					className={cn(PANEL_SECONDARY_BUTTON_CLASS, "h-11")}
 					disabled={isBusy}
 					onClick={() =>
 						consent.mutate({ signedQuery: request.signedQuery, accept: false })
@@ -314,7 +327,7 @@ function ConsentCard({
 					{t("auth.codingAgents.consent.deny")}
 				</Button>
 				<Button
-					className="h-11 rounded-full"
+					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-11")}
 					disabled={!isAllowArmed || isBusy || isSessionLoading || isSignedOut}
 					onClick={() =>
 						consent.mutate({ signedQuery: request.signedQuery, accept: true })
@@ -326,7 +339,7 @@ function ConsentCard({
 					{t("auth.codingAgents.consent.allow")}
 				</Button>
 			</div>
-			<p className="mt-4 text-center text-muted-foreground text-xs">
+			<p className={cn(NOTE_CLASS, "mt-4 text-center")}>
 				{t("auth.codingAgents.consent.revokeHint")}
 			</p>
 		</OAuthCard>

@@ -1,7 +1,8 @@
 /**
  * Section nav of the More view: Analytics, then the Backend group of the
  * seven Cloud panels, then the App group of the other panels of the kind.
- * The rows copy the pill look of the dashboard sidebar.
+ * The rows copy the pill look of the dashboard sidebar. The open row is a
+ * raised key, like the active option of shell/segmented-control.tsx.
  * Rendered by components/more/more-view.tsx, which owns the open panel and
  * the URL change. Reads MORE_PANEL_META, CLOUD_PANELS, and panelsForKind.
  */
@@ -38,7 +39,7 @@ export type MoreNavProps = {
 const NAV_ROW_CLASS = cn(
 	"flex h-9 w-full shrink-0 items-center gap-2.5 rounded-full ps-1 pe-3 font-grotesk font-medium text-[14px] text-night/75 outline-none transition-colors duration-150",
 	"hover:bg-night/[0.06] hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50",
-	"aria-[current=page]:bg-night aria-[current=page]:text-paper",
+	"aria-[current=page]:bg-night aria-[current=page]:text-paper aria-[current=page]:shadow-key",
 	"dark:text-foreground/75 dark:hover:bg-white/[0.06] dark:hover:text-foreground",
 	"dark:aria-[current=page]:bg-spark dark:aria-[current=page]:text-night",
 	// On phones the nav is one strip of pills, each as wide as its label.

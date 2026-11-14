@@ -95,11 +95,11 @@ import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
 const DESK_CLASS =
 	"[--desk-bottom:#f3eee6] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.2)] [--desk-top:#f8f2e8] bg-[radial-gradient(900px_380px_at_var(--desk-glow-x)_-14%,var(--desk-glow),transparent_70%),linear-gradient(180deg,var(--desk-top),var(--desk-bottom))] rtl:[--desk-glow-x:92%] dark:[--desk-bottom:var(--background)] dark:[--desk-glow:rgb(209_96_34/0.14)] dark:[--desk-top:var(--background)]";
 
-// The chat lies on the desk with no card, so the stage is the one lifted
-// surface: a white sheet with a navy hairline and a soft navy shadow. In dark
-// mode it is one step lighter than the desk.
+// The stage is a white sheet with a navy hairline on the desk. Three navy
+// shadows lift it: a contact line, a near shade, and a wide soft drop. In
+// dark mode it is one step lighter than the desk.
 const STAGE_CARD_CLASS =
-	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_18px_44px_-26px_rgb(11_16_51/0.35)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
+	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.07),0_28px_56px_-30px_rgb(11_16_51/0.42)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
 
 export type AppBuilderPageProps = {
 	projectId: string;

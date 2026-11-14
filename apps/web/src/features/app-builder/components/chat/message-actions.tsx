@@ -1,6 +1,6 @@
 /**
  * The Copy action under an assistant message: it copies the final answer.
- * Rendered by chat-message.tsx. Copy writes to the clipboard through
+ * Rendered by chat-message.tsx at the start of the reply footer. Copy writes to the clipboard through
  * lib/helpers.ts and confirms with a toast. The button gets its tooltip and
  * its accessible name from IconAction of the top bar.
  */
@@ -20,8 +20,9 @@ export type MessageActionsProps = {
 };
 
 // Quieter and smaller than the bar buttons: the button sits under the prose and must not compete with it.
+// The negative start margin puts the icon, not the 28 px button box, on the text edge of the reply.
 const ACTION_BUTTON_CLASS =
-	"-my-1 -ms-1.5 size-7 self-start text-night/40 hover:bg-night/[0.05] hover:text-night dark:text-foreground/40 dark:hover:bg-white/[0.06] dark:hover:text-foreground [&_svg:not([class*='size-'])]:size-[15px]";
+	"-ms-1.5 size-7 text-night/40 hover:bg-night/[0.05] hover:text-night dark:text-foreground/40 dark:hover:bg-white/[0.06] dark:hover:text-foreground [&_svg:not([class*='size-'])]:size-[15px]";
 
 /** One quiet ghost Copy button with its tooltip. The label is also the accessible name. */
 export function MessageActions({ text }: MessageActionsProps) {

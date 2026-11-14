@@ -72,7 +72,7 @@ export function AiPanel({ projectId, isActive }: AiPanelProps) {
 				text={getApiErrorMessage(status.error)}
 			/>
 		) : (
-			<Skeleton className="h-[260px] rounded-[20px]" />
+			<Skeleton className="h-[260px] rounded-[20px] bg-night/[0.06] dark:bg-white/[0.07]" />
 		);
 	}
 
