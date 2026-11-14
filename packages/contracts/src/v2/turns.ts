@@ -15,6 +15,10 @@ import {
 	presentPlanHostToolInputSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
+import {
+	type TurnSecurityReportData,
+	turnSecurityReportDataPartSchema,
+} from "./security-scan";
 import { appCommitNumstatEntrySchema, commitShaSchema } from "./versions";
 
 /**
@@ -46,13 +50,15 @@ export type BuilderTurnStatus = z.infer<typeof builderTurnStatusSchema>;
 /**
  * How the agent works on a turn. `plan` is Plan Mode: the agent interviews
  * the user and presents a plan, and it cannot change files. `build` builds.
+ * `security_scan` runs the host checks and the Cloudflare skill audit, and it
+ * cannot change project files (see `security-scan.ts`).
  */
-export const builderTurnModes = ["plan", "build"] as const;
+export const builderTurnModes = ["plan", "build", "security_scan"] as const;
 
 /** Runtime validator for a builder turn mode. */
 export const builderTurnModeSchema = z.enum(builderTurnModes);
 
-/** `plan` or `build`; see `builderTurnModes`. */
+/** `plan`, `build`, or `security_scan`; see `builderTurnModes`. */
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
 /**
@@ -262,11 +268,15 @@ export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
 /**
  * Answer of `GET /api/v2/projects/:id/turns/active`. The builder page polls
  * it to show a turn or a commit of another client, such as a coding agent
- * over MCP or a teammate.
+ * over MCP or a teammate. `busyChatId` tells a conversation that another
+ * conversation uses the project.
  */
 export const activeTurnStateResponseSchema = z.object({
 	// The turn that holds the project slot: queued, running, or cancelling. Null when no turn runs.
 	activeTurnId: uuidSchema.nullable(),
+	// The conversation that holds the project, else null. It has an unfinished turn:
+	// queued, parked, running, cancelling, or one that waits for an answer or an approval.
+	busyChatId: uuidSchema.nullable(),
 	// `app_branches(main).head_sha`. Null before the first commit of the project.
 	headSha: commitShaSchema.nullable(),
 });
@@ -344,6 +354,10 @@ export const turnErrorDataSchema = z.object({
 	code: z.string(),
 	message: z.string(),
 	retryable: z.boolean(),
+	// The mode of the failed turn. The stored reply has no other place for it,
+	// and Retry sends a failed `security_scan` turn as a scan again.
+	// Absent on rows stored before it and on errors the relay makes.
+	mode: builderTurnModeSchema.optional(),
 });
 
 /** Inferred from `turnErrorDataSchema`; `retryable` tells the UI whether a resend can help. */
@@ -662,8 +676,8 @@ export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
 /**
  * `data` of the `data-turn-context` part the task writes once, at the end
  * of a turn that ended normally. A turn that pauses for the user writes none.
- * Both counts come from Claude Code. The
- * chat shows a "context getting full" notice when `tokens` nears
+ * Both counts come from Claude Code. The composer shows them as a context
+ * ring. The ring turns to its warning tone when `tokens` nears
  * `compactAtTokens`. `ClaudeCodeHarness` parses the bridge value with it too.
  */
 export const turnContextDataSchema = z.object({
@@ -728,6 +742,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
 	turnContextDataPartSchema,
+	turnSecurityReportDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -752,4 +767,5 @@ export type TurnDataParts = {
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;
 	"turn-context": TurnContextData;
+	"security-report": TurnSecurityReportData;
 };

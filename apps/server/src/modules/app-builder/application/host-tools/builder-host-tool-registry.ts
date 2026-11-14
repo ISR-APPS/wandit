@@ -6,7 +6,7 @@
  * A web or mobile project adds `request_network_host`, the seven backend
  * tools of WANDIT-186, and `enable_ai` of the app AI gateway; a desktop
  * project adds `add_local_migration`. A Plan Mode turn gets only `ask_user`
- * and `present_plan`.
+ * and `present_plan`. A `security_scan` turn gets only the two backend reads.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
  */
@@ -90,14 +90,36 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				},
 			});
 		}
-		// Only a template with src/styles/theme.json has a theme to set.
-		const hasAppTheme = supportsAppTheme(context.templateVersion);
 		// A desktop app keeps its data in a local SQLite file: it has no cloud
 		// backend, so no backend tool and no enable_ai. Its schema changes only
 		// through add_local_migration.
 		// Its CSP blocks every remote host, so it gets no request_network_host:
 		// an approved host would work in the preview and fail in the installed app.
 		const isDesktop = context.framework === TEMPLATE_PROFILES.desktop.framework;
+		// A security scan only reads: no write, no approval card, no question.
+		// `run_sql` refuses a write statement without running it.
+		if (context.mode === "security_scan" && isDesktop) {
+			return Promise.resolve({
+				close: async () => {},
+				toolApproval: {},
+				tools: {},
+			});
+		}
+		if (context.mode === "security_scan") {
+			return Promise.resolve({
+				close: async () => {},
+				toolApproval: {
+					get_advisors: "not-applicable",
+					run_sql: "not-applicable",
+				},
+				tools: {
+					get_advisors: createGetAdvisorsTool(this.deps, context),
+					run_sql: createRunSqlTool(this.deps, context),
+				},
+			});
+		}
+		// Only a template with src/styles/theme.json has a theme to set.
+		const hasAppTheme = supportsAppTheme(context.templateVersion);
 		return Promise.resolve({
 			// Nothing to release yet: the connector clients that need a
 			// close land in the connector follow-up issue.

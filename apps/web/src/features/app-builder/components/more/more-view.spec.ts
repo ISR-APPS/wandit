@@ -116,6 +116,9 @@ function renderView(
 				codeFilePath: undefined,
 				onSelectCodeFile: vi.fn(),
 				isTurnRunning: false,
+				canSendTurn: false,
+				onRunSecurityScan: () => {},
+				onAskSecurityFix: () => {},
 			}),
 		};
 		return createElement(

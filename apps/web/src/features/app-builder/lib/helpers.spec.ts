@@ -22,6 +22,7 @@ import {
 	formatUsdMicros,
 	isSameThemeSource,
 	isThemeDraftStale,
+	openChatOf,
 	panelsForKind,
 	previewSrcFor,
 	readBuilderModel,
@@ -34,6 +35,56 @@ import {
 	writeChatOpen,
 	writeExpoUsername,
 } from "./helpers";
+
+describe("openChatOf", () => {
+	const olderChat = {
+		id: crypto.randomUUID(),
+		title: "Build a shop",
+		createdAt: "2026-11-01T08:00:00.000Z",
+		lastMessageAt: "2026-11-01T08:05:00.000Z",
+	};
+	const newerChat = {
+		id: crypto.randomUUID(),
+		title: null,
+		createdAt: "2026-11-05T08:00:00.000Z",
+		lastMessageAt: null,
+	};
+	// The API sorts the list by activity. The newer conversation has none, so its creation date counts.
+	const chats = [newerChat, olderChat];
+
+	it.each([
+		{
+			request: "an id that the list holds",
+			chats,
+			requestedChatId: olderChat.id,
+			expected: { id: olderChat.id, isOldest: true },
+		},
+		{
+			request: "an id that the list does not hold",
+			chats,
+			requestedChatId: crypto.randomUUID(),
+			expected: { id: newerChat.id, isOldest: false },
+		},
+		{
+			request: "no id",
+			chats,
+			requestedChatId: undefined,
+			expected: { id: newerChat.id, isOldest: false },
+		},
+		{
+			request: "an empty list",
+			chats: [],
+			requestedChatId: olderChat.id,
+			expected: null,
+		},
+	])("opens the right conversation for $request", ({
+		chats: listed,
+		requestedChatId,
+		expected,
+	}) => {
+		expect(openChatOf(listed, requestedChatId)).toEqual(expected);
+	});
+});
 
 describe("panelsForKind", () => {
 	it("lists domains for a web app and not app stores", () => {

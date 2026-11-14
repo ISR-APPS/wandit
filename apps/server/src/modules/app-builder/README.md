@@ -25,8 +25,9 @@ PostHog flag `v2-builder`).
   model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
   and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
   167,000. At each turn end the bridge fork reads Claude Code's own count.
-  The task writes it as the `data-turn-context` part, and the chat shows
-  "context getting full" from 50,000 tokens before the compaction point.
+  The task writes it as the `data-turn-context` part. The composer shows it
+  as a context ring; the warning tone starts 50,000 tokens before the
+  compaction point.
 - The turn stream is the Trigger.dev stream `ui`, read by the API and
   relayed as SSE (D20 — one box for the whole stream).
 - The durable git store is code.storage (D21).
@@ -37,7 +38,7 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; `app-theme-design.ts`, the prompts and the answer rules of the AI theme designer; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project; `app-theme-deal.ts`, the theme deal, the `set_theme` patch, and the web-app@1.1.0 gate; `app-theme-design.ts`, the prompts and the answer rules of the AI theme designer; D29: `isWritableCodePath` in `code-tree.ts`, the write deny list of the MCP `apply_changes` tool; security scan: `security-scan.ts`, the scan prompt, the host check and `findings.json` mappings, and the report sort and cap |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform; `app-theme-file.ts`, the read and write of `src/styles/theme.json`; D29: `guarded-file-writes.ts`, the symlink-safe file writes of `apply_changes` |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -46,13 +47,13 @@ PostHog flag `v2-builder`).
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter; WANDIT-178: the `publish-app` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService`; WANDIT-192: one version per platform (the web file is required at boot, the mobile file is optional) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository`; D29: `McpAccessRepository` (the token user, the consent, and the project owner of one MCP call) and `BuilderTurnsRepository.findCardParts` |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository`; D29: `McpAccessRepository` (the token user, the consent, and the project owner of one MCP call) and `BuilderTurnsRepository.findCardParts`; security scan: `SecurityScansRepository` (`security_scans`) |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
 | `infrastructure/langfuse/` | The OTLP exporter of the LLM proxy generations |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost; D29: `McpController` (`POST /api/mcp`) and `McpTools`, the 12 MCP tools (docs/features/coding-agents-mcp.md) |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes; the model list and the chat cost; D29: `McpController` (`POST /api/mcp`) and `McpTools`, the 12 MCP tools (docs/features/coding-agents-mcp.md); security scan: `SecurityScansController` (`GET .../security-scans/latest`) |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard`; D29: `McpTokenGuard`, the bearer token check of `/api/mcp`; the shared bucket constants and `findRateLimitDenial`, which the MCP tools also call |
 | `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService`; D29: `McpChangesService`, the `apply_changes` lock, write, and commit flow |
 
@@ -391,6 +392,50 @@ outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
+
+## Conversations
+
+One V2 project can hold several conversations. The rules:
+
+- One conversation is one row of `chats`. The table permits many rows per
+  project, so no migration exists for it.
+- Only one conversation at a time can use the project. A conversation
+  holds the project while it has a turn that is not terminal: `queued`,
+  `waiting`, `running`, `cancelling`, `waiting_for_answer`, or
+  `waiting_for_approval` (`BuilderTurnsRepository.findBusyChatId`). A new
+  turn of another conversation answers 409 `BUILDER_OTHER_CHAT_BUSY` with
+  `details.chatId`, the conversation that holds the project. It does not
+  park. The refusal comes before the credit hold. A turn of the same
+  conversation parks behind its active turn, as before.
+- A conversation has no stored title. Its title is the text of its first
+  user message, cut to 80 characters. The title is null when the
+  conversation has no message, or when the first message has no text.
+- All members of a project see all its conversations.
+
+All the routes are behind `V2BuilderEnabledGuard`. The two `chats` routes
+sit in `AppProjectsController`. A project that is missing, out of scope,
+or not `v2_app` answers 404:
+
+- `GET /api/v2/projects/:projectId/chats` (viewer role) answers
+  `ProjectChatListResponse`: each conversation with `title`, `createdAt`,
+  and `lastMessageAt`. The most recent activity comes first: the date of
+  the newest message, else the date of the chat.
+- `POST /api/v2/projects/:projectId/chats` (editor role) takes no body and
+  answers `CreateProjectChatResponse`. It answers the chat of the project
+  that has no message, else it inserts a `chats` row. A second click thus
+  adds no row. It writes no `builder_sessions` row: the first turn of the
+  chat creates it (`TurnsService.ensureSession`).
+- `GET /api/v2/projects/:projectId/messages` (`ChatHistoryController`)
+  takes the optional `chatId`. The chat must be in scope and belong to the
+  project, else 404. Without `chatId`, the route reads the oldest
+  conversation.
+- `GET /api/v2/projects/:projectId/turns/active` (`TurnsController`)
+  answers `busyChatId`: the conversation that holds the project, or null.
+
+Two conversations can send a turn at the same instant. Both pass the
+first check. `TurnsService.create` then reads the active row and the
+oldest `waiting` row again after the hold. The loser gets the same 409,
+and the catch block refunds its hold.
 
 ## Agent browser and thumbnails
 
@@ -1043,8 +1088,9 @@ One run does this, in order:
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note
-   when it applies. A `waiting_for_*` row of the project
-   moves to `succeeded` first — this run is its answer. When the stored
+   when it applies. A `waiting_for_*` row of the same conversation
+   moves to `succeeded` first — this run is its answer. A paused row of
+   another conversation stays as it is, with one warning. When the stored
    state holds pending cards, the turn streams a `continue` input. For an
    `ask_user` card, `askUserOutputOf` builds the tool result: a
    `spec.answers` entry wins. Without one, the message text answers the
@@ -1059,6 +1105,18 @@ One run does this, in order:
    `ask_user` answer then resumes the same thread between turns
    (`dropPausedTurn`) and goes as the same plain text. An approval keeps
    the `continue` input.
+   Two conversations share the one bridge of the sandbox. When another
+   conversation ran the turn before this one
+   (`BuilderTurnsRepository.findPreviousRunChatId`), the runtime uses the
+   rules of a sandbox stop: `bridgeDead` is true, and the harness starts a
+   new bridge that resumes the conversation by its `claudeSessionId`. A
+   stored state without that id does not resume: the turn starts fresh
+   with the chat recap. A resumed turn gets `otherChatNoteOf` in front of
+   the user text: the files can differ from the memory of the agent. A
+   chat with no stored session on a project that has code gets
+   `freshSessionNoteOf`.
+   A new sandbox has no transcript, so the turn that created it clears
+   the resume state of every other chat of the project.
 7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
    refresh, `sandbox.keepAlive`, `touchActivity`) and the 30 s pulse
    (`STREAM_HEARTBEAT_MS`). The pulse runs the 4 min stall watchdog

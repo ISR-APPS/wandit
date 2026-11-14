@@ -24,6 +24,7 @@ import {
 	getTurnEstimate,
 	getVersionDiff,
 	listChatHistory,
+	listProjectChats,
 	listVersions,
 } from "./app-builder.services";
 import type { CodeSnapshot } from "./dto";
@@ -35,8 +36,10 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "project", projectId] as const,
 	turnEstimate: (projectId: string) =>
 		[...appBuilderKeys.all, "turn-estimate", projectId] as const,
-	chatHistory: (projectId: string) =>
-		[...appBuilderKeys.all, "chat-history", projectId] as const,
+	chats: (projectId: string) =>
+		[...appBuilderKeys.all, "chats", projectId] as const,
+	chatHistory: (projectId: string, chatId: string | undefined) =>
+		[...appBuilderKeys.all, "chat-history", projectId, chatId] as const,
 	code: (projectId: string) =>
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
@@ -61,9 +64,9 @@ export const appBuilderKeys = {
 const ACTIVE_TURN_POLL_MS = 5_000;
 
 /**
- * The running turn and the `main` head of a project. use-builder-chat.ts
- * polls it while its chat streams nothing, and follows what another client
- * starts. `getState` is the test seam of BuilderChatDeps.
+ * The running turn, the busy conversation, and the `main` head of a project.
+ * use-builder-chat.ts polls it while its chat streams nothing, and follows
+ * what another client starts. `getState` is the test seam of BuilderChatDeps.
  */
 export const activeTurnStateQuery = (
 	projectId: string,
@@ -72,6 +75,9 @@ export const activeTurnStateQuery = (
 	queryOptions({
 		queryKey: appBuilderKeys.activeTurnState(projectId),
 		queryFn: () => getState(projectId),
+		// The poll stops while the chat streams and while a conversation loads.
+		// Its last answer is old when it starts again, so it asks at once.
+		staleTime: 0,
 		// The server pushes no project event, so the page asks. A hidden tab
 		// does not ask: `refetchIntervalInBackground` stays false.
 		// LIMIT: one poll per open builder tab every 5 s. Upgrade: a project event stream over Redis pub/sub and SSE.
@@ -134,13 +140,35 @@ export const turnEstimateQuery = (projectId: string) =>
 	});
 
 /**
- * The stored chat of a project, page by page. The first page holds the
- * newest messages; `fetchNextPage` adds the next older page.
+ * The conversations of a project, the most recent activity first. The page
+ * picks the open conversation from it, and the chat header lists it. A turn
+ * start and a turn end mark it stale in use-builder-chat.ts.
  */
-export const chatHistoryQuery = (projectId: string) =>
+export const projectChatsQuery = (projectId: string) =>
+	queryOptions({
+		queryKey: appBuilderKeys.chats(projectId),
+		queryFn: () => listProjectChats(projectId),
+	});
+
+/**
+ * The stored chat of one conversation, page by page. The first page holds
+ * the newest messages; `fetchNextPage` adds the next older page. It waits
+ * while `chatId` is undefined, as during the load of the conversation list.
+ */
+export const chatHistoryQuery = (
+	projectId: string,
+	chatId: string | undefined,
+) =>
 	infiniteQueryOptions({
-		queryKey: appBuilderKeys.chatHistory(projectId),
-		queryFn: ({ pageParam }) => listChatHistory(projectId, pageParam),
+		queryKey: appBuilderKeys.chatHistory(projectId, chatId),
+		queryFn:
+			chatId === undefined
+				? skipToken
+				: ({ pageParam }) => listChatHistory(projectId, chatId, pageParam),
+		// The live chat holds turns that a cached page lacks. With no cache
+		// time, a conversation that opens again loads its stored chat again.
+		// LIMIT: each switch loads the history again, and the thread is empty during the load. Upgrade: show the cached page, then reseed the chat from the fresh page.
+		gcTime: 0,
 		// SAFETY: a widening only. TanStack reads the cursor type from this
 		// value, and the later cursors are the strings of `nextCursor`.
 		initialPageParam: null as string | null,

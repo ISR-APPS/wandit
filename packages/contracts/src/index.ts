@@ -112,6 +112,8 @@ export * from "./v2/audit";
 export * from "./v2/backend-tools";
 // V2 paged chat history: the cursor query and one page of messages.
 export * from "./v2/chat-history";
+// V2 project conversations: one row, the list, and the create answer.
+export * from "./v2/chats";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
 // V2 Code view contracts: the committed or sandbox file tree and one file.
@@ -152,6 +154,8 @@ export * from "./v2/publish";
 export * from "./v2/routes";
 // V2 write-only project secrets contracts.
 export * from "./v2/secrets";
+// V2 security scan: the report, the chat card, and the audit output parsers.
+export * from "./v2/security-scan";
 // V2 project sharing: grants, invitations, invite link, transfer, move, and shared projects.
 export * from "./v2/sharing";
 // V2 Supabase Management API contracts.

@@ -5,7 +5,11 @@
  * start and on a timer; it ends those turns like a failed run does.
  */
 import { randomUUID } from "node:crypto";
-import type { TurnDoneData, TurnErrorData } from "@wandit/contracts";
+import {
+	builderTurnSpecSchema,
+	type TurnDoneData,
+	type TurnErrorData,
+} from "@wandit/contracts";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import type { TurnStreamEventInput } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
@@ -127,9 +131,13 @@ async function recoverTurn(
 		}
 	};
 	const done: TurnDoneData = { status: canceled ? "canceled" : "failed" };
+	// Retry reads the mode, so a lost `security_scan` turn retries as a scan.
+	// A spec that fails the parse leaves it absent: Retry then uses the toggle.
+	const spec = builderTurnSpecSchema.pick({ mode: true }).safeParse(row.spec);
 	const errorData: TurnErrorData = {
 		code: "host_lost",
 		message: HOST_LOST_ERROR,
+		mode: spec.success ? spec.data.mode : undefined,
 		retryable: true,
 	};
 	// A run stores its reply only at its end, so a dead run left none. The row
