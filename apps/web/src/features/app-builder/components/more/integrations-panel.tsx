@@ -80,7 +80,7 @@ import {
 export type IntegrationsPanelProps = {
 	/** The project the page reads from appProjectQuery. Its name gives the default repo name. */
 	project: AppProject;
-	/** True while the More view is on screen. The view stays mounted, so the account query waits for it. */
+	/** True while this panel is on screen: the More view is open and the code screen does not cover it. The view stays mounted, so the account query waits for it. */
 	isActive: boolean;
 };
 
@@ -125,7 +125,7 @@ export function IntegrationsPanel({
 				text={getApiErrorMessage(status.error)}
 			/>
 		) : (
-			<Skeleton className="h-[148px] rounded-[20px]" />
+			<Skeleton className="h-[148px] rounded-[20px] bg-night/[0.06] dark:bg-white/[0.07]" />
 		);
 	}
 
@@ -349,7 +349,8 @@ function CreateRepositoryForm({
 									dir="ltr"
 									className={cn(
 										PANEL_SECONDARY_BUTTON_CLASS,
-										"w-full rounded-full px-4 data-[size=default]:h-10",
+										// A field, not a button: no lift and no press.
+										"w-full rounded-full px-4 shadow-none active:translate-y-0 data-[size=default]:h-10",
 									)}
 								>
 									<SelectValue />

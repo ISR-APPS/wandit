@@ -1020,7 +1020,7 @@ Do "Setup" of "Desktop apps" first. The builder repo and its variable
 `DESKTOP_BUILD_BUCKET_URLS` must exist. Then use this order. Use it again
 after each change of the Electron shell or its `package-lock.json`.
 
-1. Apply the database migration `0094_desktop-engine.sql`
+1. Apply the database migration `0095_desktop-engine.sql`
    (`pnpm db:migrate`). It adds the enum `desktop_engine` and the nullable
    column `projects.desktop_engine`. Old rows keep NULL, which means Tauri.
 2. In the builder repo, open Settings > Actions > General. The allowed

@@ -4,7 +4,10 @@
  * split moves the work pane controls with the main card. On phones the open
  * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
- * project query. The URL search params hold the view state.
+ * project query. The URL search params hold the view state: Preview or
+ * More, the More panel (the code screen too), the open file, and the open
+ * conversation. The page reads the conversation list, picks the open
+ * conversation, and switches it in place: the preview stays mounted.
  * The Backend group of the More view shows only behind useCloudTabEnabled and for an editor,
  * and never for a desktop project. The Appetize device of a mobile project shows only behind
  * useDevicePreviewEnabled. A desktop project shows its preview in a Windows window inside WebPreview.
@@ -17,10 +20,15 @@
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
- * strip, and a pull reloads the preview.
+ * strip, and a pull reloads the preview. It sends the scan and fix turns of
+ * the Security panel, and the scan card of the chat opens that panel.
  */
 
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import {
+	useQuery,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { PREVIEW_TARGETS_MAX, type PreviewTarget } from "@wandit/contracts";
 import {
@@ -40,9 +48,12 @@ import { hasProjectRole } from "@/features/project-sharing";
 import { useWorkspace } from "@/features/workspaces";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
+import { useCreateProjectChat } from "../api/app-builder.mutations";
 import {
+	appBuilderKeys,
 	appProjectQuery,
 	chatCostQuery,
+	projectChatsQuery,
 	turnEstimateQuery,
 } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
@@ -51,7 +62,6 @@ import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
-import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
@@ -63,6 +73,7 @@ import {
 	CHAT_PANEL_MIN_WIDTH,
 } from "../lib/constants";
 import {
+	openChatOf,
 	readChatLayout,
 	readChatOpen,
 	readDeveloperView,
@@ -84,15 +95,15 @@ import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
 const DESK_CLASS =
 	"[--desk-bottom:#f3eee6] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.2)] [--desk-top:#f8f2e8] bg-[radial-gradient(900px_380px_at_var(--desk-glow-x)_-14%,var(--desk-glow),transparent_70%),linear-gradient(180deg,var(--desk-top),var(--desk-bottom))] rtl:[--desk-glow-x:92%] dark:[--desk-bottom:var(--background)] dark:[--desk-glow:rgb(209_96_34/0.14)] dark:[--desk-top:var(--background)]";
 
-// The chat lies on the desk with no card, so the stage is the one lifted
-// surface: a white sheet with a navy hairline and a soft navy shadow. In dark
-// mode it is one step lighter than the desk.
+// The stage is a white sheet with a navy hairline on the desk. Three navy
+// shadows lift it: a contact line, a near shade, and a wide soft drop. In
+// dark mode it is one step lighter than the desk.
 const STAGE_CARD_CLASS =
-	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_18px_44px_-26px_rgb(11_16_51/0.35)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
+	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.07),0_28px_56px_-30px_rgb(11_16_51/0.42)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
 
 export type AppBuilderPageProps = {
 	projectId: string;
-	/** Validated `?view=&panel=&device=&viewport=&file=` of the URL. */
+	/** Validated `?view=&panel=&device=&viewport=&file=&chat=` of the URL. */
 	search: AppBuilderSearch;
 };
 
@@ -110,9 +121,42 @@ export default function AppBuilderPage({
 	// The not-found screen needs no model list. A user outside the rollout
 	// sees that screen, and the list route answers that user 403.
 	const modelPick = useBuilderModelPick(projectId, project !== null);
-	const thread = useBuilderThread(projectId, modelPick.modelId);
+	const queryClient = useQueryClient();
+	// The conversations of the project. The not-found screen needs none.
+	const { data: chatList, error: chatListError } = useQuery({
+		...projectChatsQuery(projectId),
+		enabled: project !== null,
+	});
+	const chats = chatList?.chats ?? [];
+	const openChat = openChatOf(chats, search.chat);
+	const openChatId = openChat?.id;
+	const thread = useBuilderThread(projectId, openChat, modelPick.modelId);
+	const createChat = useCreateProjectChat(projectId);
+	// A link without `?chat=` opens the conversation with the newest activity.
+	// The URL then gets its id. Without it, a list refresh with a new order
+	// would switch the conversation, and a reload could open another one.
+	const hasChatParam = search.chat !== undefined;
+	useEffect(() => {
+		if (openChatId === undefined || hasChatParam) return;
+		void navigate({
+			search: (previous) => ({ ...previous, chat: openChatId }),
+			replace: true,
+		});
+	}, [openChatId, hasChatParam, navigate]);
+	// The busy conversation can be newer than the loaded list, for example
+	// one that a teammate started. The list then loads again and holds it.
+	const isBusyChatUnknown =
+		chatList !== undefined &&
+		thread.busyChatId !== null &&
+		!chatList.chats.some((chat) => chat.id === thread.busyChatId);
+	useEffect(() => {
+		if (!isBusyChatUnknown) return;
+		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.chats(projectId),
+		});
+	}, [isBusyChatUnknown, queryClient, projectId]);
 	// The full cost of the chat. A failed read hides the line; it never blocks a send.
-	const { data: chatCost } = useQuery(chatCostQuery(projectId, thread.chatId));
+	const { data: chatCost } = useQuery(chatCostQuery(projectId, openChatId));
 	// Product rule: raw thinking never shows in production, also not for staff.
 	// Local dev can switch to the developer view to see every step.
 	const [isDeveloperView, setIsDeveloperView] = useState(
@@ -124,7 +168,7 @@ export default function AppBuilderPage({
 		null,
 	);
 	const [isActivityOpen, setIsActivityOpen] = useState(false);
-	// A reply that leaves the thread (a project switch, a canceled turn) closes the panel.
+	// A reply that leaves the thread (a project or conversation switch, a canceled turn) closes the panel.
 	const activityMessage =
 		activityMessageId === null
 			? undefined
@@ -216,6 +260,12 @@ export default function AppBuilderPage({
 	const isPayerActiveWorkspace =
 		project.access === undefined ||
 		activeWorkspace?.id === project.access.workspace.id;
+	// Product rule: one conversation at a time uses the project. The fix
+	// buttons of the preview and the work bar send a turn, so they lock too.
+	const isOtherChatBusy =
+		thread.busyChatId !== null && thread.busyChatId !== openChatId;
+	const canStartTurn =
+		canEdit && thread.isReady && !thread.isSending && !isOtherChatBusy;
 
 	const bootContext: BootContext = {
 		isTurnRunning: thread.isTurnRunning,
@@ -240,6 +290,19 @@ export default function AppBuilderPage({
 			replace,
 		});
 	}
+
+	// A conversation switch makes a history entry, so Back opens the conversation before.
+	function openChatById(chatId: string) {
+		setSearch({ chat: chatId }, false);
+	}
+
+	// Product rule: a new conversation needs the editor role, so a viewer gets no create action.
+	const createAndOpenChat = canEdit
+		? () =>
+				createChat.mutate(undefined, {
+					onSuccess: ({ chat }) => openChatById(chat.id),
+				})
+		: undefined;
 
 	// Every open or close path (top bar, chat header, drag to zero) goes through here, so the choice persists.
 	function setChatOpenAndStore(open: boolean) {
@@ -272,8 +335,25 @@ export default function AppBuilderPage({
 			}
 		: undefined;
 
+	// The scan card of the chat opens the stored report. The More view replaces
+	// the details panel, and on a phone the open chat covers the view, so both close.
+	function openSecurityReport() {
+		setIsActivityOpen(false);
+		if (isMobile) setChatOpenAndStore(false);
+		setSearch({ view: "more", panel: "security" }, false);
+	}
+
+	// A Security panel turn shows its reply in the chat, so a closed chat opens.
+	function sendSecurityTurn(text: string, mode: "build" | "security_scan") {
+		void thread.send({ text, files: [], mode });
+		setChatOpenAndStore(true);
+	}
+
 	const chatCard = (
 		<ChatPane
+			// A new key mounts a new pane for each conversation. The draft, the
+			// files, the tray, and the scroll state of the other one go away.
+			key={openChatId}
 			messages={thread.messages}
 			// The running turn shows its own hold; before a send, the estimate route answers.
 			turnEstimateCredits={
@@ -308,6 +388,11 @@ export default function AppBuilderPage({
 				setIsActivityOpen(true);
 			}}
 			isReady={thread.isReady}
+			chats={chats}
+			openChatId={openChatId}
+			busyChatId={thread.busyChatId}
+			onOpenChat={openChatById}
+			onCreateChat={createAndOpenChat}
 			onSend={async (input) => {
 				setPicked({ projectId, targets: [] });
 				const isAccepted = await thread.send(input, targets);
@@ -323,16 +408,21 @@ export default function AppBuilderPage({
 			onPlanModeChange={thread.setPlanMode}
 			modelPick={modelPick}
 			chatCost={chatCost}
-			contextFullPercent={thread.contextFullPercent}
+			contextUsage={thread.contextUsage}
 			onCancel={() =>
 				void thread
 					.cancel()
 					.catch((error: unknown) => toast.error(getApiErrorMessage(error)))
 			}
-			errorText={thread.errorText}
+			// Without the conversation list no thread loads, so its failed load shows in the same row.
+			errorText={
+				thread.errorText ??
+				(chatListError === null ? null : getApiErrorMessage(chatListError))
+			}
 			onReconnect={thread.reconnect}
 			onCollapse={() => setChatOpenAndStore(false)}
 			onOpenSecrets={openSecrets}
+			onOpenSecurityReport={openSecurityReport}
 			hasOlderMessages={thread.hasOlderMessages}
 			isLoadingOlderMessages={thread.isLoadingOlderMessages}
 			onLoadOlderMessages={thread.loadOlderMessages}
@@ -374,7 +464,7 @@ export default function AppBuilderPage({
 						reloadKey={reloadKey}
 						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
-						canStartTurn={canEdit && thread.isReady && !thread.isSending}
+						canStartTurn={canStartTurn}
 						canEditTheme={canEdit}
 						isSelecting={isSelecting}
 						onSelectingChange={setIsSelecting}
@@ -394,20 +484,12 @@ export default function AppBuilderPage({
 						bootContext={bootContext}
 						// A device session needs the editor role.
 						canRunOnDevice={canEdit && isDevicePreviewEnabled}
-						canStartTurn={canEdit && thread.isReady && !thread.isSending}
+						canStartTurn={canStartTurn}
 						onTryToFix={(message) => thread.send({ text: message, files: [] })}
 					/>
 				)}
 			</div>
-			{view === "code" ? (
-				<CodeView
-					projectId={project.id}
-					filePath={search.file}
-					onSelectFile={(path) => setSearch({ file: path }, true)}
-					isTurnRunning={thread.isTurnRunning}
-				/>
-			) : null}
-			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its Cloud queries wait for isActive. */}
+			{/* Hidden, not unmounted: the SQL draft, the open page, and the code screen stay. Its Cloud queries wait for isActive. */}
 			<div
 				className={cn(
 					"h-full min-h-0 flex-col",
@@ -422,6 +504,18 @@ export default function AppBuilderPage({
 					isActive={view === "more"}
 					showBackendGroup={showBackendGroup}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
+					codeFilePath={search.file}
+					onSelectCodeFile={(path) => setSearch({ file: path }, true)}
+					isTurnRunning={thread.isTurnRunning}
+					canSendTurn={canEdit && thread.isReady && !thread.isSending}
+					onRunSecurityScan={() =>
+						sendSecurityTurn(
+							t("appBuilder.security.scanMessage"),
+							"security_scan",
+						)
+					}
+					// An explicit build: with the Plan toggle on, a fix must not become a plan.
+					onAskSecurityFix={(text) => sendSecurityTurn(text, "build")}
 				/>
 			</div>
 			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}
@@ -462,7 +556,7 @@ export default function AppBuilderPage({
 				setIsActivityOpen(false);
 				setSearch({ view: next }, false);
 			}}
-			canAskFix={thread.isReady && !thread.isSending}
+			canAskFix={thread.isReady && !thread.isSending && !isOtherChatBusy}
 			onAskFix={(text) => {
 				thread.send({ files: [], text });
 				// The reply shows in the chat, so a closed chat opens. On a phone it covers the work pane.

@@ -3,8 +3,9 @@
  * `trigger.dev deploy` (trigger-deploy.yml) read it. It sets the retries,
  * installs Chromium, git, eas-cli, and pnpm, and uploads Sentry source maps.
  * It also copies the template archives, the base schema, the trusted
- * mobile template files of the `mobile-build` task, and the trusted desktop
- * shell of the `desktop-build` task into the worker image.
+ * mobile template files of the `mobile-build` task, the trusted desktop
+ * shell of the `desktop-build` task, and the security audit skill of the
+ * `security_scan` turn into the worker image.
  */
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
@@ -133,6 +134,9 @@ export default defineConfig({
 					"../../templates/mobile-app/native-modules.json",
 					"../../templates/desktop-shell/src-tauri/!(target|gen)/**",
 					"../../templates/desktop-shell-electron/shell/!(node_modules|release)/**",
+					// The vendored Cloudflare skill; a `security_scan` turn writes it
+					// into the sandbox. `builder-turn.deps.ts` reads it under `templates/`.
+					"../../templates/skills/security-audit/*",
 					// The Claude Code bridge fork; `readForkRunTurn` reads it under the
 					// working directory of the deployed worker.
 					"./src/modules/app-builder/application/harness/claude-code-bridge/persistent-run-turn.mjs",

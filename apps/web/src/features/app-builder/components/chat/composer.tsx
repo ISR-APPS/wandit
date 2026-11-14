@@ -2,8 +2,8 @@
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks, the files, and the long pastes, the textarea,
  * then the add menu (a file or an image), the Plan chip, the model menu, the
- * credit estimate, dictation, and send. While the tray shows, send becomes
- * the answer pill of the tray.
+ * credit estimate, the context ring, dictation, and send. While the tray
+ * shows, send becomes the answer pill of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
  * the pasted texts, and the uploaded files; a send that the API refuses puts
  * them back. Uploads and pastes go through the projects feature.
@@ -60,10 +60,12 @@ import {
 } from "@/features/projects";
 import { formatNumber, type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import type { ContextUsage } from "../../lib/turn-parts";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
+import { ContextRing } from "./context-ring";
 import { TargetChip } from "./target-chip";
 
 /**
@@ -106,6 +108,10 @@ export type ComposerProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick on the page. The menu locks and hides like the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** How full the model context is, from contextUsageOf through the chat pane. Null renders no ring: no turn wrote a count yet. The ring hides while the tray shows. */
+	contextUsage: ContextUsage | null;
+	/** Creates an empty conversation and opens it, from the page. The context ring offers it near the limit. */
+	onCreateChat?: () => void;
 };
 
 /** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
@@ -142,11 +148,11 @@ const UPLOAD_ERROR_KEYS: Record<
 	failed: "projects.promptBox.attachments.failed",
 };
 
-// The send circle and the answer pill share the ember face, with a soft
-// ember (#d16022) glow. Disabled is a flat navy tint, not a faded ember: a
-// pale orange reads as "almost ready".
+// The send circle and the answer pill share the ember face (shadow-ember).
+// A press moves it down 1 px. Disabled is a flat navy tint, not a faded
+// ember: a pale orange reads as "almost ready".
 const SEND_CLASS =
-	"rounded-full bg-primary text-primary-foreground shadow-[0_1px_0_rgb(11_16_51/0.08),0_4px_12px_-4px_rgb(209_96_34/0.55)] transition-colors duration-150 hover:bg-ember-deep disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
+	"rounded-full bg-primary text-primary-foreground shadow-ember transition-[background-color,box-shadow,translate] duration-150 hover:bg-ember-deep active:translate-y-px disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
 
 /**
  * The chat prompt box. Enter sends the trimmed draft joined to the pasted
@@ -166,6 +172,8 @@ export function Composer({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	contextUsage,
+	onCreateChat,
 }: ComposerProps) {
 	const { t, locale } = useTranslation();
 	const [draft, setDraftState] = useState("");
@@ -224,6 +232,8 @@ export function Composer({
 		: (message.length > 0 || readyParts.length > 0) &&
 			!isUploading &&
 			!isSending;
+	// The tray answer pill needs the room of the ring, like the room of the Plan chip.
+	const showsContextRing = contextUsage !== null && !submitOverride;
 	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
 		max: formatNumber(builderMessageMaxLength, locale),
 	});
@@ -364,11 +374,13 @@ export function Composer({
 	);
 
 	return (
+		// Three navy shadows lift the card: a contact line, a near shade, and a drop.
+		// The drop ends inside the 16 px under the card, where the chat column clips.
 		// The ember ring shows while any control of the card has focus.
-		<div className="flex flex-col overflow-hidden rounded-[22px] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_12px_32px_-20px_rgb(11_16_51/0.35)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
+		<div className="flex flex-col overflow-hidden rounded-[24px] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.08),0_12px_24px_-16px_rgb(11_16_51/0.4)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
 			{topSlot}
 			{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
-			<div className="flex flex-col px-3 pt-3 pb-2.5">
+			<div className="flex flex-col px-3.5 pt-3.5 pb-3">
 				{targets.length > 0 ? (
 					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
 						{targets.map((target, index) => (
@@ -417,7 +429,7 @@ export function Composer({
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
-					className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
+					className="max-h-40 min-h-[52px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
 				/>
 				<input
 					ref={fileInputRef}
@@ -435,7 +447,8 @@ export function Composer({
 					onChange={addFiles}
 					className="hidden"
 				/>
-				<div className="mt-1 flex items-center gap-1.5">
+				{/* The row is a size container: the estimate reads the row width below. */}
+				<div className="@container mt-1 flex items-center gap-1.5">
 					<DropdownMenu>
 						<IconAction label={t("appBuilder.chat.addContext")}>
 							<DropdownMenuTrigger asChild>
@@ -470,18 +483,34 @@ export function Composer({
 								isPlanMode={isPlanMode}
 								onPlanModeChange={onPlanModeChange}
 								disabled={isSending}
+								// A row under 380 px shows only the icon, so the ring, dictation, and
+								// send fit in the default 400 px column. The tooltip and the screen
+								// reader still give the name.
+								labelClassName="@max-[380px]:sr-only"
 							/>
 							<BuilderModelPicker pick={modelPick} disabled={isSending} />
 						</>
 					)}
-					{turnEstimateCredits !== null ? (
-						<span className="ms-auto flex items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50">
-							<Spark className="size-3 text-spark" />
-							{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
-						</span>
-					) : (
-						<span className="ms-auto" />
-					)}
+					{/* The auto margin pushes the estimate, the ring, dictation, and send to the end of the row. */}
+					<span className="ms-auto">
+						{turnEstimateCredits !== null ? (
+							<span
+								className={cn(
+									"items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50",
+									// A row under 420 px cannot hold the estimate and the ring, so the ring shows alone.
+									// A 420 px row is a chat column of about 498 px. The default 400 px column shows no estimate with the ring.
+									// LIMIT: the row fits from a chat column of about 345 px (380 px with the Fast toggle). Upgrade: a larger CHAT_PANEL_MIN_WIDTH.
+									showsContextRing ? "@min-[420px]:flex hidden" : "flex",
+								)}
+							>
+								<Spark className="size-3 text-spark" />
+								{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
+							</span>
+						) : null}
+					</span>
+					{showsContextRing ? (
+						<ContextRing usage={contextUsage} onCreateChat={onCreateChat} />
+					) : null}
 					{dictation.supported ? (
 						<IconAction label={dictationLabel}>
 							<Button

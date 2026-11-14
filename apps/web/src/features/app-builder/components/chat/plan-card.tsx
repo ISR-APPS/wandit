@@ -94,8 +94,9 @@ export function PlanCard({ plan, isOpen, onBuild }: PlanCardProps) {
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.32, ease: BOOT_EASE }}
 			>
-				{/* An open plan waits for the user, so its border asks for attention like an open approval. The halo is spark (#faab3f) at 12 %. */}
-				<MessageCard className="overflow-hidden border-spark/60 p-0 shadow-[0_0_0_3px_rgb(250_171_63/0.12)] dark:border-spark/50">
+				{/* An open plan waits for the user, so its border asks for attention like an open approval. The halo is spark at 12 %. */}
+				{/* It is a ring, not a shadow class: a shadow class replaces the lift of MessageCard in the merge. */}
+				<MessageCard className="overflow-hidden border-spark/60 p-0 ring-[3px] ring-spark/[0.12] dark:border-spark/50">
 					{head}
 					<PlanBody plan={plan} />
 					<div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-night/[0.07] border-t bg-night/[0.015] px-4 py-3 dark:border-white/[0.07] dark:bg-white/[0.02]">

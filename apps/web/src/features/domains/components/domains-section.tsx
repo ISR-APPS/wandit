@@ -1,3 +1,8 @@
+/**
+ * The custom domains card of a project: the domain list, the buy dialog, and the connect form.
+ * The V1 settings tab (workspace/components/settings/settings-tab.tsx) and the V2 Domains panel
+ * (app-builder/components/more/domains-panel.tsx) render it. It reads useDomainsQuery.
+ */
 import { Button } from "@wandit/ui/components/button";
 import {
 	Card,
@@ -19,6 +24,8 @@ import { DomainList } from "./domain-list";
 import { DomainPublishNotice } from "./domain-publish-notice";
 
 type DomainsSectionProps = {
+	/** Classes of the card. The V2 Domains panel passes its panel card face; the V1 settings tab passes nothing. */
+	className?: string;
 	projectId: string;
 	isPublished: boolean;
 	canManageDomains: boolean;
@@ -27,6 +34,7 @@ type DomainsSectionProps = {
 };
 
 export function DomainsSection({
+	className,
 	projectId,
 	isPublished,
 	canManageDomains,
@@ -45,7 +53,7 @@ export function DomainsSection({
 		) ?? false;
 
 	return (
-		<Card>
+		<Card className={className}>
 			<CardHeader>
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 					<div>

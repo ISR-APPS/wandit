@@ -107,6 +107,7 @@ import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-
 import { ProjectGithubLinksRepository } from "./infrastructure/persistence/project-github-links.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { SecurityScansRepository } from "./infrastructure/persistence/security-scans.repository";
 import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
@@ -157,6 +158,7 @@ import { PreviewTokenController } from "./presentation/http/controllers/preview-
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
 import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
+import { SecurityScansController } from "./presentation/http/controllers/security-scans.controller";
 import { SharedProjectsController } from "./presentation/http/controllers/shared-projects.controller";
 import { ThemeController } from "./presentation/http/controllers/theme.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
@@ -224,6 +226,7 @@ export function createCloudSupabaseClient(
 		ProjectSecretsController,
 		PublishController,
 		SandboxController,
+		SecurityScansController,
 		SharedProjectsController,
 		ThemeController,
 		TurnsController,
@@ -292,6 +295,7 @@ export function createCloudSupabaseClient(
 		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,
 		SandboxWakeService,
+		SecurityScansRepository,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
@@ -336,7 +340,8 @@ export function createCloudSupabaseClient(
 				new TriggerGithubSyncScheduler(links, Sentry.logger),
 			inject: [ProjectGithubLinksRepository],
 		},
-		// The same code.storage store reads one committed file for the theme GET.
+		// The same code.storage store reads committed code: theme.json for the theme GET,
+		// and the tree and the files for the Code view routes.
 		{ provide: GIT_FILE_READER, useExisting: GIT_STORE },
 		// Null without both Langfuse keys: the LLM proxy then traces nothing.
 		{ provide: LangfuseExporter, useFactory: langfuseExporterFromEnv },

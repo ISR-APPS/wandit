@@ -50,6 +50,7 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 						modelId: undefined,
 						setModelId: vi.fn(),
 					},
+					contextUsage: null,
 					...props,
 				}),
 			),

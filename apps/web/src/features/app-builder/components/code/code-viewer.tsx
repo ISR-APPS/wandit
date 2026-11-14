@@ -44,7 +44,7 @@ import { copyToClipboard } from "../../lib/helpers";
 import { PANEL_SECONDARY_BUTTON_CLASS } from "../more/panel-shell";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 
-/** Loads the CodeMirror chunk. code-view.tsx calls it early to start the download. */
+/** Loads the CodeMirror chunk. more-view.tsx calls it early to start the download. */
 export const loadCodeEditor = () => import("./code-editor");
 const CodeEditor = lazy(loadCodeEditor);
 
@@ -71,9 +71,9 @@ export type CodeViewerProps = {
 };
 
 /**
- * A bar at the top of a Code view column: 48 px, bottom hairline. The tree
- * header, the editor header, and their skeletons share it, so the two
- * hairlines line up.
+ * A 48 px bar with a bottom hairline. The Back bar, the Files header of the
+ * tree, the editor header, and their skeletons use it. So the hairlines of
+ * the Back bar and the editor header line up.
  */
 export const CODE_BAR_CLASS =
 	"flex h-12 shrink-0 items-center border-night/[0.07] border-b dark:border-white/[0.07]";
@@ -244,7 +244,8 @@ export function CodeViewer({
 	}
 
 	return (
-		<div className="flex min-w-0 flex-1 flex-col">
+		// min-h-0: under a Back bar the parent is a column, and the editor scrolls inside.
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			<header className={cn(CODE_BAR_CLASS, "gap-2 px-2")}>
 				<IconAction
 					label={t(

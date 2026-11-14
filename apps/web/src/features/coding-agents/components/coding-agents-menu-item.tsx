@@ -1,5 +1,5 @@
 /**
- * The "Coding agents" item of the account menu. It links to /coding-agents.
+ * The "MCP server" item of the account menu. It links to /coding-agents.
  * UserMenu in features/auth renders it inside its dropdown. It reads useV2BuilderEnabled.
  */
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";

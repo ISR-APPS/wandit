@@ -24,6 +24,7 @@ import {
 	getTurnEstimate,
 	getVersionDiff,
 	listChatHistory,
+	listProjectChats,
 	listVersions,
 } from "./app-builder.services";
 import type { CodeSnapshot } from "./dto";
@@ -35,8 +36,10 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "project", projectId] as const,
 	turnEstimate: (projectId: string) =>
 		[...appBuilderKeys.all, "turn-estimate", projectId] as const,
-	chatHistory: (projectId: string) =>
-		[...appBuilderKeys.all, "chat-history", projectId] as const,
+	chats: (projectId: string) =>
+		[...appBuilderKeys.all, "chats", projectId] as const,
+	chatHistory: (projectId: string, chatId: string | undefined) =>
+		[...appBuilderKeys.all, "chat-history", projectId, chatId] as const,
 	code: (projectId: string) =>
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
@@ -61,9 +64,9 @@ export const appBuilderKeys = {
 const ACTIVE_TURN_POLL_MS = 5_000;
 
 /**
- * The running turn and the `main` head of a project. use-builder-chat.ts
- * polls it while its chat streams nothing, and follows what another client
- * starts. `getState` is the test seam of BuilderChatDeps.
+ * The running turn, the busy conversation, and the `main` head of a project.
+ * use-builder-chat.ts polls it while its chat streams nothing, and follows
+ * what another client starts. `getState` is the test seam of BuilderChatDeps.
  */
 export const activeTurnStateQuery = (
 	projectId: string,
@@ -72,6 +75,9 @@ export const activeTurnStateQuery = (
 	queryOptions({
 		queryKey: appBuilderKeys.activeTurnState(projectId),
 		queryFn: () => getState(projectId),
+		// The poll stops while the chat streams and while a conversation loads.
+		// Its last answer is old when it starts again, so it asks at once.
+		staleTime: 0,
 		// The server pushes no project event, so the page asks. A hidden tab
 		// does not ask: `refetchIntervalInBackground` stays false.
 		// LIMIT: one poll per open builder tab every 5 s. Upgrade: a project event stream over Redis pub/sub and SSE.
@@ -134,13 +140,35 @@ export const turnEstimateQuery = (projectId: string) =>
 	});
 
 /**
- * The stored chat of a project, page by page. The first page holds the
- * newest messages; `fetchNextPage` adds the next older page.
+ * The conversations of a project, the most recent activity first. The page
+ * picks the open conversation from it, and the chat header lists it. A turn
+ * start and a turn end mark it stale in use-builder-chat.ts.
  */
-export const chatHistoryQuery = (projectId: string) =>
+export const projectChatsQuery = (projectId: string) =>
+	queryOptions({
+		queryKey: appBuilderKeys.chats(projectId),
+		queryFn: () => listProjectChats(projectId),
+	});
+
+/**
+ * The stored chat of one conversation, page by page. The first page holds
+ * the newest messages; `fetchNextPage` adds the next older page. It waits
+ * while `chatId` is undefined, as during the load of the conversation list.
+ */
+export const chatHistoryQuery = (
+	projectId: string,
+	chatId: string | undefined,
+) =>
 	infiniteQueryOptions({
-		queryKey: appBuilderKeys.chatHistory(projectId),
-		queryFn: ({ pageParam }) => listChatHistory(projectId, pageParam),
+		queryKey: appBuilderKeys.chatHistory(projectId, chatId),
+		queryFn:
+			chatId === undefined
+				? skipToken
+				: ({ pageParam }) => listChatHistory(projectId, chatId, pageParam),
+		// The live chat holds turns that a cached page lacks. With no cache
+		// time, a conversation that opens again loads its stored chat again.
+		// LIMIT: each switch loads the history again, and the thread is empty during the load. Upgrade: show the cached page, then reseed the chat from the fresh page.
+		gcTime: 0,
 		// SAFETY: a widening only. TanStack reads the cursor type from this
 		// value, and the later cursors are the strings of `nextCursor`.
 		initialPageParam: null as string | null,
@@ -149,7 +177,15 @@ export const chatHistoryQuery = (projectId: string) =>
 	});
 
 /**
- * null data means the sandbox is asleep; the Code view waits for a turn.
+ * 30 min, a long session. The snapshot and the prefetched files stay in the
+ * cache that long. Then a later open of the code screen shows no skeleton.
+ */
+const CODE_GC_TIME_MS = 30 * 60 * 1000;
+
+/**
+ * The tree of the last saved (committed) version. Only a project with no
+ * saved version reads the running sandbox. null data means that project
+ * has no running sandbox either; the Code view waits for a turn.
  * The answer also puts each prefetched file into its `codeFile` entry, so
  * a click on that file shows it with no request. `get` is the test seam.
  */
@@ -159,6 +195,12 @@ export const codeSnapshotQuery = (
 ) =>
 	queryOptions({
 		queryKey: appBuilderKeys.code(projectId),
+		// No staleTime here, so the 30 s default of lib/query-client.ts applies.
+		// The server sends an ETag, so a refetch is a cheap 304.
+		// more-view.tsx refetches at each open of the code screen. Then the tree
+		// and the prefetched files of a head that another client moved show.
+		// LIMIT: a cached file that the snapshot does not prefetch stays old after another client moves the head. Upgrade: invalidate the code(projectId) prefix at each open.
+		gcTime: CODE_GC_TIME_MS,
 		// The signal matters: a turn end cancels a running fetch, and an old
 		// answer that still arrived would write old text over new text.
 		queryFn: async ({ client, signal }) => {
@@ -170,33 +212,35 @@ export const codeSnapshotQuery = (
 				// gcTime; an unopened prefetched file must stay for 30 min.
 				client
 					.getQueryCache()
-					.build(client, { queryKey, gcTime: CODE_FILE_GC_TIME_MS });
+					.build(client, { queryKey, gcTime: CODE_GC_TIME_MS });
 				client.setQueryData(queryKey, file);
 			}
 			return answer.snapshot;
 		},
 	});
 
-/** 30 min. The prefetched files must stay in the cache for a long session. */
-const CODE_FILE_GC_TIME_MS = 30 * 60 * 1000;
-
 /** 3 s. A new sandbox boots from the template snapshot in about 4 s. */
 const CODE_SETUP_POLL_MS = 3_000;
 
 /**
  * The poll delay of the code snapshot. It polls only while a turn runs and
- * no sandbox answered yet, so the files show before the turn ends.
+ * no sandbox answered yet, so the files show before the turn ends. A hidden
+ * code screen does not poll; the refetch at the turn end still runs.
  */
 export function codeSnapshotPollMs(
 	snapshot: CodeSnapshot | null | undefined,
 	isTurnRunning: boolean,
+	/** True while the code screen is on screen, from CodeView. */
+	isActive: boolean,
 ): number | false {
 	// The server pushes no event when the sandbox starts, so the view asks.
-	return isTurnRunning && snapshot === null ? CODE_SETUP_POLL_MS : false;
+	return isActive && isTurnRunning && snapshot === null
+		? CODE_SETUP_POLL_MS
+		: false;
 }
 
 /**
- * One file of the sandbox. Its key is a child of `code(projectId)`, so one
+ * One file of the project. Its key is a child of `code(projectId)`, so one
  * invalidation of that key refetches the tree and the open file.
  */
 export const codeFileQuery = (projectId: string, path: string) =>
@@ -204,9 +248,10 @@ export const codeFileQuery = (projectId: string, path: string) =>
 		queryKey: appBuilderKeys.codeFile(projectId, path),
 		queryFn: ({ signal }) => getCodeFile(projectId, path, signal),
 		// Only a turn end or a restore changes a file, and both invalidate
-		// the `code(projectId)` prefix. Until then the cached text is right.
+		// the `code(projectId)` prefix. Until then the cached text is right,
+		// except for the LIMIT of codeSnapshotQuery.
 		staleTime: Number.POSITIVE_INFINITY,
-		gcTime: CODE_FILE_GC_TIME_MS,
+		gcTime: CODE_GC_TIME_MS,
 	});
 
 /**

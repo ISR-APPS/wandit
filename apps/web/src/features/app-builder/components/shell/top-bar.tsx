@@ -10,7 +10,6 @@
  * here and places each half over its card.
  */
 
-import { CodeIcon } from "@phosphor-icons/react/Code";
 import { EyeIcon } from "@phosphor-icons/react/Eye";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
@@ -60,12 +59,12 @@ export function ProjectBar({
 	return (
 		// On phones it grows, so the work controls sit at the end. From md it keeps its width, and a long name truncates.
 		<div className="flex min-w-0 flex-1 items-center gap-2 md:flex-initial">
-			{/* The brand tile of the dashboard sidebar is the way back. */}
+			{/* The brand tile of the dashboard sidebar is the way back. It stays night in dark mode, so the amber drop of the dark key is off. */}
 			{/* On phones the project menu's "All projects" item is the way back, so the tile hides. */}
 			<IconAction label={t("appBuilder.topBar.backToDashboard")}>
 				<Link
 					to="/dashboard"
-					className="group/logo hidden size-8 shrink-0 place-items-center rounded-[10px] bg-night outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid dark:ring-1 dark:ring-white/10"
+					className="group/logo hidden size-8 shrink-0 place-items-center rounded-[10px] bg-night shadow-key outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid dark:shadow-none dark:ring-1 dark:ring-white/10"
 				>
 					<Spark className="size-4.5 text-spark transition-transform duration-500 ease-out group-hover/logo:rotate-90 motion-reduce:transition-none" />
 				</Link>
@@ -106,7 +105,7 @@ export function ProjectBar({
 export type WorkBarProps = {
 	/** The open project, from appProjectQuery in the page. */
 	project: AppProject;
-	/** The open view: `preview`, `code`, or `more`. The page reads it from `?view=` of the URL. */
+	/** The open view: `preview` or `more`. The page reads it from `?view=` of the URL. */
 	view: BuilderView;
 	/** Writes the picked view to `?view=` of the URL. The view switcher calls it. */
 	onChangeView: (view: BuilderView) => void;
@@ -150,9 +149,10 @@ export function WorkBar({
 export type ViewSwitcherProps = Pick<WorkBarProps, "view" | "onChangeView">;
 
 /**
- * The Preview, Code, and More switch at the start of the work bar. From the
+ * The Preview and More switch at the start of the work bar. From the
  * sm width, only the open view shows its label; below it, icons only. More
- * holds every project panel, the Cloud panels too. Exported for the spec.
+ * holds every project panel, the Cloud panels and the code screen too.
+ * Exported for the spec.
  */
 export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 	const { t } = useTranslation();
@@ -170,12 +170,6 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 					label: t("appBuilder.views.preview"),
 					icon: EyeIcon,
 					iconOnly: view !== "preview",
-				},
-				{
-					value: "code",
-					label: t("appBuilder.views.code"),
-					icon: CodeIcon,
-					iconOnly: view !== "code",
 				},
 				{
 					value: "more",

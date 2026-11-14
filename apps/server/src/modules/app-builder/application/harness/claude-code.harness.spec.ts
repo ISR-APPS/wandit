@@ -285,6 +285,24 @@ describe("ClaudeCodeHarness.createSession", () => {
 		}
 	});
 
+	it("keeps write and bash but blocks edit and subagents in a security scan session", async () => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), mode: "security_scan" });
+
+		const inactive = captured.agentSettings?.inactiveTools ?? [];
+		expect(inactive).toEqual(
+			expect.arrayContaining(["askUserQuestions", "edit", "Agent"]),
+		);
+		// The skill writes its output in /tmp and runs its validator with node.
+		expect(inactive).not.toContain("write");
+		expect(inactive).not.toContain("bash");
+		const builtinNames = Object.keys(createClaudeCode().builtinTools);
+		for (const name of inactive) {
+			expect(builtinNames).toContain(name);
+		}
+	});
+
 	it("names the 30-minute token epoch in the env", async () => {
 		const { captured, harness } = setup(undefined, undefined, {
 			now: () => 3 * 30 * 60_000 + 5,
@@ -563,6 +581,31 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		// The SDK refuses a new prompt while the nested turn is unfinished.
 		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 		expect(captured.createOptions?.continueFrom).toBeUndefined();
+	});
+
+	it("refuses a new bridge for a stored state that names no Claude conversation", async () => {
+		const { captured, harness } = setup();
+		execCalls.length = 0;
+
+		// Without the id, the adapter sends "continue", which can open the
+		// conversation of another chat in the same work directory.
+		await expect(
+			harness.resumeSession(
+				sessionInput(),
+				{
+					harness: "claude_code",
+					payload: JSON.stringify({
+						...RESUME_STATE,
+						data: { forkOnResume: false },
+					}),
+					pending: [],
+				},
+				{ bridgeDead: true, dropPausedTurn: false },
+			),
+		).rejects.toThrow(/names no Claude conversation/);
+		// The throw comes before the bridge kill and before a session start.
+		expect(execCalls).toHaveLength(0);
+		expect(captured.createCount).toBe(0);
 	});
 
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {

@@ -33,8 +33,8 @@ export type SegmentedControlProps<T extends string> = {
 };
 
 /**
- * The active option is a night pill (a spark pill in dark mode), like the
- * active link of the dashboard sidebar.
+ * The track is a recessed well. The active option is a night key on it (a
+ * spark key in dark mode). It copies the active link of the dashboard sidebar.
  */
 export function SegmentedControl<T extends string>({
 	options,
@@ -47,7 +47,7 @@ export function SegmentedControl<T extends string>({
 		<fieldset
 			aria-label={ariaLabel}
 			className={cn(
-				"flex shrink-0 items-center gap-0.5 rounded-full bg-night/[0.05] p-1 dark:bg-white/[0.06]",
+				"flex shrink-0 items-center gap-0.5 rounded-full bg-night/[0.055] p-1 shadow-well dark:bg-white/[0.06]",
 				className,
 			)}
 		>
@@ -61,11 +61,11 @@ export function SegmentedControl<T extends string>({
 						aria-label={option.iconOnly ? option.label : undefined}
 						onClick={() => onChange(option.value)}
 						className={cn(
-							"flex h-8 items-center gap-1.5 rounded-full font-grotesk font-medium text-sm outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50",
+							"flex h-8 items-center gap-1.5 rounded-full font-grotesk font-medium text-sm outline-none transition-[color,background-color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-ring/50",
 							option.iconOnly ? "w-9 justify-center" : "px-3",
 							isActive
-								? "bg-night text-paper dark:bg-spark dark:text-night"
-								: "text-night/60 hover:text-night dark:text-foreground/60 dark:hover:text-foreground",
+								? "bg-night text-paper shadow-key dark:bg-spark dark:text-night"
+								: "text-night/60 hover:bg-night/[0.05] hover:text-night dark:text-foreground/60 dark:hover:bg-white/[0.06] dark:hover:text-foreground",
 						)}
 					>
 						{option.icon ? (

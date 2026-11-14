@@ -2,6 +2,7 @@
  * Browser transport of the V2 turn stream. `createBuilderChatTransport`
  * builds the chat transport of one project; use-builder-chat.ts calls it.
  * When a stream stops before the turn ends, it reopens the turn replay.
+ * It drops the active turn of the project when another conversation owns it.
  * `hydrateTurnMessages` rebuilds AI SDK messages from the stored chat rows.
  */
 
@@ -63,8 +64,9 @@ const REOPEN_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 15_000];
  * Transport for the V2 turn routes of one project; the chat id comes from
  * each request. The create POST answers with the turn stream. The reconnect
  * GET replays the active turn from the start, or answers 204 when no turn
- * runs. Railway closes every HTTP response at 15 minutes and a build can run
- * longer, so both streams go through `resumeAfterCut`.
+ * runs. An active turn of another conversation counts as no turn. Railway
+ * closes every HTTP response at 15 minutes and a build can run longer, so
+ * both streams go through `resumeAfterCut`.
  */
 export function createBuilderChatTransport(input: {
 	/** Project the turn routes are scoped to (`/api/v2/projects/:id/...`). */
@@ -151,11 +153,53 @@ export function createBuilderChatTransport(input: {
 		reconnectToStream: async (options) => {
 			const stream = await http.reconnectToStream(options);
 			// null is the 204 answer: no turn runs, so nothing resumes.
-			return stream === null
+			if (stream === null) return null;
+			// This GET reads the active turn of the project. The turn of another
+			// conversation must not replay into this chat.
+			const ownStream = await streamOfChat(stream, options.chatId);
+			return ownStream === null
 				? null
-				: withResume(stream, options.chatId, options.abortSignal);
+				: withResume(ownStream, options.chatId, options.abortSignal);
 		},
 	};
+}
+
+/**
+ * Reads the first chunk of the active turn stream of a project. The relay
+ * writes `data-turn-created` first, and that frame names the conversation of
+ * the turn. Closes the stream and answers null when the turn belongs to
+ * another conversation than `chatId`. Else answers the same chunks again.
+ */
+async function streamOfChat(
+	source: ReadableStream<UIMessageChunk>,
+	/** Id of the open conversation, the `id` of the useChat instance. */
+	chatId: string,
+): Promise<ReadableStream<UIMessageChunk> | null> {
+	const reader = source.getReader();
+	const first = await reader.read();
+	if (
+		!first.done &&
+		first.value.type === "data-turn-created" &&
+		// The schema is the boundary; useChat parses the frame again.
+		createTurnResponseSchema.parse(first.value.data).chatId !== chatId
+	) {
+		await reader.cancel();
+		return null;
+	}
+	// The first chunk left the source, so the new stream gives it back first.
+	let unread: ReadableStreamReadResult<UIMessageChunk> | null = first;
+	return new ReadableStream<UIMessageChunk>({
+		async pull(controller) {
+			const result = unread ?? (await reader.read());
+			unread = null;
+			if (result.done) {
+				controller.close();
+				return;
+			}
+			controller.enqueue(result.value);
+		},
+		cancel: (reason) => reader.cancel(reason),
+	});
 }
 
 /**

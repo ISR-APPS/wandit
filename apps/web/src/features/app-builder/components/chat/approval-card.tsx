@@ -92,9 +92,10 @@ export function ApprovalCard({
 		<MessageCard
 			className={cn(
 				"flex items-start gap-3",
-				// An open approval stops the turn, so its border asks for attention. The halo is spark (#faab3f) at 12 %.
+				// An open approval stops the turn, so its border asks for attention. The halo is spark at 12 %.
+				// It is a ring, not a shadow class: a shadow class replaces the lift of MessageCard in the merge.
 				isOpen &&
-					"border-spark/60 shadow-[0_0_0_3px_rgb(250_171_63/0.12)] dark:border-spark/50",
+					"border-spark/60 ring-[3px] ring-spark/[0.12] dark:border-spark/50",
 			)}
 		>
 			<CardMedallion icon={ShieldCheckIcon} />

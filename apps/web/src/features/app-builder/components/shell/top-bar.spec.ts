@@ -82,7 +82,7 @@ describe("ProjectBar", () => {
 });
 
 describe("ViewSwitcher", () => {
-	it("lists Preview, Code, and More, and no Cloud view", () => {
+	it("lists Preview and More, and no Cloud or Code view", () => {
 		const onChangeView = vi.fn();
 		const providerProps: ComponentProps<typeof I18nProvider> = {
 			locale: "en",
@@ -102,8 +102,7 @@ describe("ViewSwitcher", () => {
 			[...views.querySelectorAll("button")].map(
 				(button) => button.getAttribute("aria-label") ?? button.textContent,
 			),
-		).toEqual(["Preview", "Code", "More"]);
-		expect(screen.queryByRole("button", { name: "Cloud" })).toBeNull();
+		).toEqual(["Preview", "More"]);
 
 		fireEvent.click(screen.getByRole("button", { name: "More" }));
 		expect(onChangeView).toHaveBeenCalledWith("more");

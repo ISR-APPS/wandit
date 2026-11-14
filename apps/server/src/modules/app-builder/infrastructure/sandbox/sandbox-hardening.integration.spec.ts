@@ -220,8 +220,11 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 				{ cwd: handle.workspaceDir },
 			);
 			expect(links.exitCode).toBe(0);
+			// No stored commit, so CodeService reads the sandbox and never code.storage.
+			const noStore = () => Promise.reject(new Error("no stored commit"));
 			const code = new CodeService(
 				{
+					findBranch: async () => null,
 					findScopedProject: async () => ({
 						engine: "v2_app",
 						framework: "web-app",
@@ -232,6 +235,11 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 					}),
 				},
 				{ findRunning: async () => handle },
+				{
+					listFilePaths: noStore,
+					readArchiveFiles: noStore,
+					readFile: noStore,
+				},
 			);
 			const scope = projectScopeFrom(undefined, "integration-user");
 			expect(await code.file(scope, projectId, "code-view-a.txt")).toEqual({
@@ -245,8 +253,11 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 					BadRequestException,
 				);
 			}
-			const snapshot = await code.snapshot(scope, projectId);
-			const prefetched = snapshot.files.map((file) => file.path);
+			const answer = await code.snapshot(scope, projectId, undefined);
+			if (answer.kind !== "snapshot") {
+				throw new Error(`expected a snapshot, got ${answer.kind}`);
+			}
+			const prefetched = answer.snapshot.files.map((file) => file.path);
 			expect(prefetched).toContain("code-view-a.txt");
 			expect(prefetched).not.toContain("code-view-big.txt");
 			expect(prefetched).not.toContain("code-view-leak");
