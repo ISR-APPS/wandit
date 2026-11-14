@@ -1,5 +1,6 @@
 /**
- * Frame and shared look of every panel of the More view. PanelShell draws the
+ * Frame and shared look of every panel of the More view, except the code
+ * screen. The code screen fills the view with no shell. PanelShell draws the
  * title and the description of the open panel above its body. The class
  * constants, PanelChip, and PanelMessage give all panels one look for cards,
  * chips, inputs, tabs, and empty states.
@@ -11,13 +12,13 @@ import { cn } from "@wandit/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { useTranslation } from "@/lib/i18n";
-import { MORE_PANEL_META, type ProjectPanel } from "../../lib/constants";
+import { MORE_PANEL_META, type ShellPanel } from "../../lib/constants";
 import { isCloudPanel } from "../../lib/helpers";
 
-/** Props of PanelShell. more-view.tsx passes the resolved open panel. */
+/** Props of PanelShell. more-view.tsx passes the last open panel that is not `code`. */
 export type PanelShellProps = {
 	/** The open panel. A More panel reads its copy from MORE_PANEL_META, a Cloud panel from `workspace.cloud`. */
-	panel: ProjectPanel;
+	panel: ShellPanel;
 	/** The open panel component. Each panel shows its own loading and error states. */
 	children: ReactNode;
 };

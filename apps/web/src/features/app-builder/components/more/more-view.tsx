@@ -2,28 +2,35 @@
  * More view of the app builder: the section nav on the start side and the
  * open panel on the other side. Every panel renders inside panel-shell.tsx,
  * which draws its title; a Cloud panel renders through
- * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
- * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
- * A project viewer gets a note in place of the AI panel. The MCP panel body
- * comes from the coding-agents feature.
+ * cloud/cloud-panel-content.tsx. The `code` panel is different. The code
+ * screen of code/code-view.tsx replaces the nav and the shell. Its Back
+ * button returns to the last panel. Rendered by pages/app-builder-page.tsx,
+ * which keeps it mounted while hidden. A project viewer gets a note in place
+ * of the AI panel. The MCP panel body comes from the coding-agents feature.
  */
 
 import { InfoIcon } from "@phosphor-icons/react/Info";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@wandit/ui/lib/utils";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { ProjectConnectSteps } from "@/features/coding-agents";
 import { hasProjectRole } from "@/features/project-sharing";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { appBuilderKeys } from "../../api/app-builder.queries";
 import type { AppProject } from "../../api/dto";
 import {
+	type CloudPanel,
 	MORE_PANEL_META,
 	type MorePanel,
 	type ProjectPanel,
+	type ShellPanel,
 } from "../../lib/constants";
-import { isCloudPanel } from "../../lib/helpers";
+import { isCloudPanel, resolvePanel } from "../../lib/helpers";
 import { CloudPanelContent } from "../cloud/cloud-panel-content";
 import type { LogsFilter } from "../cloud/logs-panel";
+import { CodeView } from "../code/code-view";
+import { loadCodeEditor } from "../code/code-viewer";
 import { AiPanel } from "./ai-panel";
 import { AppStoresPanel } from "./app-stores-panel";
 import { DomainsPanel } from "./domains-panel";
@@ -38,13 +45,19 @@ import { SignInPanel } from "./sign-in-panel";
 /** Props of MoreView. The page owns the open panel through `?panel=`. */
 export type MoreViewProps = {
 	project: AppProject;
-	/** Open panel, already resolved by resolvePanel in the page for the kind and the Cloud gate. */
+	/** Open panel, already resolved by resolvePanel in the page for the kind and the Cloud gate. `code` opens the code screen. */
 	panel: ProjectPanel;
 	/** True while the More view is on screen. The view stays mounted, so every Cloud query and the AI status wait for it. */
 	isActive: boolean;
 	/** True when the nav shows the Backend group. The page reads it from useCloudTabEnabled. */
 	showBackendGroup: boolean;
 	onSelectPanel: (panel: ProjectPanel) => void;
+	/** Open file of the code screen, from `?file=` of the URL. Undefined opens the default file of the snapshot. */
+	codeFilePath: string | undefined;
+	/** Writes a file pick of the code screen to `?file=`. */
+	onSelectCodeFile: (path: string) => void;
+	/** True while a builder turn runs, from useBuilderThread. The code screen polls for the files while a turn sets up the sandbox. */
+	isTurnRunning: boolean;
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
@@ -55,26 +68,78 @@ const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	security: "appBuilder.panels.security.cta",
 };
 
-/** The nav and one open panel. Also keeps the filter that Logs opens with after "View logs". */
+/**
+ * The nav and one open panel, or the code screen. Also keeps the filter that
+ * Logs opens with after "View logs", and the last panel that is not `code`.
+ */
 export function MoreView({
 	project,
 	panel,
 	isActive,
 	showBackendGroup,
 	onSelectPanel,
+	codeFilePath,
+	onSelectCodeFile,
+	isTurnRunning,
 }: MoreViewProps) {
 	const { t } = useTranslation();
+	const queryClient = useQueryClient();
 	// The filter Logs opens with. "View logs" of the Functions panel sets it; a nav click clears it.
 	const [logsFilter, setLogsFilter] = useState<LogsFilter | undefined>(
 		undefined,
 	);
+	const isCodeOpen = panel === "code";
+	// The panel under the code screen. The nav and the shell stay mounted with
+	// it, so a SQL draft survives Database, Code, Back. Back returns to it.
+	const [shellPanel, setShellPanel] = useState<ShellPanel>(() =>
+		panel === "code"
+			? // SAFETY: with no request, resolvePanel returns its fallback, "database" or "analytics" (lib/helpers.ts).
+				(resolvePanel(project.kind, undefined, showBackendGroup) as ShellPanel)
+			: panel,
+	);
+	if (panel !== "code" && panel !== shellPanel) setShellPanel(panel);
+	// The code screen mounts at its first open on screen, then stays mounted.
+	// So the open folders, the search, and the editor survive. While hidden it
+	// does not poll, but a turn end still refetches its snapshot. So the next
+	// open shows the new files at once.
+	const isCodeActive = isCodeOpen && isActive;
+	const [hasOpenedCode, setHasOpenedCode] = useState(false);
+	if (isCodeActive && !hasOpenedCode) setHasOpenedCode(true);
+	// The shell panels read their data only while they are on screen.
+	const isShellActive = isActive && !isCodeOpen;
+
+	// The CodeMirror chunk downloads while More is on screen, before the first open of the code screen.
+	useEffect(() => {
+		if (!isActive) return;
+		loadCodeEditor().catch(() => {
+			// A failed early download only loses the head start: the lazy
+			// editor fails the same way, and its error boundary in
+			// code-viewer.tsx shows the message and reports it.
+		});
+	}, [isActive]);
+
+	// The mounted code screen does not refetch at a reopen. The 30 s default
+	// staleTime (lib/query-client.ts) can hide a head that another client moved.
+	// So each time the code screen comes on screen, the snapshot refetches.
+	// The answer is a cheap 304.
+	useEffect(() => {
+		if (!isCodeActive) return;
+		// cancelRefetch false: at the first open, this call joins the fetch of the mount.
+		// A failed refetch goes to the query state; CodeView keeps the last good data.
+		void queryClient.refetchQueries(
+			{ queryKey: appBuilderKeys.code(project.id), exact: true },
+			{ cancelRefetch: false },
+		);
+	}, [isCodeActive, queryClient, project.id]);
 
 	function selectFromNav(next: ProjectPanel) {
 		setLogsFilter(undefined);
 		onSelectPanel(next);
 	}
 
-	function renderMorePanel(morePanel: MorePanel): ReactNode {
+	function renderMorePanel(
+		morePanel: Exclude<ShellPanel, CloudPanel>,
+	): ReactNode {
 		switch (morePanel) {
 			case "analytics":
 			case "security":
@@ -87,7 +152,7 @@ export function MoreView({
 			case "ai":
 				// Every AI key route needs the editor role, the GET too. A viewer gets a note and no API call.
 				return hasProjectRole(project.access, "editor") ? (
-					<AiPanel projectId={project.id} isActive={isActive} />
+					<AiPanel projectId={project.id} isActive={isShellActive} />
 				) : (
 					<PanelMessage
 						icon={InfoIcon}
@@ -99,7 +164,7 @@ export function MoreView({
 			case "payments":
 				return <PaymentsPanel />;
 			case "integrations":
-				return <IntegrationsPanel project={project} isActive={isActive} />;
+				return <IntegrationsPanel project={project} isActive={isShellActive} />;
 			case "mcp":
 				return (
 					<section className={cn(PANEL_CARD_CLASS, "p-5 sm:p-6")}>
@@ -129,38 +194,59 @@ export function MoreView({
 	}
 
 	return (
-		// On phones the nav is a strip above the panel. From md it is a column at the start side.
-		<div className="flex h-full min-h-0 flex-col md:flex-row">
-			<div className="shrink-0 overflow-x-auto border-night/[0.07] border-b bg-night/[0.02] p-2 md:w-[236px] md:overflow-y-auto md:border-e md:border-b-0 md:p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
-				<MoreNav
-					kind={project.kind}
-					active={panel}
-					showBackendGroup={showBackendGroup}
-					onSelect={selectFromNav}
-				/>
+		<div className="h-full min-h-0">
+			{/* Hidden, not unmounted, while the code screen shows. */}
+			{/* On phones the nav is a strip above the panel. From md it is a column at the start side. */}
+			<div
+				className={cn(
+					"h-full min-h-0 flex-col md:flex-row",
+					isCodeOpen ? "hidden" : "flex",
+				)}
+			>
+				<div className="shrink-0 overflow-x-auto border-night/[0.07] border-b bg-night/[0.02] p-2 md:w-[236px] md:overflow-y-auto md:border-e md:border-b-0 md:p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
+					<MoreNav
+						kind={project.kind}
+						active={shellPanel}
+						showBackendGroup={showBackendGroup}
+						onSelect={selectFromNav}
+					/>
+				</div>
+				<div className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 md:px-10 md:py-9">
+					<PanelShell panel={shellPanel}>
+						{isCloudPanel(shellPanel) ? (
+							<CloudPanelContent
+								projectId={project.id}
+								isActive={isShellActive}
+								panel={shellPanel}
+								logsFilter={logsFilter}
+								onViewFunctionLogs={(slug) => {
+									// The logs route has no function filter. A function log line
+									// holds the function URL, so a search on the slug finds its calls.
+									// LIMIT: the search also finds a longer slug that holds this one.
+									// Upgrade: a function id filter on the logs route (log_attributes['function_id']).
+									setLogsFilter({ source: "functions", search: slug });
+									onSelectPanel("logs");
+								}}
+							/>
+						) : (
+							renderMorePanel(shellPanel)
+						)}
+					</PanelShell>
+				</div>
 			</div>
-			<div className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 md:px-10 md:py-9">
-				<PanelShell panel={panel}>
-					{isCloudPanel(panel) ? (
-						<CloudPanelContent
-							projectId={project.id}
-							isActive={isActive}
-							panel={panel}
-							logsFilter={logsFilter}
-							onViewFunctionLogs={(slug) => {
-								// The logs route has no function filter. A function log line
-								// holds the function URL, so a search on the slug finds its calls.
-								// LIMIT: the search also finds a longer slug that holds this one.
-								// Upgrade: a function id filter on the logs route (log_attributes['function_id']).
-								setLogsFilter({ source: "functions", search: slug });
-								onSelectPanel("logs");
-							}}
-						/>
-					) : (
-						renderMorePanel(panel)
-					)}
-				</PanelShell>
-			</div>
+			{hasOpenedCode ? (
+				// The code screen fills the More view: no shell, no padding, no max width.
+				<div className={cn("h-full min-h-0", !isCodeOpen && "hidden")}>
+					<CodeView
+						projectId={project.id}
+						filePath={codeFilePath}
+						onSelectFile={onSelectCodeFile}
+						isTurnRunning={isTurnRunning}
+						onBack={() => onSelectPanel(shellPanel)}
+						isActive={isCodeActive}
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 }

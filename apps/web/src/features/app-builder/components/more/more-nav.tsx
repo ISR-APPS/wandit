@@ -33,7 +33,8 @@ export type MoreNavProps = {
 
 // A copy of NAV_BUTTON_CLASS of the dashboard sidebar
 // (projects/components/shell/app-sidebar.tsx). The rows are 36 px high, not
-// 40 px, so 16 rows and 2 headings fit an 800 px window.
+// 40 px. The 17 rows and 2 headings of a web app then need about 750 px.
+// A shorter column scrolls.
 const NAV_ROW_CLASS = cn(
 	"flex h-9 w-full shrink-0 items-center gap-2.5 rounded-full ps-1 pe-3 font-grotesk font-medium text-[14px] text-night/75 outline-none transition-colors duration-150",
 	"hover:bg-night/[0.06] hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50",

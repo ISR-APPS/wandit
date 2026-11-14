@@ -215,7 +215,7 @@ export type TurnMessage = UIMessage<never, TurnDataParts>;
 /** One part of a real V2 message: text, file, reasoning, or a `data-*` card. */
 export type TurnMessagePart = TurnMessage["parts"][number];
 
-/** A folder or a file of the sandbox worktree, for the Code view tree. */
+/** A folder or a file of the project, for the Code view tree. */
 export type { CodeTreeNode } from "@wandit/contracts";
 
 /**

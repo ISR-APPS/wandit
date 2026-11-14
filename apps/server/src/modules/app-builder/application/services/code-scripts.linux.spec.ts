@@ -92,9 +92,16 @@ describe.skipIf(!IS_LINUX)("CodeService scripts on a real worktree", () => {
 			"-m",
 			"init",
 		]);
+		// No stored commit, so CodeService reads the sandbox and never code.storage.
+		const noStore = () => Promise.reject(new Error("no stored commit"));
 		service = new CodeService(
-			{ findScopedProject: async () => PROJECT },
+			{ findBranch: async () => null, findScopedProject: async () => PROJECT },
 			{ findRunning: async () => localReader(worktree) },
+			{
+				listFilePaths: noStore,
+				readArchiveFiles: noStore,
+				readFile: noStore,
+			},
 		);
 	});
 
@@ -130,9 +137,14 @@ describe.skipIf(!IS_LINUX)("CodeService scripts on a real worktree", () => {
 	});
 
 	it("prefetches the small file and skips the large file and both symlinks", async () => {
-		const snapshot = await service.snapshot(SCOPE, "p-1");
+		const answer = await service.snapshot(SCOPE, "p-1", undefined);
+		if (answer.kind !== "snapshot") {
+			throw new Error(`expected a snapshot, got ${answer.kind}`);
+		}
 
-		expect(snapshot.branch).toBe("main");
-		expect(snapshot.files.map((file) => file.path)).toEqual(["src/app.tsx"]);
+		expect(answer.snapshot.branch).toBe("main");
+		expect(answer.snapshot.files.map((file) => file.path)).toEqual([
+			"src/app.tsx",
+		]);
 	});
 });

@@ -80,7 +80,7 @@ import {
 export type IntegrationsPanelProps = {
 	/** The project the page reads from appProjectQuery. Its name gives the default repo name. */
 	project: AppProject;
-	/** True while the More view is on screen. The view stays mounted, so the account query waits for it. */
+	/** True while this panel is on screen: the More view is open and the code screen does not cover it. The view stays mounted, so the account query waits for it. */
 	isActive: boolean;
 };
 

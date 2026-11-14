@@ -114,8 +114,10 @@ export * from "./v2/backend-tools";
 export * from "./v2/chat-history";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
-// V2 Code view contracts: the sandbox file tree and one file.
+// V2 Code view contracts: the committed or sandbox file tree and one file.
 export * from "./v2/code";
+// V2 code.storage REST answers that the server parses.
+export * from "./v2/code-storage";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
 // V2 desktop app contracts: the builds, the migration rules, and the updater manifest.

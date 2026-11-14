@@ -122,7 +122,7 @@ async function setup(state: ProjectState = {}) {
 		}),
 	};
 	// code.storage holds the stored theme only at the stored head.
-	const gitFiles: GitFileReader = {
+	const gitFiles: Pick<GitFileReader, "readFile"> = {
 		readFile: async (_projectId, ref, path) =>
 			ref === HEAD &&
 			path === APP_THEME_FILE_PATH &&

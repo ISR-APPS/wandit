@@ -90,6 +90,7 @@ function renderView(
 	props: Partial<CodeViewProps> = {},
 ) {
 	const onSelectFile = vi.fn();
+	const onBack = vi.fn();
 	function tree(viewProps: Partial<CodeViewProps>) {
 		// I18nProvider requires children in its props type for createElement calls.
 		const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -101,6 +102,8 @@ function renderView(
 				filePath: undefined,
 				onSelectFile,
 				isTurnRunning: false,
+				onBack,
+				isActive: true,
 				...viewProps,
 			}),
 		};
@@ -117,6 +120,7 @@ function renderView(
 	const view = render(tree(props));
 	return {
 		onSelectFile,
+		onBack,
 		rerenderWith: (next: Partial<CodeViewProps>) => view.rerender(tree(next)),
 	};
 }
@@ -252,6 +256,21 @@ describe("CodeView", () => {
 		expect(treeColumn()?.classList.contains("hidden")).toBe(true);
 	});
 
+	it("on a phone with the tree closed, Back is not in the hidden tree column", async () => {
+		window.innerWidth = 390;
+		const { onBack } = renderView(
+			queryClientWith({ snapshot: SNAPSHOT, files: [APP_FILE] }),
+		);
+		await editorText();
+
+		// jsdom applies no CSS, so the check is that no hidden column holds Back.
+		const back = screen.getByRole("button", { name: "Back" });
+		expect(back.closest(".hidden")).toBeNull();
+		fireEvent.click(back);
+
+		expect(onBack).toHaveBeenCalledOnce();
+	});
+
 	it("shows the missing-file message for a path outside the worktree", async () => {
 		const missing: CodeFile = { kind: "missing", path: "src/missing.ts" };
 		renderView(queryClientWith({ snapshot: SNAPSHOT, files: [missing] }), {
@@ -305,6 +324,15 @@ describe("CodeView", () => {
 				appBuilderKeys.codeFile(PROJECT_ID, "src/app.tsx"),
 			),
 		).toBeUndefined();
+	});
+
+	it("shows Back in the asleep state, which has no tree column", async () => {
+		const { onBack } = renderView(queryClientWith({ snapshot: null }));
+		await screen.findByText(ASLEEP_TITLE);
+
+		fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+		expect(onBack).toHaveBeenCalledOnce();
 	});
 
 	it("shows the setup status, not the asleep message, while a turn sets up the sandbox", async () => {

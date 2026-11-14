@@ -22,7 +22,6 @@
 	},
 	"views": {
 		"preview": "Aperçu",
-		"code": "Code",
 		"more": "Plus"
 	},
 	"viewport": {
@@ -188,6 +187,7 @@
 			"go": "aller"
 		},
 		"files": "Fichiers",
+		"back": "Retour",
 		"asleepTitle": "Ton app est en veille",
 		"noFilesTitle": "Pas encore de fichiers",
 		"binaryTitle": "Fichier binaire",
@@ -239,6 +239,9 @@
 			"title": "Sécurité",
 			"description": "Règles d'accès, secrets et ce que tes utilisateurs peuvent voir.",
 			"cta": "Vérifier les règles d'accès"
+		},
+		"code": {
+			"title": "Code"
 		},
 		"settings": {
 			"title": "Paramètres",

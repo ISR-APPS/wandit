@@ -104,7 +104,7 @@ export type WebPreviewProps = {
 	onPickTarget: (target: PreviewTarget) => void;
 	/** Sends the "Try to fix" text as one chat message. */
 	onTryToFix: (message: string) => void;
-	/** False while the Code or More view shows. The page keeps this preview mounted, but hidden. */
+	/** False while the More view shows. The page keeps this preview mounted, but hidden. */
 	isActive: boolean;
 	/** Spec seam: a fake getPreviewToken for usePreviewToken. Production callers leave it out. */
 	deps?: PreviewTokenDeps;
@@ -194,7 +194,7 @@ export function WebPreview({
 	) {
 		setThemeDraft(null);
 	}
-	// The sheet is a portal, so it stays over the Code and More views. It closes, and no draft goes to a hidden app.
+	// The sheet is a portal, so it stays over the More view. It closes, and no draft goes to a hidden app.
 	if (!isActive && (isThemeOpen || themeDraft !== null)) {
 		setIsThemeOpen(false);
 		setThemeDraft(null);

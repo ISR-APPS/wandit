@@ -4,7 +4,8 @@
  * split moves the work pane controls with the main card. On phones the open
  * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
- * project query. The URL search params hold the view state.
+ * project query. The URL search params hold the view state: Preview or
+ * More, the More panel (the code screen too), and the open file.
  * The Backend group of the More view shows only behind useCloudTabEnabled and for an editor,
  * and never for a desktop project. The Appetize device of a mobile project shows only behind
  * useDevicePreviewEnabled. A desktop project shows its preview in a Windows window inside WebPreview.
@@ -51,7 +52,6 @@ import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
-import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
@@ -399,15 +399,7 @@ export default function AppBuilderPage({
 					/>
 				)}
 			</div>
-			{view === "code" ? (
-				<CodeView
-					projectId={project.id}
-					filePath={search.file}
-					onSelectFile={(path) => setSearch({ file: path }, true)}
-					isTurnRunning={thread.isTurnRunning}
-				/>
-			) : null}
-			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its Cloud queries wait for isActive. */}
+			{/* Hidden, not unmounted: the SQL draft, the open page, and the code screen stay. Its Cloud queries wait for isActive. */}
 			<div
 				className={cn(
 					"h-full min-h-0 flex-col",
@@ -422,6 +414,9 @@ export default function AppBuilderPage({
 					isActive={view === "more"}
 					showBackendGroup={showBackendGroup}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
+					codeFilePath={search.file}
+					onSelectCodeFile={(path) => setSearch({ file: path }, true)}
+					isTurnRunning={thread.isTurnRunning}
 				/>
 			</div>
 			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}
