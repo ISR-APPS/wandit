@@ -145,14 +145,17 @@ export interface BuilderHarness {
 			/**
 			 * True resumes the thread between turns and drops a paused turn; the
 			 * caller then sends the answers as a text prompt. The runtime sets it
-			 * when the sandbox woke from a stop: the bridge and its open tool
-			 * calls are gone. It also sets it when the turn switches mode.
+			 * after a sandbox stop and after a turn of another chat: the bridge
+			 * and its open tool calls are gone. It also sets it when the turn
+			 * switches mode.
 			 */
 			dropPausedTurn: boolean;
 			/**
-			 * True after a sandbox wake. The bridge is usually gone. The harness
-			 * kills a bridge that still runs, then starts a new one. A mode
-			 * switch keeps the bridge: its new start replaces the paused call.
+			 * True after a sandbox wake, and after a turn of another chat of the
+			 * project. The one bridge of the sandbox then serves that chat. The
+			 * harness kills a bridge that still runs, then starts a new one. It
+			 * throws when the stored state names no conversation to resume. A
+			 * mode switch keeps the bridge: its new start replaces the paused call.
 			 */
 			bridgeDead: boolean;
 		},

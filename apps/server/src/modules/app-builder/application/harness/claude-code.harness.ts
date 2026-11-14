@@ -49,6 +49,7 @@ import type {
 	ToolResultPart,
 	UIMessageChunk,
 } from "ai";
+import { z } from "zod";
 
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
 import { isAnthropicModel } from "../../domain/llm-upstream";
@@ -248,6 +249,16 @@ export type ClaudeCodeHarnessDeps = {
 	now?: () => number;
 };
 
+/**
+ * The one field of the stored adapter `data` that this file reads.
+ * It is the id of the Claude conversation of the chat.
+ * `@ai-sdk/harness-claude-code` writes it at each detach and suspend
+ * (1.0.137 resume schema). An old state has none.
+ */
+const storedConversationSchema = z.object({
+	data: z.object({ claudeSessionId: z.string() }),
+});
+
 /** The options of `resumeSession`, see `BuilderHarness`. */
 type ResumeOptions = { dropPausedTurn: boolean; bridgeDead: boolean };
 
@@ -312,7 +323,8 @@ type KeptSession = {
  * The pattern `[b]ridge` does not match the script's own shell, so the
  * script does not kill itself. The glob sorts pids as text ("1865" before
  * "733"), so a self-match can stop the script before it reaches the bridge.
- * Called by `createSession` and by `resumeStored` after a sandbox wake.
+ * Called by `createSession`, and by `resumeStored` after a sandbox wake or
+ * a turn of another chat.
  */
 const KILL_STALE_BRIDGE_SCRIPT =
 	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q '[b]ridge\\.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
@@ -470,12 +482,24 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const parsed = harnessResumeStateSchema.parse(
 			JSON.parse(resumeState.payload),
 		);
+		// A new bridge resumes the conversation by its id. Without the id, the
+		// adapter sends "continue", which opens the newest conversation of the
+		// work directory. With two chats, that can be the other chat.
+		if (
+			options.bridgeDead &&
+			!storedConversationSchema.safeParse(parsed).success
+		) {
+			throw new Error(
+				`The stored session of chat ${input.chatId} names no Claude conversation, so a new bridge cannot resume it`,
+			);
+		}
 
 		const epoch = this.tokenEpoch();
 		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
 		// A wake can reuse a live vendor sandbox after a failed stop, and its
-		// old bridge holds the port. After a real boot, the kill does nothing.
+		// old bridge holds the port. So does the bridge of another chat that
+		// ran the last turn. After a real boot, the kill does nothing.
 		if (options.bridgeDead) {
 			await input.sandbox.exec("sh", ["-c", KILL_STALE_BRIDGE_SCRIPT]);
 		}

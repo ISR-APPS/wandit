@@ -21,12 +21,14 @@ import {
 	type CodeFileResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
+	type CreateProjectChatResponse,
 	cancelTurnResponseSchema,
 	chatCostResponseSchema,
 	chatHistoryPageSchema,
 	codeFileResponseSchema,
 	codeSnapshotResponseSchema,
 	createAppProjectResponseSchema,
+	createProjectChatResponseSchema,
 	type DevicePlatform,
 	endDeviceSessionResponseSchema,
 	type ListVersionsResponse,
@@ -34,9 +36,11 @@ import {
 	PHONE_LINK_PATH,
 	type PhonePreviewLinkResponse,
 	type PreviewTokenResponse,
+	type ProjectChatListResponse,
 	type ProjectCostCaps,
 	phonePreviewLinkResponseSchema,
 	previewTokenResponseSchema,
+	projectChatListResponseSchema,
 	projectCostCapsSchema,
 	type RestoreVersionBody,
 	type RestoreVersionResponse,
@@ -406,20 +410,45 @@ export async function listVersions(
 }
 
 /**
- * `GET /api/v2/projects/:id/messages` answers one page of the stored chat,
- * in chat order. `cursor` is the `nextCursor` of the newer page; null
- * reads the newest page. The API hides the reply of a running turn (D20).
+ * `GET /api/v2/projects/:id/messages` answers one page of the stored chat
+ * of one conversation, in chat order. `chatId` is a row id of `chats`.
+ * `cursor` is the `nextCursor` of the newer page; null reads the newest
+ * page. The API hides the reply of a running turn (D20).
  */
 export async function listChatHistory(
 	projectId: string,
+	chatId: string,
 	cursor: string | null,
 ): Promise<ChatHistoryPage> {
 	const data = await apiClient.get<unknown>(
 		appBuilderRoutes.messages(projectId),
 		// The client drops a null query value, so the newest page has no cursor.
-		{ query: { cursor } },
+		{ query: { chatId, cursor } },
 	);
 	return chatHistoryPageSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/chats` answers every conversation of the
+ * project, the most recent activity first. A project viewer can read it.
+ */
+export async function listProjectChats(
+	projectId: string,
+): Promise<ProjectChatListResponse> {
+	const data = await apiClient.get<unknown>(appBuilderRoutes.chats(projectId));
+	return projectChatListResponseSchema.parse(data);
+}
+
+/**
+ * `POST /api/v2/projects/:id/chats` answers a conversation with no message.
+ * The API answers the empty conversation of the project when one exists, so
+ * a second call adds no row. It needs the editor role: a viewer gets 403.
+ */
+export async function createProjectChat(
+	projectId: string,
+): Promise<CreateProjectChatResponse> {
+	const data = await apiClient.post<unknown>(appBuilderRoutes.chats(projectId));
+	return createProjectChatResponseSchema.parse(data);
 }
 
 /**

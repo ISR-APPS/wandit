@@ -583,6 +583,31 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.continueFrom).toBeUndefined();
 	});
 
+	it("refuses a new bridge for a stored state that names no Claude conversation", async () => {
+		const { captured, harness } = setup();
+		execCalls.length = 0;
+
+		// Without the id, the adapter sends "continue", which can open the
+		// conversation of another chat in the same work directory.
+		await expect(
+			harness.resumeSession(
+				sessionInput(),
+				{
+					harness: "claude_code",
+					payload: JSON.stringify({
+						...RESUME_STATE,
+						data: { forkOnResume: false },
+					}),
+					pending: [],
+				},
+				{ bridgeDead: true, dropPausedTurn: false },
+			),
+		).rejects.toThrow(/names no Claude conversation/);
+		// The throw comes before the bridge kill and before a session start.
+		expect(execCalls).toHaveLength(0);
+		expect(captured.createCount).toBe(0);
+	});
+
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
 		const { harness } = setup();
 

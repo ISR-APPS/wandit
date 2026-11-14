@@ -14,7 +14,10 @@ import type {
 	TurnMessagePart,
 } from "../api/dto";
 import {
-	contextFullPercentOf,
+	type ContextTone,
+	type ContextUsage,
+	contextToneOf,
+	contextUsageOf,
 	type LiveStatus,
 	latestTurnModeOf,
 	livePhaseOf,
@@ -1167,7 +1170,7 @@ describe("toBuilderMessages", () => {
 	});
 });
 
-describe("contextFullPercentOf", () => {
+describe("contextUsageOf", () => {
 	/** A stored reply with the context count of its turn on a 300,000 point. */
 	function contextReply(id: string, tokens: number): TurnMessage {
 		return {
@@ -1188,22 +1191,20 @@ describe("contextFullPercentOf", () => {
 		parts: [{ type: "text", text: "Add a cart" }],
 	};
 
-	// Zack's rule: on the 300,000 point the notice starts at 250,000.
-	it.each<{ name: string; messages: TurnMessage[]; expected: number | null }>([
+	it.each<{
+		name: string;
+		messages: TurnMessage[];
+		expected: ContextUsage | null;
+	}>([
 		{
-			name: "one token below the notice point",
+			name: "a count below the notice margin",
 			messages: [contextReply("a1", 249_999)],
-			expected: null,
-		},
-		{
-			name: "the notice point",
-			messages: [contextReply("a1", 250_000)],
-			expected: 83,
+			expected: { tokens: 249_999, compactAtTokens: 300_000, percent: 83 },
 		},
 		{
 			name: "a count above the compaction point",
 			messages: [contextReply("a1", 320_000)],
-			expected: 100,
+			expected: { tokens: 320_000, compactAtTokens: 300_000, percent: 100 },
 		},
 		{
 			name: "the smaller count of the turn after a compaction",
@@ -1212,7 +1213,7 @@ describe("contextFullPercentOf", () => {
 				userMessage,
 				contextReply("a2", 40_000),
 			],
-			expected: null,
+			expected: { tokens: 40_000, compactAtTokens: 300_000, percent: 13 },
 		},
 		{
 			name: "the reply before a failed reply with no count",
@@ -1221,7 +1222,7 @@ describe("contextFullPercentOf", () => {
 				userMessage,
 				{ id: "a2", role: "assistant", parts: [{ type: "text", text: "…" }] },
 			],
-			expected: 87,
+			expected: { tokens: 260_000, compactAtTokens: 300_000, percent: 87 },
 		},
 		{
 			name: "a failed reply that compacted",
@@ -1238,8 +1239,38 @@ describe("contextFullPercentOf", () => {
 			],
 			expected: null,
 		},
-	])("returns $expected for $name", ({ messages, expected }) => {
-		expect(contextFullPercentOf(messages)).toBe(expected);
+	])("reads $name", ({ messages, expected }) => {
+		expect(contextUsageOf(messages)).toEqual(expected);
+	});
+});
+
+describe("contextToneOf", () => {
+	// Zack's rule: on the 300,000 point the warning starts at 250,000.
+	it.each<{ name: string; tokens: number; percent: number; tone: ContextTone }>(
+		[
+			{
+				name: "one token below the margin",
+				tokens: 249_999,
+				percent: 83,
+				tone: "neutral",
+			},
+			{
+				name: "the start of the margin",
+				tokens: 250_000,
+				percent: 83,
+				tone: "warning",
+			},
+			{
+				name: "the compaction point",
+				tokens: 300_000,
+				percent: 100,
+				tone: "full",
+			},
+		],
+	)("is $tone at $name", ({ tokens, percent, tone }) => {
+		expect(contextToneOf({ tokens, compactAtTokens: 300_000, percent })).toBe(
+			tone,
+		);
 	});
 });
 

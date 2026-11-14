@@ -5,10 +5,12 @@
  */
 import { z } from "zod";
 import { chatMessageSchema } from "../v1/chats";
+import { uuidSchema } from "../v1/shared/primitives";
 
 /**
  * Query of `GET /api/v2/projects/:projectId/messages`. `cursor` is the
  * `nextCursor` of the newer page. No cursor reads the newest page.
+ * `chatId` selects one conversation of the project.
  */
 export const chatHistoryQuerySchema = z.object({
 	// A message `seq`. At most 15 digits stay below Number.MAX_SAFE_INTEGER,
@@ -22,6 +24,8 @@ export const chatHistoryQuerySchema = z.object({
 	// fill the open chat. An assistant row holds 44–80 KB of parts, so 50
 	// rows cap one answer.
 	limit: z.coerce.number().int().min(1).max(50).default(30),
+	// The conversation to read, a row id of `chats`. Absent: the oldest conversation of the project.
+	chatId: uuidSchema.optional(),
 });
 
 /** Parsed query of the history route: `cursor` is a number after the parse. */

@@ -52,6 +52,8 @@ export const apiErrorCodes = [
 	"MOBILE_TEMPLATE_UNAVAILABLE",
 	"BUILDER_APPROVAL_PENDING",
 	"BUILDER_TURN_ACTIVE",
+	// 409 on a turn create while another conversation of the project has an unfinished turn. The details carry its `chatId`.
+	"BUILDER_OTHER_CHAT_BUSY",
 	"BUILDER_TURN_WAITING",
 	// The theme save (PUT /api/v2/projects/:id/theme): a turn or a restore holds the lock, no sandbox
 	// runs, or the head moved after the theme GET.

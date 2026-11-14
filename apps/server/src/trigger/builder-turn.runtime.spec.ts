@@ -69,6 +69,8 @@ import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
 	type BuilderTurnTiming,
+	freshSessionNoteOf,
+	otherChatNoteOf,
 	restoreNoteOf,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
@@ -89,6 +91,8 @@ vi.mock("@wandit/observability/node", () => ({
 const TURN_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const CHAT_ID = "33333333-3333-4333-8333-333333333333";
+/** A second conversation of the same project. */
+const OTHER_CHAT_ID = "55555555-5555-4555-8555-555555555555";
 const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
@@ -218,6 +222,8 @@ class FakeTurns {
 	row: BuilderTurnRow;
 	/** The paused row `findWaitingForUser` answers, or null. */
 	waitingForUser: BuilderTurnRow | null = null;
+	/** The chat `findPreviousRunChatId` answers: the chat of the turn before this one. */
+	previousRunChatId: string | null = null;
 
 	readonly claimCalls: { runId: string; turnId: string }[] = [];
 	/** Turn ids of the host claims, which bind no run id. */
@@ -265,6 +271,13 @@ class FakeTurns {
 		return this.current;
 	}
 
+	async findPreviousRunChatId(
+		_projectId: string,
+		_turnNumber: number,
+	): Promise<string | null> {
+		return this.previousRunChatId;
+	}
+
 	async recordUsage(turnId: string, usage: BuilderTurnUsage) {
 		this.usageCalls.push({ turnId, usage });
 	}
@@ -310,6 +323,8 @@ class FakeSessions {
 	}[] = [];
 	/** Every resume-state write, in call order. The last one decides how the next turn starts. */
 	readonly writes: ("clear" | "save")[] = [];
+	/** Every `clearResumeStateOfOtherChats` call. `chatId` is the chat that keeps its state. */
+	readonly clearOtherChatsCalls: { chatId: string; projectId: string }[] = [];
 
 	async findByChatId(_chatId: string): Promise<BuilderSessionRow | null> {
 		return this.row;
@@ -331,6 +346,11 @@ class FakeSessions {
 	async clearResumeState(_chatId: string) {
 		this.writes.push("clear");
 		return this.row;
+	}
+
+	// The fake holds one row, the row of this chat, so no row changes.
+	async clearResumeStateOfOtherChats(projectId: string, chatId: string) {
+		this.clearOtherChatsCalls.push({ chatId, projectId });
 	}
 }
 
@@ -871,7 +891,10 @@ function makeWorld(over?: {
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
-		versions: { findLatest: async () => null },
+		versions: {
+			findLatest: async () => null,
+			hasFileChanges: async () => false,
+		},
 		writer: stream,
 	};
 
@@ -2527,6 +2550,44 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.resumeCalls[0]?.options.bridgeDead).toBe(false);
 	});
 
+	// A sandbox has one bridge. After a turn of another conversation, the
+	// bridge serves that conversation, and an attach to it waits 30 s and fails.
+	it.each([
+		["another conversation", OTHER_CHAT_ID, true],
+		["the same conversation", CHAT_ID, false],
+	])("resumes after a turn of %s with bridgeDead %s", async (_label, previousRunChatId, bridgeDead) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The sandbox already runs, so only the chat of the last turn decides.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.turns.previousRunChatId = previousRunChatId;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options.bridgeDead).toBe(bridgeDead);
+	});
+
+	// Only a new sandbox loses the transcripts. On a sandbox that lives, the
+	// write deletes the agent memory of every other conversation.
+	it.each([
+		["a new sandbox", true, [{ chatId: CHAT_ID, projectId: PROJECT_ID }]],
+		["a sandbox that lives", false, []],
+	])("on %s, the clear of the resume state of the other chats runs: %s", async (_label, reportsCreated, calls) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.sandboxes.reportsCreated = reportsCreated;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.sessions.clearOtherChatsCalls).toEqual(calls);
+	});
+
 	it("writes the waking status when a stopped sandbox resumes", async () => {
 		const world = makeWorld();
 		world.harness.events = happyEvents();
@@ -3142,6 +3203,23 @@ describe("runBuilderTurn", () => {
 				turnId: PAUSED_TURN_ID,
 			},
 		]);
+	});
+
+	it("leaves the paused row of another conversation as it is", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.waitingForUser = fakeTurnRow({
+			chatId: OTHER_CHAT_ID,
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_answer",
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// A `succeeded` row hides the card, and the other conversation loses its answer.
+		expect(world.turns.transitionCalls).toEqual([]);
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
 	});
 
 	it("marks the answer partial when the call holds two questions", async () => {
@@ -4918,5 +4996,42 @@ describe("restoreNoteOf", () => {
 			new Date("2026-10-04T09:00:00.000Z"),
 		);
 		expect(note).toMatch(/GitHub/);
+	});
+});
+
+describe("otherChatNoteOf and freshSessionNoteOf", () => {
+	it.each([
+		[
+			"another conversation ran last and this chat resumed: a note",
+			otherChatNoteOf(true, true),
+			true,
+		],
+		[
+			"another conversation ran last and this chat lost its session: no note",
+			otherChatNoteOf(true, false),
+			false,
+		],
+		["this chat ran last: no note", otherChatNoteOf(false, true), false],
+		[
+			"a chat with no stored session on a project with code: a note",
+			freshSessionNoteOf(false, true),
+			true,
+		],
+		[
+			"the first build of a new project: no note",
+			freshSessionNoteOf(false, false),
+			false,
+		],
+		[
+			"a chat with a stored session on a project with code: no note",
+			freshSessionNoteOf(true, true),
+			false,
+		],
+	] satisfies [
+		string,
+		string | null,
+		boolean,
+	][])("%s", (_label, note, hasNote) => {
+		expect(note !== null).toBe(hasNote);
 	});
 });

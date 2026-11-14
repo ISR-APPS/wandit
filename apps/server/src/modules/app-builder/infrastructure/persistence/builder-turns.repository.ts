@@ -27,6 +27,7 @@ import {
 	eq,
 	inArray,
 	isNull,
+	lt,
 	notInArray,
 	sql,
 } from "@wandit/db";
@@ -378,6 +379,28 @@ export class BuilderTurnsRepository {
 	}
 
 	/**
+	 * The conversation that holds a project, or null. It holds the project
+	 * while one of its turns is queued, parked, running, cancelling, or paused
+	 * on a card. `TurnsService` refuses another conversation with it.
+	 */
+	async findBusyChatId(projectId: string): Promise<string | null> {
+		const [row] = await this.db
+			.select({ chatId: builderTurns.chatId })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.projectId, projectId),
+					notInArray(builderTurns.status, [...TERMINAL_TURN_STATUSES]),
+					sql`${builderTurns.chatId} is not null`,
+				),
+			)
+			.orderBy(asc(builderTurns.turnNumber))
+			.limit(1);
+
+		return row?.chatId ?? null;
+	}
+
+	/**
 	 * CAS `queued` → `running`; also binds the Trigger run id. The run id
 	 * clause accepts the API-written id so a claim after `setTriggerRunId`
 	 * still lands; a foreign run id can never claim the row. A row the API
@@ -670,6 +693,33 @@ export class BuilderTurnsRepository {
 			);
 
 		return row?.max ?? 0;
+	}
+
+	/**
+	 * The chat of the newest turn of a project that a runner claimed before
+	 * turn `turnNumber`, or null. A turn of a deleted chat also answers null.
+	 * The `builder-turn` task reads it: that chat owns the one sandbox bridge.
+	 */
+	async findPreviousRunChatId(
+		projectId: string,
+		turnNumber: number,
+	): Promise<string | null> {
+		const [row] = await this.db
+			.select({ chatId: builderTurns.chatId })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.projectId, projectId),
+					lt(builderTurns.turnNumber, turnNumber),
+					// A row with no start time never ran: it was canceled or
+					// failed while it waited, so it started no bridge.
+					sql`${builderTurns.startedAt} is not null`,
+				),
+			)
+			.orderBy(desc(builderTurns.turnNumber))
+			.limit(1);
+
+		return row?.chatId ?? null;
 	}
 }
 

@@ -2,8 +2,8 @@
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks, the files, and the long pastes, the textarea,
  * then the add menu (a file or an image), the Plan chip, the model menu, the
- * credit estimate, dictation, and send. While the tray shows, send becomes
- * the answer pill of the tray.
+ * credit estimate, the context ring, dictation, and send. While the tray
+ * shows, send becomes the answer pill of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
  * the pasted texts, and the uploaded files; a send that the API refuses puts
  * them back. Uploads and pastes go through the projects feature.
@@ -60,10 +60,12 @@ import {
 } from "@/features/projects";
 import { formatNumber, type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import type { ContextUsage } from "../../lib/turn-parts";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
+import { ContextRing } from "./context-ring";
 import { TargetChip } from "./target-chip";
 
 /**
@@ -106,6 +108,10 @@ export type ComposerProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick on the page. The menu locks and hides like the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** How full the model context is, from contextUsageOf through the chat pane. Null renders no ring: no turn wrote a count yet. The ring hides while the tray shows. */
+	contextUsage: ContextUsage | null;
+	/** Creates an empty conversation and opens it, from the page. The context ring offers it near the limit. */
+	onCreateChat?: () => void;
 };
 
 /** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
@@ -166,6 +172,8 @@ export function Composer({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	contextUsage,
+	onCreateChat,
 }: ComposerProps) {
 	const { t, locale } = useTranslation();
 	const [draft, setDraftState] = useState("");
@@ -224,6 +232,8 @@ export function Composer({
 		: (message.length > 0 || readyParts.length > 0) &&
 			!isUploading &&
 			!isSending;
+	// The tray answer pill needs the room of the ring, like the room of the Plan chip.
+	const showsContextRing = contextUsage !== null && !submitOverride;
 	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
 		max: formatNumber(builderMessageMaxLength, locale),
 	});
@@ -435,7 +445,8 @@ export function Composer({
 					onChange={addFiles}
 					className="hidden"
 				/>
-				<div className="mt-1 flex items-center gap-1.5">
+				{/* The row is a size container: the estimate reads the row width below. */}
+				<div className="@container mt-1 flex items-center gap-1.5">
 					<DropdownMenu>
 						<IconAction label={t("appBuilder.chat.addContext")}>
 							<DropdownMenuTrigger asChild>
@@ -470,18 +481,34 @@ export function Composer({
 								isPlanMode={isPlanMode}
 								onPlanModeChange={onPlanModeChange}
 								disabled={isSending}
+								// A row under 380 px shows only the icon, so the ring, dictation, and
+								// send fit in the default 400 px column. The tooltip and the screen
+								// reader still give the name.
+								labelClassName="@max-[380px]:sr-only"
 							/>
 							<BuilderModelPicker pick={modelPick} disabled={isSending} />
 						</>
 					)}
-					{turnEstimateCredits !== null ? (
-						<span className="ms-auto flex items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50">
-							<Spark className="size-3 text-spark" />
-							{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
-						</span>
-					) : (
-						<span className="ms-auto" />
-					)}
+					{/* The auto margin pushes the estimate, the ring, dictation, and send to the end of the row. */}
+					<span className="ms-auto">
+						{turnEstimateCredits !== null ? (
+							<span
+								className={cn(
+									"items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50",
+									// A row under 420 px cannot hold the estimate and the ring, so the ring shows alone.
+									// A 420 px row is a chat column of about 498 px. The default 400 px column shows no estimate with the ring.
+									// LIMIT: the row fits from a chat column of about 345 px (380 px with the Fast toggle). Upgrade: a larger CHAT_PANEL_MIN_WIDTH.
+									showsContextRing ? "@min-[420px]:flex hidden" : "flex",
+								)}
+							>
+								<Spark className="size-3 text-spark" />
+								{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
+							</span>
+						) : null}
+					</span>
+					{showsContextRing ? (
+						<ContextRing usage={contextUsage} onCreateChat={onCreateChat} />
+					) : null}
 					{dictation.supported ? (
 						<IconAction label={dictationLabel}>
 							<Button

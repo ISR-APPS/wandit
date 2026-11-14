@@ -1,8 +1,10 @@
 /**
  * The chat column of the app builder. It has no card and lies on the sand
- * desk. The header shows the title, the dev view switch in local dev, and
- * the collapse button; a running turn adds a "Building" or "Planning" chip
- * and a Stop pill. Below sit the message list, one status line while a
+ * desk. The header shows the conversation switcher, the dev view switch in
+ * local dev, and the collapse button; a running turn adds a "Building" or
+ * "Planning" chip and a Stop pill. While another conversation holds the
+ * project, the send locks and a strip above the composer opens that
+ * conversation. Below sit the message list, one status line while a
  * turn runs, an alert row (`errorText`), and the composer. The list has a
  * "Load earlier messages" button while older pages exist. The alert row
  * shows a refused send or a lost stream. It has a Reconnect button when
@@ -10,12 +12,10 @@
  * When the agent asks the user something, the request tray opens on top of
  * the composer. While the payer has no credits, the send locks and a
  * strip shows above the composer: the upgrade strip when the payer is the
- * active workspace, else a note to ask the owner. When the payer has credits
- * and the conversation nears the Claude Code compaction point, a "context
- * getting full" strip shows there. While GitHub has commits
+ * active workspace, else a note to ask the owner. While GitHub has commits
  * that the project did not pull, a GitHub strip with Update shows above the
  * composer too. A project viewer gets a note instead of the composer, no
- * Stop, no Retry, no GitHub strip, no context strip, and no card actions.
+ * Stop, no Retry, no GitHub strip, and no card actions.
  * A failed last reply gets a Retry button that sends its user message
  * again, except a stop on the daily AI limit, and while the payer has no
  * credits. The plan card's
@@ -26,13 +26,14 @@
  * reply shows only as the status line. Under the composer, a line shows the
  * full cost of the chat after its first turn. Rendered by
  * pages/app-builder-page.tsx, which owns the thread hook, the model pick,
- * the chat cost, the GitHub pull, and the details panel. Renders
- * chat-message.tsx, working-row.tsx, composer.tsx, chat-cost-line.tsx,
- * github-update-banner.tsx, and the request tray.
+ * the chat cost, the GitHub pull, the conversation list, and the details
+ * panel. The page gives the pane a new React key for each conversation.
+ * The draft, the files, the tray, and the scroll state then start again.
+ * Renders chat-switcher.tsx, chat-message.tsx, working-row.tsx, composer.tsx,
+ * chat-cost-line.tsx, github-update-banner.tsx, and the request tray.
  */
 
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
-import { GaugeIcon } from "@phosphor-icons/react/Gauge";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
@@ -40,6 +41,7 @@ import {
 	type ChatCostResponse,
 	DAILY_CAP_TURN_ERROR_CODE,
 	type PreviewTarget,
+	type ProjectChat,
 	type TurnQuestionAnswer,
 	type TurnStreamPhase,
 } from "@wandit/contracts";
@@ -50,10 +52,14 @@ import { AnimatePresence, MotionConfig } from "motion/react";
 import { useRef, useState } from "react";
 
 import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
-import { formatNumber, useTranslation } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
-import { isActivityPart, liveStatusOf } from "../../lib/turn-parts";
+import {
+	type ContextUsage,
+	isActivityPart,
+	liveStatusOf,
+} from "../../lib/turn-parts";
 import { useAutoScroll } from "../../lib/use-auto-scroll";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
@@ -61,6 +67,7 @@ import { SegmentedControl } from "../shell/segmented-control";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { ChatCostLine } from "./chat-cost-line";
 import { ChatMessageView } from "./chat-message";
+import { ChatSwitcher } from "./chat-switcher";
 import { Composer } from "./composer";
 import { GithubUpdateBanner } from "./github-update-banner";
 import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
@@ -102,8 +109,18 @@ export type ChatPaneProps = {
 	onChangeDeveloperView: ((isDeveloperView: boolean) => void) | null;
 	/** Opens the details panel of one assistant reply. The summary line and the status line call it. */
 	onOpenActivity: (messageId: string) => void;
-	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
+	/** False until a conversation is open and its history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
+	/** Conversations of the project, the most recent activity first. From the conversation list query of the page; empty while it loads. */
+	chats: readonly ProjectChat[];
+	/** Id of the open conversation, a row of `chats`. Undefined while the list loads. */
+	openChatId: string | undefined;
+	/** Id of the conversation that holds the project, from useBuilderThread; null when none holds it. Another id than `openChatId` locks the send. */
+	busyChatId: string | null;
+	/** Opens one conversation. The page writes its id to `?chat=`. */
+	onOpenChat: (chatId: string) => void;
+	/** Creates an empty conversation and opens it. Absent for a project viewer. */
+	onCreateChat?: () => void;
 	/** Sends one turn. Resolves false when the API admitted no turn; the composer then gets the draft back. */
 	onSend: (input: SendBuilderMessageInput) => Promise<boolean>;
 	/** Sends an approval card decision; the pane drops it while a turn runs. */
@@ -126,8 +143,8 @@ export type ChatPaneProps = {
 	modelPick: BuilderModelPick;
 	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
 	chatCost?: ChatCostResponse;
-	/** Whole percent of the compaction point the conversation fills, from useBuilderThread. Null hides the "context getting full" strip. */
-	contextFullPercent: number | null;
+	/** How full the model context is, from useBuilderThread. The composer shows it as a ring; null shows no ring. */
+	contextUsage: ContextUsage | null;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
 	/** Sentence of the last rejected send or lost stream, or null. Shown as an alert under the list. */
@@ -180,6 +197,11 @@ export function ChatPane({
 	onChangeDeveloperView,
 	onOpenActivity,
 	isReady,
+	chats,
+	openChatId,
+	busyChatId,
+	onOpenChat,
+	onCreateChat,
 	onSend,
 	onDecideApproval,
 	onAnswerQuestions,
@@ -187,7 +209,7 @@ export function ChatPane({
 	onPlanModeChange,
 	modelPick,
 	chatCost,
-	contextFullPercent,
+	contextUsage,
 	onCancel,
 	errorText,
 	onReconnect,
@@ -200,7 +222,7 @@ export function ChatPane({
 	githubUpdate,
 	className,
 }: ChatPaneProps) {
-	const { t, locale } = useTranslation();
+	const { t } = useTranslation();
 	const listRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [draft, setDraft] = useState("");
@@ -217,10 +239,19 @@ export function ChatPane({
 	const { outOfCredits: isActivePoolEmpty } = useOutOfCredits();
 	// A shared project can bill another pool than the active workspace (workspaces-sharing.md 4).
 	const outOfCredits = payerOutOfCredits ?? isActivePoolEmpty;
-	// False for a viewer, while a turn runs, the chat is not ready, or the
-	// payer has no credits: a send then only gets a 403 or a 402. The
-	// composer and the plan card button lock on it.
-	const canSend = !isReadOnly && !isSending && isReady && !outOfCredits;
+	// Product rule: one conversation at a time uses the project. The API
+	// refuses a turn of this conversation while another one holds it.
+	const otherBusyChatId = busyChatId === openChatId ? null : busyChatId;
+	// False for a viewer, while a turn runs, the chat is not ready, the payer
+	// has no credits, or another conversation holds the project: a send then
+	// only gets a 403, a 402, or a 409. The composer and the plan card button
+	// lock on it.
+	const canSend =
+		!isReadOnly &&
+		!isSending &&
+		isReady &&
+		!outOfCredits &&
+		otherBusyChatId === null;
 	// Retry is a send too, so it locks on the same rule.
 	const retryInput = canSend ? retryInputOf(messages) : null;
 
@@ -263,12 +294,19 @@ export function ChatPane({
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
 			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
-				<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
-					{t("appBuilder.chat.title")}
+				{/* min-w-0 lets the switcher shrink and cut its title, so the chip and Stop stay in a 320 px column. */}
+				<h2 className="flex min-w-0">
+					<ChatSwitcher
+						chats={chats}
+						openChatId={openChatId}
+						busyChatId={busyChatId}
+						onOpenChat={onOpenChat}
+						onCreateChat={onCreateChat}
+					/>
 				</h2>
 				{isSending ? (
 					// No role="status" here: the status line in the list already announces the turn.
-					<span className="flex h-6 items-center gap-1.5 rounded-full bg-ember/[0.1] px-2.5 font-grotesk font-medium text-[12px] text-ember-text dark:bg-spark/[0.12]">
+					<span className="flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-ember/[0.1] px-2.5 font-grotesk font-medium text-[12px] text-ember-text dark:bg-spark/[0.12]">
 						<span
 							aria-hidden
 							className="size-1.5 animate-pulse-soft rounded-full bg-ember motion-reduce:animate-none dark:bg-spark"
@@ -280,7 +318,7 @@ export function ChatPane({
 						)}
 					</span>
 				) : null}
-				<span className="ms-auto flex items-center gap-1">
+				<span className="ms-auto flex shrink-0 items-center gap-1">
 					{onChangeDeveloperView !== null ? (
 						<SegmentedControl
 							className="me-1"
@@ -454,9 +492,26 @@ export function ChatPane({
 				{/* The strip sits above the composer and does not wrap it. The banner
 				changes its root element when `active` flips, so a wrapped composer
 				remounts and loses its draft and files. */}
-				{/* Only one strip shows: the credit lock blocks the send, so it wins.
-				A viewer cannot send, so a viewer sees no strip. */}
-				{isReadOnly ? null : outOfCredits ? (
+				{/* A viewer cannot send, so a viewer sees no lock strip. */}
+				{/* The busy strip wins over the credit strip: credits do not unlock this send. */}
+				{!isReadOnly && otherBusyChatId !== null ? (
+					<div
+						role="status"
+						className="mb-2 flex min-h-9 items-center gap-2 rounded-[1.25rem] bg-primary/10 py-1 ps-4 pe-1.5"
+					>
+						<p className="min-w-0 flex-1 font-medium text-xs">
+							{t("appBuilder.chat.conversations.busy")}
+						</p>
+						<Button
+							type="button"
+							size="sm"
+							className="h-7 shrink-0 rounded-full px-3 text-xs"
+							onClick={() => onOpenChat(otherBusyChatId)}
+						>
+							{t("appBuilder.chat.conversations.open")}
+						</Button>
+					</div>
+				) : !isReadOnly && outOfCredits ? (
 					isPayerActiveWorkspace ? (
 						<OutOfCreditsBanner active className="mb-2">
 							{null}
@@ -470,22 +525,6 @@ export function ChatPane({
 							{t("sharing.credits.payerEmpty")}
 						</p>
 					)
-				) : contextFullPercent !== null ? (
-					<div
-						role="status"
-						className="mb-2 flex min-h-9 items-center gap-2 rounded-[1.25rem] bg-spark/[0.14] py-1.5 ps-4 pe-3 dark:bg-spark/[0.12]"
-					>
-						<GaugeIcon
-							weight="bold"
-							className="size-3.5 shrink-0 text-spark-deep dark:text-spark"
-							aria-hidden
-						/>
-						<p className="min-w-0 flex-1 text-night text-xs dark:text-foreground">
-							{t("appBuilder.chat.contextFull", {
-								percent: formatNumber(contextFullPercent, locale),
-							})}
-						</p>
-					</div>
 				) : null}
 				{isReadOnly ? (
 					<p className="rounded-[1.25rem] border border-night/[0.1] px-4 py-3 font-sans text-[13px] text-night/60 dark:border-white/[0.1] dark:text-foreground/60">
@@ -496,9 +535,10 @@ export function ChatPane({
 						turnEstimateCredits={turnEstimateCredits}
 						targets={targets}
 						onRemoveTarget={onRemoveTarget}
-						// The composer also locks while the chat id and the history load,
-						// and while the payer has no credits. A send without the id drops
-						// the turn; a send before the history puts the reply above it.
+						// The composer also locks while the conversation and its history
+						// load, while the payer has no credits, and while another
+						// conversation holds the project. A send without the id drops the
+						// turn; a send before the history puts the reply above it.
 						isSending={!canSend}
 						onSend={(input) => {
 							// A plain message after the skip X also answers the skipped
@@ -517,6 +557,8 @@ export function ChatPane({
 						isPlanMode={isPlanMode}
 						onPlanModeChange={onPlanModeChange}
 						modelPick={modelPick}
+						contextUsage={contextUsage}
+						onCreateChat={onCreateChat}
 						submitOverride={tray.submit}
 						topSlot={
 							<MotionConfig reducedMotion="user">
