@@ -5,9 +5,11 @@ React 19, TanStack Router, TanStack Query, Tailwind v4, shadcn-style UI, a local
 database through `src/lib/db.ts`, and i18n with one language by default (more on request, RTL ready).
 The theme system and the UI kit are the same as in web-app 1.1.0. There is no Supabase and no Cloudflare.
 
-The project holds only the frontend and `migrations/`. The trusted Tauri shell is in
-`templates/desktop-shell/`. The release build puts `dist/` and `migrations/` next to it.
-The build ignores any `src-tauri/` folder in the project.
+The project holds only the frontend and `migrations/`. The trusted native shell has two engines:
+Tauri in `templates/desktop-shell/` and Electron in `templates/desktop-shell-electron/`.
+`projects.desktop_engine` selects the engine of a project. This template is the same for both.
+The release build puts `dist/` and `migrations/` next to the shell.
+The build ignores any `src-tauri/` folder and any Electron main or preload file in the project.
 
 ## How the template reaches the sandbox
 
@@ -24,10 +26,11 @@ The build ignores any `src-tauri/` folder in the project.
 - `src/main.tsx`: the entry. It installs the preview bridge in dev, then creates the router,
   the query client, and the i18n provider.
 - `src/router.tsx`: code-based routes on browser history, so the builder address bar shows the page path.
-  A reload on a page path loads `index.html`: Vite dev and the Tauri asset resolver both fall back to it.
+  A reload on a page path loads `index.html`: Vite dev and the native shell both fall back to it.
 - `src/root-layout.tsx`: the theme on `<html>`, the icon weight, the `DatabaseGate`, and the app shell.
 - `src/lib/db.ts`: the only data API (`select`, `execute`, `batch`, `DbError`). In the Tauri shell it calls
-  the `db_*` commands with `invoke`. In the browser it loads `preview-db.ts`.
+  the `db_*` commands with `invoke`. In the Electron shell it calls the `window.wanditDesktop` bridge.
+  In the browser it loads `preview-db.ts`. It also exports `isDesktopShell`.
 - `src/lib/preview-db.ts`: the preview database. sql.js in the browser, the same migration ledger,
   the same limits and error codes, and the bytes in IndexedDB.
 - `src/features/app-shell/`: the sidebar, the header, `PageHeader`, the database gate, and the
@@ -42,7 +45,7 @@ The build ignores any `src-tauri/` folder in the project.
 ## Commands
 
 - `pnpm run dev`: the browser preview on `0.0.0.0:5173`, strict port.
-- `pnpm run build`: the static files of `dist/` for the Tauri shell. The production build has no sql.js:
+- `pnpm run build`: the static files of `dist/` for the native shell. The production build has no sql.js:
   outside the shell, `db.ts` answers `migration_failed`.
 - `pnpm run typecheck`: `tsc6 --noEmit`, then `scripts/check-effects.mjs` and `scripts/check-theme.mjs`.
 - `pnpm run lint`: `biome check --error-on-warnings .`

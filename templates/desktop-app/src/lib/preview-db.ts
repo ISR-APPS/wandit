@@ -1,6 +1,6 @@
 /**
  * The database of the browser preview: SQLite in WebAssembly (sql.js), saved in IndexedDB.
- * db.ts loads it with a dynamic import outside the Tauri shell, in `vite dev` only.
+ * db.ts loads it with a dynamic import outside the native shell, in `vite dev` only.
  * It runs migrations/*.sql with the ledger rules of the shell (docs/v2/desktop-apps.md, sections 5 and 7).
  * Then it answers db_select, db_execute, and db_batch with the shapes, limits, and error codes of section 4.
  * Its statement rules only approximate the shell, which checks each statement with an SQLite authorizer.

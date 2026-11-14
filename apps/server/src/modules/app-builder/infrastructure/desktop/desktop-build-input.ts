@@ -9,7 +9,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-import { desktopProductNameSchema } from "@wandit/contracts";
+import {
+	type DesktopEngine,
+	desktopProductNameSchema,
+} from "@wandit/contracts";
 import { z } from "zod";
 
 /** One file of the input, with its path inside `dist/` or `migrations/`. */
@@ -19,7 +22,10 @@ export type DesktopBuildInputFile = {
 	content: Uint8Array;
 };
 
-/** The values of `src-tauri/tauri.desktop.json` (section 3). */
+/**
+ * The values of the per-build config file (section 3): `src-tauri/tauri.desktop.json`
+ * of a Tauri build, or `shell/wandit.desktop.json` of an Electron build.
+ */
 export type DesktopTauriConfig = {
 	/** `desktop_builds.product_name`: the window title and the install folder. */
 	productName: string;
@@ -62,9 +68,41 @@ const tauriDesktopConfigSchema = z.object({
 	version: z.string().regex(/^1\.0\.[1-9]\d{0,4}$/),
 });
 
-// tauri-build writes these folders in a local build of the shell. They are
-// not shell sources, so CI never gets them.
-const SKIPPED_SHELL_FOLDERS = new Set(["target", "gen"]);
+/**
+ * Where the trusted shell of each engine goes in the build input. The
+ * `desktop-build` task reads `markerFile` to check that the worker image
+ * holds the shell.
+ */
+export const DESKTOP_SHELL_LAYOUTS = {
+	electron: {
+		configPath: "shell/wandit.desktop.json",
+		folder: "shell",
+		markerFile: "package.json",
+		// npm and electron-builder write these folders in a local build of the
+		// shell. CI installs and builds again, so it never gets them.
+		skippedFolders: ["node_modules", "release"],
+	},
+	tauri: {
+		configPath: "src-tauri/tauri.desktop.json",
+		folder: "src-tauri",
+		markerFile: "tauri.conf.json",
+		// tauri-build writes these folders in a local build of the shell. They
+		// are not shell sources, so CI never gets them.
+		skippedFolders: ["target", "gen"],
+	},
+} as const satisfies Record<
+	DesktopEngine,
+	{
+		/** Archive path of the per-build config file. Both engines get the same JSON. */
+		configPath: string;
+		/** Archive folder of the shell files. The CI workflow of the engine expects this name. */
+		folder: string;
+		/** A file at the top of the shell folder that every copy of the shell holds. */
+		markerFile: string;
+		/** Top-level folders of the shell that hold local build output. */
+		skippedFolders: readonly string[];
+	}
+>;
 
 /** Size of one tar header and of one content block. */
 const TAR_BLOCK_BYTES = 512;
@@ -73,13 +111,16 @@ const USTAR_NAME_BYTES = 100;
 const USTAR_PREFIX_BYTES = 155;
 
 /**
- * Answers the gzip bytes of the build input: `src-tauri/` from `shellDir`
- * (without `target/` and `gen/`), `src-tauri/tauri.desktop.json`, `dist/`,
- * and `migrations/`. The order and the headers are fixed, so the same
- * input gives the same bytes. Throws `DesktopBuildInputError` for a bad path.
+ * Answers the gzip bytes of the build input: the shell folder of the engine
+ * from `shellDir` (`src-tauri/` or `shell/`, without its build output), the
+ * config file of `DESKTOP_SHELL_LAYOUTS`, `dist/`, and `migrations/`. The
+ * order and the headers are fixed, so the same input gives the same bytes.
+ * Throws `DesktopBuildInputError` for a bad path.
  */
 export async function writeDesktopBuildInput(input: {
-	/** Absolute path of the trusted `src-tauri` folder in the worker image. */
+	/** `projects.desktop_engine` of the build. It selects the archive layout. */
+	engine: DesktopEngine;
+	/** Absolute path of the trusted shell folder of `engine` in the worker image. */
 	shellDir: string;
 	config: DesktopTauriConfig;
 	/** The checked frontend files. */
@@ -87,17 +128,22 @@ export async function writeDesktopBuildInput(input: {
 	/** The checked migration files, by file name. */
 	migrations: DesktopBuildInputFile[];
 }): Promise<Buffer> {
-	const shellFiles = await readShellFiles(input.shellDir, "");
+	const layout = DESKTOP_SHELL_LAYOUTS[input.engine];
+	const shellFiles = await readShellFiles(
+		input.shellDir,
+		"",
+		layout.skippedFolders,
+	);
 	const entries: TarEntry[] = [
-		...shellFiles.map((file) => fileEntry("src-tauri", file)),
+		...shellFiles.map((file) => fileEntry(layout.folder, file)),
 		{
 			content: new TextEncoder().encode(tauriDesktopConfigJson(input.config)),
-			path: "src-tauri/tauri.desktop.json",
+			path: layout.configPath,
 			type: "file",
 		},
 		...input.dist.map((file) => fileEntry("dist", file)),
-		// build.rs reads `../migrations` and fails on a missing folder, so the
-		// folder exists also when it holds no file.
+		// build.rs and the Electron packaging read `../migrations` and fail on a
+		// missing folder, so the folder exists also when it holds no file.
 		{ content: new Uint8Array(), path: "migrations/", type: "folder" },
 		...input.migrations.map((file) => fileEntry("migrations", file)),
 	];
@@ -138,7 +184,7 @@ export function packTarGzip(entries: TarEntry[]): Buffer {
 	return gzipSync(Buffer.concat(blocks));
 }
 
-/** The JSON text of `src-tauri/tauri.desktop.json`, with only the section 3 keys. */
+/** The JSON text of the per-build config file of both engines, with only the section 3 keys. */
 function tauriDesktopConfigJson(config: DesktopTauriConfig): string {
 	const checked = tauriDesktopConfigSchema.parse(config);
 	return `${JSON.stringify(
@@ -214,17 +260,23 @@ function assertSafeRelativePath(path: string): void {
 async function readShellFiles(
 	dir: string,
 	relativeDir: string,
+	/** Top-level folder names that hold local build output, from `DESKTOP_SHELL_LAYOUTS`. */
+	skippedFolders: readonly string[],
 ): Promise<DesktopBuildInputFile[]> {
 	const files: DesktopBuildInputFile[] = [];
 	for (const entry of await readdir(dir, { withFileTypes: true })) {
 		const relativePath =
 			relativeDir === "" ? entry.name : `${relativeDir}/${entry.name}`;
 		if (entry.isDirectory()) {
-			if (relativeDir === "" && SKIPPED_SHELL_FOLDERS.has(entry.name)) {
+			if (relativeDir === "" && skippedFolders.includes(entry.name)) {
 				continue;
 			}
 			files.push(
-				...(await readShellFiles(join(dir, entry.name), relativePath)),
+				...(await readShellFiles(
+					join(dir, entry.name),
+					relativePath,
+					skippedFolders,
+				)),
 			);
 		} else if (entry.isFile()) {
 			files.push({

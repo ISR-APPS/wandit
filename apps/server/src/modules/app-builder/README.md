@@ -1002,9 +1002,12 @@ One build makes the files of one platform. macOS builds stay off until
   `add_local_migration` host tool.
 - `infrastructure/desktop/github-desktop-build-runner.ts`: dispatches,
   polls, and cancels `build.yml` (Windows) or `build-macos.yml` (macOS) in
-  `DESKTOP_BUILD_REPO`.
+  `DESKTOP_BUILD_REPO`. A project with the Electron engine
+  (`projects.desktop_engine`) uses `build-electron.yml` and
+  `build-electron-macos.yml`.
 - `infrastructure/desktop/updater-signature.ts`: the Ed25519 key pair of an
-  app and the minisign signature of each update file.
+  app and the signature of each update file: minisign for the Tauri engine,
+  `wandit-ed25519-v1` for the Electron engine.
 - `infrastructure/desktop/desktop-build-input.ts`: writes
   `desktop-input.tar.gz`, the input of the CI, and exports the tar writer.
 - `infrastructure/desktop/macos-update-archive.ts`: checks the `.app.tar.gz`

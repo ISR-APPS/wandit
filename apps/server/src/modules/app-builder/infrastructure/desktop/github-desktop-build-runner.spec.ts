@@ -14,6 +14,7 @@ const DISPATCH = {
 	buildId: "22222222-2222-4222-8222-222222222222",
 	inputSha256: "a".repeat(64),
 	inputUrl: INPUT_URL,
+	engine: "tauri",
 	outputUrl: OUTPUT_URL,
 	platform: "windows",
 } as const;
@@ -59,6 +60,17 @@ describe("GithubDesktopBuildRunner", () => {
 			input: { ...DISPATCH, platform: "macos", updateUrl: UPDATE_URL } as const,
 			inputs: { ...DISPATCH_INPUTS, update_url: UPDATE_URL },
 			workflow: "build-macos.yml",
+		},
+		{
+			input: { ...DISPATCH, engine: "electron" } as const,
+			inputs: DISPATCH_INPUTS,
+			workflow: "build-electron.yml",
+		},
+		// An Electron Mac app updates from the disk image: no `update_url`.
+		{
+			input: { ...DISPATCH, engine: "electron", platform: "macos" } as const,
+			inputs: DISPATCH_INPUTS,
+			workflow: "build-electron-macos.yml",
 		},
 	])("dispatches $workflow on main with run details and answers the parsed run", async ({
 		input,

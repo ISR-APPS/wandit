@@ -666,6 +666,13 @@
       "when": 1794612144097,
       "tag": "0094_security-scans",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1794650087648,
+      "tag": "0095_desktop-engine",
+      "breakpoints": true
     }
   ]
 }

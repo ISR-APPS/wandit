@@ -1,0 +1,3 @@
+# Build output of a local build, and the per-build file that the server writes.
+shell/release/
+shell/wandit.desktop.json

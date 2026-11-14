@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, createPublicKey, randomUUID, verify } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	generateUpdaterKeyPair,
+	signElectronUpdate,
 	signUpdaterArtifact,
+	verifyElectronUpdateSignature,
 	verifyUpdaterSignature,
 } from "./updater-signature";
 
@@ -121,6 +123,102 @@ describe("signUpdaterArtifact", () => {
 				publicKey: FIXTURE.publicKey,
 				signature,
 				version: "1.0.7",
+			}),
+		).resolves.toBe(false);
+	});
+});
+
+describe("signElectronUpdate", () => {
+	// The Electron shell has its own verify code. This case builds the
+	// message and reads the key as the shell does, without the server helpers.
+	it("signs the wandit-ed25519-v1 message for the raw key inside the minisign public key", async () => {
+		const keys = generateUpdaterKeyPair();
+		const signature = await signElectronUpdate({
+			filePath: installer,
+			privateKeyPkcs8: keys.privateKeyPkcs8,
+			version: "1.0.7",
+		});
+
+		const keyLine =
+			Buffer.from(keys.publicKey, "base64").toString("utf8").split("\n")[1] ??
+			"";
+		// Bytes 10 to 42: after "Ed" and the 8-byte key id.
+		const rawKey = Buffer.from(keyLine, "base64").subarray(10, 42);
+		const fileHash = createHash("sha512").update(FIXTURE.bytes).digest("hex");
+		const signatureBytes = Buffer.from(signature, "base64");
+		expect(signatureBytes).toHaveLength(64);
+		expect(
+			verify(
+				null,
+				Buffer.from(`wandit-desktop-update-v1\n1.0.7\n${fileHash}\n`, "utf8"),
+				createPublicKey({
+					format: "jwk",
+					key: { crv: "Ed25519", kty: "OKP", x: rawKey.toString("base64url") },
+				}),
+				signatureBytes,
+			),
+		).toBe(true);
+	});
+});
+
+describe("verifyElectronUpdateSignature", () => {
+	const keys = generateUpdaterKeyPair();
+	const signed = () =>
+		signElectronUpdate({
+			filePath: installer,
+			privateKeyPkcs8: keys.privateKeyPkcs8,
+			version: "1.0.7",
+		});
+
+	it.each([
+		{
+			expected: true,
+			filePath: installer,
+			name: "accepts the signed file and version",
+			publicKey: keys.publicKey,
+			version: "1.0.7",
+		},
+		// An older signed file must not pass as a newer version.
+		{
+			expected: false,
+			filePath: installer,
+			name: "refuses another version",
+			publicKey: keys.publicKey,
+			version: "1.0.8",
+		},
+		{
+			expected: false,
+			filePath: changedInstaller,
+			name: "refuses a changed byte",
+			publicKey: keys.publicKey,
+			version: "1.0.7",
+		},
+		{
+			expected: false,
+			filePath: installer,
+			name: "refuses the key of another app",
+			publicKey: FIXTURE.publicKey,
+			version: "1.0.7",
+		},
+	])("$name", async ({ expected, filePath, publicKey, version }) => {
+		await expect(
+			verifyElectronUpdateSignature({
+				filePath,
+				publicKey,
+				signature: await signed(),
+				version,
+			}),
+		).resolves.toBe(expected);
+	});
+
+	// A minisign signature of the Tauri engine must not pass as an Electron signature.
+	it("refuses a signature that is not 64 bytes", async () => {
+		await expect(
+			verifyElectronUpdateSignature({
+				filePath: installer,
+				publicKey: FIXTURE.publicKey,
+				signature: FIXTURE.signature,
+				version: FIXTURE.version,
 			}),
 		).resolves.toBe(false);
 	});
