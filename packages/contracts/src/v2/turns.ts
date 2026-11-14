@@ -15,6 +15,10 @@ import {
 	presentPlanHostToolInputSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
+import {
+	type TurnSecurityReportData,
+	turnSecurityReportDataPartSchema,
+} from "./security-scan";
 import { appCommitNumstatEntrySchema, commitShaSchema } from "./versions";
 
 /**
@@ -46,13 +50,15 @@ export type BuilderTurnStatus = z.infer<typeof builderTurnStatusSchema>;
 /**
  * How the agent works on a turn. `plan` is Plan Mode: the agent interviews
  * the user and presents a plan, and it cannot change files. `build` builds.
+ * `security_scan` runs the host checks and the Cloudflare skill audit, and it
+ * cannot change project files (see `security-scan.ts`).
  */
-export const builderTurnModes = ["plan", "build"] as const;
+export const builderTurnModes = ["plan", "build", "security_scan"] as const;
 
 /** Runtime validator for a builder turn mode. */
 export const builderTurnModeSchema = z.enum(builderTurnModes);
 
-/** `plan` or `build`; see `builderTurnModes`. */
+/** `plan`, `build`, or `security_scan`; see `builderTurnModes`. */
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
 /**
@@ -344,6 +350,10 @@ export const turnErrorDataSchema = z.object({
 	code: z.string(),
 	message: z.string(),
 	retryable: z.boolean(),
+	// The mode of the failed turn. The stored reply has no other place for it,
+	// and Retry sends a failed `security_scan` turn as a scan again.
+	// Absent on rows stored before it and on errors the relay makes.
+	mode: builderTurnModeSchema.optional(),
 });
 
 /** Inferred from `turnErrorDataSchema`; `retryable` tells the UI whether a resend can help. */
@@ -728,6 +738,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
 	turnContextDataPartSchema,
+	turnSecurityReportDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -752,4 +763,5 @@ export type TurnDataParts = {
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;
 	"turn-context": TurnContextData;
+	"security-report": TurnSecurityReportData;
 };

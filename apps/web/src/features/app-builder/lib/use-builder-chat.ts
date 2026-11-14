@@ -37,6 +37,7 @@ import { cancelTurn, getActiveTurnState } from "../api/app-builder.services";
 import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage, TurnMessagePart } from "../api/dto";
 import { githubKeys } from "../api/github.queries";
+import { securityScanKeys } from "../api/security-scan.queries";
 import {
 	createBuilderChatTransport,
 	hydrateTurnMessages,
@@ -214,14 +215,15 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can change nine caches: the versions, the code, the
+	// A finished turn can change ten caches: the versions, the code, the
 	// theme, the project summary, the app backend, the credits, the next
-	// estimate, the chat cost, and the GitHub status. All nine refresh at
-	// once. The code key covers the Code view tree and every open file. The
-	// theme changes on a set_theme call or a theme answer. The Cloud keys
-	// cover the tables, functions, secrets, and every other panel. The backend
-	// state polls on its own. The turn commit moves the head that the GitHub
-	// pull sends back.
+	// estimate, the chat cost, the GitHub status, and the newest security
+	// scan. All ten refresh at once. The code key covers the Code view tree
+	// and every open file. The theme changes on a set_theme call or a theme
+	// answer. The Cloud keys cover the tables, functions, secrets, and every
+	// other panel. The backend state polls on its own. The turn commit moves
+	// the head that the GitHub pull sends back. A `security_scan` turn stores
+	// a new report.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
@@ -250,6 +252,9 @@ export function useBuilderChat(
 		});
 		void queryClient.invalidateQueries({
 			queryKey: githubKeys.status(projectId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: securityScanKeys.latest(projectId),
 		});
 	}, [queryClient, projectId, chatId]);
 

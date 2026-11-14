@@ -45,6 +45,7 @@ function renderMessage(
 				onOpenActivity,
 				onDecideApproval,
 				onBuildPlan: null,
+				onOpenSecurityReport: () => {},
 				trayQuestionKey,
 				onRetry,
 			}),

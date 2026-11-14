@@ -1047,6 +1047,39 @@ describe("toBuilderMessages", () => {
 		).toEqual(["text", "data-error", "data-receipt"]);
 	});
 
+	// Retry reads this mode. Without it, a failed scan retries as a build turn with write tools.
+	it("gives a relay error with no mode the mode of the live created frame", () => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-turn-created",
+						id: "turn-created",
+						data: {
+							turnId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c01",
+							chatId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c02",
+							runId: null,
+							status: "running",
+							streamUrl: "/api/v2/projects/p1/turns/active/stream",
+							mode: "security_scan",
+						},
+					},
+					{
+						type: "data-turn-error",
+						id: "turn-error",
+						data: { code: "STREAM_LOST", message: "Lost", retryable: true },
+					},
+				],
+			},
+		] satisfies TurnMessage[];
+		const error = toBuilderMessages(messages, IDLE)[0].parts.find(
+			(part) => part.type === "data-error",
+		);
+		expect(error?.data.mode).toBe("security_scan");
+	});
+
 	it("drops a reply that holds only the created frame, as after a cancel", () => {
 		const messages = [
 			{ id: "u1", role: "user", parts: [{ type: "text", text: "hello" }] },

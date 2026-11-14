@@ -74,6 +74,9 @@ function renderView(
 				isActive: isViewActive,
 				showBackendGroup: true,
 				onSelectPanel,
+				canSendTurn: false,
+				onRunSecurityScan: () => {},
+				onAskSecurityFix: () => {},
 			}),
 		};
 		return createElement(

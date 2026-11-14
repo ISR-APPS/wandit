@@ -4,8 +4,9 @@
  * which draws its title; a Cloud panel renders through
  * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
- * A project viewer gets a note in place of the AI panel. The MCP panel body
- * comes from the coding-agents feature.
+ * A project viewer gets a note in place of the AI and Security panels. The
+ * Security panel sends its turns through the page. The MCP panel body comes
+ * from the coding-agents feature.
  */
 
 import { InfoIcon } from "@phosphor-icons/react/Info";
@@ -32,6 +33,7 @@ import { IntegrationsPanel } from "./integrations-panel";
 import { MoreNav } from "./more-nav";
 import { PANEL_CARD_CLASS, PanelMessage, PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
+import { SecurityPanel } from "./security-panel";
 import { SettingsPanel } from "./settings-panel";
 import { SignInPanel } from "./sign-in-panel";
 
@@ -45,14 +47,19 @@ export type MoreViewProps = {
 	/** True when the nav shows the Backend group. The page reads it from useCloudTabEnabled. */
 	showBackendGroup: boolean;
 	onSelectPanel: (panel: ProjectPanel) => void;
+	/** False while the chat loads or a turn runs. The Security panel disables its scan and Fix buttons then. */
+	canSendTurn: boolean;
+	/** Sends the `security_scan` turn of the Security panel and opens the chat. */
+	onRunSecurityScan: () => void;
+	/** Sends a build turn that asks the AI to fix security findings, and opens the chat. */
+	onAskSecurityFix: (text: string) => void;
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
-type EmptyMorePanel = Extract<MorePanel, "analytics" | "security">;
+type EmptyMorePanel = Extract<MorePanel, "analytics">;
 
 const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	analytics: "appBuilder.panels.analytics.cta",
-	security: "appBuilder.panels.security.cta",
 };
 
 /** The nav and one open panel. Also keeps the filter that Logs opens with after "View logs". */
@@ -62,6 +69,9 @@ export function MoreView({
 	isActive,
 	showBackendGroup,
 	onSelectPanel,
+	canSendTurn,
+	onRunSecurityScan,
+	onAskSecurityFix,
 }: MoreViewProps) {
 	const { t } = useTranslation();
 	// The filter Logs opens with. "View logs" of the Functions panel sets it; a nav click clears it.
@@ -77,7 +87,6 @@ export function MoreView({
 	function renderMorePanel(morePanel: MorePanel): ReactNode {
 		switch (morePanel) {
 			case "analytics":
-			case "security":
 				return (
 					<EmptyPanel
 						icon={MORE_PANEL_META[morePanel].icon}
@@ -88,6 +97,22 @@ export function MoreView({
 				// Every AI key route needs the editor role, the GET too. A viewer gets a note and no API call.
 				return hasProjectRole(project.access, "editor") ? (
 					<AiPanel projectId={project.id} isActive={isActive} />
+				) : (
+					<PanelMessage
+						icon={InfoIcon}
+						text={t("sharing.readOnly.editorsOnly")}
+					/>
+				);
+			case "security":
+				// The scan route and the report route need the editor role. The findings show weak spots.
+				return hasProjectRole(project.access, "editor") ? (
+					<SecurityPanel
+						projectId={project.id}
+						isActive={isActive}
+						canSendTurn={canSendTurn}
+						onRunScan={onRunSecurityScan}
+						onAskFix={onAskSecurityFix}
+					/>
 				) : (
 					<PanelMessage
 						icon={InfoIcon}
