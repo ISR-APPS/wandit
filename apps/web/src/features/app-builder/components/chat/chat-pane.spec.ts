@@ -165,6 +165,10 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onChangeDeveloperView: null,
 						onOpenActivity,
 						isReady: true,
+						chats: [],
+						openChatId: "chat-open",
+						busyChatId: null,
+						onOpenChat: () => {},
 						onSend,
 						onDecideApproval,
 						onAnswerQuestions,
@@ -176,7 +180,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 							modelId: undefined,
 							setModelId: vi.fn(),
 						},
-						contextFullPercent: null,
+						contextUsage: null,
 						onCancel: () => {},
 						errorText: null,
 						onReconnect: null,
@@ -302,6 +306,12 @@ describe("ChatPane", () => {
 		{
 			name: "the project payer has no credits",
 			props: { payerOutOfCredits: true, isPayerActiveWorkspace: false },
+			composer: "locked",
+		},
+		// Product rule: one conversation at a time uses the project.
+		{
+			name: "another conversation holds the project",
+			props: { busyChatId: "chat-other" },
 			composer: "locked",
 		},
 		{

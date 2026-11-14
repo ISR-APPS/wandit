@@ -213,10 +213,18 @@ export const CHAT_VIEW_STORAGE_KEY = "wandit-app-builder-chat-view";
  */
 export const BUILDER_MODEL_STORAGE_KEY_PREFIX = "wandit:v2-builder-model:";
 
-/** Start width of the chat column. The width of the design (400 px) fits the composer row and every card. */
+/**
+ * Start width of the chat column, the width of the design. Every card fits.
+ * The composer row fits too: the Plan chip shows only its icon, and the
+ * model name truncates. See the LIMIT mark in chat/composer.tsx.
+ */
 export const CHAT_PANEL_DEFAULT_WIDTH = "400px";
 
-/** Narrowest chat column. The composer row (add, credits, mic, send) needs about 300 px. */
+/**
+ * Narrowest chat column. The composer row with the context ring needs a
+ * column of about 345 px, so it does not fit at this width. See the LIMIT
+ * mark in chat/composer.tsx.
+ */
 export const CHAT_PANEL_MIN_WIDTH = "320px";
 
 /** Width of the web preview iframe in the mobile viewport, CSS px. The logical width of an iPhone 15. */

@@ -59,6 +59,26 @@ export type ChatMessageText = Pick<InsertedMessageRow, "id" | "role"> & {
 	text: string;
 };
 
+/**
+ * One row of `listProjectChats`: a conversation of a V2 project.
+ * The V2 conversation list maps it to the `ProjectChat` contract.
+ */
+export type ProjectChatRow = Pick<
+	typeof chats.$inferSelect,
+	"createdAt" | "id"
+> & {
+	/** `createdAt` of the newest message. Null while the chat has no message. */
+	lastMessageAt: Date | null;
+	/** Text of the first user message, at most 80 characters. Null without a user message or without text. */
+	title: string | null;
+};
+
+// Product rule: a conversation title is the first user message, cut to 80 characters.
+const CHAT_TITLE_MAX_CHARS = 80;
+
+// The text parts of one `messages` row, joined by a line break. A row that has no text part gives ''.
+const MESSAGE_TEXT_SQL = sql<string>`coalesce((select string_agg(part->>'text', E'\\n') from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'text'), '')`;
+
 type UiMessageToInsert = {
 	id: string;
 	metadata?: unknown;
@@ -145,6 +165,92 @@ export class ChatsRepository {
 	}
 
 	/**
+	 * All conversations of one project, the most recent activity first.
+	 * Activity is the date of the newest message, else the date of the chat.
+	 * The caller proves the project scope first.
+	 */
+	listProjectChats(projectId: string): Promise<ProjectChatRow[]> {
+		const firstUserMessage = this.db
+			.select({
+				// A message with only attachments has no text: '' becomes null.
+				title: sql<
+					string | null
+				>`nullif(left(btrim(${MESSAGE_TEXT_SQL}), ${CHAT_TITLE_MAX_CHARS}), '')`.as(
+					"title",
+				),
+			})
+			.from(messages)
+			.where(and(eq(messages.chatId, chats.id), eq(messages.role, "user")))
+			.orderBy(asc(messages.seq))
+			.limit(1)
+			.as("first_user_message");
+		const newestMessage = this.db
+			.select({ createdAt: messages.createdAt })
+			.from(messages)
+			.where(eq(messages.chatId, chats.id))
+			.orderBy(desc(messages.seq))
+			.limit(1)
+			.as("newest_message");
+
+		// LIMIT: one answer holds all chats, with two index reads per chat. Fine for hundreds of chats per project. Upgrade: a cursor on the activity date.
+		return this.db
+			.select({
+				createdAt: chats.createdAt,
+				id: chats.id,
+				lastMessageAt: newestMessage.createdAt,
+				title: firstUserMessage.title,
+			})
+			.from(chats)
+			.leftJoinLateral(firstUserMessage, sql`true`)
+			.leftJoinLateral(newestMessage, sql`true`)
+			.where(eq(chats.projectId, projectId))
+			.orderBy(
+				desc(sql`coalesce(${newestMessage.createdAt}, ${chats.createdAt})`),
+			);
+	}
+
+	/**
+	 * The newest chat of a project that has no message, or null. The V2
+	 * "new conversation" route answers it, so a second click adds no row.
+	 */
+	async findEmptyProjectChat(
+		projectId: string,
+	): Promise<Pick<ProjectChatRow, "createdAt" | "id"> | null> {
+		const anyMessage = this.db
+			.select({ id: messages.id })
+			.from(messages)
+			.where(eq(messages.chatId, chats.id));
+		const [row] = await this.db
+			.select({ createdAt: chats.createdAt, id: chats.id })
+			.from(chats)
+			.where(
+				and(eq(chats.projectId, projectId), sql`not exists (${anyMessage})`),
+			)
+			.orderBy(desc(chats.createdAt))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * Inserts one empty chat for a project. The caller proves the project
+	 * scope first. Throws when the insert returns no row.
+	 */
+	async createProjectChat(
+		projectId: string,
+	): Promise<Pick<ProjectChatRow, "createdAt" | "id">> {
+		const [row] = await this.db
+			.insert(chats)
+			.values({ projectId })
+			.returning({ createdAt: chats.createdAt, id: chats.id });
+		if (!row) {
+			throw new Error("Chat insert did not return a row");
+		}
+
+		return row;
+	}
+
+	/**
 	 * The last `limit` messages of a chat, newest first, as plain text: the
 	 * text parts joined, nothing else. The builder-turn task reads it for the
 	 * recap of a lost agent session. Assistant rows hold 44–80 KB of parts,
@@ -155,7 +261,7 @@ export class ChatsRepository {
 			.select({
 				id: messages.id,
 				role: messages.role,
-				text: sql<string>`coalesce((select string_agg(part->>'text', E'\\n') from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'text'), '')`,
+				text: MESSAGE_TEXT_SQL,
 			})
 			.from(messages)
 			.where(eq(messages.chatId, chatId))

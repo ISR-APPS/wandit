@@ -25,8 +25,10 @@ export const appBuilderRoutes = {
 	// GET the running turn id and the main head; the builder page polls it.
 	activeTurn: (projectId: string) =>
 		`/api/v2/projects/${projectId}/turns/active`,
-	// GET one page of the stored chat, newest page first; `?cursor=&limit=`.
+	// GET one page of the stored chat, newest page first; `?cursor=&limit=&chatId=`.
 	messages: (projectId: string) => `/api/v2/projects/${projectId}/messages`,
+	// GET the conversations of a project, most recent activity first; POST creates an empty one.
+	chats: (projectId: string) => `/api/v2/projects/${projectId}/chats`,
 	// POST cancel a builder turn.
 	cancelTurn: (projectId: string, turnId: string) =>
 		`/api/v2/projects/${projectId}/turns/${turnId}/cancel`,

@@ -262,11 +262,15 @@ export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
 /**
  * Answer of `GET /api/v2/projects/:id/turns/active`. The builder page polls
  * it to show a turn or a commit of another client, such as a coding agent
- * over MCP or a teammate.
+ * over MCP or a teammate. `busyChatId` tells a conversation that another
+ * conversation uses the project.
  */
 export const activeTurnStateResponseSchema = z.object({
 	// The turn that holds the project slot: queued, running, or cancelling. Null when no turn runs.
 	activeTurnId: uuidSchema.nullable(),
+	// The conversation that holds the project, else null. It has an unfinished turn:
+	// queued, parked, running, cancelling, or one that waits for an answer or an approval.
+	busyChatId: uuidSchema.nullable(),
 	// `app_branches(main).head_sha`. Null before the first commit of the project.
 	headSha: commitShaSchema.nullable(),
 });
@@ -662,8 +666,8 @@ export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
 /**
  * `data` of the `data-turn-context` part the task writes once, at the end
  * of a turn that ended normally. A turn that pauses for the user writes none.
- * Both counts come from Claude Code. The
- * chat shows a "context getting full" notice when `tokens` nears
+ * Both counts come from Claude Code. The composer shows them as a context
+ * ring. The ring turns to its warning tone when `tokens` nears
  * `compactAtTokens`. `ClaudeCodeHarness` parses the bridge value with it too.
  */
 export const turnContextDataSchema = z.object({

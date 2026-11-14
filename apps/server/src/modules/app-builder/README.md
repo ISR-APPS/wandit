@@ -25,8 +25,9 @@ PostHog flag `v2-builder`).
   model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
   and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
   167,000. At each turn end the bridge fork reads Claude Code's own count.
-  The task writes it as the `data-turn-context` part, and the chat shows
-  "context getting full" from 50,000 tokens before the compaction point.
+  The task writes it as the `data-turn-context` part. The composer shows it
+  as a context ring; the warning tone starts 50,000 tokens before the
+  compaction point.
 - The turn stream is the Trigger.dev stream `ui`, read by the API and
   relayed as SSE (D20 — one box for the whole stream).
 - The durable git store is code.storage (D21).
@@ -391,6 +392,50 @@ outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
+
+## Conversations
+
+One V2 project can hold several conversations. The rules:
+
+- One conversation is one row of `chats`. The table permits many rows per
+  project, so no migration exists for it.
+- Only one conversation at a time can use the project. A conversation
+  holds the project while it has a turn that is not terminal: `queued`,
+  `waiting`, `running`, `cancelling`, `waiting_for_answer`, or
+  `waiting_for_approval` (`BuilderTurnsRepository.findBusyChatId`). A new
+  turn of another conversation answers 409 `BUILDER_OTHER_CHAT_BUSY` with
+  `details.chatId`, the conversation that holds the project. It does not
+  park. The refusal comes before the credit hold. A turn of the same
+  conversation parks behind its active turn, as before.
+- A conversation has no stored title. Its title is the text of its first
+  user message, cut to 80 characters. The title is null when the
+  conversation has no message, or when the first message has no text.
+- All members of a project see all its conversations.
+
+All the routes are behind `V2BuilderEnabledGuard`. The two `chats` routes
+sit in `AppProjectsController`. A project that is missing, out of scope,
+or not `v2_app` answers 404:
+
+- `GET /api/v2/projects/:projectId/chats` (viewer role) answers
+  `ProjectChatListResponse`: each conversation with `title`, `createdAt`,
+  and `lastMessageAt`. The most recent activity comes first: the date of
+  the newest message, else the date of the chat.
+- `POST /api/v2/projects/:projectId/chats` (editor role) takes no body and
+  answers `CreateProjectChatResponse`. It answers the chat of the project
+  that has no message, else it inserts a `chats` row. A second click thus
+  adds no row. It writes no `builder_sessions` row: the first turn of the
+  chat creates it (`TurnsService.ensureSession`).
+- `GET /api/v2/projects/:projectId/messages` (`ChatHistoryController`)
+  takes the optional `chatId`. The chat must be in scope and belong to the
+  project, else 404. Without `chatId`, the route reads the oldest
+  conversation.
+- `GET /api/v2/projects/:projectId/turns/active` (`TurnsController`)
+  answers `busyChatId`: the conversation that holds the project, or null.
+
+Two conversations can send a turn at the same instant. Both pass the
+first check. `TurnsService.create` then reads the active row and the
+oldest `waiting` row again after the hold. The loser gets the same 409,
+and the catch block refunds its hold.
 
 ## Agent browser and thumbnails
 
@@ -1016,8 +1061,9 @@ One run does this, in order:
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note
-   when it applies. A `waiting_for_*` row of the project
-   moves to `succeeded` first — this run is its answer. When the stored
+   when it applies. A `waiting_for_*` row of the same conversation
+   moves to `succeeded` first — this run is its answer. A paused row of
+   another conversation stays as it is, with one warning. When the stored
    state holds pending cards, the turn streams a `continue` input. For an
    `ask_user` card, `askUserOutputOf` builds the tool result: a
    `spec.answers` entry wins. Without one, the message text answers the
@@ -1032,6 +1078,18 @@ One run does this, in order:
    `ask_user` answer then resumes the same thread between turns
    (`dropPausedTurn`) and goes as the same plain text. An approval keeps
    the `continue` input.
+   Two conversations share the one bridge of the sandbox. When another
+   conversation ran the turn before this one
+   (`BuilderTurnsRepository.findPreviousRunChatId`), the runtime uses the
+   rules of a sandbox stop: `bridgeDead` is true, and the harness starts a
+   new bridge that resumes the conversation by its `claudeSessionId`. A
+   stored state without that id does not resume: the turn starts fresh
+   with the chat recap. A resumed turn gets `otherChatNoteOf` in front of
+   the user text: the files can differ from the memory of the agent. A
+   chat with no stored session on a project that has code gets
+   `freshSessionNoteOf`.
+   A new sandbox has no transcript, so the turn that created it clears
+   the resume state of every other chat of the project.
 7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
    refresh, `sandbox.keepAlive`, `touchActivity`) and the 30 s pulse
    (`STREAM_HEARTBEAT_MS`). The pulse runs the 4 min stall watchdog

@@ -165,6 +165,9 @@ function setup(
 		findActiveForProject: vi.fn<BuilderTurnsRepository["findActiveForProject"]>(
 			async () => null,
 		),
+		findBusyChatId: vi.fn<BuilderTurnsRepository["findBusyChatId"]>(
+			async () => null,
+		),
 		findById: vi.fn<BuilderTurnsRepository["findById"]>(async () => null),
 		findByRequestKey: vi.fn<BuilderTurnsRepository["findByRequestKey"]>(
 			async () => null,
@@ -657,9 +660,65 @@ describe("TurnsService.create", () => {
 		expect(metering.refund).not.toHaveBeenCalled();
 	});
 
-	it("parks the turn as waiting behind an active one", async () => {
+	// Product rule: one conversation at a time uses the project. A message of
+	// another conversation must not park. The approval row proves the order:
+	// the refusal comes before the approval gate, which answers another code.
+	it.each([
+		{ find: "findActiveForProject", status: "running" },
+		{ find: "findWaitingForUser", status: "waiting_for_approval" },
+	] as const)("refuses another conversation while a $status turn holds the project, with no hold", async ({
+		find,
+		status,
+	}) => {
+		const { metering, service, turns } = setup();
+		turns.findBusyChatId.mockResolvedValue("chat-a");
+		turns[find].mockResolvedValue(turnRow({ chatId: "chat-a", status }));
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "BUILDER_OTHER_CHAT_BUSY",
+			details: { chatId: "chat-a" },
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("refuses the loser of two conversations that submit together and refunds its hold", async () => {
+		const { lock, metering, service, turns } = setup();
+		// The first check saw a free project. Then the other conversation wrote its row.
+		turns.findActiveForProject.mockResolvedValue(
+			turnRow({ chatId: "chat-a", status: "queued" }),
+		);
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "BUILDER_OTHER_CHAT_BUSY",
+			details: { chatId: "chat-a" },
+		});
+		expect(metering.refund).toHaveBeenCalledWith(
+			"event-1",
+			"builder_turn_create_failed",
+		);
+		expect(turns.create).not.toHaveBeenCalled();
+		expect(await lock.holder("project-1")).toBeNull();
+	});
+
+	it("parks a turn of the same conversation as waiting behind its active one", async () => {
 		const { service, starter, turns } = setup();
-		turns.findActiveForProject.mockResolvedValue(turnRow());
+		turns.findBusyChatId.mockResolvedValue(BODY.chatId);
+		turns.findActiveForProject.mockResolvedValue(
+			turnRow({ chatId: BODY.chatId }),
+		);
 
 		const result = await service.create(SCOPE, "project-1", BODY);
 
@@ -674,7 +733,9 @@ describe("TurnsService.create", () => {
 		const { lock, service, starter, turns } = setup();
 		// The slot is free but an earlier promote left a row parked: the new
 		// submit must queue behind it, and the promote unwedges that row.
-		turns.findOldestWaiting.mockResolvedValue(turnRow({ status: "waiting" }));
+		turns.findOldestWaiting.mockResolvedValue(
+			turnRow({ chatId: BODY.chatId, status: "waiting" }),
+		);
 		turns.promoteOldestWaiting.mockResolvedValue(
 			turnRow({ id: "turn-0", status: "queued" }),
 		);

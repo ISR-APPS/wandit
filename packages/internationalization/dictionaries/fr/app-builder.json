@@ -636,7 +636,19 @@
 			"detail": "Les anciens messages ont été résumés pour libérer de la place",
 			"tokens": "{before} → {after} jetons"
 		},
-		"contextFull": "Le contexte est presque plein ({percent} %). Le chat résume automatiquement les anciens messages.",
+		"context": {
+			"title": "Contexte plein à {percent} %",
+			"tokens": "{tokens} sur {limit} jetons",
+			"hint": "Quand le contexte est plein, Wandit compacte automatiquement la conversation. Les anciens détails deviennent un court résumé.",
+			"newConversation": "Démarrer une nouvelle conversation"
+		},
+		"conversations": {
+			"trigger": "Conversation : {title}",
+			"new": "Nouvelle conversation",
+			"working": "En cours",
+			"busy": "Une autre conversation travaille sur ce projet.",
+			"open": "L'ouvrir"
+		},
 		"receipt": "{credits} · {tokens} jetons",
 		"receiptCache": "cache : {read} lus, {write} écrits",
 		"errors": {

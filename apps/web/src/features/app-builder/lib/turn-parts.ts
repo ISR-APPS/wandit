@@ -2,9 +2,10 @@
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
  * `toBuilderMessages`, `livePhaseOf`, `latestTurnModeOf`, and
- * `contextFullPercentOf`. chat-pane.tsx calls
+ * `contextUsageOf`. chat-pane.tsx calls
  * `liveStatusOf` for its status line; the chat and the details panel call
- * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
+ * `isActivityPart` and `workedDurationOf`. context-ring.tsx calls
+ * `contextToneOf`. Pure functions, no React, no
  * copy: the components translate each row.
  */
 
@@ -118,8 +119,8 @@ const DETAIL_MAX_LINES = 40;
 const RUN_OUTPUT_MAX_CHARS = 2_048;
 
 /**
- * Tokens before the compaction point where the "context getting full"
- * notice starts. Zack's rule: on the 300,000 point it starts at 250,000.
+ * Tokens before the compaction point where the context ring starts its
+ * warning tone. Zack's rule: on the 300,000 point it starts at 250,000.
  */
 const CONTEXT_NOTICE_MARGIN_TOKENS = 50_000;
 
@@ -620,16 +621,24 @@ export function latestTurnModeOf(
 	return "build";
 }
 
+/** How full the model context is after one turn. contextUsageOf makes it; the context ring of the composer shows it. */
+export type ContextUsage = {
+	/** Tokens of the conversation that Claude Code sends on its next model call. */
+	tokens: number;
+	/** Token count where Claude Code compacts the conversation by itself. */
+	compactAtTokens: number;
+	/** Whole percent of `compactAtTokens` that `tokens` fills, at most 100. */
+	percent: number;
+};
+
 /**
- * How full the conversation is, in whole percent of the Claude Code
- * compaction point, at most 100. Reads the newest `data-turn-context` part.
- * Null when no turn wrote one, while the count is below the notice point,
- * or when a newer reply compacted.
- * The chat pane shows the "context getting full" strip with it.
+ * How full the conversation is, against the Claude Code compaction point.
+ * Reads the newest `data-turn-context` part. Null when no turn wrote one,
+ * or when a newer reply compacted and wrote no count.
  */
-export function contextFullPercentOf(
+export function contextUsageOf(
 	messages: readonly TurnMessage[],
-): number | null {
+): ContextUsage | null {
 	for (const message of messages.toReversed()) {
 		const context = message.parts.findLast(
 			(part): part is Extract<TurnMessagePart, { type: "data-turn-context" }> =>
@@ -637,8 +646,8 @@ export function contextFullPercentOf(
 		);
 		if (context === undefined) {
 			// A failed, stopped, or paused turn writes no count. When it compacted,
-			// the older count is out of date, so the strip hides.
-			// LIMIT: after a paused turn (plan, question, approval), the strip shows the
+			// the older count is out of date, so the ring hides.
+			// LIMIT: after a paused turn (plan, question, approval), the ring shows the
 			// lower count of an older turn. Upgrade: read the count on the pause settle.
 			const compacted = message.parts.some(
 				(part) =>
@@ -649,11 +658,26 @@ export function contextFullPercentOf(
 			continue;
 		}
 		const { tokens, compactAtTokens } = context.data;
-		// Product rule: the notice starts CONTEXT_NOTICE_MARGIN_TOKENS before the point.
-		if (tokens < compactAtTokens - CONTEXT_NOTICE_MARGIN_TOKENS) return null;
-		return Math.min(100, Math.round((tokens / compactAtTokens) * 100));
+		return {
+			tokens,
+			compactAtTokens,
+			// Claude Code can count past the point before it compacts, so the percent stops at 100.
+			percent: Math.min(100, Math.round((tokens / compactAtTokens) * 100)),
+		};
 	}
 	return null;
+}
+
+/** Color tone of the context ring. `full` means the next turn compacts the conversation. */
+export type ContextTone = "neutral" | "warning" | "full";
+
+/** Picks the ring tone: `full` at 100 percent, `warning` inside the notice margin, else `neutral`. */
+export function contextToneOf(usage: ContextUsage): ContextTone {
+	if (usage.percent >= 100) return "full";
+	// Product rule: the warning starts CONTEXT_NOTICE_MARGIN_TOKENS before the point.
+	return usage.tokens < usage.compactAtTokens - CONTEXT_NOTICE_MARGIN_TOKENS
+		? "neutral"
+		: "warning";
 }
 
 /** A part of the turn activity: the details panel shows it, the production chat does not. */

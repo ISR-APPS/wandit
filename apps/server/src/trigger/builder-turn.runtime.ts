@@ -410,6 +410,7 @@ export type BuilderTurnDeps = {
 		| "currentTurnNumber"
 		| "fail"
 		| "findById"
+		| "findPreviousRunChatId"
 		| "findWaitingForUser"
 		| "recordUsage"
 		| "transition"
@@ -440,7 +441,10 @@ export type BuilderTurnDeps = {
 	> | null;
 	sessions: Pick<
 		BuilderSessionsRepository,
-		"clearResumeState" | "findByChatId" | "saveResumeState"
+		| "clearResumeState"
+		| "clearResumeStateOfOtherChats"
+		| "findByChatId"
+		| "saveResumeState"
 	>;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
@@ -540,8 +544,11 @@ export type BuilderTurnDeps = {
 	now: () => number;
 	/** Log sink; the task passes the Trigger `logger`. */
 	logger: BuilderTurnLogger;
-	/** The newest `app_commits` row of the project, for the restore note. */
-	versions: Pick<AppCommitsRepository, "findLatest">;
+	/**
+	 * `app_commits` reads for the prompt notes. The newest row gives the restore
+	 * note. `hasFileChanges` tells that the app already has code.
+	 */
+	versions: Pick<AppCommitsRepository, "findLatest" | "hasFileChanges">;
 };
 
 /**
@@ -793,7 +800,13 @@ export async function runBuilderTurn(
 	// This turn carries the answer, so the row now counts as succeeded. Its
 	// usage, commit, and completedAt are already set from the pause.
 	const waitingTurn = await deps.turns.findWaitingForUser(projectId);
-	if (waitingTurn !== null) {
+	if (waitingTurn !== null && waitingTurn.chatId !== chatId) {
+		// Only a turn of the same conversation answers a card. The API refuses a
+		// turn while another conversation waits, so this branch is rare.
+		logger.warn(
+			`Waiting turn ${waitingTurn.id} of chat ${waitingTurn.chatId} stays paused: turn ${turnId} is of chat ${chatId}`,
+		);
+	} else if (waitingTurn !== null) {
 		const moved = await deps.turns.transition(
 			waitingTurn.id,
 			["waiting_for_answer", "waiting_for_approval"],
@@ -1684,6 +1697,29 @@ export async function runBuilderTurn(
 			await deps.versions.findLatest(projectId),
 			sessionRow?.updatedAt ?? null,
 		);
+		// The first build of a new project has no commit with a file change, so
+		// it gets no note and the agent asks its setup questions.
+		// LIMIT: a theme save before the first build counts as code. Upgrade: a
+		// read of the commits of builder turns only.
+		const freshSessionNote = freshSessionNoteOf(
+			resumeState !== null,
+			await deps.versions.hasFileChanges(projectId),
+		);
+		// A sandbox has one bridge, and the chat of the last turn that ran owns
+		// it. The files can also differ from the memory of this chat.
+		// LIMIT: a turn that failed before its session start counts as a run.
+		// A failed turn of another chat gives true while this chat owns the
+		// bridge. The cost is one unnecessary bridge restart.
+		// A failed turn of this chat gives false while another chat owns the
+		// bridge. The attach then fails after 30 s, and the turn starts fresh
+		// with the chat recap.
+		// Upgrade: store the chat of the live bridge on the sandbox row.
+		const previousRunChatId = await deps.turns.findPreviousRunChatId(
+			projectId,
+			turnNumber,
+		);
+		const didOtherChatRunLast =
+			previousRunChatId !== null && previousRunChatId !== chatId;
 
 		// The user's words, then the attachment URLs. A message with text keeps
 		// its files too: the agent only sees what the prompt names. Answer
@@ -1983,6 +2019,11 @@ export async function runBuilderTurn(
 			harnessKey: await deps.harness.bootstrapKey(),
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
+		// A new sandbox holds no transcript of any chat. Without this write, the
+		// next turn of each other chat fails one time on a resume that cannot work.
+		if (sandboxCreated) {
+			await deps.sessions.clearResumeStateOfOtherChats(projectId, chatId);
+		}
 		// git does not keep `.env`, so a rebuilt sandbox needs the file again.
 		// provision-backend can mark the row active during getOrCreate. Then
 		// the sandbox row is not `running` yet, so its own write skips this
@@ -2061,14 +2102,17 @@ export async function runBuilderTurn(
 			// No answer line: a fresh session gets the plain prompt instead.
 			continuationFallbackPrompt = fallback === "" ? null : fallback;
 		}
-		// After a sandbox stop, the rerun bridge matches a host-tool result
+		// The bridge of this chat is gone after a sandbox stop. It is also gone
+		// after a turn of another chat, because that turn started its own bridge.
+		const isBridgeLost = sandboxWoke || didOtherChatRunLast;
+		// On a lost bridge, the rerun bridge matches a host-tool result
 		// only by the old call id, so an ask_user or present_plan answer goes
 		// as text on the same thread. An approval keeps the continue path: a
 		// text would make the agent call the tool again and ask for a new
 		// approval. A mode switch never continues the paused call.
 		const answersAsText =
 			modeSwitch ||
-			(sandboxWoke &&
+			(isBridgeLost &&
 				continuationFallbackPrompt !== null &&
 				continuation?.toolResults.some(
 					(result) =>
@@ -2117,10 +2161,11 @@ export async function runBuilderTurn(
 						sessionInput,
 						stored,
 						{
-							// Only a sandbox wake loses the bridge. A mode switch keeps
-							// it: the new start replaces the paused call in the same
-							// bridge, so no kill and no second bridge on the port.
-							bridgeDead: sandboxWoke,
+							// A sandbox wake or a turn of another chat loses the bridge.
+							// A mode switch keeps it: the new start replaces the paused
+							// call in the same bridge, so no kill and no second bridge
+							// on the port.
+							bridgeDead: isBridgeLost,
 							dropPausedTurn: answersAsText,
 						},
 					);
@@ -2232,7 +2277,7 @@ export async function runBuilderTurn(
 						? "suspended session lost"
 						: modeSwitch
 							? "mode switch"
-							: "bridge lost in a sandbox stop"
+							: "bridge lost in a sandbox stop or to another chat"
 				}`,
 			);
 			turnInput = {
@@ -2250,6 +2295,16 @@ export async function runBuilderTurn(
 			turnInput = {
 				...turnInput,
 				prompt: `${restoreNote}\n\n${turnInput.prompt}`,
+			};
+		}
+		// The two chat notes go in front too. At most one applies: the first
+		// needs a resumed session, the second needs a chat with no stored one.
+		const chatNote =
+			otherChatNoteOf(didOtherChatRunLast, started.resumed) ?? freshSessionNote;
+		if (chatNote !== null && turnInput.kind === "prompt") {
+			turnInput = {
+				...turnInput,
+				prompt: `${chatNote}\n\n${turnInput.prompt}`,
 			};
 		}
 		// A stored session that did not come back lost the agent memory; the
@@ -2478,8 +2533,8 @@ export async function runBuilderTurn(
 			};
 			await writeEvent({ data: summaryPart, type: "part" });
 
-			// The chat's "context getting full" notice reads the newest of these
-			// parts. The stored message keeps it, so a reload shows the notice too.
+			// The context ring of the composer reads the newest of these parts.
+			// The stored message keeps it, so a reload shows the ring too.
 			const contextParts: UIMessage["parts"] = [];
 			if (turnContext !== null) {
 				const contextPart: UIMessage["parts"][number] = {
@@ -3141,6 +3196,37 @@ export function restoreNoteOf(
 	// The version the user picked, not the new commit that copies it forward.
 	const version = latest.restoredFromSha ?? latest.sha;
 	return `The user restored the code to version ${version.slice(0, 7)} before this message. Read the files again before you edit.`;
+}
+
+/**
+ * The note for the agent when another conversation ran the turn before this one.
+ * It applies only when this turn resumed the session of its own chat.
+ * Without the note, the agent trusts its memory of files that changed.
+ */
+export function otherChatNoteOf(
+	didOtherChatRunLast: boolean,
+	/** True when the turn resumed the stored session of its chat. */
+	resumed: boolean,
+): string | null {
+	return didOtherChatRunLast && resumed
+		? "Another conversation worked on this project after your last turn here. The files can differ from what you remember. Read them again before you edit."
+		: null;
+}
+
+/**
+ * The note for the agent of a chat with no stored session on a project with code.
+ * Such a chat is a new conversation, or a chat whose session was dropped.
+ * The instructions ask setup questions before a first build; the note stops them.
+ */
+export function freshSessionNoteOf(
+	/** True when the chat has a stored resume state at the turn start. */
+	hasStoredSession: boolean,
+	/** `AppCommitsRepository.hasFileChanges`: one commit of the project changed a file. */
+	projectHasCode: boolean,
+): string | null {
+	return !hasStoredSession && projectHasCode
+		? "You have no memory of earlier work on this project, but the app already has code. Read the code that the request needs before you change it. Do not ask the setup questions of a new app again."
+		: null;
 }
 
 /** What the recap of a lost session needs from the run. */

@@ -636,7 +636,19 @@
 			"detail": "Older messages were summarized to free space",
 			"tokens": "{before} → {after} tokens"
 		},
-		"contextFull": "Context is getting full ({percent}%). The chat summarizes older messages automatically.",
+		"context": {
+			"title": "Context {percent}% full",
+			"tokens": "{tokens} of {limit} tokens",
+			"hint": "When the context is full, Wandit compacts the conversation automatically. Older details become a short summary.",
+			"newConversation": "Start a new conversation"
+		},
+		"conversations": {
+			"trigger": "Conversation: {title}",
+			"new": "New conversation",
+			"working": "Working",
+			"busy": "Another conversation is working on this project.",
+			"open": "Open it"
+		},
 		"receipt": "{credits} · {tokens} tokens",
 		"receiptCache": "cache: {read} read, {write} written",
 		"errors": {
