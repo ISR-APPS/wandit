@@ -1,5 +1,5 @@
 /**
- * The account menu: the avatar opens billing, coding agents (V2 only), the
+ * The account menu: the avatar opens billing, the MCP server page (V2 only), the
  * languages, and sign-out. Signed out, it is a sign-in button that opens the
  * auth modal. The top bars render the round avatar. The dashboard sidebar
  * renders the full row with the name and the email. Calls the session hooks

@@ -1,7 +1,9 @@
 /**
  * More view of the app builder: the section nav on the start side and the
- * open panel on the other side. Every panel renders inside panel-shell.tsx,
- * which draws its title; a Cloud panel renders through
+ * open panel on the other side. The nav lies on the white stage sheet. The
+ * panel lies on a sand ground, so its white cards lift off it.
+ * Every panel renders inside panel-shell.tsx,
+ * which draws its icon tile and its title; a Cloud panel renders through
  * cloud/cloud-panel-content.tsx. Rendered by pages/app-builder-page.tsx,
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
  * A project viewer gets a note in place of the AI and Security panels. The
@@ -17,11 +19,7 @@ import { ProjectConnectSteps } from "@/features/coding-agents";
 import { hasProjectRole } from "@/features/project-sharing";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
-import {
-	MORE_PANEL_META,
-	type MorePanel,
-	type ProjectPanel,
-} from "../../lib/constants";
+import type { MorePanel, ProjectPanel } from "../../lib/constants";
 import { isCloudPanel } from "../../lib/helpers";
 import { CloudPanelContent } from "../cloud/cloud-panel-content";
 import type { LogsFilter } from "../cloud/logs-panel";
@@ -87,12 +85,7 @@ export function MoreView({
 	function renderMorePanel(morePanel: MorePanel): ReactNode {
 		switch (morePanel) {
 			case "analytics":
-				return (
-					<EmptyPanel
-						icon={MORE_PANEL_META[morePanel].icon}
-						ctaLabel={t(EMPTY_PANEL_CTA[morePanel])}
-					/>
-				);
+				return <EmptyPanel ctaLabel={t(EMPTY_PANEL_CTA[morePanel])} />;
 			case "ai":
 				// Every AI key route needs the editor role, the GET too. A viewer gets a note and no API call.
 				return hasProjectRole(project.access, "editor") ? (
@@ -156,7 +149,7 @@ export function MoreView({
 	return (
 		// On phones the nav is a strip above the panel. From md it is a column at the start side.
 		<div className="flex h-full min-h-0 flex-col md:flex-row">
-			<div className="shrink-0 overflow-x-auto border-night/[0.07] border-b bg-night/[0.02] p-2 md:w-[236px] md:overflow-y-auto md:border-e md:border-b-0 md:p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
+			<div className="shrink-0 overflow-x-auto border-night/[0.07] border-b p-2 md:w-[236px] md:overflow-y-auto md:border-e md:border-b-0 md:p-3 dark:border-white/[0.07]">
 				<MoreNav
 					kind={project.kind}
 					active={panel}
@@ -164,7 +157,8 @@ export function MoreView({
 					onSelect={selectFromNav}
 				/>
 			</div>
-			<div className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 md:px-10 md:py-9">
+			{/* The sand ground of the panel. In dark mode the stage is already sand, so a black shade makes the ground one step deeper. */}
+			<div className="scroll-warm min-w-0 flex-1 overflow-y-auto bg-sand/70 px-4 py-6 sm:px-8 md:px-10 md:py-10 dark:bg-black/15">
 				<PanelShell panel={panel}>
 					{isCloudPanel(panel) ? (
 						<CloudPanelContent

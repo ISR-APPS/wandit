@@ -224,7 +224,8 @@ export function LogsPanel({
 						aria-label={t("workspace.cloud.logs.levelLabel")}
 						className={cn(
 							PANEL_SECONDARY_BUTTON_CLASS,
-							"rounded-full px-4 data-[size=default]:h-10",
+							// A field, not a button: no lift and no press.
+							"rounded-full px-4 shadow-none active:translate-y-0 data-[size=default]:h-10",
 						)}
 					>
 						<SelectValue />

@@ -148,11 +148,11 @@ const UPLOAD_ERROR_KEYS: Record<
 	failed: "projects.promptBox.attachments.failed",
 };
 
-// The send circle and the answer pill share the ember face, with a soft
-// ember (#d16022) glow. Disabled is a flat navy tint, not a faded ember: a
-// pale orange reads as "almost ready".
+// The send circle and the answer pill share the ember face (shadow-ember).
+// A press moves it down 1 px. Disabled is a flat navy tint, not a faded
+// ember: a pale orange reads as "almost ready".
 const SEND_CLASS =
-	"rounded-full bg-primary text-primary-foreground shadow-[0_1px_0_rgb(11_16_51/0.08),0_4px_12px_-4px_rgb(209_96_34/0.55)] transition-colors duration-150 hover:bg-ember-deep disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
+	"rounded-full bg-primary text-primary-foreground shadow-ember transition-[background-color,box-shadow,translate] duration-150 hover:bg-ember-deep active:translate-y-px disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
 
 /**
  * The chat prompt box. Enter sends the trimmed draft joined to the pasted
@@ -374,11 +374,13 @@ export function Composer({
 	);
 
 	return (
+		// Three navy shadows lift the card: a contact line, a near shade, and a drop.
+		// The drop ends inside the 16 px under the card, where the chat column clips.
 		// The ember ring shows while any control of the card has focus.
-		<div className="flex flex-col overflow-hidden rounded-[22px] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_12px_32px_-20px_rgb(11_16_51/0.35)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
+		<div className="flex flex-col overflow-hidden rounded-[24px] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.08),0_12px_24px_-16px_rgb(11_16_51/0.4)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
 			{topSlot}
 			{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
-			<div className="flex flex-col px-3 pt-3 pb-2.5">
+			<div className="flex flex-col px-3.5 pt-3.5 pb-3">
 				{targets.length > 0 ? (
 					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
 						{targets.map((target, index) => (
@@ -427,7 +429,7 @@ export function Composer({
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
-					className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
+					className="max-h-40 min-h-[52px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
 				/>
 				<input
 					ref={fileInputRef}
