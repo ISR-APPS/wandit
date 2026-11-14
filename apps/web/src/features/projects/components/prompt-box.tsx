@@ -2,7 +2,7 @@
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
- * mode menu picks the app type, web, mobile, or desktop, through `platformChoice`,
+ * mode menu picks the app type, web, mobile, desktop, or desktop 2 (Electron), through `platformChoice`,
  * the Plan chip of the app-builder feature sets `planChoice`, and its
  * model menu sets `modelChoice`. With `acceptsLongText`, a long paste becomes
  * a text chip that goes with the prompt (lib/pasted-text.ts).
@@ -18,6 +18,7 @@ import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { CpuIcon } from "@phosphor-icons/react/Cpu";
 import { DesktopIcon } from "@phosphor-icons/react/Desktop";
+import { DesktopTowerIcon } from "@phosphor-icons/react/DesktopTower";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
@@ -42,7 +43,6 @@ import {
 	builderMessageMaxLength,
 	type ComposerMetadata,
 	projectPromptMaxLength,
-	type TargetPlatform,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { formatNumber } from "@wandit/internationalization";
@@ -105,6 +105,7 @@ import {
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
 import { KeycapButton } from "@/features/landing";
+import type { AppTypeChoice } from "@/lib/app-type-choice";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
@@ -285,10 +286,12 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 
 // Non-copy app type config of a V2 create: id + icon, the icons of the project
 // card. Label/description live in the `projects.promptBox.platforms` namespace.
-const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
+const PLATFORM_MODES: readonly { id: AppTypeChoice; icon: Icon }[] = [
 	{ id: "web", icon: BrowserIcon },
 	{ id: "mobile", icon: DeviceMobileIcon },
 	{ id: "desktop", icon: DesktopIcon },
+	// "Desktop app 2": the experimental Electron engine.
+	{ id: "desktop-electron", icon: DesktopTowerIcon },
 ];
 
 // The hero chips copy the landing pills. A chip at rest has a soft night tint.
@@ -1689,12 +1692,12 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
-	/** Set only for a V2 create. The mode menu then lists web app, mobile app,
-	 * and desktop app instead of the V1 modes, and the "+" menu shows no connectors. */
+	/** Set only for a V2 create. The mode menu then lists web app, mobile app, desktop app,
+	 * and desktop app 2 instead of the V1 modes, and the "+" menu shows no connectors. */
 	platformChoice?: {
 		/** App type of the new project. The caller owns this state. */
-		value: TargetPlatform;
-		onChange: (platform: TargetPlatform) => void;
+		value: AppTypeChoice;
+		onChange: (appType: AppTypeChoice) => void;
 	};
 	/** The Plan chip of a V2 create. It shows only with `platformChoice`. */
 	planChoice?: {

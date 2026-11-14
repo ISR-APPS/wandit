@@ -42,6 +42,7 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
+		desktopEngine: null,
 		engine: "v2_app",
 		framework: "web-app",
 		hideWanditBadge: false,
@@ -204,6 +205,32 @@ describe("AppProjectsService.create", () => {
 				templateVersion: "mobile-app@1.0.0",
 			}),
 		);
+	});
+
+	// The engine never changes after the create, so the stored value decides
+	// the shell of every later build.
+	it.each([
+		{ body: { targetPlatform: "desktop" as const }, desktopEngine: "tauri" },
+		{
+			body: {
+				desktopEngine: "electron" as const,
+				targetPlatform: "desktop" as const,
+			},
+			desktopEngine: "electron",
+		},
+		{ body: { targetPlatform: "web" as const }, desktopEngine: null },
+	])("stores the desktop engine $desktopEngine for $body", async ({
+		body,
+		desktopEngine,
+	}) => {
+		const { projects, service } = setup();
+
+		await service.create(SCOPE, { ...BODY, ...body }, { countryCode: null });
+
+		expect(
+			projects.createWithChatAndFirstMessage.mock.calls[0]?.[0].app
+				?.desktopEngine,
+		).toBe(desktopEngine);
 	});
 
 	it("creates a web project when the body has no targetPlatform", async () => {

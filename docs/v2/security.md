@@ -488,7 +488,7 @@ in the project sandbox, never on the worker.
 ## 14. Desktop apps
 
 The contract is `docs/v2/desktop-apps.md`, and its section 1 gives the
-trust of each part. Decisions: D30 to D36 in `DECISIONS.md`. This section
+trust of each part. Decisions: D30 to D37 in `DECISIONS.md`. This section
 gives each threat and its controls. A security audit found 16 holes in
 this feature. A bullet that starts with "Audit fix:" gives the fix of one
 hole.
@@ -988,8 +988,129 @@ The contract is `desktop-apps.md` sections 3, 9, and 10.
   its platform (409). Each platform has its own pointer, so a Windows
   release cannot move a Mac app back.
 
+### Electron engine
+
+A project of the app type "Desktop app 2" uses the Electron shell (D37,
+experimental). The contract is `desktop-apps.md` section 13. The controls
+above apply, with these changes and risks. The audit of this section did
+not cover the Electron shell.
+
+- Trust model: no change. `templates/desktop-shell-electron/shell` is
+  trusted code, and the sandbox never holds it. The frontend and the SQL
+  reach CI as data. CI runs no user JavaScript: `npm ci --ignore-scripts`
+  installs only the packages of the trusted `package-lock.json`, and
+  electron-builder only packs files. The gate, the secret scan, and the
+  path rules of the build input are the same code.
+- Larger attack surface: the main process is Node.js with full user
+  rights, and the Tauri shell has no such runtime. A page that gets code
+  into the main process owns the user account. The controls below keep
+  the page out of it.
+- Renderer: `contextIsolation` and `sandbox` are on, and
+  `nodeIntegration` and the webview tag are off. The page has no Node API.
+  The preload script exposes only the 4 functions of `window.wanditDesktop`.
+- IPC sender check: each `ipcMain` handler accepts only the main frame of
+  the main window, and only when its URL origin is `app://app`
+  (`commands.js`). A subframe, another window, or another origin gets an
+  error. The shell checks the argument types and the limits before SQLite
+  gets a value.
+- Statement rules: the same authorizer rules and limits as the Tauri
+  shell, in `db/database.js`. The connection also has the ATTACH limit 0.
+  SQLite runs in a utility process, so a slow statement cannot block the
+  menu or the updater.
+- CSP: every answer of the `app://` protocol has the CSP header, also an
+  error answer, a worker script, and an `.svg` file. Electron adds no
+  nonce, so `script-src 'self'` runs only script files of the app origin.
+  `connect-src 'self'` allows no remote host.
+- Path guard: the protocol handler answers only files inside the packed
+  `dist` folder (`resolveDistFile`).
+- Network lock: the session cancels each request whose scheme is not
+  `app`, `devtools`, `data`, or `blob`. The switches `host-resolver-rules`,
+  `proxy-server` (loopback port 1), and `force-webrtc-ip-handling-policy`
+  close DNS, TCP, and WebRTC UDP. Windows and macOS use the same Chromium,
+  so there is one lock, with no private WebKit key. The spell checker is
+  off, because it downloads word lists.
+- Navigation, windows, downloads, permissions: the shell refuses each
+  navigation outside `app://app`, every `window.open`, every webview,
+  every download, and every permission and device request.
+- Fuses: `runAsNode`, `enableNodeOptionsEnvironmentVariable`, and
+  `enableNodeCliInspectArguments` are off. So the installed exe cannot run
+  as a plain Node.js, and `NODE_OPTIONS` or `--inspect` cannot inject code.
+  `onlyLoadAppFromAsar` and `enableEmbeddedAsarIntegrityValidation` are on.
+  So the app loads only its `app.asar`, and the binary holds the hash of
+  that file. `enableCookieEncryption` is on. A packed app has no developer
+  tools.
+- Residual risk: the fuses and the asar hash do not stop a local process
+  with the rights of the user. It can replace the whole app folder. On
+  macOS the signature is ad-hoc, and on Windows the exe has no signature
+  (D34). This is the same trust as the Tauri app.
+- Own updater: `updater.js` replaces tauri-plugin-updater. Wandit owns this
+  code, and no library audit covers it. It runs in the main process with
+  `node:https`, which does not use the dead proxy. It is the only network
+  user of the app. Each request is https, with at most 5 redirects. The
+  manifest has a cap of 1 MB, and the update file a cap of 300 MB. The
+  host of the file url must equal the host that answered the manifest.
+- Signature format `wandit-ed25519-v1`: a pure Ed25519 signature of the
+  text `wandit-desktop-update-v1`, the version, and the SHA-512 of the
+  file, one per line. The shell verifies it with `node:crypto` before it
+  runs or mounts a byte of the file. The first line keeps the signature
+  apart from a minisign signature of the same key. The version in the
+  message has the task of `requireSignedVersion`: a bad manifest cannot
+  pair a higher version with an older signed file. Only a strictly higher
+  version installs. The task verifies each signature before the upload
+  (`verifyElectronUpdateSignature`).
+- One key, two formats: one app has one engine, so one key signs only one
+  format. A minisign signature covers a BLAKE2b hash, and this format
+  covers a prefixed text. So one never verifies as the other.
+- macOS update file: the signed disk image. No update archive exists, so
+  the unpack risk and the re-pack of "macOS builds" do not apply. The
+  shell mounts the image read-only with `-nobrowse`, needs
+  `<mainBinaryName>.app` in it, and runs `codesign --verify --deep
+  --strict`. It copies with `ditto` and swaps with renames. The old bundle
+  stays until the new one is in place.
+- Residual risk: a person with `output_url` can replace the staged disk
+  image before the task signs it. Every installed Electron Mac app then
+  takes that file at the release. For the Tauri engine, this risk covers
+  only new downloads of the disk image. The manual check of "Update hijack
+  and downgrade" applies: `installer_sha256` is the hash of the signed
+  file, and the CI log prints the hash that CI uploaded.
+- Windows update: the shell starts the verified setup exe with
+  `/S --force-run`. The exe runs with the rights of the user (`perMachine`
+  is false), so no admin prompt shows.
+- CI: `build-electron.yml` and `build-electron-macos.yml` keep the URL
+  check, `permissions: {}`, the pinned action SHAs, and the restore-only
+  cache. They hold no secret. The macOS workflow has no `update_url`.
+- Supply chain: `package-lock.json` pins electron 45.3.1 and
+  electron-builder 26.18.0 with integrity hashes. `--ignore-scripts` stops
+  each install script. `npx --no-install` never downloads a package. The
+  Electron zip must match `electron/checksums.json` of the installed
+  package (`electronDownload.checksums`). Residual risk: electron-builder
+  downloads its NSIS and disk image tools from GitHub releases with its
+  own checks. A build can use the Electron zip of the cache, and only
+  `warm-cache.yml` on `main` writes that cache.
+- Chromium age: the app holds one fixed Chromium. A Tauri app uses the
+  WebView of the system, which the system updates. The page loads only
+  local files, so the risk is low. Still, each Electron security release
+  needs a new shell version and a new build of each app. Wandit cannot
+  update an app whose owner does not build again.
+- macOS entitlements: electron-builder adds `allow-jit`,
+  `allow-unsigned-executable-memory`, and `disable-library-validation`.
+  The Tauri app has none. V8 needs the first two. The third lets the
+  ad-hoc signed app load its own frameworks.
+- Single instance: Electron finds its lock through files in the
+  `userData` folder, `<base>/electron`, which belongs to the user. So no
+  other local user can take a fixed `/tmp` path first, as with the Tauri
+  shell.
+- Permissions deny all: a page cannot write the clipboard with
+  `navigator.clipboard`. This is a product limit, not a risk.
+- Not tested on Windows (UNVERIFIED): the NSIS install, the silent update,
+  and the network lock. Do the Electron staging checks of the runbook
+  before any production use.
+
 ### Open items
 
+- The Electron engine is experimental (D37). Its updater is own code, and
+  no Windows run happened before the first staging test (see "Electron
+  engine").
 - No Authenticode signature (D34). SmartScreen warns on the first
   download.
 - No rotation of the updater key pair of one app. The public key is in

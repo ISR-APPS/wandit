@@ -184,7 +184,7 @@ const MOBILE_APP_INSTRUCTION =
 // The platform sentence of a desktop app. The template CLAUDE.md holds the
 // data rules; the host tool holds the migration allow list.
 const DESKTOP_APP_INSTRUCTION =
-	"This is a desktop app for Windows and macOS (Tauri) with a local SQLite database and no cloud backend: follow CLAUDE.md, read and write data only through src/lib/db.ts, and change the schema only with the add_local_migration tool.";
+	"This is a desktop app for Windows and macOS with a local SQLite database and no cloud backend: follow CLAUDE.md, read and write data only through src/lib/db.ts, and change the schema only with the add_local_migration tool.";
 // 100 ms between two in-flight reads while the settle waits for the
 // proxy rows of the run.
 const PROXY_ROWS_POLL_MS = 100;

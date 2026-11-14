@@ -9,6 +9,7 @@ import { Outlet } from "@tanstack/react-router";
 import { Direction } from "radix-ui";
 import { useLayoutEffect, useMemo } from "react";
 import { AppShell, DatabaseGate } from "~/features/app-shell";
+import { isDesktopShell } from "~/lib/db";
 import { useT } from "~/shared/i18n";
 import { Toaster } from "~/shared/ui/sonner";
 import {
@@ -18,10 +19,9 @@ import {
 	useAppTheme,
 } from "~/styles/theme";
 
-// The Tauri shell injects this global. Its CSP blocks the remote font stylesheets of the theme.
-// So the host build puts the theme fonts into dist/wandit-fonts/. The app loads that local stylesheet.
+// The CSP of the native shell blocks the remote font stylesheets of the theme.
+// So the host build puts the theme fonts into dist/wandit-fonts/. The installed app loads that local stylesheet.
 // The file holds no font when the host could not fetch one: the engine.css font stacks then apply.
-const isDesktopShell = "__TAURI_INTERNALS__" in window;
 // The host writes this file into every installer. Vite dev and the preview do not have it.
 const DESKTOP_FONT_STYLESHEET = "/wandit-fonts/theme.css";
 

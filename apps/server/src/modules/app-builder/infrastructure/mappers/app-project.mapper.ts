@@ -20,6 +20,7 @@ export function mapAppProjectRow(
 ): AppProject {
 	return {
 		...mapProjectRow(row),
+		desktopEngine: row.desktopEngine,
 		engine: row.engine,
 		framework: row.framework,
 		// The column is text[]; the database check constraint allows only

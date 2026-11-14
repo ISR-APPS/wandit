@@ -1,9 +1,10 @@
 /**
- * Ed25519 updater keys and minisign signatures of desktop installers
- * (docs/v2/desktop-apps.md section 10). tauri-plugin-updater 2.x checks
- * these signatures with the `minisign-verify` crate. `DesktopBuildsService`
- * makes the key pair of a new app; the `desktop-build` task signs and checks
- * each installer. It calls node:crypto and `secret-crypto.ts`.
+ * Ed25519 updater keys and update signatures of desktop installers
+ * (docs/v2/desktop-apps.md section 10). tauri-plugin-updater 2.x checks the
+ * minisign signatures with the `minisign-verify` crate. The Electron shell
+ * checks the `wandit-ed25519-v1` signatures with node:crypto.
+ * `DesktopBuildsService` makes the key pair of a new app; the `desktop-build`
+ * task signs and checks each update file. It calls node:crypto and `secret-crypto.ts`.
  */
 import {
 	createHash,
@@ -178,6 +179,68 @@ export async function verifyUpdaterSignature(
 	return isFileSigned && isCommentSigned && signedVersion === input.version;
 }
 
+/** Input of `signElectronUpdate`. */
+export type SignElectronUpdateInput = {
+	/** Base64 PKCS8 DER, from `decryptDesktopUpdaterKey`. */
+	privateKeyPkcs8: string;
+	/** Local path of the update file: the setup exe or the disk image. Streamed, never read whole. */
+	filePath: string;
+	/** Semver of the build, `1.0.<release number>`. The manifest carries the same value. */
+	version: string;
+};
+
+/** Input of `verifyElectronUpdateSignature`. */
+export type VerifyElectronUpdateSignatureInput = {
+	/** `desktop_apps.updater_public_key`: the minisign public key text in base64. */
+	publicKey: string;
+	/** Local path of the update file. */
+	filePath: string;
+	/** Base64 of the 64 signature bytes, as `signElectronUpdate` answers it. */
+	signature: string;
+	/** The version that the signed message must name. */
+	version: string;
+};
+
+/**
+ * Signs one update file of the Electron engine in the `wandit-ed25519-v1`
+ * form and answers the base64 of the 64 signature bytes: the `signature`
+ * of the updater manifest. The message holds the version, so an older
+ * signed file never passes as a newer version.
+ */
+export async function signElectronUpdate(
+	input: SignElectronUpdateInput,
+): Promise<string> {
+	const privateKey = createPrivateKey({
+		format: "der",
+		key: Buffer.from(input.privateKeyPkcs8, "base64"),
+		type: "pkcs8",
+	});
+	const message = await electronUpdateMessage(input.filePath, input.version);
+	return sign(null, message, privateKey).toString("base64");
+}
+
+/**
+ * Checks a `wandit-ed25519-v1` signature the way the Electron shell does.
+ * Answers false for a changed file, another version, another key, and a
+ * malformed key or signature. Throws for a version with a line break.
+ */
+export async function verifyElectronUpdateSignature(
+	input: VerifyElectronUpdateSignatureInput,
+): Promise<boolean> {
+	const publicKey = parsePublicKey(input.publicKey);
+	const signature = Buffer.from(input.signature, "base64");
+	if (
+		publicKey === null ||
+		signature.length !== ED25519_SIGNATURE_BYTES ||
+		// Node drops characters that are not base64. Only the exact text passes.
+		signature.toString("base64") !== input.signature
+	) {
+		return false;
+	}
+	const message = await electronUpdateMessage(input.filePath, input.version);
+	return verify(null, message, publicKey.key, signature);
+}
+
 /** Encrypts the private key of one app with the current ring version. */
 export function encryptDesktopUpdaterKey(
 	ring: SecretKeyRing,
@@ -213,6 +276,27 @@ export function decryptDesktopUpdaterKey(
 /** The AAD identity of the private key: `<project id>:DESKTOP_UPDATER_KEY` (section 8, step 5). */
 export function updaterKeyIdentity(projectId: string): SecretRowIdentity {
 	return { name: DESKTOP_UPDATER_KEY_SECRET_NAME, projectId };
+}
+
+// First line of the `wandit-ed25519-v1` message. The Electron shell holds the same text.
+const ELECTRON_UPDATE_MESSAGE_PREFIX = "wandit-desktop-update-v1";
+
+// The signed bytes of an Electron update: the prefix, the version, and the
+// lowercase hex SHA-512 of the file, each with a line break after it.
+async function electronUpdateMessage(
+	filePath: string,
+	version: string,
+): Promise<Buffer> {
+	// A line break in the version would move the file hash to another line.
+	if (/[\r\n]/.test(version)) {
+		throw new Error("The version must not hold a line break");
+	}
+	const hash = createHash("sha512");
+	await pipeline(createReadStream(filePath), hash);
+	return Buffer.from(
+		`${ELECTRON_UPDATE_MESSAGE_PREFIX}\n${version}\n${hash.digest("hex")}\n`,
+		"utf8",
+	);
 }
 
 async function blake2b512OfFile(filePath: string): Promise<Buffer> {

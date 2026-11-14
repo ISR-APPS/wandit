@@ -117,7 +117,9 @@ export default defineConfig({
 			// the `mobile-build` task; it never uses the user copies.
 			// The desktop-shell glob takes every file of `src-tauri/` except the
 			// `target/` and `gen/` output of a local build. The `desktop-build`
-			// task puts these trusted files into the build input of the Windows CI.
+			// task puts these trusted files into the build input of the desktop CI.
+			// The desktop-shell-electron glob does the same for `shell/`, without
+			// the `node_modules/` and `release/` output of a local build.
 			additionalFiles({
 				files: [
 					"../../templates/*-*.tar.gz",
@@ -130,6 +132,7 @@ export default defineConfig({
 					"../../templates/mobile-app/eas.json",
 					"../../templates/mobile-app/native-modules.json",
 					"../../templates/desktop-shell/src-tauri/!(target|gen)/**",
+					"../../templates/desktop-shell-electron/shell/!(node_modules|release)/**",
 					// The Claude Code bridge fork; `readForkRunTurn` reads it under the
 					// working directory of the deployed worker.
 					"./src/modules/app-builder/application/harness/claude-code-bridge/persistent-run-turn.mjs",

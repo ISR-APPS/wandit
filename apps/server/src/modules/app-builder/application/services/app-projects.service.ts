@@ -161,8 +161,16 @@ export class AppProjectsService {
 		const derivedName = deriveProjectName(body.prompt);
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 
+		// Only a desktop app has a native shell. Its engine never changes after
+		// this insert, and a create with no engine gets the Tauri shell.
+		const desktopEngine =
+			body.targetPlatform === "desktop"
+				? (body.desktopEngine ?? "tauri")
+				: null;
+
 		await this.projects.createWithChatAndFirstMessage({
 			app: {
+				desktopEngine,
 				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,

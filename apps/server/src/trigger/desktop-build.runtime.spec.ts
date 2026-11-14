@@ -2,10 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 
 import {
 	DESKTOP_MIGRATION_MAX_BYTES,
 	type DesktopBuildStatus,
+	type DesktopEngine,
 	type DesktopGateRule,
 	type DesktopPlatform,
 	type GithubWorkflowRun,
@@ -29,6 +31,7 @@ import {
 import {
 	encryptDesktopUpdaterKey,
 	generateUpdaterKeyPair,
+	verifyElectronUpdateSignature,
 	verifyUpdaterSignature,
 } from "../modules/app-builder/infrastructure/desktop/updater-signature";
 import type {
@@ -263,6 +266,8 @@ type SetupOptions = {
 	app?: DesktopAppRow;
 	/** The platform of the build row. Default windows. */
 	platform?: DesktopPlatform;
+	/** `projects.desktop_engine` of the project, as `findForTask` answers it. Default tauri. */
+	engine?: DesktopEngine;
 	/** The files of `dist/` after the build, by path inside `dist/`. Default DIST_FILES. */
 	dist?: Record<string, string>;
 	frozen?: ReleasedDesktopMigration[];
@@ -355,7 +360,7 @@ async function setup(options: SetupOptions = {}) {
 				input.outputUrl.replace("https://r2.test/put/", ""),
 				installer,
 			);
-			if (input.platform === "macos") {
+			if (input.platform === "macos" && input.engine === "tauri") {
 				objects.set(
 					input.updateUrl.replace("https://r2.test/put/", ""),
 					updateArchive,
@@ -425,6 +430,8 @@ async function setup(options: SetupOptions = {}) {
 	const shellDir = tempDir();
 	writeFileSync(join(shellDir, "tauri.conf.json"), "{}");
 	writeFileSync(join(shellDir, "Cargo.toml"), "[package]\n");
+	const electronShellDir = tempDir();
+	writeFileSync(join(electronShellDir, "package.json"), "{}\n");
 
 	const deps = {
 		appSecretsEncryptionKey: RING_TEXT,
@@ -435,7 +442,11 @@ async function setup(options: SetupOptions = {}) {
 			findForTask: async () =>
 				state.row === null
 					? null
-					: { app: state.projectDeleted ? null : app, build: state.row },
+					: {
+							app: state.projectDeleted ? null : app,
+							build: state.row,
+							engine: options.engine ?? "tauri",
+						},
 			findMigrationsCommit: async (_projectId: string, commitSha: string) =>
 				options.rebuild?.migrationsCommit ?? commitSha,
 			transition: async (_buildId: string, change: DesktopBuildTransition) => {
@@ -490,7 +501,7 @@ async function setup(options: SetupOptions = {}) {
 		},
 		runner,
 		sandboxes,
-		shellDir,
+		shellDirs: { electron: electronShellDir, tauri: shellDir },
 		sleep: async (ms: number) => {
 			fakeNow += ms;
 			hooks.onSleep();
@@ -930,6 +941,46 @@ describe("runDesktopBuild", () => {
 			}),
 		).toBe(true);
 		expect(ctx.metering.calls).toContain("settle");
+	});
+
+	// An Electron Mac app installs from the disk image. CI gets no update URL,
+	// and the stored signature covers the disk image in the Electron format.
+	it("builds Electron macOS: the Electron shell input, 1 staging URL, and a signed disk image without an archive", async () => {
+		const ctx = await setup({ engine: "electron", platform: "macos" });
+
+		const result = await ctx.run();
+
+		expect(result).toEqual({ errorCode: null, outcome: "ready" });
+		expect(ctx.dispatches).toHaveLength(1);
+		expect(ctx.dispatches[0]).toMatchObject({
+			engine: "electron",
+			outputUrl: expect.stringMatching(/\/staging\/.+\.dmg$/),
+			platform: "macos",
+		});
+		expect(ctx.dispatches[0]).not.toHaveProperty("updateUrl");
+		const inputTar = gunzipSync(ctx.inputArchive ?? new Uint8Array()).toString(
+			"latin1",
+		);
+		expect(inputTar).toContain("shell/wandit.desktop.json");
+		expect(inputTar).not.toContain("src-tauri/");
+		const ready = ctx.transitions.find((change) => change.to === "ready");
+		if (ready?.to !== "ready") {
+			throw new Error("The build did not write ready");
+		}
+		expect(ready.updateArchiveKey).toBeNull();
+		expect(ready.installerKey.endsWith("/stock-manager-1.0.3.dmg")).toBe(true);
+		// The input and the staged disk image are gone.
+		expect([...ctx.objects.keys()]).toEqual([ready.installerKey]);
+		const uploaded = join(tempDir(), "update.dmg");
+		writeFileSync(uploaded, ctx.objects.get(ready.installerKey) ?? "");
+		expect(
+			await verifyElectronUpdateSignature({
+				filePath: uploaded,
+				publicKey: ctx.app.updaterPublicKey,
+				signature: ready.updaterSignature,
+				version: "1.0.3",
+			}),
+		).toBe(true);
 	});
 
 	it.each([

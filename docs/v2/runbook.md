@@ -356,9 +356,12 @@ Check these facts on the first real build (UNVERIFIED):
 
 A desktop build runs in three places: the `desktop-build` Trigger task, a
 sandbox for the frontend build, and a workflow of the private builder repo:
-`build.yml` for Windows, `build-macos.yml` for macOS. The contract is
+`build.yml` for Windows, `build-macos.yml` for macOS. A project with the
+Electron engine ("Desktop app 2", D37) uses `build-electron.yml` and
+`build-electron-macos.yml`. The contract is
 `docs/v2/desktop-apps.md`. Security notes: section 14 of
 `docs/v2/security.md`. The macOS steps are in "macOS desktop builds" below.
+The Electron steps are in "Electron engine (Desktop app 2)" below.
 
 ### Setup
 
@@ -1003,3 +1006,171 @@ fail.
     - Pass: the macOS build passes the migration gate with the frozen
       files and gets the next version. The Windows app finds no update.
     - Result: not run.
+
+### Electron engine (Desktop app 2)
+
+An Electron build makes a setup exe (Windows) or a disk image (macOS) with
+the shell of `templates/desktop-shell-electron` (D37, experimental). The
+contract is `docs/v2/desktop-apps.md` section 13. The engine has no flag
+of its own: `DESKTOP_MACOS_BUILDS_ENABLED` also gates its macOS builds.
+
+#### Setup on staging
+
+Do "Setup" of "Desktop apps" first. The builder repo and its variable
+`DESKTOP_BUILD_BUCKET_URLS` must exist. Then use this order. Use it again
+after each change of the Electron shell or its `package-lock.json`.
+
+1. Apply the database migration `0094_desktop-engine.sql`
+   (`pnpm db:migrate`). It adds the enum `desktop_engine` and the nullable
+   column `projects.desktop_engine`. Old rows keep NULL, which means Tauri.
+2. In the builder repo, open Settings > Actions > General. The allowed
+   actions must include the actions of GitHub: the 2 new workflows use
+   `actions/setup-node`.
+3. In a checkout of the builder repo, make a branch. Copy these files from
+   `tooling/desktop-builder/.github/workflows/`:
+   - `build-electron.yml` (new).
+   - `build-electron-macos.yml` (new).
+   - `warm-cache.yml` (it now has the jobs `warm-electron` and
+     `warm-electron-macos`).
+4. From the root of this repo, run
+   `node tooling/desktop-builder/sync-shell.mjs <builder checkout>`. It
+   writes `shell-electron/` and writes `shell/` again. Commit both
+   folders. `git status` must show `shell-electron/shell/package-lock.json`
+   and `shell-electron/shell/wandit.desktop.json`.
+5. Merge the pull request to `main`. "Desktop cache warm-up" starts. Wait
+   until `warm-electron` and `warm-electron-macos` are green. Each job
+   builds the fixture app, so a green job also proves the packaging on
+   its system. An Electron job takes about 5 to 10 minutes (ESTIMATE).
+6. Open Actions > Caches. It must show a
+   `desktop-electron-v1-windows-x64-...` entry and a
+   `desktop-electron-v1-macos-arm64-...` entry. Open the `warm-electron`
+   log and make sure that the saved cache holds the Electron zip
+   (UNVERIFIED: the path `~\AppData\Local\electron\Cache` did not run
+   before this test). A missing cache only adds download time.
+7. Pack the templates, then deploy the API and the Trigger worker. The
+   worker image gets `templates/desktop-shell-electron/shell` through
+   `additionalFiles` of `apps/server/trigger.config.ts`, and the template
+   `desktop-app@1.1.0`. A worker without the shell fails each Electron
+   build with `unconfigured`.
+8. Deploy the web app. The create prompt box then shows "Desktop app 2".
+
+Why this order: the API dispatches `build-electron.yml` by name on `main`.
+A dispatch before step 5 finds no workflow, and the build fails.
+
+#### Electron staging checks
+
+Do these checks on staging before any production use. You need a Windows
+10 or 11 PC (x64), a Mac with Apple silicon and macOS 15 or later, and a
+staging account with credits. Record each result on the "Result" line: the
+date, the system version, and pass or fail. No Windows build of this shell
+ran before these checks.
+
+1. Create. In the prompt box, select "Desktop app 2". Ask for a notes app
+   with one `notes` table.
+   - Pass: `select desktop_engine, framework, template_version from projects where id = '<id>';`
+     answers `electron`, `desktop-app`, and `desktop-app@1.1.0` or later.
+     The preview works as for a Tauri project.
+   - Result: not run.
+2. Old projects. Create a project with "Desktop app". Read an older
+   desktop project.
+   - Pass: the new row holds `tauri`. The old row holds NULL, and its
+     build still dispatches `build.yml`.
+   - Result: not run.
+3. Windows build. Build Windows for the project of check 1.
+   - Pass: the run "Desktop build (Electron)" is green. The step
+     "Self-test the installed app" shows `wandit-self-test: ok`. The build
+     is `ready`. The SHA-256 of the log line "Installer ..." equals
+     `desktop_builds.installer_sha256`.
+   - Result: not run.
+4. Windows first start. Release the build. Download the setup exe and run
+   it. Pass SmartScreen with "More info", then "Run anyway".
+   - Pass: no admin prompt shows. The app opens on its home page, not a
+     white window. The title and the shortcut show the product name.
+     `%LOCALAPPDATA%\<identifier>\data\app.db` exists. Add 3 notes.
+   - Result: not run.
+5. Windows menu. Try File > Back up now, Export data, and Import data.
+   Try Help > Check for updates and About. Start the app a second time.
+   - Pass: each dialog shows. The second start focuses the first window.
+   - Result: not run.
+6. Windows update. Ask for a `pinned` column with `DEFAULT 0`. Build and
+   release v2. In the app, click Help > Check for updates > Install.
+   - Pass: the app closes, installs with no window, and starts again as
+     v2 with the 3 notes. `backups\` holds a `before-update-1.0.1-...`
+     file. About shows `1.0.2`.
+   - Result: not run.
+7. macOS build. Set the staging flag `DESKTOP_MACOS_BUILDS_ENABLED` to
+   `true`. Build macOS for the same project.
+   - Pass: the run "Desktop build (Electron, macOS)" is green, with the
+     `wandit-self-test: ok` line. The build is `ready`, and its
+     `update_archive_key` is NULL. The SHA-256 of the log line
+     "Disk image ..." equals `desktop_builds.installer_sha256`.
+   - Result: not run.
+8. macOS first start. Release the build. Download the disk image with
+   Safari, drag the app to Applications, and open it with Open Anyway.
+   - Pass: the app opens on its home page, not a white window. The menu
+     bar, the Dock, and Finder show the product name. Cmd+C and Cmd+V work
+     in a text field. Cmd+W closes the window, and the app quits.
+   - Result: not run.
+9. macOS update. Release a second macOS build. In the old app, click
+   Help > Check for updates > Install.
+   - Pass: `latest-macos.json` has a url that ends in `.dmg`. The app
+     starts again in the new version with no Gatekeeper alert, and the
+     notes are there. No mounted disk image stays in Finder.
+     `codesign --verify --deep --strict /Applications/<name>.app` passes.
+   - Result: not run.
+10. macOS update from a read-only place. Open the app from the mounted
+    disk image, and try an update.
+    - Pass: "Update failed" shows, with the line "Open the app from the
+      Applications folder, then try again." The app still runs.
+    - Result: not run.
+11. Network probe, on both systems. Use the probe project of macOS staging
+    check 6, made with "Desktop app 2". Watch the network with tcpdump or
+    Wireshark while the app starts.
+    - Pass: each fetch and the remote image fail. No packet goes to the
+      probe host, no DNS query names it, and no STUN packet shows. Only
+      the update check reaches the updates host.
+    - Result: not run.
+12. CSP. The probe app has an inline script in `index.html`, in a Worker,
+    and in an `.svg` page.
+    - Pass: no inline script runs.
+    - Result: not run.
+13. Product names. Build both platforms for a project named
+    "Gestion Café" and one named "متجر أحمد". Install, open, and update
+    each one.
+    - Pass: each build is `ready`. Each app opens and updates. The file
+      names hold only the ASCII binary name.
+    - Result: not run.
+14. Data exchange. Export the data in a Tauri app of a project with the
+    same migrations, if one exists. Else export in the Electron Windows
+    app and import in the Electron Mac app.
+    - Pass: the import passes, and the rows show.
+    - Result: not run.
+15. Size and time. Read the job minutes of checks 3 and 7 and the file
+    sizes.
+    - Pass: each file is below 300 MB. Record the numbers in
+      `desktop-apps.md` section 13, "Limits of the Electron engine".
+    - Result: not run.
+
+#### A failed Electron build
+
+Use "A stuck or failed build" above. These causes are specific:
+
+- `ci_failed` in "Build the installer" with an npm usage error: the
+  workflow has `npx --no`. It must be `npx --no-install`.
+- `ci_failed` with "did not match expected checksum": the Electron zip does
+  not match `electron/checksums.json`. Do not build again until you know
+  the reason.
+- `unconfigured`: the worker image has no
+  `templates/desktop-shell-electron/shell/package.json`. Deploy the
+  Trigger worker again.
+
+#### After a change of the Electron shell
+
+1. Run `node --test` in `templates/desktop-shell-electron/shell` (Node
+   24.22 or later).
+2. Merge the change. Run `sync-shell.mjs`, and merge `shell-electron/` to
+   `main` of the builder repo.
+3. When `package-lock.json` changed, wait for the green `warm-electron`
+   and `warm-electron-macos` jobs.
+4. Deploy the Trigger worker. A worker and a builder repo with different
+   `package-lock.json` files only miss the cache.

@@ -68,7 +68,7 @@ export const desktopBuildTask = schemaTask({
 	id: "desktop-build",
 	// 1 vCPU and 2 GB: the run holds the frontend output (up to 100 MB) and
 	// its gzip archive in memory. The setup exe and the disk image stream
-	// through the disk. A macOS run re-packs the update archive in memory
+	// through the disk. A Tauri macOS run re-packs the update archive in memory
 	// (see the LIMIT in desktop-build.runtime.ts).
 	machine: "medium-1x",
 	// 4800 compute seconds (80 min): the 70 min poll ceiling plus the build
@@ -110,7 +110,13 @@ export const desktopBuildTask = schemaTask({
 						),
 						new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 					),
-					shellDir: resolve(TEMPLATE_ARCHIVE_DIR, "desktop-shell/src-tauri"),
+					shellDirs: {
+						electron: resolve(
+							TEMPLATE_ARCHIVE_DIR,
+							"desktop-shell-electron/shell",
+						),
+						tauri: resolve(TEMPLATE_ARCHIVE_DIR, "desktop-shell/src-tauri"),
+					},
 					// A Trigger wait frees the machine during the CI poll.
 					sleep: (ms) => wait.for({ seconds: ms / 1000 }),
 					storage: isR2Configured()

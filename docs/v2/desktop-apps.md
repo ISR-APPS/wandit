@@ -1,14 +1,19 @@
 # Desktop apps (V2)
 
 A user builds a desktop app for Windows or macOS in the chat. The app is a
-Tauri v2 shell with a local SQLite database. One build makes the files of
-one platform. The user downloads an installer (Windows) or a disk image
+native shell with a local SQLite database. The shell is Tauri v2. A project
+of the app type "Desktop app 2" uses the experimental Electron shell
+(section 13). One build makes the files of one platform. The user downloads an installer (Windows) or a disk image
 (macOS). Installed apps update themselves when the owner releases a newer
 build of their platform. An update never loses saved data.
 
-Decisions: D30 to D36 in `DECISIONS.md`. Security notes: section 14 of
+Decisions: D30 to D37 in `DECISIONS.md`. Security notes: section 14 of
 `security.md`. This file is the contract between the parts below. When you
 change a contract here, change every part in the same diff.
+
+Sections 3, 4, 9, and 10 give the Tauri engine. Section 13 gives each
+difference of the Electron engine. Every rule that section 13 does not
+name is the same for both engines.
 
 ## 1. Parts and trust
 
@@ -16,16 +21,17 @@ change a contract here, change every part in the same diff.
 |---|---|---|---|
 | Project template | `templates/desktop-app/` | Untrusted after create | The agent, in the sandbox |
 | Native shell | `templates/desktop-shell/` | Trusted | Wandit engineers only |
+| Native shell, Electron engine | `templates/desktop-shell-electron/` | Trusted | Wandit engineers only |
 | Migration gate | `apps/server/.../domain/desktop-migrations.ts`, `.../infrastructure/sqlite/desktop-migration-gate.ts` | Trusted | Wandit engineers only |
 | Build task | `apps/server/src/trigger/desktop-build.*` | Trusted | Wandit engineers only |
-| Desktop CI | Private GitHub repo `DESKTOP_BUILD_REPO`, from `tooling/desktop-builder/`: `build.yml` (Windows), `build-macos.yml` (macOS) | Trusted | Wandit engineers only |
+| Desktop CI | Private GitHub repo `DESKTOP_BUILD_REPO`, from `tooling/desktop-builder/`: `build.yml` (Windows), `build-macos.yml` (macOS), and for the Electron engine `build-electron.yml`, `build-electron-macos.yml` | Trusted | Wandit engineers only |
 | Updater keys | `desktop_apps` table, encrypted | Secret | The API only |
 
 Rules:
 
 1. The sandbox never holds the native shell, a signing key, or a CI token.
 2. The project repo holds only the frontend and the `migrations/` folder.
-   The build ignores any `src-tauri/` folder in the project.
+   The build ignores any `src-tauri/` or `shell/` folder in the project.
 3. CI compiles only the trusted shell. The user files reach CI as data:
    static frontend files and SQL text. CI runs no user JavaScript and no
    user build script.
@@ -326,8 +332,10 @@ export function batch(statements: { sql: string; params?: SqlParam[] }[]): Promi
 export class DbError extends Error { code: DbErrorCode }
 ```
 
-In the desktop app (`"__TAURI_INTERNALS__" in window`) it calls
-`invoke` from `@tauri-apps/api/core`. In the browser preview (`vite dev`) it
+In the Tauri shell (`"__TAURI_INTERNALS__" in window`) it calls
+`invoke` from `@tauri-apps/api/core`. In the Electron shell
+(`"wanditDesktop" in window`) it calls the bridge of section 13. In the
+browser preview (`vite dev`) it
 loads `preview-db.ts` with a dynamic import. That import is behind an
 `import.meta.env.DEV` check, so a production build holds no sql.js. Outside
 the shell, a production build answers `migration_failed`. The app shows an
@@ -927,7 +935,8 @@ project id, so one build per project runs at a time. The task claims the
    `desktop-temp/<project id>/` too.
 3. `building`: dispatch the workflow of the platform with
    `return_run_details: true`: `build.yml` (Windows) or `build-macos.yml`
-   (macOS) (`WORKFLOW_FILES` in `github-desktop-build-runner.ts`).
+   (macOS) (`WORKFLOW_FILES` in `github-desktop-build-runner.ts`). An
+   Electron project uses the 2 workflows of section 13.
    Inputs: `build_id`, `input_url` (presigned GET, 2 h), `input_sha256`, and
    `output_url` (presigned PUT, 2 h). `output_url` is for
    `desktop-temp/<project id>/staging/<build id>-<random>.exe` on Windows
@@ -937,7 +946,7 @@ project id, so one build per project runs at a time. The task claims the
    dispatch never sends `update_url`. Poll the run every 20 s, at most
    70 min. After a run that did not succeed, read its jobs
    (`GET .../actions/runs/{id}/jobs`). A failed step "Self-test the
-   installed app" gives `self_test_failed`. Both workflows use this step
+   installed app" gives `self_test_failed`. The 4 workflows use this step
    name (`SELF_TEST_STEP`). Any other failure, and a failed jobs read, gives
    `ci_failed`.
 4. `signing`: check, sign, and upload the files of the platform. Each
@@ -1052,8 +1061,9 @@ copied to the private repo):
   tauri-cli installs with `--locked`. The build command is
   `cargo tauri build --ci --bundles nsis --config tauri.desktop.json -- --locked`.
   tauri-cli refuses `--locked`, so it goes to `cargo build` after `--`.
-- `warm-cache.yml` saves the caches of both platforms. It has 2 jobs:
-  `warm` (Windows) and `warm-macos` (macOS). Each job runs the build
+- `warm-cache.yml` saves the caches of both platforms. It has 2 jobs for
+  the Tauri shell: `warm` (Windows) and `warm-macos` (macOS). Section 13
+  gives its 2 Electron jobs. Each job runs the build
   command of its workflow with `--config ../tauri.desktop.json`, because
   `sync-shell.mjs` writes the fixture config next to `src-tauri/`. A push
   to `main`, a manual start, and a daily schedule (03:17 UTC) start it.
@@ -1388,3 +1398,376 @@ cancels it, and the sweep refunds the hold after the lease ends.
   stop or delete an app on a user machine.
 - The preview approximates the statement rules of the shell (section 7, the
   `LIMIT` block in `preview-db.ts`).
+- The Electron engine is experimental (D37). Its own limits are in
+  section 13.
+
+## 13. Electron engine (Desktop app 2)
+
+The Electron engine is a second native shell (D37). It is experimental. The
+create prompt box shows it as the app type "Desktop app 2". The project
+template, the preview, the migration gate, the build task, the publish
+popover, the release flow, the credits, and the manifests are the same as
+for the Tauri engine. This section gives each difference. Security notes:
+`security.md` section 14, "Electron engine".
+
+### Engine of a project
+
+- `projects.desktop_engine` (pg enum `desktop_engine`: `tauri`, `electron`)
+  holds the engine. `desktopEngines` in packages/contracts holds the same
+  values. `projects.target_platform` stays `desktop`, and
+  `projects.framework` stays `desktop-app`.
+- `POST /api/v2/projects` accepts `desktopEngine` only with
+  `targetPlatform: "desktop"`. Another platform with the key answers 400. A
+  desktop create with no key stores `tauri`. A web or mobile create stores
+  NULL.
+- NULL on a desktop project means `tauri`: a row older than the column.
+- The engine never changes after the create. No route writes the column.
+- The project answer (`appProjectSchema`) has `desktopEngine`, nullable.
+- Web: the app type "Desktop app 2" sends `targetPlatform: "desktop"` and
+  `desktopEngine: "electron"` (`toAppTypeTarget` in
+  `apps/web/src/lib/app-type-choice.ts`). "Desktop app" sends no engine.
+- The agent cannot see or select the engine. The agent prompt and the
+  template `CLAUDE.md` are the same for both engines.
+- An Electron build needs `desktop-app@1.1.0` or later: `src/lib/db.ts` of
+  1.0.0 has no Electron mode. Each Electron project is new, so it has that
+  template.
+
+### Parts
+
+| Part | Tauri engine | Electron engine |
+|---|---|---|
+| Shell folder | `templates/desktop-shell/src-tauri/` | `templates/desktop-shell-electron/shell/` |
+| Shell language | Rust | Plain JavaScript (CommonJS), no compile step |
+| Browser | WebView2 (Windows), WKWebView (macOS) | The Chromium inside Electron 45.3.1, on both systems |
+| SQLite | rusqlite | `node:sqlite` of the Node 24.22 inside Electron |
+| Config file of a build | `src-tauri/tauri.desktop.json` | `shell/wandit.desktop.json`, the same JSON |
+| CI workflows | `build.yml`, `build-macos.yml` | `build-electron.yml`, `build-electron-macos.yml` |
+| Bundler | tauri-cli | electron-builder 26.18.0 |
+| App origin | `http://tauri.localhost`, `tauri://localhost` | `app://app` |
+| Page to shell | `invoke` | `window.wanditDesktop` |
+| Update signature | minisign | `wandit-ed25519-v1` |
+| macOS update file | the re-packed `.app.tar.gz` | the disk image |
+
+### Shell folder
+
+```
+desktop-shell-electron/
+  README.md
+  shell/
+    package.json, package-lock.json   electron 45.3.1 and electron-builder 26.18.0, exact
+    electron-builder.config.cjs       the packaging config; reads ./wandit.desktop.json
+    icons/icon.icns, icon.ico         copies of the Tauri shell icons
+    src/main.js                       start, network switches, single instance, self-test
+    src/config.js                     reads and checks wandit.desktop.json
+    src/app-origin.js, window.js      the app:// protocol, the CSP, the locks, the window
+    src/preload.js, commands.js       the bridge and the 4 IPC commands
+    src/menu.js, dialogs.js           the native menu and dialogs
+    src/updater.js, update-files.js, update-install.js   the updater
+    src/db/                           the database process, the runner, the backups
+    test/, testing/                   unit tests (node:test)
+```
+
+The shell has no runtime npm dependency: only `node:` modules and
+`electron`. `templates/desktop-shell-electron/README.md` lists each file.
+
+### Build input and packaging
+
+The task writes this archive for an Electron build (`DESKTOP_SHELL_LAYOUTS`
+in `desktop-build-input.ts`):
+
+```
+shell/                      from templates/desktop-shell-electron/shell (worker image copy)
+shell/wandit.desktop.json
+dist/                       the checked frontend files
+dist/wandit-fonts/          theme fonts and theme.css, written by the task
+migrations/                 one folder entry, then the checked SQL text
+```
+
+- The copy of `shell/` has no top-level `node_modules/` and no `release/`.
+- `shell/wandit.desktop.json` holds exactly the JSON of
+  `tauri.desktop.json` (section 3), byte for byte.
+- `trigger.config.ts` copies the shell to the worker image. Its glob skips
+  dotfiles, so the shell must not need one.
+- `electron-builder.config.cjs` reads `./wandit.desktop.json` with
+  `config.js`. It stops when `mainBinaryName` is not lowercase kebab-case,
+  the version is not `N.N.N`, or the endpoint is not https. It also stops
+  when `../dist/index.html` or `../migrations` is missing.
+- The app archive (`app.asar`) holds `package.json`, `wandit.desktop.json`,
+  `src/`, `dist/`, and `migrations/`.
+- File names are ASCII. The app bundle, the executable, and the install
+  folder use `mainBinaryName` (the reason is in section 3, `bundle.icon`).
+- The product name shows in the window title, the menu, the dialogs, the
+  NSIS shortcut, and the uninstall entry.
+- macOS: `CFBundleName` is `mainBinaryName`, not the product name. Electron
+  finds its helper apps by that name. With another value the app stops
+  with "Unable to find helper app". `CFBundleDisplayName` and an
+  `InfoPlist.strings` file in each language folder give macOS the product
+  name.
+- Windows: target `nsis`, x64, `oneClick`, `perMachine: false`. No admin
+  prompt. The output is `release/<mainBinaryName>-<version>-setup.exe`.
+- macOS: target `dmg`, arm64 only, identity `-` (ad-hoc), hardened runtime
+  on, `minimumSystemVersion` 15.0, the fixed `icons/icon.icns`. The output
+  is `release/<mainBinaryName>-<version>.dmg`. electron-builder adds the
+  entitlements `allow-jit`, `allow-unsigned-executable-memory`, and
+  `disable-library-validation`.
+- Fuses (`electronFuses`): `runAsNode`,
+  `enableNodeOptionsEnvironmentVariable`, and
+  `enableNodeCliInspectArguments` are off. `onlyLoadAppFromAsar`,
+  `enableEmbeddedAsarIntegrityValidation`, and `enableCookieEncryption` are
+  on. The ad-hoc signed macOS build runs with all 6.
+- `electronDownload.checksums` is `electron/checksums.json` of the
+  installed npm package. `npm ci` checks that package against
+  `package-lock.json`. So electron-builder refuses an Electron zip that
+  does not match the lock file.
+
+### Runtime rules
+
+- Frontend: the window loads `app://app/`. `app` is a standard, secure
+  scheme (`protocol.handle`). The root path and each unknown path answer
+  `index.html`. A path guard refuses each path outside the packed `dist`
+  folder.
+- CSP: every answer of the protocol has this header, also an error answer:
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';
+  object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'`.
+  Each answer also has `X-Content-Type-Options: nosniff`. The shell does
+  not freeze prototypes.
+- Window: `contextIsolation` and `sandbox` are on. `nodeIntegration` and
+  the webview tag are off. A packed app has no developer tools. The spell
+  checker is off, because it downloads word lists.
+- Commands: each IPC handler accepts only the main frame of the main
+  window, on the origin `app://app`. `input.js` checks the argument types,
+  and `db/database.js` checks the limits of section 4.
+- Navigation lock: `will-navigate`, `will-frame-navigate`, and
+  `will-redirect` refuse each URL outside `app://app`. Every `window.open`
+  is denied. Every webview is refused.
+- Downloads: the session cancels each download.
+- Permissions: the session denies each permission request, each
+  permission check, and each device.
+- Network lock: `webRequest.onBeforeRequest` cancels each request whose
+  scheme is not `app`, `devtools`, `data`, or `blob`. 3 Chromium switches
+  are set before `ready`: `host-resolver-rules` `MAP * ~NOTFOUND`,
+  `proxy-server` `http://127.0.0.1:1`, and
+  `force-webrtc-ip-handling-policy` `disable_non_proxied_udp`. Each page
+  also gets `setWebRTCIPHandlingPolicy("disable_non_proxied_udp")`. Both
+  systems use the same lock.
+- Single instance: `app.requestSingleInstanceLock()`. A second start
+  focuses the first window. When the last window closes, the app quits, on
+  both systems.
+- Data folder: the base folder is the same as in section 5. The database
+  is `<base>/data/app.db`, and the backups are in `<base>/backups/`. Two
+  more folders exist: `<base>/electron` (the Chromium files) and
+  `<base>/updates` (one downloaded update file). The shell deletes
+  `<base>/updates` at each start.
+- Menu: the items of section 3, on both systems. All dialogs are
+  main-process calls. The page never gives a file path to the shell.
+- Self-test: `--wandit-self-test` gives the same 2 result lines and exit
+  codes as section 9. The shell writes the line to stdout with a
+  synchronous write, before Electron is ready.
+- `migration_failed`: as section 5. The 4 commands answer
+  `migration_failed`, the dialog "The data did not open" shows the reason,
+  and the update check still runs.
+
+### Bridge of the page
+
+The preload script sets `window.wanditDesktop` with `contextBridge`. It has
+4 functions and nothing else:
+
+| Function | Command of section 4 |
+|---|---|
+| `dbSelect(args)` | `db_select` |
+| `dbExecute(args)` | `db_execute` |
+| `dbBatch(args)` | `db_batch` |
+| `appInfo()` | `app_info` |
+
+- The arguments and the answers are the objects of section 4.
+- A failed command rejects with an `Error`. Its `message` is the JSON text
+  `{"code": DbErrorCode, "message": string}`. Electron IPC keeps only the
+  message of an error, so the code goes into the text.
+- `src/lib/db.ts` reads the text from the first `{` and parses it into
+  `DbError` (`toElectronError`). A rejection with no such JSON becomes a
+  plain `Error`: "The desktop command <name> failed: ...".
+- When `wanditDesktop` is in `window`, `db.ts` uses it and does not call
+  the Tauri `invoke`.
+- `isDesktopShell` of `db.ts` is true in both shells. `root-layout.tsx`
+  reads it to load `/wandit-fonts/theme.css`.
+- The IPC channels are `wandit:db-select`, `wandit:db-execute`,
+  `wandit:db-batch`, and `wandit:app-info`. A handler answers
+  `{ ok, value }` or `{ ok: false, error }`, and the preload script makes
+  the `Error`.
+
+### Database
+
+The connection settings, the ledger text, the runner, the statement rules,
+the limits, the error codes, the backups, the export, and the import are
+those of sections 4 and 5. `db/database.js` and `db/backup.js` hold them.
+One export file opens in both shells. These parts are different:
+
+- SQLite runs in an Electron utility process (`db/worker.js`), not on the
+  main thread. A worker thread is not sufficient: Node cannot stop a thread
+  that is inside one SQLite call.
+- Time limit: `node:sqlite` has no progress handler. After 10 s, the shell
+  ends the database process and answers `sql_error` with the
+  `interrupted:` text of section 4. Then it starts a new process, which
+  opens the database again. SQLite rolls back the open transaction. So the
+  limit also stops one long function call.
+- Jobs of the menu and the updater (backup, export, import, update backup)
+  run before the page commands that wait in the queue. So the update
+  backup waits for one command at most, 10 s.
+- `db_select` read-only rule: `node:sqlite` has no
+  `sqlite3_stmt_readonly`. The authorizer sees each action of a statement,
+  and a write action refuses the statement.
+- One statement per call: `db/sql-scan.js` splits the SQL text and counts
+  the parameters.
+- ATTACH: the connection has `limits.attach` 0, and the authorizer refuses
+  ATTACH and DETACH also while a migration runs.
+- Migrations are not compiled into the binary. The shell reads the packed
+  `migrations/` folder at each start, with the rules of `build.rs`: the
+  file name pattern, a regular file, and UTF-8. It computes the SHA-256 of
+  the exact bytes. A build with no SQL file has no packed folder, and the
+  shell reads that as zero files.
+
+### Updater
+
+The manifests, the URLs, the file names, the release flow, and the version
+rule are those of section 10. The shell has its own updater in the main
+process (`updater.js`). It uses no minisign and no tauri-plugin-updater:
+the Node inside Electron has no BLAKE2b-512.
+
+- Signature format `wandit-ed25519-v1`. The signature is the base64 of the
+  64-byte pure Ed25519 signature of this UTF-8 message:
+  `"wandit-desktop-update-v1\n" + version + "\n" + <lowercase hex SHA-512 of the update file> + "\n"`.
+  `version` is the manifest version, `1.0.N`. So an older signed file never
+  passes as a newer version. `signElectronUpdate` in
+  `updater-signature.ts` signs, and `verifyUpdateFile` in
+  `update-files.js` verifies. A change of the message needs both files.
+- Key: the same per-app Ed25519 key (`desktop_apps`). `pubkey` in
+  `wandit.desktop.json` is the minisign public key text in base64. The
+  shell decodes it, takes line 2, decodes that line, and checks 42 bytes
+  that start with `Ed`. The key is bytes 10 to 41.
+- Manifest: the shape does not change (`desktopUpdateManifestSchema`). The
+  shell reads only `windows-x86_64` or `darwin-aarch64`, and ignores the
+  second key of the platform. The version must be `N.N.N`.
+- Update file: the NSIS setup exe on Windows, and the disk image on macOS.
+  An Electron macOS build has no `.app.tar.gz`. So `update_archive_key`
+  stays null, and the url of `latest-macos.json` is the disk image of the
+  build folder.
+- Check: at start, and from Help > Check for updates. The check at start
+  shows no dialog for an error or for "no update". Only a strictly higher
+  version is an update.
+- On "Install": the `before-update` backup first. A failed backup stops
+  the update. Then the download, to `<base>/updates/`, with a cap of
+  300 MB. The request uses `node:https`, which does not use the dead proxy
+  of Chromium. Each hop is https, with at most 5 redirects. The host of
+  the file url must equal the host that answered the manifest. Then the
+  signature check. No byte of the file runs or mounts before it.
+- Windows install: the shell starts the setup exe with `/S --force-run`,
+  detached, and exits. The setup starts the new version.
+- macOS install: `hdiutil attach -nobrowse -readonly -noautoopen` to a
+  temp mount point. The image must hold `<mainBinaryName>.app`.
+  `codesign --verify --deep --strict` must pass on it. `ditto` copies it
+  next to the running bundle. Two renames swap the bundles, and the old
+  bundle stays until the new one is in place. Then `hdiutil detach`,
+  `app.relaunch`, and `app.exit`.
+- An app that runs from a translocated path, or from a folder that the
+  user cannot write, fails with "Open the app from the Applications
+  folder, then try again.". The shell asks for no admin password.
+- After "Install", each error shows the dialog "Update failed".
+
+### CI workflows
+
+`build-electron.yml` (Windows) and `build-electron-macos.yml` (macOS) keep
+the rules of `build.yml`: the same 4 inputs, `permissions: {}`, pinned
+action SHAs, the step "Mask and check the URLs", the input check, the safe
+extract, no secret, and the upload only after every check. Changes:
+
+- The macOS workflow has no `update_url` input. The task presigns no
+  archive URL for an Electron build.
+- The workspace root must hold only `shell/`, `dist/`, and `migrations/`.
+- `runs-on: windows-2022` and `macos-15`. `timeout-minutes: 30` each. A
+  build compiles nothing.
+- `actions/setup-node` installs Node.js 24.22.2 (`NODE_VERSION`). It runs
+  only npm and electron-builder. The app uses the Node inside Electron.
+- Build, in `shell/`: `npm ci --ignore-scripts`, then
+  `npx --no-install electron-builder --win nsis --x64 --config electron-builder.config.cjs --publish never`
+  or `... --mac dmg --arm64 ...`. `--ignore-scripts` stops every install
+  script. `--no-install` stops a download by npx.
+- No WebView2 step: Electron holds its own browser.
+- The download cache is restore-only, with the exact key
+  `desktop-electron-v1-windows-x64-node-<Node>-<hash of package-lock.json>`
+  or `desktop-electron-v1-macos-arm64-node-<Node>-<hash>`. It holds the npm
+  cache, the Electron zip folder of `@electron/get`, and the
+  electron-builder tools. The jobs `warm-electron` and
+  `warm-electron-macos` of `warm-cache.yml` save it. A miss only adds
+  download time.
+- Windows self-test: the installer runs with
+  `/S /D=%LOCALAPPDATA%\wandit-self-test-install`. The exe is
+  `<install folder>\<mainBinaryName>.exe`. The step "Self-test the
+  installed app" sends its output to files, because the exe has no
+  console. Then the one `Uninstall *.exe` of that folder runs with `/S`.
+- macOS: "Check the signature and mount the disk image" mounts the image
+  read-only. It needs exactly one app, `<mainBinaryName>.app`, and
+  `codesign --verify --deep --strict` on it. The self-test runs
+  `Contents/MacOS/<mainBinaryName>` from the mount.
+- A self-test passes only with exit code 0 and one line that starts with
+  `wandit-self-test: ok`.
+- The output must be exactly `<mainBinaryName>-<version>-setup.exe` or
+  `<mainBinaryName>-<version>.dmg` in `shell/release/`.
+- Builder repo: `sync-shell.mjs` writes `shell-electron/shell/` (the shell
+  without `node_modules/` and `release/`), plus the fixture files
+  `shell-electron/dist/`, `shell-electron/migrations/`, and
+  `shell-electron/shell/wandit.desktop.json`.
+
+### Server branch points
+
+The task reads the engine with `DesktopBuildsRepository.findForTask`, and
+the API reads `project.desktopEngine`. The code branches only here:
+
+| Point | Where |
+|---|---|
+| Shell folder and its marker file (`package.json`) | `shellDirs` in `desktop-build.task.ts`, `DESKTOP_SHELL_LAYOUTS` |
+| Archive layout and config path | `DESKTOP_SHELL_LAYOUTS` in `desktop-build-input.ts` |
+| Workflow file, and `update_url` only for Tauri macOS | `WORKFLOW_FILES` in `github-desktop-build-runner.ts` |
+| No staged archive and no `repackMacAppArchive` on Electron macOS | `stagingUpdateKey` in `desktop-build.runtime.ts` |
+| Signature format | `signUpdateFile` in `desktop-build.runtime.ts` |
+| Update file of a macOS release, and the "has its files" check | `release` in `desktop-builds.service.ts` |
+
+The staged keys, the file checks (`MZ`, `koly`, 300 MB), the build folder,
+the row fields, and the credits do not change. For an Electron macOS build,
+`installer_sha256` and `updater_signature` are both of the disk image.
+
+### Limits of the Electron engine
+
+- Experimental (D37). No Windows build and no Windows run of this shell
+  happened before the first staging test (UNVERIFIED): the NSIS config,
+  the `/S --force-run` update, and the self-test output of the packed exe.
+- Size: a macOS disk image of a small app is about 119 MB (measured on a
+  fixture app). A Tauri disk image is much smaller. The update file has
+  the same size, and the cap is 300 MB.
+- Versions: Electron 45.3.1 (Node 24.22) and electron-builder 26.18.0,
+  exact, in `shell/package-lock.json`. To change one, follow the shell
+  README, "Change the Electron version".
+- Permissions: the shell denies every permission. So
+  `navigator.clipboard.writeText`, a fullscreen request, and pointer lock
+  fail. The copy and paste keys work. A "Copy" button in a generated app
+  does not work.
+- TEXT that is not UTF-8: `node:sqlite` answers replacement characters. The
+  Tauri shell answers `unsupported_value`.
+- A NUL character in an SQL text gives `invalid_input` for a command, and a
+  failed file for a migration.
+- EXPLAIN of a write statement in a migration: the Tauri shell counts it
+  as a check. This shell runs it as a write statement.
+- ATTACH in a migration: the error text is "not authorized", not "too many
+  attached databases".
+- A wrong argument type answers `invalid_input`. Tauri answers a plain
+  text.
+- The app protocol has no byte ranges, and a file loads fully into memory
+  (`LIMIT` in `window.js`).
+- The NSIS uninstaller has no "Delete the application data" box. The data
+  folder always stays.
+- macOS: the Tauri dialog "The app did not open" with a running app is not
+  ported. A failed start shows one error dialog, and the app exits.
+- macOS standard user: no admin password prompt. An app bundle that the
+  user cannot write does not update.
+- Windows: the file description of the exe is `mainBinaryName`. The
+  shortcut and the uninstall entry show the product name.

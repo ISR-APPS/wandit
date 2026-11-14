@@ -659,6 +659,13 @@
       "when": 1794050737719,
       "tag": "0093_theme-design-operation",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794482795201,
+      "tag": "0094_desktop-engine",
+      "breakpoints": true
     }
   ]
 }

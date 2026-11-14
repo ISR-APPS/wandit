@@ -10,6 +10,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type DesktopBuildErrorCode,
+	type DesktopEngine,
 	type DesktopGateFinding,
 	type DesktopPlatform,
 	liveDesktopBuildStatuses,
@@ -62,10 +63,19 @@ export type DesktopBuildRow = typeof desktopBuilds.$inferSelect;
 /** One `desktop_apps` row as Drizzle returns it. It holds the encrypted updater key. */
 export type DesktopAppRow = typeof desktopApps.$inferSelect;
 
-/** The project columns that the desktop routes check. */
+/**
+ * The project columns that the desktop routes check. `desktopEngine` is the
+ * native shell of the app. Null means `tauri`: an older desktop project.
+ */
 export type DesktopProject = Pick<
 	typeof projects.$inferSelect,
-	"id" | "engine" | "framework" | "name" | "suspendedAt" | "suspendedReasonCode"
+	| "id"
+	| "engine"
+	| "desktopEngine"
+	| "framework"
+	| "name"
+	| "suspendedAt"
+	| "suspendedReasonCode"
 >;
 
 /** Columns of a new `queued` build. The repository adds the release number and the version. */
@@ -202,6 +212,7 @@ export class DesktopBuildsRepository {
 	): Promise<DesktopProject | null> {
 		const [row] = await this.db
 			.select({
+				desktopEngine: projects.desktopEngine,
 				engine: projects.engine,
 				framework: projects.framework,
 				id: projects.id,
@@ -288,20 +299,37 @@ export class DesktopBuildsRepository {
 	}
 
 	/**
-	 * One build with its app row, for the `desktop-build` task. Null when the
-	 * build row is gone. `app` is null after `deleteApp` of the project delete,
-	 * so the task still cancels a queued build and refunds its hold at once.
+	 * One build with its app row and the shell engine of its project, for the
+	 * `desktop-build` task. Null when the build row is gone. `app` is null
+	 * after `deleteApp` of the project delete, so the task still cancels a
+	 * queued build and refunds its hold at once.
 	 */
-	async findForTask(
-		buildId: string,
-	): Promise<{ build: DesktopBuildRow; app: DesktopAppRow | null } | null> {
+	async findForTask(buildId: string): Promise<{
+		build: DesktopBuildRow;
+		app: DesktopAppRow | null;
+		/** `projects.desktop_engine`. It selects the shell, the CI workflow, and the signature format. */
+		engine: DesktopEngine;
+	} | null> {
 		const [row] = await this.db
-			.select({ app: desktopApps, build: desktopBuilds })
+			.select({
+				app: desktopApps,
+				build: desktopBuilds,
+				desktopEngine: projects.desktopEngine,
+			})
 			.from(desktopBuilds)
+			.innerJoin(projects, eq(projects.id, desktopBuilds.projectId))
 			.leftJoin(desktopApps, eq(desktopApps.projectId, desktopBuilds.projectId))
 			.where(eq(desktopBuilds.id, buildId))
 			.limit(1);
-		return row ?? null;
+		if (row === undefined) {
+			return null;
+		}
+		return {
+			app: row.app,
+			build: row.build,
+			// A desktop project from before the engine column holds NULL: a Tauri app.
+			engine: row.desktopEngine ?? "tauri",
+		};
 	}
 
 	/**

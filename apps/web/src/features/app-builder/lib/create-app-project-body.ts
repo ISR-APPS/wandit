@@ -8,9 +8,9 @@ import type {
 	BuilderTurnMode,
 	ComposerMetadata,
 	CreateAppProjectRequest,
-	TargetPlatform,
 	UploadAttachmentResponse,
 } from "@wandit/contracts";
+import { type AppTypeChoice, toAppTypeTarget } from "@/lib/app-type-choice";
 
 /** Inputs of one create: the prompt box output, the UI locale, and the dashboard picks. */
 export type CreateAppProjectInput = {
@@ -21,8 +21,8 @@ export type CreateAppProjectInput = {
 	attachments: UploadAttachmentResponse[] | undefined;
 	/** UI locale of the user. The agent gets it as a hint for the app language only. */
 	locale: AppLanguage;
-	/** The app type chip pick: `web` or `mobile`. The server picks the template from it. */
-	targetPlatform: TargetPlatform;
+	/** The app type menu pick. It sets the target platform and, for "desktop-electron", the desktop engine. */
+	appType: AppTypeChoice;
 	/** The Plan chip: `plan` makes the first turn interview the user and plan; `build` builds at once. */
 	mode: BuilderTurnMode;
 	/** Model id of the first turn, from the model menu. Absent: the deploy default. */
@@ -32,6 +32,7 @@ export type CreateAppProjectInput = {
 /**
  * Maps the uploaded assets to `FileRef`s and sends the UI locale as the app
  * language hint. An empty attachment list is left out, like the V1 create.
+ * `desktopEngine` goes only with the app type "desktop-electron".
  */
 export function toCreateAppProjectBody(
 	input: CreateAppProjectInput,
@@ -46,7 +47,7 @@ export function toCreateAppProjectBody(
 					filename: attachment.filename,
 				}))
 			: undefined,
-		targetPlatform: input.targetPlatform,
+		...toAppTypeTarget(input.appType),
 		languages: [input.locale],
 		mode: input.mode,
 		model: input.model,

@@ -9,7 +9,6 @@
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { useQuery } from "@tanstack/react-query";
-import type { TargetPlatform } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
@@ -39,6 +38,7 @@ import {
 	useSharingEnabled,
 } from "@/features/project-sharing";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
+import { type AppTypeChoice, toAppTypeTarget } from "@/lib/app-type-choice";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
@@ -143,9 +143,11 @@ export default function DashboardPage() {
 	// first render: the autostart below creates with this state, and it can
 	// run before an effect could set it. The title word and the mode menu of
 	// the prompt box both show and set this one state.
-	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>(
+	const [appType, setAppType] = useState<AppTypeChoice>(
 		() => promptStash.peek()?.targetPlatform ?? "web",
 	);
+	// The title word shows a platform only. "Desktop app 2" shows as desktop.
+	const { targetPlatform } = toAppTypeTarget(appType);
 	// Product rule: Plan Mode is on by default for a new V2 app. A landing
 	// draft carries its own mode, read on the first render for the same reason.
 	const [isPlanMode, setIsPlanMode] = useState(
@@ -156,7 +158,7 @@ export default function DashboardPage() {
 	const modelPick = useBuilderModelPick(null, v2Enabled);
 	const v1Flow = useCreateProjectWithPrompt();
 	const v2Flow = useCreateAppProjectWithPrompt(
-		targetPlatform,
+		appType,
 		isPlanMode ? "plan" : "build",
 		modelPick.modelId,
 	);
@@ -239,7 +241,9 @@ export default function DashboardPage() {
 									</span>{" "}
 									<PlatformToken
 										platform={targetPlatform}
-										onFlip={() => setTargetPlatform(nextTargetPlatform)}
+										onFlip={() =>
+											setAppType(nextTargetPlatform(targetPlatform))
+										}
 									/>
 								</>
 							) : (
@@ -266,7 +270,7 @@ export default function DashboardPage() {
 									showModes
 									platformChoice={
 										v2Enabled
-											? { value: targetPlatform, onChange: setTargetPlatform }
+											? { value: appType, onChange: setAppType }
 											: undefined
 									}
 									planChoice={

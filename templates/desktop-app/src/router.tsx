@@ -1,7 +1,7 @@
 /**
  * The pages of the app and their paths. src/main.tsx creates the router once.
  * The router uses browser history, so the preview bridge posts the real page path to the builder.
- * A reload on a page path still loads index.html: Vite dev and the Tauri asset resolver both fall back to it.
+ * A reload on a page path still loads index.html: Vite dev and the native shell both fall back to it.
  * To add a page: add a route here, then its entry in src/features/app-shell/lib/nav-items.ts.
  */
 import {

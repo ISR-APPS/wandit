@@ -250,6 +250,7 @@ const API_PROJECT = {
 	tiktokPixelId: null,
 	hideWanditBadge: false,
 	targetPlatform: "web",
+	desktopEngine: null,
 	framework: "tanstack-start",
 	templateVersion: "1",
 	languages: ["ar", "fr", "en"],

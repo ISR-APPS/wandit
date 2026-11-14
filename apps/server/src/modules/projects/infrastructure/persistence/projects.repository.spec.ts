@@ -213,6 +213,7 @@ describe("ProjectsRepository.createWithChatAndFirstMessage", () => {
 		await repository.createWithChatAndFirstMessage({
 			...CREATE_INPUT,
 			app: {
+				desktopEngine: null,
 				framework: "web-app",
 				harness: "claude_code",
 				languages: ["fr", "ar"],
@@ -251,6 +252,7 @@ describe("ProjectsRepository.createWithChatAndFirstMessage", () => {
 		await repository.createWithChatAndFirstMessage({
 			...CREATE_INPUT,
 			app: {
+				desktopEngine: null,
 				framework: "mobile-app",
 				harness: "claude_code",
 				languages: ["en"],
@@ -286,6 +288,7 @@ describe("ProjectsRepository.createWithChatAndFirstMessage", () => {
 		await repository.createWithChatAndFirstMessage({
 			...CREATE_INPUT,
 			app: {
+				desktopEngine: null,
 				framework: "web-app",
 				harness: "claude_code",
 				languages: ["fr"],

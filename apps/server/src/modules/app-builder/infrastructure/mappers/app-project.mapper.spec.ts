@@ -10,6 +10,7 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
+		desktopEngine: null,
 		engine: "v2_app",
 		framework: "web-app",
 		hideWanditBadge: false,
