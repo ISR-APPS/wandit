@@ -285,6 +285,24 @@ describe("ClaudeCodeHarness.createSession", () => {
 		}
 	});
 
+	it("keeps write and bash but blocks edit and subagents in a security scan session", async () => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), mode: "security_scan" });
+
+		const inactive = captured.agentSettings?.inactiveTools ?? [];
+		expect(inactive).toEqual(
+			expect.arrayContaining(["askUserQuestions", "edit", "Agent"]),
+		);
+		// The skill writes its output in /tmp and runs its validator with node.
+		expect(inactive).not.toContain("write");
+		expect(inactive).not.toContain("bash");
+		const builtinNames = Object.keys(createClaudeCode().builtinTools);
+		for (const name of inactive) {
+			expect(builtinNames).toContain(name);
+		}
+	});
+
 	it("names the 30-minute token epoch in the env", async () => {
 		const { captured, harness } = setup(undefined, undefined, {
 			now: () => 3 * 30 * 60_000 + 5,

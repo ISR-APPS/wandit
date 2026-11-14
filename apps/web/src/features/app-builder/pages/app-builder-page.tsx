@@ -19,7 +19,8 @@
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
- * strip, and a pull reloads the preview.
+ * strip, and a pull reloads the preview. It sends the scan and fix turns of
+ * the Security panel, and the scan card of the chat opens that panel.
  */
 
 import {
@@ -334,6 +335,20 @@ export default function AppBuilderPage({
 			}
 		: undefined;
 
+	// The scan card of the chat opens the stored report. The More view replaces
+	// the details panel, and on a phone the open chat covers the view, so both close.
+	function openSecurityReport() {
+		setIsActivityOpen(false);
+		if (isMobile) setChatOpenAndStore(false);
+		setSearch({ view: "more", panel: "security" }, false);
+	}
+
+	// A Security panel turn shows its reply in the chat, so a closed chat opens.
+	function sendSecurityTurn(text: string, mode: "build" | "security_scan") {
+		void thread.send({ text, files: [], mode });
+		setChatOpenAndStore(true);
+	}
+
 	const chatCard = (
 		<ChatPane
 			// A new key mounts a new pane for each conversation. The draft, the
@@ -407,6 +422,7 @@ export default function AppBuilderPage({
 			onReconnect={thread.reconnect}
 			onCollapse={() => setChatOpenAndStore(false)}
 			onOpenSecrets={openSecrets}
+			onOpenSecurityReport={openSecurityReport}
 			hasOlderMessages={thread.hasOlderMessages}
 			isLoadingOlderMessages={thread.isLoadingOlderMessages}
 			onLoadOlderMessages={thread.loadOlderMessages}
@@ -496,6 +512,15 @@ export default function AppBuilderPage({
 					isActive={view === "more"}
 					showBackendGroup={showBackendGroup}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
+					canSendTurn={canEdit && thread.isReady && !thread.isSending}
+					onRunSecurityScan={() =>
+						sendSecurityTurn(
+							t("appBuilder.security.scanMessage"),
+							"security_scan",
+						)
+					}
+					// An explicit build: with the Plan toggle on, a fix must not become a plan.
+					onAskSecurityFix={(text) => sendSecurityTurn(text, "build")}
 				/>
 			</div>
 			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}

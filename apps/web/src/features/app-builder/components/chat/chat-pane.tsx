@@ -19,7 +19,8 @@
  * A failed last reply gets a Retry button that sends its user message
  * again, except a stop on the daily AI limit, and while the payer has no
  * credits. The plan card's
- * "Build this plan" sends a build turn. The other sends carry no mode. The
+ * "Build this plan" sends a build turn, and Retry of a failed security scan
+ * sends a scan. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
  * reply shows only as the status line. Under the composer, a line shows the
@@ -154,6 +155,8 @@ export type ChatPaneProps = {
 	onCollapse: () => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
 	onOpenSecrets?: () => void;
+	/** Opens the Security panel from the card of a `security_scan` turn. */
+	onOpenSecurityReport: () => void;
 	/** True while the stored chat has an older page. Shows the "Load earlier messages" button. From useBuilderThread. */
 	hasOlderMessages: boolean;
 	/** True while the older page loads. Disables the button. */
@@ -212,6 +215,7 @@ export function ChatPane({
 	onReconnect,
 	onCollapse,
 	onOpenSecrets,
+	onOpenSecurityReport,
 	hasOlderMessages,
 	isLoadingOlderMessages,
 	onLoadOlderMessages,
@@ -401,6 +405,7 @@ export function ChatPane({
 							isDeveloperView={isDeveloperView}
 							onOpenActivity={onOpenActivity}
 							onOpenSecrets={onOpenSecrets}
+							onOpenSecurityReport={onOpenSecurityReport}
 							onRetry={
 								message.id === lastMessageId && retryInput !== null
 									? () => onSend(retryInput)
@@ -591,7 +596,8 @@ export function ChatPane({
  * failed reply gets no Retry. A stopped turn has no error: no Retry either.
  * The daily AI limit gets no Retry: a resend fails until 00:00 UTC. A stop
  * on no credits gets Retry only after a top-up: until then `canSend` hides
- * it, and the out-of-credits banner owns the upgrade action.
+ * it, and the out-of-credits banner owns the upgrade action. A failed
+ * security scan sends `mode: "security_scan"` again.
  */
 function retryInputOf(
 	messages: readonly BuilderMessage[],
@@ -612,5 +618,10 @@ function retryInputOf(
 		files: userMessage.parts.filter(
 			(part): part is FileUIPart => part.type === "file",
 		),
+		// A failed scan retries as a scan. With no mode, the toggle makes it a
+		// build turn with write tools. Other modes keep the toggle: a build approves an open plan.
+		...(error.data.mode === "security_scan"
+			? { mode: "security_scan" as const }
+			: {}),
 	};
 }

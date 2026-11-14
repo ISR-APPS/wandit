@@ -185,6 +185,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						errorText: null,
 						onReconnect: null,
 						onCollapse: () => {},
+						onOpenSecurityReport: () => {},
 						hasOlderMessages: false,
 						isLoadingOlderMessages: false,
 						onLoadOlderMessages: () => {},
@@ -285,6 +286,37 @@ describe("ChatPane", () => {
 		expect(screen.queryByRole("button", { name: "Retry" }) !== null).toBe(
 			retry === "shows",
 		);
+	});
+
+	// Without the mode, the toggle makes the retry a build turn with write tools.
+	it("sends Retry of a failed security scan as a scan again", () => {
+		const { onSend } = renderPane({
+			messages: [
+				{ id: "u1", role: "user", parts: [{ type: "text", text: "Scan it" }] },
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{
+							type: "data-error",
+							id: "e1",
+							data: {
+								code: "SANDBOX_LOST",
+								message: "Turn failed",
+								retryable: true,
+								mode: "security_scan",
+							},
+						},
+					],
+				},
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onSend).toHaveBeenCalledWith({
+			text: "Scan it",
+			files: [],
+			mode: "security_scan",
+		});
 	});
 
 	it("locks the composer while the chat id is unknown", () => {

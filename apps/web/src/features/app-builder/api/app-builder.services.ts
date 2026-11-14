@@ -67,7 +67,10 @@ export type SendBuilderMessageInput = {
 	text: string;
 	/** Files the user uploaded for this message, with their upload URLs. Empty for a card action. */
 	files: FileUIPart[];
-	/** Set only by "Build this plan" (`build`). Absent: useBuilderThread uses the Plan toggle. */
+	/**
+	 * Set only by a card action: `build` for "Build this plan" and a security
+	 * fix, `security_scan` for "Run security scan" and its Retry. Absent: useBuilderThread uses the Plan toggle.
+	 */
 	mode?: BuilderTurnMode;
 };
 

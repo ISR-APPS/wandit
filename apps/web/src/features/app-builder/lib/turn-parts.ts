@@ -529,7 +529,10 @@ function mergeExplore(previous: Step, next: Step): Step {
 	};
 }
 
-/** The payload of the last `data-turn-error` part of one message, or null. */
+/**
+ * The payload of the last `data-turn-error` part of one message, or null.
+ * The turn mode comes from the payload, else from the live `data-turn-created` frame.
+ */
 export function errorOf(
 	parts: readonly TurnMessagePart[],
 ): BuilderDataParts["error"] | null {
@@ -537,7 +540,13 @@ export function errorOf(
 		(part): part is Extract<TurnMessagePart, { type: "data-turn-error" }> =>
 			part.type === "data-turn-error",
 	);
-	return error?.data ?? null;
+	if (error === undefined) return null;
+	const created = parts.find(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-created" }> =>
+			part.type === "data-turn-created",
+	);
+	// An error the relay makes has no mode. The live created frame still tells it.
+	return { ...error.data, mode: error.data.mode ?? created?.data.mode };
 }
 
 /**
@@ -805,8 +814,8 @@ function hasAssistantMessageAfter(
  * The parts of one assistant message in stream order: text and notes, a
  * thought row per reasoning block, a step row per visible tool call (a run
  * of reads and searches merges into one row), a compaction line, the summary,
- * the question, approval, and plan cards, then the error, the stopped line,
- * and the receipt.
+ * the question, approval, plan, and security report cards, then the error,
+ * the stopped line, and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -944,6 +953,14 @@ function assistantPartsOf(
 				// Like a question: the card waits for the end of the turn, and a
 				// later reply (the build or the changed plan) closes it.
 				data: { ...part.data, isOpen: !isRunning && !hasReplyAfter },
+			});
+			continue;
+		}
+		if (part.type === "data-security-report") {
+			parts.push({
+				type: "data-security-report",
+				id: part.id,
+				data: part.data,
 			});
 		}
 	}

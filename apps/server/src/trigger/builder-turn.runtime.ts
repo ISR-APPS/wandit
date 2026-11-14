@@ -12,9 +12,12 @@ import type {
 	BillingPlanId,
 	BuilderTurnMode,
 	BuilderTurnStatus,
+	GateFinding,
 	HarnessPendingInteraction,
 	HarnessResumeEnvelope,
+	SecurityScanFinding,
 	SupabaseProjectStatus,
+	TargetPlatform,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
 	TurnContextData,
@@ -22,6 +25,7 @@ import type {
 	TurnErrorData,
 	TurnPlanData,
 	TurnQuestionData,
+	TurnSecurityReportData,
 	TurnStreamPhase,
 	TurnSummaryData,
 	TurnThoughtData,
@@ -83,6 +87,7 @@ import type {
 	HostToolSet,
 } from "../modules/app-builder/domain/ports/host-tools";
 import type {
+	SandboxFile,
 	SandboxHandle,
 	SandboxProvider,
 } from "../modules/app-builder/domain/ports/sandbox-provider";
@@ -100,6 +105,17 @@ import {
 	switchesMode,
 	uploadCopyPath,
 } from "../modules/app-builder/domain/question-answers";
+import {
+	codeFindingsOf,
+	databaseFindingsOf,
+	dependencyFindingsOf,
+	SECURITY_AUDIT_SKILL_DIR,
+	type SecurityScanCheckResult,
+	securityScanCountsOf,
+	securityScanOutputDirOf,
+	securityScanPromptOf,
+	securityScanReportOf,
+} from "../modules/app-builder/domain/security-scan";
 import {
 	DEFAULT_PER_TURN_CAP_CREDITS,
 	monthStartUtc,
@@ -133,6 +149,7 @@ import type {
 } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import type { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import type { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import type { SecurityScansRepository } from "../modules/app-builder/infrastructure/persistence/security-scans.repository";
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
@@ -154,7 +171,10 @@ import {
 	TEMPLATE_PROFILES,
 	type TemplateProfile,
 } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
-import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import type {
+	BackendRef,
+	SupabaseManagementClient,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
 import {
@@ -220,6 +240,13 @@ const BACKEND_WAKE_POLL_MS = 5_000;
 // The restore call and the last status read can each add about 60 s:
 // the interactive client makes two tries of 30 s.
 const BACKEND_WAKE_TIMEOUT_MS = 180_000;
+// 90 s for `pnpm audit` of a security scan. It sends one request to the npm
+// registry; a longer wait means a dead network, and the check fails.
+const PNPM_AUDIT_TIMEOUT_MS = 90_000;
+// 5 MB. A skill findings.json is far below it; a bigger file is not a report.
+const SECURITY_FINDINGS_MAX_BYTES = 5 * 1024 * 1024;
+// 500 chars of the pnpm stderr: enough for its error line in the log.
+const AUDIT_STDERR_LOG_CHARS = 500;
 
 /**
  * The design world sentence of one mobile project. The order is fixed per
@@ -549,6 +576,21 @@ export type BuilderTurnDeps = {
 	 * note. `hasFileChanges` tells that the app already has code.
 	 */
 	versions: Pick<AppCommitsRepository, "findLatest" | "hasFileChanges">;
+	/** What only a `security_scan` turn uses. */
+	securityScan: {
+		/**
+		 * The files of `templates/skills/security-audit/`, read once per process.
+		 * Each `path` is a file name inside that folder. A missing folder throws.
+		 */
+		readSkillFiles: () => Promise<SandboxFile[]>;
+		/**
+		 * `AdvisorsService.runSecurity` on the interactive Management API client.
+		 * Null without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`.
+		 */
+		readAdvisors: ((backend: BackendRef) => Promise<GateFinding[]>) | null;
+		/** Stores the report row; a repeated insert for one turn is a no-op. */
+		insert: SecurityScansRepository["insert"];
+	};
 };
 
 /**
@@ -1335,6 +1377,8 @@ export async function runBuilderTurn(
 					? (failureCode ?? normalized.kind)
 					: stopFailureCodeOf(stopCode),
 			message: failure.error,
+			// Retry reads it, so a failed `security_scan` turn retries as a scan.
+			mode: turnMode,
 			retryable: stopCode === null ? normalized.retryable : false,
 		};
 		// The stored reply ends with the same part as the stream, so a reload
@@ -2119,6 +2163,26 @@ export async function runBuilderTurn(
 						result.tool === "ask_user" || result.tool === "present_plan",
 				) === true);
 
+		// A scan turn runs its host checks once, before the agent starts. It never
+		// pauses (no ask_user, no present_plan), so no resume path repeats them.
+		const securityHost =
+			spec.mode === "security_scan"
+				? await runSecurityHostChecks({
+						backend,
+						logger,
+						projectId,
+						sandbox,
+						securityScan: deps.securityScan,
+						signal: ownAbort.signal,
+						turnId,
+					})
+				: null;
+		// A cancel during the checks must not start the agent: the catch sees
+		// the aborted task signal and runs `finalizeCanceled`.
+		if (signal.aborted) {
+			throw new Error("Turn canceled during the security checks");
+		}
+
 		// The note applies only when a project with a backend has no active row.
 		const backendNote =
 			hasCloudBackend && supabase === null
@@ -2330,6 +2394,20 @@ export async function runBuilderTurn(
 			turnInput = {
 				...turnInput,
 				prompt: `${PLAN_MODE_PROMPT}\n\n${turnInput.prompt}`,
+			};
+		}
+		// The scan rules go in front of the prompt for the same reason. A scan
+		// turn that answers cards switches mode, so its input is a prompt too.
+		if (securityHost !== null && turnInput.kind === "prompt") {
+			const platform: TargetPlatform =
+				templateProfile === TEMPLATE_PROFILES.mobile
+					? "mobile"
+					: templateProfile === TEMPLATE_PROFILES.desktop
+						? "desktop"
+						: "web";
+			turnInput = {
+				...turnInput,
+				prompt: `${securityScanPromptOf({ hostFindings: securityHost.findings, platform, turnId })}\n\n${turnInput.prompt}`,
 			};
 		}
 
@@ -2546,6 +2624,27 @@ export async function runBuilderTurn(
 				contextParts.push(contextPart);
 			}
 
+			// The chat card "Security scan finished" reads this part. Only a scan
+			// that ended normally stores a report; a failed or canceled scan
+			// never reaches the settle, so the chat error shows instead.
+			const securityParts: UIMessage["parts"] = [];
+			if (securityHost !== null && outcome.status === "succeeded") {
+				const securityPart = await securityReportPartOf(
+					{
+						insert: deps.securityScan.insert,
+						logger,
+						organizationId: input.organizationId,
+						projectId,
+						sandbox: liveSandbox,
+						turnId,
+						userId: input.actorUserId,
+					},
+					securityHost,
+				);
+				await writeEvent({ data: securityPart, type: "part" });
+				securityParts.push(securityPart);
+			}
+
 			// One stream part and one message part per card the user must
 			// answer; the cards are what the next turn answers.
 			const cardParts: UIMessage["parts"] = [];
@@ -2648,7 +2747,13 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...finalParts, summaryPart, ...contextParts, ...cardParts],
+					parts: [
+						...finalParts,
+						summaryPart,
+						...contextParts,
+						...securityParts,
+						...cardParts,
+					],
 					turnId,
 				}),
 			);
@@ -2831,6 +2936,264 @@ export async function runBuilderTurn(
 		// write against a closed database.
 		builderTurnCancelFinalizers.delete(runId);
 	}
+}
+
+/** The result of the host checks of one scan turn; the settle adds the code check. */
+type SecurityHostChecks = {
+	/** The `database` and `dependency` findings, in that order. */
+	findings: SecurityScanFinding[];
+	database: SecurityScanCheckResult;
+	dependency: SecurityScanCheckResult;
+};
+
+/** What the host checks of a scan turn need from the run. */
+type SecurityHostContext = {
+	/** The `app_backends` row after the wake; null for a desktop app or no row. */
+	backend: AppBackendRow | null;
+	logger: BuilderTurnLogger;
+	projectId: string;
+	sandbox: SandboxHandle;
+	securityScan: BuilderTurnDeps["securityScan"];
+	/** The run's own abort signal; a cancel stops `pnpm audit`. */
+	signal: AbortSignal;
+	turnId: string;
+};
+
+/**
+ * Writes the skill files into the sandbox, then runs the `database` and
+ * `dependency` checks in parallel. A check failure only marks its check
+ * `failed`. A skill write failure fails the turn before the agent spends.
+ */
+async function runSecurityHostChecks(
+	context: SecurityHostContext,
+): Promise<SecurityHostChecks> {
+	try {
+		const skillFiles = await context.securityScan.readSkillFiles();
+		await context.sandbox.writeFiles(
+			skillFiles.map((file) => ({
+				content: file.content,
+				path: posix.join(SECURITY_AUDIT_SKILL_DIR, file.path),
+			})),
+		);
+	} catch (error) {
+		// Without the skill the agent cannot audit the code. The catch at the
+		// end reads `code` into the row's failure code and refunds the hold.
+		throw Object.assign(
+			new Error(`Security audit skill write failed: ${messageOf(error)}`, {
+				cause: error,
+			}),
+			{ code: "security_skill_unavailable" },
+		);
+	}
+	const [database, dependency] = await Promise.all([
+		databaseCheckOf(context),
+		dependencyCheckOf(context),
+	]);
+	return {
+		database: database.check,
+		dependency: dependency.check,
+		findings: [...database.findings, ...dependency.findings],
+	};
+}
+
+/** One host check: its state and its findings. */
+type HostCheckOutcome = {
+	check: SecurityScanCheckResult;
+	findings: SecurityScanFinding[];
+};
+
+/** The Supabase security advisors and the RLS check of an active backend. */
+async function databaseCheckOf(
+	context: SecurityHostContext,
+): Promise<HostCheckOutcome> {
+	const { backend } = context;
+	// The wake already ran: a backend that is still paused did not come back.
+	if (backend?.status === "paused" || backend?.status === "restoring") {
+		return {
+			check: { reason: "backend_paused", state: "skipped" },
+			findings: [],
+		};
+	}
+	if (backend === null || backend.status !== "active" || backend.ref === null) {
+		return { check: { reason: "no_backend", state: "skipped" }, findings: [] };
+	}
+	if (context.securityScan.readAdvisors === null) {
+		context.logger.warn("security-scan.advisors-unconfigured", {
+			turnId: context.turnId,
+		});
+		return {
+			check: { reason: "advisors_unconfigured", state: "failed" },
+			findings: [],
+		};
+	}
+	try {
+		const findings = await context.securityScan.readAdvisors({
+			projectId: context.projectId,
+			ref: backend.ref,
+		});
+		return {
+			check: { reason: null, state: "ok" },
+			findings: databaseFindingsOf(findings),
+		};
+	} catch (error) {
+		context.logger.warn("security-scan.advisors-failed", {
+			message: messageOf(error),
+			projectId: context.projectId,
+			turnId: context.turnId,
+		});
+		return {
+			check: { reason: "advisors_failed", state: "failed" },
+			findings: [],
+		};
+	}
+}
+
+/** `pnpm audit --json --prod` in the project root, run by the host, not the agent. */
+async function dependencyCheckOf(
+	context: SecurityHostContext,
+): Promise<HostCheckOutcome> {
+	try {
+		const result = await context.sandbox.exec(
+			"pnpm",
+			["audit", "--json", "--prod"],
+			{
+				cwd: context.sandbox.workspaceDir,
+				signal: context.signal,
+				timeoutMs: PNPM_AUDIT_TIMEOUT_MS,
+			},
+		);
+		// pnpm exits 1 when it finds advisories, so the exit code is no error:
+		// the parse of stdout decides.
+		const findings = dependencyFindingsOf(result.stdout);
+		if (findings === null) {
+			context.logger.warn("security-scan.audit-unreadable", {
+				exitCode: result.exitCode,
+				stderr: result.stderr.slice(0, AUDIT_STDERR_LOG_CHARS),
+				turnId: context.turnId,
+			});
+			return {
+				check: { reason: "audit_unreadable", state: "failed" },
+				findings: [],
+			};
+		}
+		return { check: { reason: null, state: "ok" }, findings };
+	} catch (error) {
+		// A timeout or a sandbox error: the report says the check failed.
+		context.logger.warn("security-scan.audit-failed", {
+			message: messageOf(error),
+			turnId: context.turnId,
+		});
+		return {
+			check: { reason: "audit_failed", state: "failed" },
+			findings: [],
+		};
+	}
+}
+
+/** What the settle of a scan turn needs from the run. */
+type SecuritySettleContext = {
+	insert: BuilderTurnDeps["securityScan"]["insert"];
+	logger: BuilderTurnLogger;
+	organizationId: string | null;
+	projectId: string;
+	/** The live sandbox; the agent wrote findings.json in its /tmp. */
+	sandbox: SandboxHandle;
+	turnId: string;
+	/** The user who sent the scan turn. */
+	userId: string;
+};
+
+/**
+ * Reads the agent's findings.json, stores the report row, and answers the
+ * `data-security-report` part. A failed insert logs, goes to Sentry, and
+ * answers `saved: false`; it never fails the turn.
+ */
+async function securityReportPartOf(
+	context: SecuritySettleContext,
+	host: SecurityHostChecks,
+): Promise<UIMessage["parts"][number]> {
+	const code = await codeCheckOf(context);
+	const report = securityScanReportOf({
+		checks: {
+			code: code.check,
+			database: host.database,
+			dependency: host.dependency,
+		},
+		findings: [...host.findings, ...code.findings],
+	});
+	let saved = true;
+	try {
+		await context.insert({
+			organizationId: context.organizationId,
+			projectId: context.projectId,
+			report,
+			turnId: context.turnId,
+			userId: context.userId,
+		});
+	} catch (error) {
+		saved = false;
+		context.logger.error("security-scan.insert-failed", {
+			message: messageOf(error),
+			projectId: context.projectId,
+			turnId: context.turnId,
+		});
+		// The panel keeps the previous scan, so Sentry makes the loss visible.
+		Sentry.captureException(error, {
+			tags: { projectId: context.projectId, turnId: context.turnId },
+		});
+	}
+	return {
+		data: {
+			checks: report.checks,
+			counts: securityScanCountsOf(report.findings),
+			saved,
+		} satisfies TurnSecurityReportData,
+		id: `security-${context.turnId}`,
+		type: "data-security-report",
+	};
+}
+
+/** The `code` check: the skill findings.json that the agent wrote in /tmp. */
+async function codeCheckOf(
+	context: SecuritySettleContext,
+): Promise<HostCheckOutcome> {
+	const path = `${securityScanOutputDirOf(context.turnId)}/findings.json`;
+	let bytes: Uint8Array | null;
+	try {
+		bytes = await context.sandbox.readFile(path);
+	} catch (error) {
+		context.logger.warn("security-scan.findings-read-failed", {
+			message: messageOf(error),
+			turnId: context.turnId,
+		});
+		return {
+			check: { reason: "findings_unreadable", state: "failed" },
+			findings: [],
+		};
+	}
+	if (bytes === null) {
+		return {
+			check: { reason: "findings_missing", state: "failed" },
+			findings: [],
+		};
+	}
+	const parsed =
+		bytes.byteLength > SECURITY_FINDINGS_MAX_BYTES
+			? null
+			: codeFindingsOf(new TextDecoder().decode(bytes));
+	if (parsed === null) {
+		return {
+			check: { reason: "findings_unreadable", state: "failed" },
+			findings: [],
+		};
+	}
+	if (parsed.invalidRecords > 0) {
+		context.logger.warn("security-scan.findings-skipped", {
+			invalidRecords: parsed.invalidRecords,
+			turnId: context.turnId,
+		});
+	}
+	return { check: { reason: null, state: "ok" }, findings: parsed.findings };
 }
 
 /** What the answer file copy needs from the run. */

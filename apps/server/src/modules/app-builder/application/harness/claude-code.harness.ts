@@ -123,6 +123,16 @@ const PLAN_MODE_BLOCKED_TOOLS = [
 ] as const;
 
 /**
+ * The built-in tools a `security_scan` session cannot use. It keeps `write`
+ * for the skill output folder in /tmp and `bash` for the skill validator.
+ * The prompt forbids a project file change, and the block list removes every
+ * other tool that edits or starts an agent.
+ */
+const SECURITY_SCAN_BLOCKED_TOOLS = PLAN_MODE_BLOCKED_TOOLS.filter(
+	(tool) => tool !== "write" && tool !== "bash",
+);
+
+/**
  * 30 s for a bridge start or an attach, against the adapter default of 120 s.
  * A dead bridge after an idle stop retried its socket for the whole window.
  */
@@ -1116,19 +1126,15 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			// the kinds and the world cards; the built-in question tool has none.
 			// A build session has no subagents. The bridge drops subagent output,
 			// so the stall watchdog sees a long subagent as a dead harness.
-			inactiveTools:
-				input.mode === "plan"
-					? [
-							ASK_USER_QUESTIONS_TOOL_NAME,
-							...PLAN_MODE_BLOCKED_TOOLS,
-							...otherProviderBlockedTools,
-						]
-					: [
-							ASK_USER_QUESTIONS_TOOL_NAME,
-							"Agent",
-							"Workflow",
-							...otherProviderBlockedTools,
-						],
+			inactiveTools: [
+				ASK_USER_QUESTIONS_TOOL_NAME,
+				...(input.mode === "plan"
+					? PLAN_MODE_BLOCKED_TOOLS
+					: input.mode === "security_scan"
+						? SECURITY_SCAN_BLOCKED_TOOLS
+						: ["Agent", "Workflow"]),
+				...otherProviderBlockedTools,
+			],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the

@@ -27,6 +27,7 @@ import {
 import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
 import type { HarnessStreamEvent } from "../modules/app-builder/domain/ports/builder-harness";
 import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
+import { securityScanOutputDirOf } from "../modules/app-builder/domain/security-scan";
 import type {
 	CommitTurnDeps,
 	CommitTurnInput,
@@ -698,6 +699,10 @@ function makeWorld(over?: {
 	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
 	const uploads = new Map<string, Uint8Array>();
 	const proxySum = over?.proxyRows ?? fakeProxySum();
+	/** Every `security_scans` row a scan turn inserted, in call order. */
+	const securityScans: Parameters<
+		BuilderTurnDeps["securityScan"]["insert"]
+	>[0][] = [];
 	metering.monthlySpend = over?.monthlySpend ?? 0;
 
 	const commitDeps: CommitTurnDeps = {
@@ -876,6 +881,13 @@ function makeWorld(over?: {
 		scheduleThumbnail: async (projectId, commitSha) => {
 			thumbnails.push({ commitSha, projectId });
 		},
+		securityScan: {
+			insert: async (scan) => {
+				securityScans.push(scan);
+			},
+			readAdvisors: null,
+			readSkillFiles: async () => [],
+		},
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
@@ -909,6 +921,7 @@ function makeWorld(over?: {
 		callOrder,
 		chatBindings,
 		sandboxes,
+		securityScans,
 		sessions,
 		stream,
 		thumbnails,
@@ -3899,6 +3912,91 @@ describe("runBuilderTurn", () => {
 			mode: "plan",
 			pending: [PENDING_PLAN],
 		});
+	});
+
+	it("starts a security scan with the scan rules and stores its report with the message", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "Scan my app",
+				mode: "security_scan",
+			},
+		});
+		// The agent writes findings.json in the live sandbox, so a warm fake holds it.
+		const sandbox = await world.sandboxes.getOrCreate(
+			PROJECT_ID,
+			WARM_SANDBOX_OPTIONS,
+		);
+		const trace = [{ file: "src/lib/db.ts", kind: "sink", line: 42 }];
+		await sandbox.writeFiles([
+			{
+				content: JSON.stringify([
+					{
+						description: "Any user reads every order.",
+						fingerprint: "fp-1",
+						remediation: { strategy: "Filter by the user id." },
+						severity: { overall_severity: "high" },
+						title: "Orders leak",
+						trace,
+						verdict: "confirmed",
+					},
+				]),
+				path: `${securityScanOutputDirOf(TURN_ID)}/findings.json`,
+			},
+		]);
+		// pnpm exits 1 when it finds advisories; the runtime reads stdout only.
+		world.sandboxes.respondTo("pnpm", {
+			exitCode: 1,
+			stderr: "",
+			stdout: JSON.stringify({
+				advisories: {
+					"1": {
+						findings: [{ paths: [".>lodash"], version: "4.17.0" }],
+						id: 1,
+						module_name: "lodash",
+						patched_versions: ">=4.17.21",
+						severity: "critical",
+						title: "Prototype pollution",
+						url: "https://github.com/advisories/GHSA-1",
+						vulnerable_versions: "<4.17.21",
+					},
+				},
+			}),
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		const streamed = world.harness.streamCalls[0]?.input;
+		const prompt = streamed?.kind === "prompt" ? streamed.prompt : "";
+		// The rules come first and name the host finding, so the agent skips it.
+		expect(prompt.startsWith("This turn is a security scan.")).toBe(true);
+		expect(prompt).toContain("- critical: Prototype pollution (lodash@4.17.0)");
+		expect(prompt.endsWith("\n\nScan my app")).toBe(true);
+		expect(world.securityScans).toHaveLength(1);
+		expect(world.securityScans[0]?.report.checks).toEqual([
+			{ reason: "no_backend", source: "database", state: "skipped" },
+			{ reason: null, source: "dependency", state: "ok" },
+			{ reason: null, source: "code", state: "ok" },
+		]);
+		expect(
+			world.securityScans[0]?.report.findings.map((finding) => finding.id),
+		).toEqual(["dependency:1", "code:fp-1"]);
+		// The card must survive a reload, so the stored message holds it too.
+		const card = expect.objectContaining({
+			data: expect.objectContaining({ saved: true }),
+			id: `security-${TURN_ID}`,
+			type: "data-security-report",
+		});
+		expect(
+			world.stream.eventsOf(TURN_ID).map((event) => event.data),
+		).toContainEqual(card);
+		expect(world.inserted[0]?.input.parts).toContainEqual(card);
 	});
 
 	it("continues a plan card with the typed changes and picked elements as the present_plan result", async () => {
