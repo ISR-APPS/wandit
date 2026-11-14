@@ -906,7 +906,7 @@
 			"merge": "Merge",
 			"theme": "Theme",
 			"github": "GitHub",
-			"mcp": "Coding agent"
+			"mcp": "MCP server"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

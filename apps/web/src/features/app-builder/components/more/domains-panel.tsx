@@ -52,7 +52,7 @@ export function DomainsPanel({ projectId, access }: DomainsPanelProps) {
 				text={getApiErrorMessage(publishStatus.error)}
 			/>
 		) : (
-			<Skeleton className="h-[68px] rounded-[20px]" />
+			<Skeleton className="h-[68px] rounded-[20px] bg-night/[0.06] dark:bg-white/[0.07]" />
 		);
 	}
 
@@ -115,6 +115,8 @@ export function DomainsPanel({ projectId, access }: DomainsPanelProps) {
 			)}
 			{isProjectWorkspaceActive ? (
 				<DomainsSection
+					// The white raised face of the other panel cards. The kit card is flat parchment, which fades into the sand ground.
+					className={PANEL_CARD_CLASS}
 					projectId={projectId}
 					isPublished={live !== null}
 					canManageDomains={canManageDomains}

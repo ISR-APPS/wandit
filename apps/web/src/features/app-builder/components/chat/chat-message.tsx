@@ -8,14 +8,15 @@
  * the error with Retry, the stopped line, and the receipt. The receipt
  * shows the cache counts only outside production. The developer view (local
  * dev only) renders every part in stream order, with the thinking text. A
- * Copy action ends a reply that has a final answer. Rendered by
- * chat-pane.tsx; working-row.tsx reuses the byline.
+ * footer ends a reply: the Copy action when it has a final answer, then the
+ * receipt. Rendered by chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
+import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
 	builderTurnStatusSchema,
@@ -29,7 +30,11 @@ import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
+import type {
+	BuilderDataParts,
+	BuilderMessage,
+	BuilderMessagePart,
+} from "../../api/dto";
 import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
@@ -122,6 +127,8 @@ export function ChatMessageView({
 	}
 
 	const finalText = textOf(message.parts);
+	// The receipt leaves the stream order: it closes the reply in the footer, next to Copy.
+	const receipt = message.parts.find((part) => part.type === "data-receipt");
 	const partView = (part: BuilderMessagePart, key: string) => (
 		<MessagePartView
 			key={key}
@@ -190,15 +197,24 @@ export function ChatMessageView({
 					})}
 				</>
 			)}
-			{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
+			{finalText.trim() !== "" || receipt !== undefined ? (
+				// min-h-7 is the height of the Copy button, so a footer with only the receipt keeps the same line.
+				<div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
+					{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
+					{receipt !== undefined ? (
+						<ReceiptLine receipt={receipt.data} />
+					) : null}
+				</div>
+			) : null}
 		</div>
 	);
 }
 
 /**
- * The production line that opens the details panel, for example "Worked
- * for 1 min · 6 files changed ›". Null when the reply has no step, no
- * note, no thought, and no summary.
+ * The production pill that opens the details panel, for example "Worked
+ * for 1 min · 6 files changed ›". A raised white pill, so it reads as the
+ * one thing to click in a reply. Null when the reply has no step, no note,
+ * no thought, and no summary.
  */
 function SummaryLine({
 	message,
@@ -210,9 +226,17 @@ function SummaryLine({
 		<button
 			type="button"
 			onClick={() => onOpenActivity(message.id)}
-			className="group flex items-center gap-1 self-start rounded-[8px] text-start font-grotesk text-[13px] text-night/70 outline-none transition-colors duration-150 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/70 dark:hover:text-foreground"
+			className="group flex h-9 max-w-full items-center gap-2 self-start rounded-full border border-night/[0.08] bg-white ps-1.5 pe-3 text-start font-grotesk font-medium text-[13px] text-night/80 shadow-raised outline-none transition-[color,border-color] duration-150 hover:border-night/[0.16] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 active:translate-y-px dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-foreground/80 dark:hover:border-white/[0.16] dark:hover:text-foreground"
 		>
-			<WorkSummaryLabel summary={summary} />
+			<span
+				aria-hidden
+				className="grid size-6 shrink-0 place-items-center rounded-full bg-spark/[0.2] text-spark-deep dark:bg-spark/[0.14] dark:text-spark"
+			>
+				<TimerIcon weight="bold" className="size-3.5" />
+			</span>
+			<span className="min-w-0 truncate">
+				<WorkSummaryLabel summary={summary} />
+			</span>
 			<CaretRightIcon
 				weight="bold"
 				className="size-3 shrink-0 text-night/35 transition-colors group-hover:text-night/70 rtl:-scale-x-100 dark:text-foreground/35 dark:group-hover:text-foreground/70"
@@ -224,8 +248,9 @@ function SummaryLine({
 
 /**
  * One part of an assistant message outside the feed rows. Both views use
- * it; the production view never passes a note or a summary. A part type
- * this switch does not know renders nothing.
+ * it; the production view never passes a note or a summary. The receipt
+ * shows in the reply footer (ReceiptLine), so it renders nothing here. A
+ * part type this switch does not know also renders nothing.
  */
 function MessagePartView({
 	part,
@@ -239,7 +264,7 @@ function MessagePartView({
 > & {
 	part: BuilderMessagePart;
 }) {
-	const { t, locale } = useTranslation();
+	const { t } = useTranslation();
 	switch (part.type) {
 		case "text":
 		case "data-note":
@@ -340,37 +365,49 @@ function MessagePartView({
 					{t("appBuilder.chat.stopped")}
 				</p>
 			);
-		case "data-receipt":
-			return (
-				<p className="flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">
-					<LightningIcon
-						weight="fill"
-						className="size-3 shrink-0 text-spark"
-						aria-hidden
-					/>
-					{t("appBuilder.chat.receipt", {
-						credits: t("appBuilder.chat.estimate", {
-							count: part.data.credits,
-						}),
-						tokens: formatNumber(
-							part.data.inputTokens + part.data.outputTokens,
-							locale,
-						),
-					})}
-					{/* The input count leaves out the cached prompt tokens, so they show on their own. */}
-					{showsCacheTokens &&
-					part.data.cacheReadTokens + part.data.cacheWriteTokens > 0
-						? ` · ${t("appBuilder.chat.receiptCache", {
-								read: formatNumber(part.data.cacheReadTokens, locale),
-								write: formatNumber(part.data.cacheWriteTokens, locale),
-							})}`
-						: null}
-					{/* Product rule: the receipt shows no model name, so a screen recording of the chat keeps the model private. */}
-				</p>
-			);
 		default:
 			return null;
 	}
+}
+
+/**
+ * The cost of one turn in the reply footer: the credits and the tokens.
+ * Outside production it also shows the cache counts.
+ */
+function ReceiptLine({
+	receipt,
+}: {
+	/** Usage of the turn, from its `data-receipt` part: whole credits and token counts. */
+	receipt: BuilderDataParts["receipt"];
+}) {
+	const { t, locale } = useTranslation();
+	return (
+		<p className="flex min-w-0 items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">
+			<LightningIcon
+				weight="fill"
+				className="size-3 shrink-0 text-spark"
+				aria-hidden
+			/>
+			{t("appBuilder.chat.receipt", {
+				credits: t("appBuilder.chat.estimate", {
+					count: receipt.credits,
+				}),
+				tokens: formatNumber(
+					receipt.inputTokens + receipt.outputTokens,
+					locale,
+				),
+			})}
+			{/* The input count leaves out the cached prompt tokens, so they show on their own. */}
+			{showsCacheTokens &&
+			receipt.cacheReadTokens + receipt.cacheWriteTokens > 0
+				? ` · ${t("appBuilder.chat.receiptCache", {
+						read: formatNumber(receipt.cacheReadTokens, locale),
+						write: formatNumber(receipt.cacheWriteTokens, locale),
+					})}`
+				: null}
+			{/* Product rule: the receipt shows no model name, so a screen recording of the chat keeps the model private. */}
+		</p>
+	);
 }
 
 /**
@@ -381,7 +418,7 @@ function MessagePartView({
 export function AssistantByline() {
 	return (
 		<div className="flex items-center gap-2">
-			<span className="grid size-6 shrink-0 place-items-center rounded-[8px] bg-night dark:ring-1 dark:ring-white/10">
+			<span className="grid size-6 shrink-0 place-items-center rounded-[8px] bg-night shadow-key dark:shadow-none dark:ring-1 dark:ring-white/10">
 				<Spark className="size-3.5 text-spark" />
 			</span>
 			<span className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
@@ -400,7 +437,9 @@ const PROSE_CLASS = cn(
 	// Bold text and headings in the ink color; headings in the grotesk face.
 	"[&_[data-streamdown=strong]]:font-semibold [&_[data-streamdown=strong]]:text-night dark:[&_[data-streamdown=strong]]:text-foreground",
 	"[&_[data-streamdown^=heading]]:my-0 [&_[data-streamdown^=heading]]:pt-1 [&_[data-streamdown^=heading]]:font-grotesk [&_[data-streamdown^=heading]]:font-semibold [&_[data-streamdown^=heading]]:text-[15px] [&_[data-streamdown^=heading]]:text-night [&_[data-streamdown^=heading]]:leading-snug dark:[&_[data-streamdown^=heading]]:text-foreground",
-	"[&_[data-streamdown=heading-1]]:text-[17px] [&_[data-streamdown=heading-2]]:text-[16px]",
+	// Heading 1 and heading 2 stand over the 15 px body, so a long reply has a visible outline. Heading 3 keeps the body size.
+	// The tag name makes these selectors more specific than the shared heading rule above, so they win in every CSS order.
+	"[&_h1[data-streamdown=heading-1]]:pt-2 [&_h1[data-streamdown=heading-1]]:font-bold [&_h1[data-streamdown=heading-1]]:text-[20px] [&_h2[data-streamdown=heading-2]]:pt-1.5 [&_h2[data-streamdown=heading-2]]:text-[17px]",
 	// Lists: the markers hang outside the text, so a wrapped line aligns with the first one.
 	// pe-0 cancels the physical pl-6 that Streamdown puts on a nested list, which lands on the end side in RTL.
 	"[&_[data-streamdown$=-list]]:list-outside [&_[data-streamdown$=-list]]:space-y-1 [&_[data-streamdown$=-list]]:ps-5 [&_[data-streamdown$=-list]]:pe-0",

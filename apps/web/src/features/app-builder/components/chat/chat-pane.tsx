@@ -253,7 +253,8 @@ export function ChatPane({
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
 			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
-				<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
+				{/* A quiet label, one step under the project name in the bar above it. Two equal titles would compete. */}
+				<h2 className="font-grotesk font-medium text-[13px] text-night/65 dark:text-foreground/65">
 					{t("appBuilder.chat.title")}
 				</h2>
 				{isSending ? (

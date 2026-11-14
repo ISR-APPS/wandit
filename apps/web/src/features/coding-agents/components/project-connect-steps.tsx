@@ -5,7 +5,14 @@
  */
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 
+import {
+	PANEL_CARD_ROW_CLASS,
+	PANEL_CARD_TITLE_CLASS,
+	PANEL_HINT_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+} from "@/features/app-builder";
 import { useTranslation } from "@/lib/i18n";
 import { ConnectSnippets, CopyableCode } from "./connect-snippets";
 
@@ -20,16 +27,21 @@ export function ProjectConnectSteps({
 	return (
 		<div className="flex flex-col gap-6">
 			<ConnectSnippets />
-			<div>
-				<h3 className="font-grotesk font-semibold text-base">
+			<div className={cn(PANEL_CARD_ROW_CLASS, "pt-6")}>
+				<h3 className={PANEL_CARD_TITLE_CLASS}>
 					{t("auth.codingAgents.project.title")}
 				</h3>
-				<p className="mt-1 text-muted-foreground text-sm">
+				<p className={cn(PANEL_HINT_CLASS, "mt-1")}>
 					{t("auth.codingAgents.project.description")}
 				</p>
 				<CopyableCode code={projectId} />
 			</div>
-			<Button asChild variant="outline" size="sm" className="self-start">
+			<Button
+				asChild
+				variant="outline"
+				size="sm"
+				className={cn(PANEL_SECONDARY_BUTTON_CLASS, "self-start")}
+			>
 				<Link to="/coding-agents">
 					{t("auth.codingAgents.project.manageAgents")}
 				</Link>

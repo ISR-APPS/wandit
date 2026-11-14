@@ -55,11 +55,13 @@ import { RoutePicker } from "./route-picker";
 // The sheet holds the contracts look catalog, so the builder chunk loads it only on the first open.
 const ThemeSheet = lazy(() => import("./theme-sheet"));
 
-// The ghost pill of the Select and Thème buttons. The spark tint of a picked kit row marks the active state.
+// The raised white pill of the Select and Thème buttons, for a kit Button with the outline variant.
+// It stands next to the recessed address capsule, so the bar has two levels.
 const STAGE_PILL_BUTTON_CLASS =
-	"h-9 shrink-0 gap-1.5 rounded-full px-3 font-grotesk font-medium text-[13px] text-night/70 hover:bg-night/[0.06] hover:text-night disabled:opacity-40 dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+	"h-8 shrink-0 gap-1.5 rounded-full border-night/[0.09] bg-white px-3 font-grotesk font-medium text-[13px] text-night/75 shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px disabled:opacity-40 disabled:shadow-none dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-foreground/75 dark:hover:bg-white/[0.1] dark:hover:text-foreground";
+// An active mode is a pressed pill. It has the spark tint of a picked kit row and the well shade.
 const STAGE_PILL_ACTIVE_CLASS =
-	"bg-spark/[0.14] text-night hover:bg-spark/20 dark:text-foreground dark:hover:bg-spark/20";
+	"border-spark-deep/25 bg-spark/[0.18] text-night shadow-well hover:border-spark-deep/40 hover:bg-spark/[0.24] dark:border-spark/30 dark:bg-spark/[0.16] dark:text-foreground dark:hover:bg-spark/[0.22]";
 
 // The capsule buttons are one step smaller than the bar buttons, so they fit the 36 px capsule.
 const CAPSULE_BUTTON_CLASS = cn(TOOLBAR_ICON_BUTTON_CLASS, "size-7");
@@ -276,7 +278,8 @@ export function WebPreview({
 		<div className="flex min-h-0 flex-1 flex-col">
 			{/* No Back or Forward: the page cannot read the history of the cross-origin preview frame. */}
 			<div className="flex h-12 shrink-0 items-center justify-center gap-2 border-night/[0.07] border-b px-3 dark:border-white/[0.07]">
-				<div className="flex h-9 min-w-0 max-w-[680px] flex-1 items-center gap-0.5 rounded-full bg-night/[0.045] px-1 dark:bg-white/[0.06]">
+				{/* The capsule is a recessed well, like the address field of a browser. */}
+				<div className="flex h-9 min-w-0 max-w-[680px] flex-1 items-center gap-0.5 rounded-full bg-night/[0.05] px-1 shadow-well dark:bg-white/[0.06]">
 					{isDesktopApp ? null : (
 						<>
 							<IconAction
@@ -369,7 +372,7 @@ export function WebPreview({
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
-							variant="ghost"
+							variant="outline"
 							size="sm"
 							aria-pressed={isSelecting}
 							disabled={!canStartTurn || !hasBridge}
@@ -395,7 +398,7 @@ export function WebPreview({
 							className="inline-flex shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ember/30"
 						>
 							<Button
-								variant="ghost"
+								variant="outline"
 								size="sm"
 								aria-pressed={isThemeOpen}
 								disabled={isThemeDisabled}
