@@ -34,3 +34,13 @@ export const productSkuSchema = z
 	.trim()
 	.min(1)
 	.max(100);
+
+/**
+ * Id of a V2 starter template: kebab-case, at most 40 characters. It is the
+ * folder name under `templates/starters`. The schema checks the format only;
+ * `findStarterTemplate` of `v2/starter-template-catalog.ts` tells if the id exists.
+ */
+export const starterTemplateIdSchema = z
+	.string()
+	.regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+	.max(40);

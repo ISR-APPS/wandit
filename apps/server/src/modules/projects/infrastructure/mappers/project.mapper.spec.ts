@@ -24,6 +24,7 @@ function projectRow(
 		pendingDeploymentCount: 0,
 		previewImageUrl,
 		prompt: "Build a landing page",
+		starterTemplateId: null,
 		targetPlatform: null,
 		templateVersion: null,
 		tiktokPixelId: null,

@@ -1,0 +1,244 @@
+/* Site CSS of the Festival Siroco poster page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the four poster grounds, the flat ink swaps,
+   the fitted lines, the sticky paste-up of the headliners, and the slab entrances of hooks/use-slab-reveal.ts.
+   Every color is a theme token or a color-mix() of tokens. */
+
+.sf-page {
+	/* The page ink and the paper come straight from the theme. Cobalt is the primary token. */
+	--sf-cream: var(--background);
+	--sf-ink: var(--foreground);
+	--sf-cobalt: var(--primary);
+	/* Vermilion: the red of the destructive token, moved to orange with 15% of the warning token.
+	   The hsl space keeps it vivid. Cream text on it keeps a contrast above 4.5:1. */
+	--sf-vermilion: color-mix(in hsl, var(--destructive) 85%, var(--warning));
+	/* Mustard: the amber of the warning token, moved to yellow with 10% of the green token,
+	   then lifted with 28% of the paper. */
+	--sf-mustard: color-mix(
+		in hsl,
+		color-mix(in hsl, var(--warning) 90%, var(--success)) 72%,
+		var(--background)
+	);
+	/* Height of one pasted edge in the headliner paste-up. */
+	--sf-edge: max(7svh, 3rem);
+}
+
+/* ---- Sheets: one flat ground and one text ink each, plus the hover inks of the buttons and links. ---- */
+
+.sf-cream {
+	--sf-ground: var(--sf-cream);
+	--sf-text: var(--sf-ink);
+	--sf-hover: var(--sf-vermilion);
+	--sf-hover-text: var(--sf-cream);
+	background-color: var(--sf-ground);
+	color: var(--sf-text);
+}
+
+.sf-cobalt {
+	--sf-ground: var(--sf-cobalt);
+	--sf-text: var(--sf-cream);
+	--sf-hover: var(--sf-ink);
+	--sf-hover-text: var(--sf-cream);
+	background-color: var(--sf-ground);
+	color: var(--sf-text);
+}
+
+.sf-vermilion {
+	--sf-ground: var(--sf-vermilion);
+	--sf-text: var(--sf-cream);
+	--sf-hover: var(--sf-ink);
+	--sf-hover-text: var(--sf-cream);
+	background-color: var(--sf-ground);
+	color: var(--sf-text);
+}
+
+.sf-mustard {
+	--sf-ground: var(--sf-mustard);
+	--sf-text: var(--sf-ink);
+	--sf-hover: var(--sf-cream);
+	--sf-hover-text: var(--sf-ink);
+	background-color: var(--sf-ground);
+	color: var(--sf-text);
+}
+
+/* The back of the poster: the footer is the only ink sheet of the page. */
+.sf-ink {
+	--sf-ground: var(--sf-ink);
+	--sf-text: var(--sf-cream);
+	--sf-hover: var(--sf-cream);
+	--sf-hover-text: var(--sf-ink);
+	background-color: var(--sf-ground);
+	color: var(--sf-text);
+}
+
+.sf-page ::selection {
+	background: var(--sf-ink);
+	color: var(--sf-cream);
+}
+
+.sf-page :focus-visible {
+	outline: 3px solid currentColor;
+	outline-offset: 3px;
+}
+
+/* ---- Buttons and links: flat ink swaps in 120ms. Nothing lifts or glows. ---- */
+
+.sf-btn {
+	background-color: var(--sf-text);
+	color: var(--sf-ground);
+	transition:
+		background-color 120ms linear,
+		color 120ms linear;
+}
+
+.sf-btn:hover,
+.sf-btn:focus-visible {
+	background-color: var(--sf-hover);
+	color: var(--sf-hover-text);
+}
+
+.sf-link {
+	border-bottom: 2px solid currentColor;
+	text-decoration: none;
+	transition:
+		background-color 120ms linear,
+		color 120ms linear;
+}
+
+.sf-link:hover,
+.sf-link:focus-visible {
+	background-color: var(--sf-text);
+	color: var(--sf-ground);
+	border-bottom-color: var(--sf-text);
+}
+
+/* ---- Fitted lines: one line of caps at 100% of its box. ----
+   --sf-fit is the font size as a share of the box width. It is measured for Anton caps,
+   and hooks/use-fit-lines.ts corrects it after the fonts load. --sf-fit-cap limits the size on a short screen.
+   The box takes its display from Tailwind classes in FittedLine, so a responsive "hidden" class still works. */
+
+.sf-fit-box {
+	container-type: inline-size;
+}
+
+.sf-fit {
+	display: block;
+	white-space: nowrap;
+	font-size: min(calc(var(--sf-fit) * 100cqi), var(--sf-fit-cap, 100vh));
+	line-height: 0.86;
+	letter-spacing: 0.01em;
+}
+
+.sf-fit > span {
+	display: inline-block;
+}
+
+/* The footer monument: the bottom edge of the page cuts about a quarter of the letters. */
+.sf-monument .sf-fit {
+	line-height: 0.8;
+	margin-bottom: -0.2em;
+}
+
+/* ---- The giant punctuation: filled, in the sheet ink, cropped by the sheet edge. ---- */
+
+.sf-glyph {
+	pointer-events: none;
+	user-select: none;
+	line-height: 0.78;
+}
+
+/* ---- The lineup band of the hero. Under 1024px the line is wider than the screen, so it scrolls in a loop. ---- */
+
+@keyframes sf-band {
+	to {
+		transform: translateX(-50%);
+	}
+}
+
+@media (max-width: 1023.98px) and (prefers-reduced-motion: no-preference) {
+	.sf-band-track {
+		animation: sf-band 38s linear infinite;
+	}
+
+	.sf-band-track:dir(rtl) {
+		animation-direction: reverse;
+	}
+}
+
+/* ---- The headliner paste-up: each poster sticks one edge lower than the poster before it.
+   So the next poster slides up over the last one and leaves its top edge in view.
+   With no script and with reduced motion it works the same: it is layout, not animation. ---- */
+
+.sf-poster {
+	position: sticky;
+	top: calc(var(--sf-k) * var(--sf-edge));
+	height: calc(100svh - var(--sf-k) * var(--sf-edge));
+	min-height: 30rem;
+}
+
+/* On a phone a one-word name fills only one line, so its poster is shorter and does not float in empty ground.
+   The next poster shows under it until it slides up. */
+@media (max-width: 767.98px) {
+	.sf-poster-short {
+		height: calc(70svh - var(--sf-k) * var(--sf-edge));
+	}
+}
+
+.sf-poster-edge {
+	height: var(--sf-edge);
+}
+
+/* ---- Hero entrance: the title, the lede, and the actions slide up as slabs when the CSS loads. No script is needed. ---- */
+
+@keyframes sf-slab-up {
+	from {
+		opacity: 0;
+		transform: translateY(90px);
+	}
+}
+
+@keyframes sf-slab-in {
+	from {
+		opacity: 0;
+		transform: translateX(calc(-80px * var(--sf-dir, 1)));
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.sf-hero-line {
+		animation: sf-slab-up 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+		animation-delay: calc(100ms + var(--sf-i, 0) * 130ms);
+	}
+
+	.sf-hero-band {
+		animation: sf-slab-in 700ms cubic-bezier(0.16, 1, 0.3, 1) 520ms both;
+	}
+}
+
+.sf-page:dir(rtl) {
+	--sf-dir: -1;
+}
+
+/* ---- Slab entrances below the first screen.
+   use-slab-reveal.ts sets data-motion="on" on the page after hydration, then "in" on each slab that enters the view.
+   With no script, no data-motion exists and every slab stays visible. ---- */
+
+[data-motion="on"] [data-slab] {
+	transition:
+		opacity 750ms cubic-bezier(0.16, 1, 0.3, 1),
+		transform 750ms cubic-bezier(0.16, 1, 0.3, 1);
+	transition-delay: calc(var(--sf-i, 0) * 90ms);
+}
+
+[data-motion="on"] [data-slab="wait"] {
+	opacity: 0;
+	transform: translateY(60px);
+}
+
+/* A glyph slides in from the edge that crops it. */
+[data-motion="on"] [data-slab="wait"][data-from="start"] {
+	transform: translateX(calc(-140px * var(--sf-dir, 1)));
+}
+
+[data-motion="on"] [data-slab="wait"][data-from="end"] {
+	transform: translateX(calc(140px * var(--sf-dir, 1)));
+}

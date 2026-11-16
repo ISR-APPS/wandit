@@ -1,0 +1,36 @@
+{
+	"id": "postbox-social",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Postbox",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "nebuleuse"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "lg",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "floating",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "pill",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "duotone",
+			"navIcon": "color"
+		}
+	}
+}

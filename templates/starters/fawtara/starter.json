@@ -1,0 +1,33 @@
+{
+	"id": "fawtara",
+	"removed": [],
+	"theme": {
+		"name": "Fawtara",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "clair"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "public-sans",
+			"displayFont": "plus-jakarta-sans",
+			"scale": "md",
+			"radius": "xl",
+			"border": "1",
+			"shadow": "lg",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "pill",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

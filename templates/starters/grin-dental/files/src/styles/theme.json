@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Grin Dental Studio",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#fff6eb",
+			"foreground": "#2a211c",
+			"primary": "#ff5c39"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "nunito",
+		"displayFont": "bricolage-grotesque",
+		"scale": "md",
+		"radius": "xl",
+		"border": "2",
+		"shadow": "md",
+		"shadowStyle": "hard",
+		"content": "centered",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "tint",
+		"activeItem": "block",
+		"header": "plain",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "bold",
+		"navIcon": "color"
+	},
+	"resolved": {
+		"light": {
+			"background": "#fff6eb",
+			"foreground": "#2a211c",
+			"card": "#fffefd",
+			"cardForeground": "#2a211c",
+			"popover": "#fffefd",
+			"popoverForeground": "#2a211c",
+			"primary": "#fa5734",
+			"primaryForeground": "#1d0c09",
+			"secondary": "#eee5db",
+			"secondaryForeground": "#2a211c",
+			"muted": "#f4ebe0",
+			"mutedForeground": "#6f655e",
+			"accent": "#ffe5df",
+			"accentForeground": "#2a211c",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#e3d9cf",
+			"input": "#d0c6bd",
+			"ring": "#fa5734",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f7eee3",
+			"shadowColor": "#281f1a"
+		},
+		"dark": {
+			"background": "#19130b",
+			"foreground": "#f9f0eb",
+			"card": "#201912",
+			"cardForeground": "#f9f0eb",
+			"popover": "#241e16",
+			"popoverForeground": "#f9f0eb",
+			"primary": "#ff5c39",
+			"primaryForeground": "#1d0c09",
+			"secondary": "#2b241d",
+			"secondaryForeground": "#f9f0eb",
+			"muted": "#251f17",
+			"mutedForeground": "#aea59f",
+			"accent": "#371b15",
+			"accentForeground": "#f9f0eb",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#332c24",
+			"input": "#3f3830",
+			"ring": "#ff5c39",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#120c05",
+			"shadowColor": "#030100"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Bricolage Grotesque",
+				"href": "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

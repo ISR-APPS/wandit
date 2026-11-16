@@ -1,0 +1,120 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Casefile",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "papier"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "md",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "offcanvas",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "plain",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "thin",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "oklch(0.972 0.016 92)",
+			"foreground": "oklch(0.22 0.035 262)",
+			"card": "oklch(0.988 0.01 92)",
+			"cardForeground": "oklch(0.22 0.035 262)",
+			"popover": "oklch(0.99 0.008 92)",
+			"popoverForeground": "oklch(0.22 0.035 262)",
+			"primary": "oklch(0.46 0.17 263)",
+			"primaryForeground": "oklch(0.985 0.008 92)",
+			"secondary": "oklch(0.945 0.02 92)",
+			"secondaryForeground": "oklch(0.25 0.035 262)",
+			"muted": "oklch(0.95 0.018 92)",
+			"mutedForeground": "oklch(0.46 0.03 262)",
+			"accent": "oklch(0.94 0.024 90)",
+			"accentForeground": "oklch(0.22 0.035 262)",
+			"destructive": "oklch(0.52 0.19 25)",
+			"destructiveForeground": "oklch(0.985 0.008 92)",
+			"border": "oklch(0.87 0.03 250)",
+			"input": "oklch(0.78 0.035 255)",
+			"ring": "oklch(0.46 0.17 263)",
+			"success": "oklch(0.5 0.11 150)",
+			"warning": "oklch(0.54 0.12 65)",
+			"info": "oklch(0.5 0.11 240)",
+			"canvas": "oklch(0.935 0.055 88)",
+			"shadowColor": "oklch(0.22 0.035 262)",
+			"chart1": "oklch(0.46 0.17 263)",
+			"chart2": "oklch(0.55 0.17 25)",
+			"chart3": "oklch(0.66 0.08 240)",
+			"chart4": "oklch(0.55 0.06 160)",
+			"chart5": "oklch(0.7 0.02 90)",
+			"contrast": "oklch(0.24 0.04 262)",
+			"contrastForeground": "oklch(0.97 0.014 92)"
+		},
+		"dark": {
+			"background": "oklch(0.19 0.02 262)",
+			"foreground": "oklch(0.95 0.012 92)",
+			"card": "oklch(0.22 0.022 262)",
+			"cardForeground": "oklch(0.95 0.012 92)",
+			"popover": "oklch(0.245 0.024 262)",
+			"popoverForeground": "oklch(0.95 0.012 92)",
+			"primary": "oklch(0.72 0.13 260)",
+			"primaryForeground": "oklch(0.18 0.03 262)",
+			"secondary": "oklch(0.27 0.025 262)",
+			"secondaryForeground": "oklch(0.94 0.012 92)",
+			"muted": "oklch(0.26 0.022 262)",
+			"mutedForeground": "oklch(0.73 0.02 250)",
+			"accent": "oklch(0.28 0.03 262)",
+			"accentForeground": "oklch(0.95 0.012 92)",
+			"destructive": "oklch(0.7 0.16 25)",
+			"destructiveForeground": "oklch(0.18 0.03 25)",
+			"border": "oklch(0.32 0.03 262)",
+			"input": "oklch(0.4 0.035 262)",
+			"ring": "oklch(0.72 0.13 260)",
+			"success": "oklch(0.76 0.12 150)",
+			"warning": "oklch(0.8 0.11 75)",
+			"info": "oklch(0.76 0.1 235)",
+			"canvas": "oklch(0.165 0.018 262)",
+			"shadowColor": "oklch(0.08 0.02 262)",
+			"chart1": "oklch(0.72 0.13 260)",
+			"chart2": "oklch(0.72 0.15 25)",
+			"chart3": "oklch(0.8 0.06 235)",
+			"chart4": "oklch(0.72 0.06 160)",
+			"chart5": "oklch(0.78 0.03 90)"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Public Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Libre Caslon Text",
+				"href": "https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Amiri",
+				"href": "https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 700,
+			"headingTracking": "normal",
+			"numerals": "sans"
+		}
+	}
+}

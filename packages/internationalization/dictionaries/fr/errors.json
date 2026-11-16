@@ -35,6 +35,7 @@
 		"FORBIDDEN": "Tu n’as pas l’autorisation de faire ça.",
 		"INSUFFICIENT_CREDITS": "Tu n'as pas assez de crédits pour cette action.",
 		"MOBILE_TEMPLATE_UNAVAILABLE": "Les applications mobiles ne sont pas disponibles pour le moment. Réessaie plus tard.",
+		"STARTER_TEMPLATE_NOT_FOUND": "Ce template n'est pas disponible. Choisis un autre template.",
 		"DESKTOP_TEMPLATE_UNAVAILABLE": "Les applications de bureau ne sont pas disponibles pour le moment. Réessaie plus tard.",
 		"GENERATION_PAYMENT_REQUIRED": "Des crédits supplémentaires sont nécessaires pour terminer cette génération.",
 		"PAYMENT_PAST_DUE": "Le paiement de ton abonnement doit être corrigé dans le portail de facturation.",

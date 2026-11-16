@@ -1,0 +1,35 @@
+{
+	"id": "grin-dental",
+	"removed": [],
+	"theme": {
+		"name": "Grin Dental Studio",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#fff6eb",
+				"foreground": "#2a211c",
+				"primary": "#ff5c39"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "nunito",
+			"displayFont": "bricolage-grotesque",
+			"scale": "md",
+			"radius": "xl",
+			"border": "2",
+			"shadow": "md",
+			"shadowStyle": "hard",
+			"content": "centered",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "block",
+			"header": "plain",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "bold",
+			"navIcon": "color"
+		}
+	}
+}

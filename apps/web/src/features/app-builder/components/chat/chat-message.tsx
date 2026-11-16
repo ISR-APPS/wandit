@@ -8,11 +8,11 @@
  * screenshots, and the images it made. A click on a thumbnail also opens the
  * details panel. Then only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the plan card,
- * the security report card, the compaction line, the error with Retry, the
- * stopped line, and the receipt. The receipt shows the cache counts only
- * outside production. The developer view (local dev only) renders every
- * part in stream order, with the thinking text. A footer ends a reply: the
- * Copy action when it has a final answer, then the receipt. Rendered by
+ * the security report card, the compaction line, the starter template note,
+ * the error with Retry, the stopped line, and the receipt. The receipt shows
+ * the cache counts only outside production. The developer view (local dev
+ * only) renders every part in stream order, with the thinking text. A footer
+ * ends a reply: the Copy action when it has a final answer, then the receipt. Rendered by
  * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
@@ -26,6 +26,7 @@ import {
 	builderTurnStatusSchema,
 	DAILY_CAP_TURN_ERROR_CODE,
 } from "@wandit/contracts";
+import { findStarterTemplate } from "@wandit/contracts/v2/starter-template-catalog";
 import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
@@ -450,6 +451,40 @@ function MessagePartView({
 					</div>
 				</div>
 			);
+		case "data-starter-template": {
+			if (part.data.status === "failed") {
+				// The project is empty then, so the line asks for a prompt. No Retry: a new project starts the template again.
+				return (
+					<div
+						role="alert"
+						className="flex items-start gap-2.5 rounded-[14px] bg-destructive/[0.07] px-3 py-2.5 font-sans text-[13.5px] text-destructive leading-snug dark:bg-destructive/[0.12]"
+					>
+						<WarningCircleIcon
+							weight="fill"
+							className="mt-px size-4 shrink-0"
+							aria-hidden
+						/>
+						<p>{t("templates.note.failed")}</p>
+					</div>
+				);
+			}
+			// An id that left the catalog gives undefined. The note then shows without the name and the app line.
+			const starterTemplate = findStarterTemplate(part.data.starterTemplateId);
+			return (
+				<div className="flex flex-col gap-1 font-sans text-[15px] text-night/85 leading-[1.65] dark:text-foreground/85">
+					{starterTemplate ? (
+						<p className="font-grotesk font-semibold text-night dark:text-foreground">
+							{starterTemplate.name}
+						</p>
+					) : null}
+					<p>{t("templates.note.applied")}</p>
+					{/* Product rule: the pages of an app are behind sign-in, so the user needs an account in the preview. */}
+					{starterTemplate?.kind === "app" ? (
+						<p>{t("templates.note.appSignUp")}</p>
+					) : null}
+				</div>
+			);
+		}
 		case "data-stopped":
 			return (
 				<p className="font-grotesk text-[13px] text-night/50 dark:text-foreground/50">

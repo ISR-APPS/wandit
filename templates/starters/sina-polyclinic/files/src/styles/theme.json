@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Sina Polyclinic",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "serment"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "public-sans",
+		"displayFont": "source-serif-4",
+		"scale": "md",
+		"radius": "sm",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f7fafb",
+			"foreground": "#12303b",
+			"card": "#ffffff",
+			"cardForeground": "#12303b",
+			"popover": "#ffffff",
+			"popoverForeground": "#12303b",
+			"primary": "#1b8a93",
+			"primaryForeground": "#001518",
+			"secondary": "#e5eaec",
+			"secondaryForeground": "#12303b",
+			"muted": "#ecf0f1",
+			"mutedForeground": "#596c73",
+			"accent": "#d4f5f8",
+			"accentForeground": "#12303b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d9dfe2",
+			"input": "#c5ced1",
+			"ring": "#1b8a93",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eff2f3",
+			"shadowColor": "#072630"
+		},
+		"dark": {
+			"background": "#121415",
+			"foreground": "#eaf4f8",
+			"card": "#191b1c",
+			"cardForeground": "#eaf4f8",
+			"popover": "#1e2020",
+			"popoverForeground": "#eaf4f8",
+			"primary": "#1b8a93",
+			"primaryForeground": "#001518",
+			"secondary": "#232627",
+			"secondaryForeground": "#eaf4f8",
+			"muted": "#1e2121",
+			"mutedForeground": "#a1a9ac",
+			"accent": "#002a2e",
+			"accentForeground": "#eaf4f8",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2b2e2f",
+			"input": "#363a3b",
+			"ring": "#1b8a93",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0c0e0e",
+			"shadowColor": "#010202"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Public Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Source Serif 4",
+				"href": "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Source Serif 4",
+				"href": "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

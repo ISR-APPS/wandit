@@ -1,0 +1,33 @@
+{
+	"id": "le-kiosque-cafe",
+	"removed": [],
+	"theme": {
+		"name": "Le Kiosque",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "gazette"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "archivo",
+			"displayFont": "newsreader",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

@@ -1,6 +1,8 @@
 /**
  * Dashboard page at `/dashboard`: the prompt box that creates a project and
- * the project grid with search and status filters. The route file imports
+ * the project grid with a search, a kind filter, and a status filter. The
+ * "Templates" pill of the kind filter shows the starter template catalog in the
+ * grid. The grid grows by infinite scroll. The route file imports
  * it by path. Calls the projects queries, the V1 and V2 create hooks, and
  * the credits banners. From the landing it uses the key button, the platform
  * word, and the V2 strip. It owns the app type, the Plan chip, and the model
@@ -9,11 +11,12 @@
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { useQuery } from "@tanstack/react-query";
+import { STARTER_TEMPLATES } from "@wandit/contracts/v2/starter-template-catalog";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { cn } from "@wandit/ui/lib/utils";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import {
@@ -37,6 +40,10 @@ import {
 	sharedProjectsQuery,
 	useSharingEnabled,
 } from "@/features/project-sharing";
+import {
+	filterStarterTemplates,
+	StarterTemplateCard,
+} from "@/features/templates";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { type AppTypeChoice, toAppTypeTarget } from "@/lib/app-type-choice";
 import { useDictionary, useTranslation } from "@/lib/i18n";
@@ -53,11 +60,63 @@ import {
 
 type StatusFilter = "all" | "published" | "drafts";
 
-function matchesFilter(project: Project, filter: StatusFilter): boolean {
+function matchesStatus(project: Project, filter: StatusFilter): boolean {
 	if (filter === "all") return true;
 	if (filter === "published") return project.status === "published";
 	return project.status !== "published";
 }
+
+/** "templates" shows the starter template catalog in the grid, in place of the projects. */
+type KindFilter = "all" | "web" | "mobile" | "templates";
+
+function matchesKind(
+	project: Project,
+	filter: Exclude<KindFilter, "templates">,
+): boolean {
+	return filter === "all" || project.targetPlatform === filter;
+}
+
+/** Cards per step of the infinite scroll. 12 fills whole rows of 1, 2, 3, and 4 columns. */
+const GRID_STEP = 12;
+
+/**
+ * Infinite scroll of a grid that has all its items in memory. It shows
+ * GRID_STEP more cards each time the sentinel under the grid comes near the
+ * viewport. A new `resetKey` (a filter change) starts again at the first step.
+ */
+// LIMIT: the API sends every project in one answer, and only the render is in steps. Upgrade: the
+// `/api/v1/projects/paged` route with kind and status params, read with useInfiniteQuery.
+function useRevealedCount(total: number, resetKey: string) {
+	const sentinelRef = useRef<HTMLDivElement>(null);
+	const [step, setStep] = useState({ count: GRID_STEP, resetKey });
+	const count = step.resetKey === resetKey ? step.count : GRID_STEP;
+
+	// A new observer after each step reads the new layout. On a tall screen the
+	// sentinel is still near, so its first callback adds the next step at once.
+	useEffect(() => {
+		const sentinel = sentinelRef.current;
+		if (!sentinel || count >= total) return;
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry?.isIntersecting) {
+					setStep({ count: count + GRID_STEP, resetKey });
+				}
+			},
+			// 600px: the next cards load before the user reaches the end of the grid.
+			{ rootMargin: "0px 0px 600px 0px" },
+		);
+		observer.observe(sentinel);
+		return () => observer.disconnect();
+	}, [count, total, resetKey]);
+
+	return { sentinelRef, visibleCount: count };
+}
+
+/** The selected filter is a night pill, like the language switch of the landing page. */
+const FILTER_LIST_CLASS =
+	"h-9 rounded-full border-0 bg-night/[0.05] p-1 dark:bg-white/[0.06]";
+const FILTER_TRIGGER_CLASS =
+	"rounded-full px-3 font-grotesk font-semibold text-night/60 text-xs hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper data-[state=active]:hover:text-paper dark:text-foreground/60 dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night dark:hover:text-foreground dark:data-[state=active]:hover:text-night";
 
 /** No project yet: a night app tile, like the ideas wall of the landing, and the build key. */
 function EmptyState({ onCta }: { onCta: () => void }) {
@@ -95,7 +154,7 @@ function NoResultsState({
 	query,
 	onClear,
 }: {
-	/** The trimmed search text. Empty when only the status filter hides the projects. */
+	/** The trimmed search text. Empty when only a filter hides the projects. */
 	query: string;
 	onClear: () => void;
 }) {
@@ -129,7 +188,7 @@ function NoResultsState({
 }
 
 export default function DashboardPage() {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	const landingHero = useDictionary().landing.hero;
 	const { data: projects, isPending } = useProjectsQuery();
 	// Product rule: a user in the V2 rollout builds an app with the V2 engine;
@@ -174,18 +233,43 @@ export default function DashboardPage() {
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
+	const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+	// The pills hide when the V2 switch turns off, so a hidden pick must not hide projects.
+	const activeKindFilter: KindFilter = v2Enabled ? kindFilter : "all";
 	const promptSectionRef = useRef<HTMLDivElement>(null);
 
+	const isTemplatesView = activeKindFilter === "templates";
 	const filtered = useMemo(() => {
+		if (activeKindFilter === "templates") return [];
 		const q = query.trim().toLowerCase();
 		return (projects ?? []).filter(
 			(project) =>
-				matchesFilter(project, filter) &&
+				matchesStatus(project, filter) &&
+				matchesKind(project, activeKindFilter) &&
 				(!q ||
 					project.name.toLowerCase().includes(q) ||
 					project.prompt.toLowerCase().includes(q)),
 		);
-	}, [projects, query, filter]);
+	}, [projects, query, filter, activeKindFilter]);
+	// The catalog is static, so the "Templates" pill filters it here with the same search text.
+	const templateResults = useMemo(
+		() =>
+			isTemplatesView
+				? filterStarterTemplates(
+						STARTER_TEMPLATES,
+						{ q: query },
+						locale,
+						(category) => t(`templates.categories.${category}`),
+					)
+				: [],
+		[isTemplatesView, query, locale, t],
+	);
+	const { sentinelRef, visibleCount } = useRevealedCount(
+		isTemplatesView ? templateResults.length : filtered.length,
+		`${activeKindFilter}|${filter}|${query}`,
+	);
+	// The badge counts the list of the grid: every project, or the templates that match the search.
+	const listCount = isTemplatesView ? templateResults.length : projects?.length;
 
 	const isSharingEnabled = useSharingEnabled();
 	// A failed load hides the section. The query cache reports the error.
@@ -201,7 +285,8 @@ export default function DashboardPage() {
 	}, [projects, sharedProjects]);
 
 	const hasProjects = (projects?.length ?? 0) > 0;
-	const isFiltering = query.trim().length > 0 || filter !== "all";
+	const isFiltering =
+		query.trim().length > 0 || filter !== "all" || activeKindFilter !== "all";
 
 	const focusPrompt = () => {
 		promptSectionRef.current?.scrollIntoView({
@@ -216,6 +301,7 @@ export default function DashboardPage() {
 	const clearFilters = () => {
 		setQuery("");
 		setFilter("all");
+		setKindFilter("all");
 	};
 
 	return (
@@ -304,9 +390,9 @@ export default function DashboardPage() {
 							<h2 className="font-bold font-grotesk text-[1.75rem] text-night tracking-[-0.035em] dark:text-foreground">
 								{t("projects.toolbarTitle")}
 							</h2>
-							{projects ? (
+							{listCount !== undefined ? (
 								<span className="rounded-full bg-night/[0.06] px-2 py-0.5 font-grotesk font-semibold text-night/60 text-xs tabular-nums dark:bg-white/[0.08] dark:text-foreground/60">
-									{projects.length}
+									{listCount}
 								</span>
 							) : null}
 						</div>
@@ -326,35 +412,96 @@ export default function DashboardPage() {
 									aria-label={t("projects.searchPlaceholder")}
 								/>
 							</div>
-							<Tabs
-								value={filter}
-								onValueChange={(value) => setFilter(value as StatusFilter)}
-							>
-								{/* The selected filter is a night pill, like the language switch of the landing page. */}
-								<TabsList className="h-9 rounded-full border-0 bg-night/[0.05] p-1 dark:bg-white/[0.06]">
-									{(
-										[
-											["all", "projects.filterAll"],
-											["published", "projects.filterPublished"],
-											["drafts", "projects.filterDrafts"],
-										] as const
-									).map(([value, labelKey]) => (
-										<TabsTrigger
-											key={value}
-											value={value}
-											className="rounded-full px-3 font-grotesk font-semibold text-night/60 text-xs hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper data-[state=active]:hover:text-paper dark:text-foreground/60 dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night dark:hover:text-foreground dark:data-[state=active]:hover:text-night"
-										>
-											{t(labelKey)}
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
+							{/* Product rule: only a V2 user builds web, mobile, and desktop apps, so only a V2 user gets the kind filter. */}
+							{v2Enabled ? (
+								<Tabs
+									// min-w-0 lets the root shrink below its pills, so the list can scroll on a phone.
+									className="min-w-0 max-w-full"
+									value={kindFilter}
+									// SAFETY: each TabsTrigger below has a KindFilter value.
+									onValueChange={(value) => setKindFilter(value as KindFilter)}
+								>
+									{/* On a phone the four pills scroll sideways and do not cut the row. */}
+									<TabsList
+										aria-label={t("projects.filterKindLabel")}
+										className={cn(
+											FILTER_LIST_CLASS,
+											"max-w-full justify-start overflow-x-auto [scrollbar-width:none]",
+										)}
+									>
+										{(
+											[
+												["all", "projects.filterAllKinds"],
+												["web", "projects.promptBox.platforms.web.label"],
+												["mobile", "projects.promptBox.platforms.mobile.label"],
+												["templates", "projects.filterTemplates"],
+											] as const
+										).map(([value, labelKey]) => (
+											<TabsTrigger
+												key={value}
+												value={value}
+												className={FILTER_TRIGGER_CLASS}
+											>
+												{t(labelKey)}
+											</TabsTrigger>
+										))}
+									</TabsList>
+								</Tabs>
+							) : null}
+							{/* A starter template has no status, so the status filter hides with the templates. */}
+							{isTemplatesView ? null : (
+								<Tabs
+									value={filter}
+									// SAFETY: each TabsTrigger below has a StatusFilter value.
+									onValueChange={(value) => setFilter(value as StatusFilter)}
+								>
+									<TabsList
+										aria-label={t("projects.filterStatusLabel")}
+										className={FILTER_LIST_CLASS}
+									>
+										{(
+											[
+												["all", "projects.filterAll"],
+												["published", "projects.filterPublished"],
+												["drafts", "projects.filterDrafts"],
+											] as const
+										).map(([value, labelKey]) => (
+											<TabsTrigger
+												key={value}
+												value={value}
+												className={FILTER_TRIGGER_CLASS}
+											>
+												{t(labelKey)}
+											</TabsTrigger>
+										))}
+									</TabsList>
+								</Tabs>
+							)}
 						</div>
 					</div>
 
 					{/* Grid */}
 					<div className="mt-5">
-						{isPending ? (
+						{isTemplatesView ? (
+							templateResults.length > 0 ? (
+								<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+									{templateResults
+										.slice(0, visibleCount)
+										.map((starterTemplate) => (
+											<StarterTemplateCard
+												key={starterTemplate.id}
+												starterTemplate={starterTemplate}
+											/>
+										))}
+								</div>
+							) : (
+								// The catalog is never empty, so only the search hides every template.
+								<NoResultsState
+									query={query.trim()}
+									onClear={() => setQuery("")}
+								/>
+							)
+						) : isPending ? (
 							<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 								{Array.from({ length: GRID_SKELETON_COUNT }, (_, i) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
@@ -363,7 +510,7 @@ export default function DashboardPage() {
 							</div>
 						) : filtered.length > 0 ? (
 							<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-								{filtered.map((project) => (
+								{filtered.slice(0, visibleCount).map((project) => (
 									<ProjectCard key={project.id} project={project} />
 								))}
 							</div>
@@ -372,6 +519,8 @@ export default function DashboardPage() {
 						) : (
 							<EmptyState onCta={focusPrompt} />
 						)}
+						{/* The infinite scroll watches this line. It stays mounted, so the observer always has a target. */}
+						<div ref={sentinelRef} aria-hidden />
 					</div>
 				</section>
 

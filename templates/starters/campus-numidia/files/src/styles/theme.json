@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Campus Numidia",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "campus"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "public-sans",
+		"displayFont": "outfit",
+		"scale": "md",
+		"radius": "lg",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#fdfdfd",
+			"foreground": "#202949",
+			"card": "#ffffff",
+			"cardForeground": "#202949",
+			"popover": "#ffffff",
+			"popoverForeground": "#202949",
+			"primary": "#0284c7",
+			"primaryForeground": "#05131e",
+			"secondary": "#ecedf0",
+			"secondaryForeground": "#202949",
+			"muted": "#f2f3f5",
+			"mutedForeground": "#646b81",
+			"accent": "#e6f4ff",
+			"accentForeground": "#202949",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#dfe1e6",
+			"input": "#cccfd7",
+			"ring": "#0284c7",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f5f5f5",
+			"shadowColor": "#1b2035"
+		},
+		"dark": {
+			"background": "#141414",
+			"foreground": "#eff2fa",
+			"card": "#1b1b1b",
+			"cardForeground": "#eff2fa",
+			"popover": "#1f1f1f",
+			"popoverForeground": "#eff2fa",
+			"primary": "#0284c7",
+			"primaryForeground": "#05131e",
+			"secondary": "#252626",
+			"secondaryForeground": "#eff2fa",
+			"muted": "#202021",
+			"mutedForeground": "#a5a7ad",
+			"accent": "#0e2638",
+			"accentForeground": "#eff2fa",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2d2d2e",
+			"input": "#38393a",
+			"ring": "#0284c7",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0d0d0d",
+			"shadowColor": "#020202"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Public Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Outfit",
+				"href": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Outfit",
+				"href": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

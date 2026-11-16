@@ -994,7 +994,8 @@
 			"merge": "Fusion",
 			"theme": "Thème",
 			"github": "GitHub",
-			"mcp": "Serveur MCP"
+			"mcp": "Serveur MCP",
+			"starter": "Template"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

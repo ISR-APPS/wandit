@@ -23,6 +23,7 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 		pendingDeploymentCount: 0,
 		previewImageUrl: null,
 		prompt: "Build me a booking app",
+		starterTemplateId: null,
 		targetPlatform: "web",
 		templateVersion: "web-app@1.0.0",
 		tiktokPixelId: null,

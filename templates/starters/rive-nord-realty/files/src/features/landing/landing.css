@@ -1,0 +1,479 @@
+/* Site CSS of the Rive Nord Realty home page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: rubber stamps, corner marks, marquees, the entrances of
+   hooks/use-reveal.ts, the drawn facades, the drawn map, and the phone call bar.
+   Every color is a theme token or a color-mix() of tokens. Capitals are Tailwind classes in the components. */
+
+.rn-page {
+	/* Side gutter of every band, as in the printed board: 16px on a phone, 56px on a wide screen. */
+	--rn-pad: clamp(16px, 4vw, 56px);
+	/* Height of the sticky header. A section link stops under it. */
+	--rn-header: 62px;
+	/* A stamp lands with a small overshoot, as a hand that presses and lifts. */
+	--rn-ease-back: cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+.rn-page [id] {
+	scroll-margin-top: var(--rn-header);
+}
+
+.rn-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.rn-page :focus-visible {
+	outline: 3px solid var(--primary);
+	outline-offset: 2px;
+}
+
+/* On the cobalt band the cobalt ring does not show. The paper color does. */
+.rn-on-primary :focus-visible {
+	outline-color: var(--background);
+}
+
+/* ---- Rubber stamps ----
+   A double frame: the 2.5px border and a thin inner line. --rn-tilt sets the angle of a stamp, -6deg by default.
+   This file is not in a Tailwind layer, so it wins over the utilities: display and position stay in the component. */
+
+.rn-stamp {
+	border: 2.5px solid currentColor;
+	transform: rotate(var(--rn-tilt, -6deg));
+}
+
+.rn-stamp::after {
+	content: "";
+	position: absolute;
+	inset: 2px;
+	border: 1px solid currentColor;
+	opacity: 0.65;
+	pointer-events: none;
+}
+
+@keyframes rn-slam {
+	from {
+		opacity: 0;
+		transform: rotate(calc(var(--rn-tilt, -6deg) - 9deg)) scale(2.1);
+	}
+}
+
+/* ---- Corner marks: four cobalt "+" at the corners of a framed panel, as crop marks on a print.
+   The panel needs one empty child .rn-corners-end for the two bottom marks,
+   and a relative or sticky position class in the component. ---- */
+
+.rn-corners::before,
+.rn-corners::after,
+.rn-corners-end::before,
+.rn-corners-end::after {
+	content: "+";
+	position: absolute;
+	z-index: 3;
+	font: 700 17px / 1 var(--font-sans);
+	color: var(--primary);
+	pointer-events: none;
+}
+
+.rn-corners::before {
+	top: -9px;
+	inset-inline-start: -6px;
+}
+
+.rn-corners::after {
+	top: -9px;
+	inset-inline-end: -6px;
+}
+
+.rn-corners-end::before {
+	bottom: -10px;
+	inset-inline-start: -6px;
+}
+
+.rn-corners-end::after {
+	bottom: -10px;
+	inset-inline-end: -6px;
+}
+
+/* One "+" at the top start corner of a ruled cell, and one at the top end corner of the last cell. */
+.rn-cross::before,
+.rn-cross-end::after {
+	content: "+";
+	position: absolute;
+	top: -10px;
+	z-index: 1;
+	font: 700 18px / 1 var(--font-sans);
+	color: var(--primary);
+	pointer-events: none;
+}
+
+.rn-cross::before {
+	inset-inline-start: -7px;
+}
+
+.rn-cross-end::after {
+	inset-inline-end: -7px;
+}
+
+/* ---- Marquees: the content renders two times, and the track moves by one half, so the loop has no seam. ---- */
+
+.rn-marquee {
+	overflow: hidden;
+}
+
+.rn-marquee-track {
+	display: flex;
+	width: max-content;
+	animation: rn-marquee var(--rn-duration, 34s) linear infinite;
+}
+
+.rn-marquee-slow {
+	--rn-duration: 80s;
+}
+
+.rn-marquee:hover .rn-marquee-track {
+	animation-play-state: paused;
+}
+
+@keyframes rn-marquee {
+	to {
+		transform: translateX(-50%);
+	}
+}
+
+.rn-marquee:dir(rtl) .rn-marquee-track {
+	animation-direction: reverse;
+}
+
+/* ---- Register rows ---- */
+
+/* The cobalt bar at the start edge of the row in the window. */
+.rn-row[data-active="true"]::before {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	width: 4px;
+	background: var(--primary);
+}
+
+/* A sold home stays on the board, faded. Its red stamp in the price cell keeps full ink. */
+.rn-row[data-status="sold"] > :not(.rn-price-cell),
+.rn-row[data-status="sold"] .rn-price-cell > :not(.rn-sold-stamp) {
+	opacity: 0.5;
+}
+
+/* ---- Drawn facades of components/facade.tsx. The strokes keep one width at every size. ---- */
+
+.rn-fac-fill {
+	fill: var(--primary);
+}
+
+.rn-fac-body {
+	fill: var(--card);
+	stroke: var(--foreground);
+	stroke-width: 2;
+	vector-effect: non-scaling-stroke;
+}
+
+.rn-fac-line,
+.rn-fac-dash {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 1.7;
+	vector-effect: non-scaling-stroke;
+	stroke-linecap: square;
+}
+
+.rn-fac-dash {
+	stroke-dasharray: 2 3;
+}
+
+.rn-fac-ink {
+	fill: var(--foreground);
+}
+
+/* ---- Drawn map of components/district-map.tsx ---- */
+
+/* The bay is one flat sheet of cobalt, as on a printed poster. Its marks and labels take the paper color. */
+.rn-map-water {
+	fill: var(--primary);
+}
+
+.rn-map-land {
+	fill: var(--secondary);
+}
+
+.rn-map-coast {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 2.5;
+}
+
+.rn-map-light {
+	fill: var(--background);
+}
+
+.rn-map-wave {
+	fill: none;
+	stroke: var(--background);
+	stroke-width: 1.4;
+	stroke-dasharray: 2 6;
+	opacity: 0.6;
+}
+
+.rn-map-ferry {
+	fill: none;
+	stroke: var(--background);
+	stroke-width: 1.3;
+	stroke-dasharray: 6 5;
+	opacity: 0.55;
+}
+
+.rn-map-block {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 1.1;
+	opacity: 0.38;
+}
+
+.rn-map-road {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 1.2;
+	opacity: 0.25;
+}
+
+.rn-map-label {
+	font: 700 12px var(--font-sans);
+	letter-spacing: 0.22em;
+	fill: var(--background);
+}
+
+.rn-map-label-water {
+	font: 700 10px var(--font-sans);
+	letter-spacing: 0.14em;
+	fill: var(--background);
+	opacity: 0.85;
+}
+
+.rn-map-label-minor {
+	font: 700 10px var(--font-sans);
+	letter-spacing: 0.14em;
+	fill: var(--foreground);
+	opacity: 0.55;
+}
+
+/* On a phone the map shrinks to about 36% of its drawn size. The small names hide; "The bay" grows to about 10px. */
+@media (width < 640px) {
+	.rn-map-label-minor,
+	.rn-map-label-water {
+		display: none;
+	}
+
+	.rn-map-label {
+		font-size: 28px;
+	}
+}
+
+/* The map and its pins zoom together around the chosen pin. */
+.rn-map-layer {
+	transition: transform 0.5s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+/* The ring around a pin dot grows and fades, as a signal on a radar. */
+.rn-pin-dot::after {
+	content: "";
+	position: absolute;
+	inset: -7px;
+	border: 2px solid var(--primary);
+	border-radius: 50%;
+	opacity: 0.55;
+	animation: rn-pulse 1.8s ease-out infinite;
+}
+
+@keyframes rn-pulse {
+	0% {
+		transform: scale(0.5);
+		opacity: 0.7;
+	}
+	80% {
+		transform: scale(1.35);
+		opacity: 0;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ---- Method band: outlined numerals in the paper color on the cobalt ground. ---- */
+
+.rn-outline-num {
+	color: transparent;
+	-webkit-text-stroke: 2px
+		color-mix(in srgb, var(--background) 88%, transparent);
+}
+
+@supports not (-webkit-text-stroke: 2px currentColor) {
+	.rn-outline-num {
+		color: color-mix(in srgb, var(--background) 35%, transparent);
+	}
+}
+
+/* ---- Footer monument: the wordmark drawn as one SVG line, fitted to the page width. ---- */
+
+.rn-monument text {
+	font-family: var(--font-display);
+	font-size: 178px;
+	fill: var(--foreground);
+}
+
+/* ---- Phone call bar: it slides up from the bottom edge after the first screen. ---- */
+
+.rn-callbar {
+	transform: translateY(102%);
+	transition: transform 0.25s ease;
+}
+
+.rn-callbar[data-shown="true"] {
+	transform: translateY(0);
+}
+
+/* ---- Entrances. All run only without a reduced-motion wish. ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+	/* Hero: each title line rises out of its own ruled row at page load. CSS only, so no script is needed. */
+	.rn-line-inner {
+		display: block;
+		animation: rn-line-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+	}
+
+	.rn-line:nth-child(2) .rn-line-inner {
+		animation-delay: 80ms;
+	}
+
+	.rn-line:nth-child(3) .rn-line-inner {
+		animation-delay: 160ms;
+	}
+
+	.rn-hero-fade {
+		animation: rn-fade-up 0.4s ease-out 0.35s both;
+	}
+
+	.rn-hero-stamp {
+		animation: rn-slam 0.45s var(--rn-ease-back) 0.7s both;
+	}
+
+	/* use-reveal.ts: a group that waits below the screen, then rises in. */
+	[data-reveal="waiting"].rn-rise {
+		opacity: 0;
+		transform: translateY(26px);
+	}
+
+	[data-reveal="shown"].rn-rise {
+		transition:
+			opacity 0.45s ease-out,
+			transform 0.45s ease-out;
+	}
+
+	/* Rows and cells of a revealed list come in one after the other, 50 ms apart. */
+	[data-reveal="waiting"] .rn-stagger > * {
+		opacity: 0;
+	}
+
+	[data-reveal="shown"] .rn-stagger > * {
+		animation: rn-fade-up 0.35s ease-out both;
+	}
+
+	.rn-stagger > :nth-child(2) {
+		animation-delay: 50ms;
+	}
+
+	.rn-stagger > :nth-child(3) {
+		animation-delay: 100ms;
+	}
+
+	.rn-stagger > :nth-child(4) {
+		animation-delay: 150ms;
+	}
+
+	.rn-stagger > :nth-child(5) {
+		animation-delay: 200ms;
+	}
+
+	.rn-stagger > :nth-child(6) {
+		animation-delay: 250ms;
+	}
+
+	.rn-stagger > :nth-child(7) {
+		animation-delay: 300ms;
+	}
+
+	.rn-stagger > :nth-child(8) {
+		animation-delay: 350ms;
+	}
+
+	/* Stamps of a revealed group slam down, one after the other. */
+	[data-reveal="waiting"] .rn-slam {
+		opacity: 0;
+	}
+
+	[data-reveal="shown"] .rn-slam {
+		animation: rn-slam 0.45s var(--rn-ease-back) 0.3s both;
+	}
+
+	[data-reveal="shown"] .rn-slam-2 {
+		animation-delay: 0.5s;
+	}
+
+	[data-reveal="shown"] .rn-slam-3 {
+		animation-delay: 0.7s;
+	}
+
+	[data-reveal="shown"] .rn-slam-4 {
+		animation-delay: 0.9s;
+	}
+
+	/* A filter change: the rows that stay come in again. */
+	.rn-refiltered > li {
+		animation: rn-fade-up 0.28s ease-out both;
+	}
+
+	/* A new home in the window: the drawing settles from a smaller, lighter state. */
+	.rn-pop {
+		animation: rn-pop 0.2s ease-out both;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.rn-marquee-track,
+	.rn-pin-dot::after {
+		animation: none;
+	}
+
+	.rn-pin-dot::after {
+		opacity: 0.35;
+	}
+
+	.rn-map-layer,
+	.rn-callbar {
+		transition: none;
+	}
+}
+
+@keyframes rn-line-up {
+	from {
+		transform: translateY(105%);
+	}
+}
+
+@keyframes rn-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+}
+
+@keyframes rn-pop {
+	from {
+		opacity: 0.4;
+		transform: scale(0.94);
+	}
+}

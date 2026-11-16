@@ -1,0 +1,475 @@
+/* Site CSS of the Atelier Nord-Sud home page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the graph paper, the stroke styles of the drawings,
+   the plotter system that draws each figure, the reveal states, and the focus ring.
+   Every color is a theme token or a color-mix() of tokens. No gradient fill, no shadow, no round corner. */
+
+/* The plot progress of one figure: 0 is blank paper, 1 is the finished drawing.
+   A registered number can animate and transition. Its initial value 1 keeps every figure drawn with no script. */
+@property --plot {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 1;
+}
+
+/* The page root and the phone menu panel carry this class. The panel renders outside the page root. */
+.ns-scope {
+	/* Height of the sticky header. Anchors stop below it. */
+	--ns-bar: 56px;
+	/* The second paper tone of the alternate bands. It is a few points darker than the paper. */
+	--ns-paper-2: color-mix(in srgb, var(--muted) 45%, var(--background));
+	/* The graph-paper line: the border token, lightened toward the paper and tinted with the blue info token.
+	   The world keeps the grid at about 6% visibility: it is texture, the drawings must win over it. */
+	--ns-grid: color-mix(
+		in srgb,
+		var(--border) 62%,
+		color-mix(in srgb, var(--background) 90%, var(--info))
+	);
+	--ns-grid-minor: color-mix(in srgb, var(--ns-grid) 45%, transparent);
+	/* The cyan support ink of the drawings: furniture, glazing, hatching. */
+	--ns-cyan: color-mix(in srgb, var(--info) 52%, var(--background));
+	--ns-hatch: color-mix(in srgb, var(--ns-cyan) 55%, transparent);
+	/* The hover ink of a filled button: the ink, one step deeper. */
+	--ns-ink-deep: color-mix(in srgb, var(--foreground) 82%, var(--shadow-color));
+	letter-spacing: normal;
+}
+
+@media (min-width: 1024px) {
+	.ns-scope {
+		--ns-bar: 72px;
+	}
+}
+
+.ns-scope ::selection {
+	background: color-mix(in srgb, var(--ns-cyan) 35%, transparent);
+	color: var(--foreground);
+}
+
+/* The focus ring is ink, never the red pencil. */
+.ns-scope :focus-visible {
+	outline: 2px solid var(--foreground);
+	outline-offset: 3px;
+}
+
+/* ---- the graph paper: two tiers of 1px lines, 70px and 14px. It is texture, never a layout rule. ---- */
+
+.ns-paper,
+.ns-paper-2 {
+	background-color: var(--background);
+	background-image:
+		linear-gradient(var(--ns-grid) 1px, transparent 1px),
+		linear-gradient(90deg, var(--ns-grid) 1px, transparent 1px),
+		linear-gradient(var(--ns-grid-minor) 1px, transparent 1px),
+		linear-gradient(90deg, var(--ns-grid-minor) 1px, transparent 1px);
+	background-size:
+		70px 70px,
+		70px 70px,
+		14px 14px,
+		14px 14px;
+}
+
+.ns-paper-2 {
+	background-color: var(--ns-paper-2);
+}
+
+/* The 1240px container. It keeps 16px of paper at each side on a phone. */
+.ns-wrap {
+	width: min(1240px, 100% - 32px);
+	margin-inline: auto;
+}
+
+@media (min-width: 768px) {
+	.ns-wrap {
+		width: min(1240px, 100% - 64px);
+	}
+}
+
+/* The title voice: the display face of the theme, weight 800. On public pages font-display is the mono label face of the world. */
+.ns-title {
+	font-family: var(--theme-font-display), ui-sans-serif, system-ui, sans-serif;
+	font-weight: 800;
+	letter-spacing: -0.02em;
+}
+
+:lang(ar) .ns-title {
+	font-family: var(--font-display);
+}
+
+/* ---- the drawing strokes. Ink for structure, cyan for support, red for the pencil. ---- */
+
+/* A drawing fills the width of its column. Its viewBox gives the height. */
+.ns-drawing {
+	display: block;
+	width: 100%;
+	height: auto;
+	overflow: visible;
+}
+
+.ns-figure text {
+	font-family: var(--font-display);
+	fill: var(--foreground);
+}
+
+.ns-figure .ns-t-soft {
+	fill: color-mix(in srgb, var(--foreground) 70%, transparent);
+}
+
+.ns-figure .ns-t-red {
+	fill: var(--primary);
+}
+
+/* Text sizes inside the drawings, in viewBox units, times --ns-text-scale.
+   A phone shows each figure smaller, so the scale grows there. */
+.ns-figure {
+	--ns-text-scale: 1;
+}
+/* The hero elevation fills only 5/12 of the wrap, so its labels need a larger scale to stay readable. */
+.ns-figure .ns-text-hero {
+	--ns-text-scale: 1.4;
+}
+.ns-figure .ns-t10 {
+	font-size: calc(10px * var(--ns-text-scale));
+}
+.ns-figure .ns-t11 {
+	font-size: calc(11px * var(--ns-text-scale));
+}
+.ns-figure .ns-t12 {
+	font-size: calc(12px * var(--ns-text-scale));
+}
+.ns-figure .ns-t13 {
+	font-size: calc(13px * var(--ns-text-scale));
+}
+.ns-figure .ns-t15 {
+	font-size: calc(15px * var(--ns-text-scale));
+	letter-spacing: 1px;
+}
+
+/* The scale of each figure follows its viewBox width, so a 10-unit label shows at about 10px on a 390px phone.
+   The default fits the 520 to 680-unit figures. The 920-unit plan and the 400-unit Lauriers sheet set their own. */
+@media (max-width: 767px) {
+	.ns-figure,
+	.ns-figure .ns-text-hero {
+		--ns-text-scale: 1.7;
+	}
+	.ns-figure .ns-text-plan {
+		--ns-text-scale: 1.9;
+	}
+	.ns-figure .ns-text-narrow {
+		--ns-text-scale: 1.3;
+	}
+	/* The bath is 1.8 m wide: on a phone only its name fits inside the room. */
+	.ns-figure .ns-plan-bath-area {
+		display: none;
+	}
+}
+
+.ns-wall,
+.ns-wall-4,
+.ns-ink,
+.ns-ink-2,
+.ns-ink-1,
+.ns-dash,
+.ns-cyan,
+.ns-hatch,
+.ns-red {
+	fill: none;
+}
+
+.ns-wall {
+	stroke: var(--foreground);
+	stroke-width: 6;
+	stroke-linecap: square;
+}
+
+.ns-wall-4 {
+	stroke: var(--foreground);
+	stroke-width: 4;
+	stroke-linecap: square;
+}
+
+.ns-ink {
+	stroke: var(--foreground);
+	stroke-width: 1.5;
+}
+
+.ns-ink-2 {
+	stroke: var(--foreground);
+	stroke-width: 2;
+}
+
+.ns-ink-1 {
+	stroke: var(--foreground);
+	stroke-width: 1.25;
+}
+
+.ns-dash {
+	stroke: var(--foreground);
+	stroke-width: 1.25;
+	stroke-dasharray: 6 4;
+}
+
+.ns-cyan {
+	stroke: var(--ns-cyan);
+	stroke-width: 1.25;
+}
+
+.ns-hatch {
+	stroke: var(--ns-hatch);
+	stroke-width: 1.25;
+}
+
+.ns-red {
+	stroke: var(--primary);
+	stroke-width: 2.25;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* The arrow of a red note is lighter than its ring. */
+.ns-red-thin {
+	stroke-width: 1.75;
+}
+
+/* The arrowhead of every dimension line. arrow-marker-defs.tsx declares the marker once. */
+.ns-arrowhead {
+	fill: var(--foreground);
+}
+
+/* ---- the plotter: a step of a figure draws while --plot crosses its window [--from, --to]. ----
+   A .plot stroke has pathLength 1, so a dash offset of 1 hides it and 0 shows all of it.
+   A .fade element (dashed lines, texts, dimension groups) fades in over the same window. */
+
+.plot-step {
+	--t: clamp(0, (var(--plot) - var(--from)) / (var(--to) - var(--from)), 1);
+}
+
+.plot-step .plot {
+	stroke-dasharray: 1;
+	stroke-dashoffset: calc(1 - var(--t));
+	/* A square cap prints a dot at the start of an empty dash. The stroke stays hidden until its step starts. */
+	opacity: clamp(0, calc(var(--t) * 1000), 1);
+}
+
+.plot-step .fade,
+.plot-step text {
+	opacity: var(--t);
+}
+
+/* The common windows of the small figures: the lines first, the labels last. */
+.plot-lines {
+	--from: 0;
+	--to: 0.72;
+}
+.plot-soft {
+	--from: 0.55;
+	--to: 0.82;
+}
+.plot-labels {
+	--from: 0.78;
+	--to: 1;
+}
+
+/* Three stages of a larger figure: the structure, the openings and support lines, the level marks and dimensions. */
+.plot-a {
+	--from: 0;
+	--to: 0.32;
+}
+.plot-b {
+	--from: 0.28;
+	--to: 0.62;
+}
+.plot-c {
+	--from: 0.58;
+	--to: 0.82;
+}
+
+/* Five equal steps one after the other, for the dimension chain of the method. */
+.plot-seq-1 {
+	--from: 0.1;
+	--to: 0.26;
+}
+.plot-seq-2 {
+	--from: 0.26;
+	--to: 0.42;
+}
+.plot-seq-3 {
+	--from: 0.42;
+	--to: 0.58;
+}
+.plot-seq-4 {
+	--from: 0.58;
+	--to: 0.74;
+}
+.plot-seq-5 {
+	--from: 0.74;
+	--to: 0.9;
+}
+.plot-ticks {
+	--from: 0;
+	--to: 0.12;
+}
+
+/* The windows of the villa plan, in the plotter order: walls, openings, furniture, dimensions, labels, red pencil.
+   plan-rail.tsx lights its phases at the same boundaries (PLAN_PHASE_STARTS of lib/content.ts). */
+.plan-walls-outer {
+	--from: 0;
+	--to: 0.12;
+}
+.plan-walls-inner {
+	--from: 0.1;
+	--to: 0.18;
+}
+.plan-windows {
+	--from: 0.18;
+	--to: 0.25;
+}
+.plan-doors {
+	--from: 0.24;
+	--to: 0.32;
+}
+.plan-furniture-a {
+	--from: 0.32;
+	--to: 0.42;
+}
+.plan-furniture-b {
+	--from: 0.4;
+	--to: 0.5;
+}
+.plan-dimensions {
+	--from: 0.5;
+	--to: 0.66;
+}
+.plan-rooms {
+	--from: 0.66;
+	--to: 0.75;
+}
+.plan-areas {
+	--from: 0.73;
+	--to: 0.82;
+}
+.plan-markup-ring {
+	--from: 0.82;
+	--to: 0.9;
+}
+.plan-markup-arrow {
+	--from: 0.89;
+	--to: 0.93;
+}
+.plan-markup-note {
+	--from: 0.92;
+	--to: 0.97;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The hero elevation plots once at page load, in CSS, so it needs no script. */
+	.ns-plot-on-load {
+		animation: ns-plot 2.2s linear 0.25s both;
+	}
+
+	/* A figure below the first screen waits blank, then plots when use-scroll-reveal.ts shows it. */
+	.ns-figure[data-reveal-state="waiting"] {
+		--plot: 0;
+	}
+
+	.ns-figure[data-reveal-state="shown"] {
+		transition: --plot 1.1s linear 0.1s;
+	}
+
+	/* The villa plan on a phone plots once, slower: it is the showpiece. */
+	.ns-plan-stage[data-reveal-state="shown"] {
+		transition-duration: 1.8s;
+	}
+
+	/* From 1024px use-plan-progress.ts writes --plot from the scroll. The short transition smooths each step. */
+	.ns-plan-stage[data-plan-mode="scrub"] {
+		transition: --plot 0.3s linear;
+	}
+
+	/* A text block below the first screen rises 12px into place. */
+	.ns-rise[data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+
+	.ns-rise[data-reveal-state="shown"] {
+		transition:
+			opacity 0.45s ease-out,
+			transform 0.45s ease-out;
+	}
+
+	/* A block that rises and plots keeps both transitions: one transition list replaces the other. */
+	.ns-rise.ns-figure[data-reveal-state="shown"] {
+		transition:
+			opacity 0.45s ease-out,
+			transform 0.45s ease-out,
+			--plot 1.1s linear 0.1s;
+	}
+
+	/* A section head rule draws across, linear, before its section shows. */
+	.ns-rule {
+		transform-origin: left center;
+	}
+
+	[dir="rtl"] .ns-rule {
+		transform-origin: right center;
+	}
+
+	.ns-rule[data-reveal-state="waiting"] {
+		transform: scaleX(0);
+	}
+
+	.ns-rule[data-reveal-state="shown"] {
+		transition: transform 0.55s linear;
+	}
+}
+
+@keyframes ns-plot {
+	from {
+		--plot: 0;
+	}
+	to {
+		--plot: 1;
+	}
+}
+
+/* ---- the red visa: a wobbly hand frame, rotated as a stamp. ---- */
+
+.ns-visa {
+	transform: rotate(-2.2deg);
+}
+
+[dir="rtl"] .ns-visa {
+	transform: rotate(2.2deg);
+}
+
+/* ---- hover of a mission row: the symbol strokes turn cyan. ---- */
+
+.ns-symbol .ns-ink,
+.ns-symbol .ns-ink-2 {
+	transition: stroke 0.15s linear;
+}
+
+.ns-mission:hover .ns-symbol .ns-ink,
+.ns-mission:hover .ns-symbol .ns-ink-2,
+.ns-mission:focus-within .ns-symbol .ns-ink,
+.ns-mission:focus-within .ns-symbol .ns-ink-2 {
+	stroke: var(--ns-cyan);
+}
+
+/* ---- a link underline that draws in from the start side. ---- */
+
+.ns-underline {
+	background-image: linear-gradient(currentColor, currentColor);
+	background-repeat: no-repeat;
+	background-position: left bottom;
+	background-size: 0% 1px;
+	transition: background-size 0.18s linear;
+}
+
+[dir="rtl"] .ns-underline {
+	background-position: right bottom;
+}
+
+.ns-underline:hover,
+.ns-underline:focus-visible {
+	background-size: 100% 1px;
+}

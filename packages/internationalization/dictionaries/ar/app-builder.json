@@ -1074,7 +1074,8 @@
 			"merge": "دمج",
 			"theme": "السمة",
 			"github": "GitHub",
-			"mcp": "خادم MCP"
+			"mcp": "خادم MCP",
+			"starter": "قالب"
 		},
 		"diff": "الفرق",
 		"numstat": "+{added} −{removed}",

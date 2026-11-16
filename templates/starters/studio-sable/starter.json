@@ -1,0 +1,33 @@
+{
+	"id": "studio-sable",
+	"removed": [],
+	"theme": {
+		"name": "studio sable.",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "studio"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "familjen-grotesk",
+			"displayFont": "ibm-plex-mono",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

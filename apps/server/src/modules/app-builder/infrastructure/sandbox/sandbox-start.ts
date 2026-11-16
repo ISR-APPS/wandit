@@ -1,7 +1,8 @@
 /**
  * Starts the project sandbox outside a builder turn, with the egress inputs
  * of a turn and no LLM proxy token. `VersionsService.restore` and
- * `pullFromGithub`, `SandboxWakeService`, and the `publish-app` task call it. It reads the
+ * `pullFromGithub`, `SandboxWakeService`, the `publish-app` task, and the
+ * `apply-starter-template` task call it. It reads the
  * projects row and the `app_backends` row, calls `getOrCreate`, and after a
  * boot writes the backend `.env` through `syncBackendEnvFile`. It also holds
  * the package install that runs after a repo restore.
@@ -83,13 +84,17 @@ export type SandboxStartDeps = {
  * strict start then works. A running sandbox gets no policy push when the
  * stored hash matches. Throws when the projects row is gone or has no template.
  * After a boot it waits up to 60 s for the dev port to write `.env`.
+ * `harnessKey` is `BuilderHarness.bootstrapKey`: with it, a new sandbox boots
+ * from the template snapshot. Only the `apply-starter-template` task passes it.
  */
-// LIMIT: no `harnessKey`, so a lost sandbox boots from the image, not the
-// template snapshot, and that boot is slower. Upgrade: pass harnessKey when
-// the API bundle and the publish deps load the harness.
+// LIMIT: the API callers and the publish task pass no `harnessKey`, so a lost
+// sandbox boots from the image, not the template snapshot, and that boot is
+// slower. Upgrade: pass harnessKey when the API bundle and the publish deps
+// load the harness.
 export async function startSandboxWithoutTurn(
 	deps: SandboxStartDeps,
 	projectId: string,
+	harnessKey?: string,
 ): Promise<SandboxHandle> {
 	const [project, backend] = await Promise.all([
 		deps.projects.findForTurn(projectId),
@@ -119,6 +124,7 @@ export async function startSandboxWithoutTurn(
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 		} satisfies Partial<Record<SandboxEnvName, string>>,
 		framework: project.framework,
+		harnessKey,
 		networkAllowedHosts: project.networkAllowedHosts,
 		// A running sandbox keeps its `.env`. Only a boot needs the write below.
 		onWake: async () => {

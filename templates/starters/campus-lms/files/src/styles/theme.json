@@ -1,0 +1,120 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Campus",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "pop-pastel"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "lg",
+		"border": "1.5",
+		"shadow": "md",
+		"shadowStyle": "hard",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "rail",
+		"sidebarStart": "open",
+		"sidebarTone": "tint",
+		"activeItem": "pill",
+		"header": "plain",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "duotone",
+		"navIcon": "color"
+	},
+	"resolved": {
+		"light": {
+			"background": "#fff7ec",
+			"foreground": "#241b35",
+			"card": "#ffffff",
+			"cardForeground": "#241b35",
+			"popover": "#ffffff",
+			"popoverForeground": "#241b35",
+			"primary": "#6a47f5",
+			"primaryForeground": "#ffffff",
+			"secondary": "#ffd93b",
+			"secondaryForeground": "#241b35",
+			"muted": "#fff1dc",
+			"mutedForeground": "#5e5470",
+			"accent": "#f3efff",
+			"accentForeground": "#241b35",
+			"destructive": "#c81e1e",
+			"destructiveForeground": "#ffffff",
+			"border": "#241b35",
+			"input": "#241b35",
+			"ring": "#6a47f5",
+			"success": "#0b6b43",
+			"warning": "oklch(0.53 0.124 60)",
+			"info": "oklch(0.52 0.18 262)",
+			"canvas": "oklch(0.955 0.028 78)",
+			"shadowColor": "#241b35",
+			"chart1": "#7c5cff",
+			"chart2": "#ff5fa2",
+			"chart3": "#2fd08a",
+			"chart4": "#ffd93b",
+			"chart5": "#4cb8ff",
+			"contrast": "#241b35",
+			"contrastForeground": "#fff7ec"
+		},
+		"dark": {
+			"background": "#16111f",
+			"foreground": "#fff7ec",
+			"card": "#211a2d",
+			"cardForeground": "#fff7ec",
+			"popover": "#2a2236",
+			"popoverForeground": "#fff7ec",
+			"primary": "#9b85ff",
+			"primaryForeground": "#16111f",
+			"secondary": "#ffd93b",
+			"secondaryForeground": "#241b35",
+			"muted": "#2b2238",
+			"mutedForeground": "#b9afc9",
+			"accent": "oklch(0.3 0.06 290)",
+			"accentForeground": "#fff7ec",
+			"destructive": "#f87171",
+			"destructiveForeground": "#16111f",
+			"border": "oklch(0.6 0.04 300)",
+			"input": "oklch(0.6 0.04 300)",
+			"ring": "#9b85ff",
+			"success": "oklch(0.76 0.16 159)",
+			"warning": "oklch(0.84 0.14 85)",
+			"info": "oklch(0.75 0.14 241)",
+			"canvas": "oklch(0.16 0.025 300)",
+			"shadowColor": "oklch(0.42 0.15 287)",
+			"chart1": "#9b85ff",
+			"chart2": "#ff7eb6",
+			"chart3": "#4ade9e",
+			"chart4": "#ffd93b",
+			"chart5": "#6cc4ff"
+		},
+		"fonts": {
+			"sans": {
+				"family": "DM Sans",
+				"href": "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Bricolage Grotesque",
+				"href": "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Readex Pro",
+				"href": "https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Baloo Bhaijaan 2",
+				"href": "https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 800,
+			"headingTracking": "tight",
+			"numerals": "display"
+		}
+	}
+}

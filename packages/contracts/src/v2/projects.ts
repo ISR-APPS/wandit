@@ -9,7 +9,7 @@ import { z } from "zod";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { projectSchema } from "../v1/projects";
-import { uuidSchema } from "../v1/shared/primitives";
+import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
 import { projectEngineSchema } from "../v1/shared/project-engine";
 import {
 	desktopEngineSchema,
@@ -108,6 +108,23 @@ export type CreateAppProjectResponse = z.infer<
 >;
 
 /**
+ * Body of `POST /api/v2/projects/from-starter-template`. The schema checks
+ * only the format of the id. The API answers 404 STARTER_TEMPLATE_NOT_FOUND
+ * for an id that the catalog does not hold. The answer is
+ * `createAppProjectResponseSchema` with `turnId: null`: no turn runs.
+ */
+export const createAppProjectFromStarterTemplateRequestSchema = z.object({
+	starterTemplateId: starterTemplateIdSchema,
+	// UI language of the user. It selects the tagline in the first chat message.
+	locale: appLanguageSchema,
+});
+
+/** TypeScript create-from-starter-template body. */
+export type CreateAppProjectFromStarterTemplateRequest = z.infer<
+	typeof createAppProjectFromStarterTemplateRequestSchema
+>;
+
+/**
  * A V2 project row over the API: the V1 project fields plus the app-engine
  * fields. `framework`/`templateVersion` name the template the sandbox
  * boots from; null until the create flow assigns them.
@@ -124,6 +141,9 @@ export const appProjectSchema = projectSchema.extend({
 	// Version of the template the project was created from.
 	templateVersion: z.string().nullable(),
 	languages: z.array(appLanguageSchema),
+	// Id of the starter template the project started from. Null for a project
+	// from a prompt, and after the host could not apply the starter template.
+	starterTemplateId: z.string().nullable(),
 	// True when one version changed a file. False while the project holds
 	// only the template, so the web preview shows no app yet.
 	hasCodeChanges: z.boolean(),

@@ -23,6 +23,7 @@ const IDLE: BootSignals = {
 	backend: undefined,
 	hasCodeChanges: true,
 	isPlanning: false,
+	isStarterTemplateApplying: false,
 };
 
 const FIRST_TURN_BOOTING: BootSignals = {
@@ -167,6 +168,21 @@ describe("bootViewOf", () => {
 			viewAfter({ ...templateOnly, tokenStatus: "loading", isFirstTurn: null })
 				.view,
 		).toEqual({ variant: "waiting" });
+	});
+
+	it("shows the starter note while the host applies a starter template, and no asleep note after it", () => {
+		const applying = {
+			...IDLE,
+			hasCodeChanges: false,
+			isStarterTemplateApplying: true,
+		};
+		expect(viewAfter(applying).view).toEqual({ variant: "starter" });
+
+		// The token said `waking` during the apply step. That is the host start, not a sleep.
+		const applied = { ...IDLE, tokenStatus: "ready" as const };
+		expect(stepsOf(viewAfter(applying, applied).view)[0]).toBe(
+			"machine:done:appBuilder.preview.boot.machine.done",
+		);
 	});
 
 	it("ends a template-only turn on the build step, not on the preview step", () => {

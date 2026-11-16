@@ -7,19 +7,24 @@
  * transaction (project, chat, first message, builder session). 5. the
  * backend provision handoff. 6. the first builder turn, which adopts the
  * message row; when it fails, one stored error reply. 7. the title job and
- * `v2_project_created`.
+ * `v2_project_created`. A create from a starter template has no turn: step 6
+ * queues the `apply-starter-template` task, and no title job runs.
  */
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
 	HttpException,
 	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
+	Optional,
 } from "@nestjs/common";
 import {
+	type AppLanguage,
 	type AppProject,
 	type ChatCostResponse,
+	type CreateAppProjectFromStarterTemplateRequest,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	type CreateProjectChatResponse,
@@ -29,6 +34,8 @@ import {
 	turnErrorDataSchema,
 	type UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
+import { findStarterTemplate } from "@wandit/contracts/v2/starter-template-catalog";
+import type { StarterTemplate } from "@wandit/contracts/v2/starter-templates";
 import { getErrorMessage } from "@wandit/observability/error";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -51,14 +58,18 @@ import {
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
+import { starterTemplateNoteMessage } from "../../domain/starter-template-note";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
 import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
 import { LlmProxyRequestsRepository } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
+import { starterTemplateArchivePath } from "../../infrastructure/sandbox/starter-template-archive";
+import { TEMPLATE_ARCHIVE_DIR } from "../../infrastructure/sandbox/template-init";
 import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
+import { TriggerApplyStarterTemplateTaskStarter } from "../../infrastructure/trigger/trigger-apply-starter-template-task-starter";
 import { BackendsService } from "./backends.service";
 import {
 	assertPickableModel,
@@ -66,6 +77,32 @@ import {
 	TURN_HOLD_DEFAULT_CREDITS,
 	TurnsService,
 } from "./turns.service";
+
+/**
+ * Where `createFromStarterTemplate` reads the starter templates. The API uses
+ * the catalog and the archive folder of this server. A spec passes a fake,
+ * because the catalog content changes with each new starter template.
+ */
+export type StarterTemplateSource = {
+	/** The catalog entry of an id, or undefined when the catalog does not hold it. */
+	find: (starterTemplateId: string) => StarterTemplate | undefined;
+	/** True when this server holds the archive `starter-<id>.tar.gz`. */
+	hasArchive: (starterTemplateId: string) => boolean;
+};
+
+/**
+ * 35 min: 3 attempts of 600 s, plus the waits. Longer than the longest run of
+ * the apply task. `get` counts it from the create of the project.
+ */
+const STARTER_TEMPLATE_APPLY_MAX_MS = 35 * 60_000;
+
+const STARTER_TEMPLATE_SOURCE: StarterTemplateSource = {
+	find: findStarterTemplate,
+	hasArchive: (starterTemplateId) =>
+		existsSync(
+			starterTemplateArchivePath(TEMPLATE_ARCHIVE_DIR, starterTemplateId),
+		),
+};
 
 @Injectable()
 export class AppProjectsService {
@@ -75,6 +112,7 @@ export class AppProjectsService {
 		@Inject(ProjectsRepository)
 		private readonly projects: Pick<
 			ProjectsRepository,
+			| "clearStarterTemplateId"
 			| "createWithChatAndFirstMessage"
 			| "findByIdForScope"
 			| "findEngineByIdForScope"
@@ -114,6 +152,7 @@ export class AppProjectsService {
 			ChatsRepository,
 			| "createProjectChat"
 			| "findAccessibleChatById"
+			| "findAccessibleChatByProjectId"
 			| "findEmptyProjectChat"
 			| "insertUiMessagesIfAbsent"
 			| "listProjectChats"
@@ -124,6 +163,15 @@ export class AppProjectsService {
 			LlmProxyRequestsRepository,
 			"sumByChat"
 		>,
+		/** Queues the `apply-starter-template` task of a new starter template project. */
+		@Inject(TriggerApplyStarterTemplateTaskStarter)
+		private readonly starterTemplateTasks: Pick<
+			TriggerApplyStarterTemplateTaskStarter,
+			"start"
+		>,
+		/** Nest passes nothing, so the API gets the catalog and the archive folder. */
+		@Optional()
+		private readonly starterTemplates: StarterTemplateSource = STARTER_TEMPLATE_SOURCE,
 	) {}
 
 	/**
@@ -149,18 +197,7 @@ export class AppProjectsService {
 			assertPickableModel(body.model);
 		}
 
-		// D-C: the create path holds nothing; it only refuses a user with no
-		// credits, before any row exists.
-		const payer = subjectPayer(meteringSubjectFrom(scope));
-		const balance = await this.credits.getSettledBalance(payer);
-		if (balance.settledBalance <= 0) {
-			throw new InsufficientCreditsError(
-				TURN_HOLD_DEFAULT_CREDITS,
-				balance.balance,
-				balance.settledBalance,
-				creditPayerOf(payer, scope.actorUserId),
-			);
-		}
+		await this.assertPayerHasCredits(scope);
 
 		const projectId = randomUUID();
 		const chatId = randomUUID();
@@ -195,26 +232,7 @@ export class AppProjectsService {
 			scope,
 		});
 
-		// D18 and D3: a V2 project gets one backend at creation when the
-		// payer's plan has a free slot. A failure here must not lose the
-		// project — the `app_backends` row stays `error` or absent and the
-		// first turn still runs. `BackendsService` gives a desktop project no
-		// backend.
-		try {
-			await this.backends.provisionBackend(projectId, {
-				countryCode: request.countryCode,
-				// The payer's plan decides the backend slot: the project owner columns.
-				...projectOwnerColumns(scope),
-			});
-		} catch (error) {
-			// A plan without a free backend slot is a product rule, not a
-			// failure: `BackendsService` already logged it.
-			if (!(error instanceof BackendLimitReachedError)) {
-				this.logger.error(
-					`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
-				);
-			}
-		}
+		await this.provisionBackendOrLog(scope, projectId, request.countryCode);
 
 		// WANDIT-166 builder-turn task creates the sandbox on the first turn;
 		// no eager start here (request latency).
@@ -278,6 +296,180 @@ export class AppProjectsService {
 	}
 
 	/**
+	 * `POST /v2/projects/from-starter-template`. Writes the project, its chat,
+	 * and one user message that names the starter template. Then it queues the
+	 * `apply-starter-template` task, which puts the files in the sandbox. No
+	 * turn runs and no credit is spent, so `turnId` is always null. An unknown
+	 * id answers 404 STARTER_TEMPLATE_NOT_FOUND before any row.
+	 */
+	async createFromStarterTemplate(
+		scope: ProjectScope,
+		body: CreateAppProjectFromStarterTemplateRequest,
+		request: { countryCode: string | null },
+	): Promise<CreateAppProjectResponse> {
+		const starterTemplate = this.starterTemplates.find(body.starterTemplateId);
+		if (starterTemplate === undefined) {
+			throw starterTemplateNotFound();
+		}
+		if (!this.starterTemplates.hasArchive(starterTemplate.id)) {
+			// The catalog and the archives come from one deploy. A missing archive
+			// is a deploy problem, so it goes to the error log.
+			this.logger.error(
+				`Starter template ${starterTemplate.id} is in the catalog but its archive is missing`,
+			);
+			throw starterTemplateNotFound();
+		}
+		// A starter template is a set of files on top of the web template.
+		const templateVersion = this.templateVersion.versionFor("web");
+		const templateProfile = TEMPLATE_PROFILES.web;
+		// Product rule: the text of every starter template is English.
+		const languages: AppLanguage[] = ["en"];
+
+		await this.assertPayerHasCredits(scope);
+
+		const projectId = randomUUID();
+		const chatId = randomUUID();
+		const messageId = randomUUID();
+
+		await this.projects.createWithChatAndFirstMessage({
+			app: {
+				// Every starter template is a web app, so it has no desktop shell.
+				desktopEngine: null,
+				framework: templateProfile.framework,
+				harness: HARNESS_BY_ENV[this.v2Env.V2_HARNESS],
+				languages,
+				model: this.v2Env.V2_DEFAULT_MODEL ?? null,
+				starterTemplateId: starterTemplate.id,
+				targetPlatform: "web",
+				templateVersion,
+			},
+			chatId,
+			messageId,
+			// The name is final, so no title job runs.
+			name: starterTemplate.name,
+			projectId,
+			// The first chat message and the project card show this text.
+			prompt: `${starterTemplate.name} - ${starterTemplate.tagline[body.locale]}`,
+			scope,
+		});
+
+		await this.provisionBackendOrLog(scope, projectId, request.countryCode);
+
+		try {
+			await this.starterTemplateTasks.start({
+				chatId,
+				messageId,
+				projectId,
+				starterTemplateId: starterTemplate.id,
+			});
+		} catch (error) {
+			// A failed handoff must not lose the project. Without the task, the
+			// project is an empty project, and the chat says so.
+			this.logger.error(
+				`Starter template ${starterTemplate.id} was not queued for project ${projectId}: ${getErrorMessage(error)}`,
+			);
+			await this.storeStarterTemplateFailure(
+				projectId,
+				chatId,
+				starterTemplate.id,
+			);
+		}
+
+		this.analytics.capture(scope.actorUserId, "v2_project_created", {
+			countryCode: request.countryCode,
+			framework: templateProfile.framework,
+			languages,
+			// This path has no Plan toggle.
+			mode: "build",
+			organizationId: scope.kind === "org" ? scope.organizationId : null,
+			projectId,
+			starterTemplateId: starterTemplate.id,
+			targetPlatform: "web",
+			templateVersion,
+			turnStarted: false,
+		});
+
+		return { chatId, projectId, turnId: null };
+	}
+
+	/**
+	 * D-C: a create holds nothing and debits nothing. It only refuses a payer
+	 * with no credits, before any row exists. Throws `InsufficientCreditsError` (402).
+	 */
+	private async assertPayerHasCredits(scope: ProjectScope): Promise<void> {
+		const payer = subjectPayer(meteringSubjectFrom(scope));
+		const balance = await this.credits.getSettledBalance(payer);
+		if (balance.settledBalance <= 0) {
+			throw new InsufficientCreditsError(
+				TURN_HOLD_DEFAULT_CREDITS,
+				balance.balance,
+				balance.settledBalance,
+				creditPayerOf(payer, scope.actorUserId),
+			);
+		}
+	}
+
+	/**
+	 * D18 and D3: a V2 project gets one backend at creation when the payer's
+	 * plan has a free slot. A failure here must not lose the project: the
+	 * `app_backends` row stays `error` or absent, and the first turn still
+	 * runs. `BackendsService` gives a desktop project no backend.
+	 */
+	private async provisionBackendOrLog(
+		scope: ProjectScope,
+		projectId: string,
+		countryCode: string | null,
+	): Promise<void> {
+		try {
+			await this.backends.provisionBackend(projectId, {
+				countryCode,
+				// The payer's plan decides the backend slot: the project owner columns.
+				...projectOwnerColumns(scope),
+			});
+		} catch (error) {
+			// A plan without a free backend slot is a product rule, not a
+			// failure: `BackendsService` already logged it.
+			if (!(error instanceof BackendLimitReachedError)) {
+				this.logger.error(
+					`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+				);
+			}
+		}
+	}
+
+	/**
+	 * Stores the failed note, then clears `starter_template_id`, in the order of the task.
+	 * When the note write throws, the column stays set, so the next `get` tries again.
+	 * A failed write only logs: the create still answers 201, and `get` still answers the project.
+	 */
+	private async storeStarterTemplateFailure(
+		projectId: string,
+		/** The first chat of the project, or null when `get` finds no chat. No note is stored then. */
+		chatId: string | null,
+		starterTemplateId: string,
+	): Promise<void> {
+		try {
+			if (chatId !== null) {
+				await this.chats.insertUiMessagesIfAbsent(
+					chatId,
+					[
+						starterTemplateNoteMessage(projectId, {
+							starterTemplateId,
+							status: "failed",
+						}),
+					],
+					null,
+				);
+			}
+			await this.projects.clearStarterTemplateId(projectId, starterTemplateId);
+		} catch (error) {
+			this.logger.error(
+				`Starter template failure write failed for project ${projectId}: ${getErrorMessage(error)}`,
+			);
+		}
+	}
+
+	/**
 	 * Stores one assistant message with a single `data-turn-error` part after
 	 * the chat's first message. A failed write only logs: the create still
 	 * answers 201.
@@ -325,7 +517,8 @@ export class AppProjectsService {
 	/**
 	 * `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing.
 	 * `hasCodeChanges` and the version counts read the commits only after
-	 * the scope check.
+	 * the scope check. It also ends a starter template apply that is too old:
+	 * the answer then has `starterTemplateId: null`.
 	 */
 	async get(scope: ProjectScope, projectId: string): Promise<AppProject> {
 		const row = await this.projects.findByIdForScope(scope, projectId);
@@ -337,6 +530,33 @@ export class AppProjectsService {
 			this.appCommits.hasFileChanges(projectId),
 			this.appCommits.countVersions(projectId),
 		]);
+		// State rule: the web waits while the id is set and the project has no
+		// code. The task clears the id after a failure, but a crashed run and a
+		// failed write do not. After the time limit, this read ends the wait.
+		// LIMIT: the time counts from the create, not from the start of the run.
+		// A run that is still active after the limit puts its files in with the
+		// failed note. Upgrade: store the start time of the run.
+		if (
+			row.starterTemplateId !== null &&
+			!hasCodeChanges &&
+			Date.now() - row.createdAt.getTime() > STARTER_TEMPLATE_APPLY_MAX_MS
+		) {
+			// The oldest chat is the chat of the create. It holds the note.
+			const chat = await this.chats.findAccessibleChatByProjectId(
+				scope,
+				projectId,
+			);
+			await this.storeStarterTemplateFailure(
+				projectId,
+				chat?.id ?? null,
+				row.starterTemplateId,
+			);
+			return mapAppProjectRow(
+				{ ...row, starterTemplateId: null },
+				hasCodeChanges,
+				versions,
+			);
+		}
 		return mapAppProjectRow(row, hasCodeChanges, versions);
 	}
 
@@ -457,4 +677,12 @@ export class AppProjectsService {
 			throw new NotFoundException();
 		}
 	}
+}
+
+// The 404 of an id that the catalog does not hold, and of a catalog entry with no archive on this server.
+function starterTemplateNotFound(): NotFoundException {
+	return new NotFoundException({
+		code: "STARTER_TEMPLATE_NOT_FOUND",
+		message: "This template is not available",
+	});
 }

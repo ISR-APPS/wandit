@@ -1,0 +1,35 @@
+{
+	"id": "stillpoint-yoga",
+	"removed": [],
+	"theme": {
+		"name": "Stillpoint",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f5f1e8",
+				"foreground": "#2c2a24",
+				"primary": "#586750"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "karla",
+			"displayFont": "fraunces",
+			"scale": "md",
+			"radius": "xl",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "plain",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "light",
+			"navIcon": "plain"
+		}
+	}
+}

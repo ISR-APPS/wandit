@@ -1,0 +1,33 @@
+{
+	"id": "atelier-louz",
+	"removed": [],
+	"theme": {
+		"name": "Atelier Louz",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "matiere"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "karla",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

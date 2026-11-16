@@ -29,6 +29,7 @@ const project: AppProject = {
 	versionNumber: 4,
 	unpublishedChanges: 3,
 	hasCodeChanges: true,
+	starterTemplateId: null,
 };
 
 // The iframe loads the frame host. "Open in a new tab" must get the run host, another origin.
@@ -46,6 +47,7 @@ const idleBoot: BootContext = {
 	backend: undefined,
 	hasCodeChanges: true,
 	isPlanning: false,
+	isStarterTemplateApplying: false,
 };
 
 // Each mint answers the next token, so no network call happens.

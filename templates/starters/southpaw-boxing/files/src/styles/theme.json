@@ -1,0 +1,114 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Southpaw Boxing Club",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "palestre"
+		},
+		"mode": "dark",
+		"primary": "#b3202c",
+		"font": "archivo",
+		"displayFont": "archivo",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "hard",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "bar",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "bold",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f8f8fb",
+			"foreground": "#1f1f21",
+			"card": "#ffffff",
+			"cardForeground": "#1f1f21",
+			"popover": "#ffffff",
+			"popoverForeground": "#1f1f21",
+			"primary": "#b3202c",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e7e7ea",
+			"secondaryForeground": "#1f1f21",
+			"muted": "#ededf0",
+			"mutedForeground": "#67676a",
+			"accent": "#e8f1d8",
+			"accentForeground": "#1f1f21",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#dbdbde",
+			"input": "#c7c7cb",
+			"ring": "#b3202c",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f0f0f3",
+			"shadowColor": "#212124",
+			"chart1": "#b3202c"
+		},
+		"dark": {
+			"background": "#0b0b0d",
+			"foreground": "#edebe6",
+			"card": "#111114",
+			"cardForeground": "#edebe6",
+			"popover": "#161618",
+			"popoverForeground": "#edebe6",
+			"primary": "#b5222d",
+			"primaryForeground": "#ffffff",
+			"secondary": "#1d1c1f",
+			"secondaryForeground": "#edebe6",
+			"muted": "#171719",
+			"mutedForeground": "#a39e9c",
+			"accent": "#171e04",
+			"accentForeground": "#edebe6",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#252426",
+			"input": "#312f31",
+			"ring": "#b5222d",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#060607",
+			"shadowColor": "#020202",
+			"chart1": "#b5222d"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Barlow Condensed",
+				"href": "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

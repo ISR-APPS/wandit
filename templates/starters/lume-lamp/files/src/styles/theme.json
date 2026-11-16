@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "LUME",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "atelier"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "dm-sans",
+		"displayFont": "newsreader",
+		"scale": "md",
+		"radius": "lg",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f4eee3",
+			"foreground": "#211b15",
+			"card": "#f8f5ef",
+			"cardForeground": "#211b15",
+			"popover": "#f8f5ef",
+			"popoverForeground": "#211b15",
+			"primary": "#a9834c",
+			"primaryForeground": "#191003",
+			"secondary": "#e3ddd3",
+			"secondaryForeground": "#211b15",
+			"muted": "#e9e3d8",
+			"mutedForeground": "#676159",
+			"accent": "#f1e1ca",
+			"accentForeground": "#211b15",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d8d1c7",
+			"input": "#c5bfb5",
+			"ring": "#a9834c",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#ece6db",
+			"shadowColor": "#27201a"
+		},
+		"dark": {
+			"background": "#17130c",
+			"foreground": "#f8f0e9",
+			"card": "#1e1a12",
+			"cardForeground": "#f8f0e9",
+			"popover": "#231f17",
+			"popoverForeground": "#f8f0e9",
+			"primary": "#a9834c",
+			"primaryForeground": "#191003",
+			"secondary": "#2a251d",
+			"secondaryForeground": "#f8f0e9",
+			"muted": "#242018",
+			"mutedForeground": "#ada69f",
+			"accent": "#312108",
+			"accentForeground": "#f8f0e9",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#312d25",
+			"input": "#3d3830",
+			"ring": "#a9834c",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#110d06",
+			"shadowColor": "#030100"
+		},
+		"fonts": {
+			"sans": {
+				"family": "DM Sans",
+				"href": "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Newsreader",
+				"href": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Space Grotesk",
+				"href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

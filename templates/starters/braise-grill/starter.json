@@ -1,0 +1,33 @@
+{
+	"id": "braise-grill",
+	"removed": [],
+	"theme": {
+		"name": "Braise",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "braise"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "nunito",
+			"displayFont": "bricolage-grotesque",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "bar",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

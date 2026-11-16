@@ -25,6 +25,8 @@ export type BootContext = {
 	hasCodeChanges: boolean;
 	/** True while the newest turn of the chat is a Plan Mode turn (`thread.latestTurnMode`). A template-only project then shows the planning note. */
 	isPlanning: boolean;
+	/** True while the host applies the starter template of the project, with no turn. From `isStarterTemplateApplying(project)`. */
+	isStarterTemplateApplying: boolean;
 };
 
 /** Everything the mapping reads. PreviewPanel shows its own alert for the token status `error` and `blocked`. */
@@ -84,13 +86,15 @@ export type BootScene =
  * What the screen shows. `stopped` is true when a turn failed while the user
  * watched. `waiting` is for a project with only the template and no turn.
  * `planning` is for a project with only the template while Plan Mode asks
- * and plans, during a turn and between turns.
+ * and plans, during a turn and between turns. `starter` is for a project
+ * whose starter template the host applies now.
  */
 export type BootView =
 	| { variant: "loading" }
 	| { variant: "asleep"; stopped: boolean }
 	| { variant: "waiting" }
 	| { variant: "planning" }
+	| { variant: "starter" }
 	| {
 			variant: "booting";
 			/** `create`: a new app is set up. `wake`: a saved app wakes. `open`: the app page loads, or the first version builds. */
@@ -116,9 +120,12 @@ export function rememberBoot(
 ): BootMemory {
 	// A chat message or the wake button wakes a stopped sandbox.
 	// So asleep holds until a turn starts or the wake route accepts a wake.
+	// The host starts the sandbox for a starter template, so a `waking` token in that time is not a sleep.
+	// LIMIT: the asleep note can show for 3 s when the apply step ends before the next token poll. Upgrade: the project answer reports the sandbox state.
 	const asleep =
 		!signals.isTurnRunning &&
 		!signals.wakeAccepted &&
+		!signals.isStarterTemplateApplying &&
 		(memory.asleep || signals.tokenStatus === "waking");
 	const machineAnswers =
 		signals.tokenStatus === "ready" ||
@@ -139,6 +146,8 @@ export function rememberBoot(
 
 /** The screen content for the signals, and for the memory that rememberBoot returned for them. */
 export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
+	// Product rule: the host applies a starter template with no turn. The chat cannot start the build, so the waiting note does not apply.
+	if (signals.isStarterTemplateApplying) return { variant: "starter" };
 	// Product rule: Plan Mode builds nothing until the user approves a plan, so no build step shows.
 	if (!signals.hasCodeChanges && signals.isPlanning) {
 		return { variant: "planning" };
@@ -238,6 +247,9 @@ export function sceneOf(view: BootView): BootScene {
 		// The light-line drawing of an app reads as the sketch of the plan.
 		case "planning":
 			return "open";
+		// The host sets up the project from the starter template, like the first turn of a new app.
+		case "starter":
+			return "create";
 		case "booting":
 			return view.scene;
 	}

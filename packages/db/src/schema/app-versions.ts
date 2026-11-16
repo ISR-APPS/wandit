@@ -25,8 +25,9 @@ import { projects } from "./projects";
 /**
  * What made the commit: an agent turn, a restore, a work-in-progress
  * snapshot, a merge, a theme save of the builder Thème sheet, an Update
- * from the linked GitHub repo, or a direct file edit of an external coding
- * agent through the MCP server ("mcp").
+ * from the linked GitHub repo, a direct file edit of an external coding
+ * agent through the MCP server ("mcp"), or the host commit that puts the
+ * files of a starter template in a new project ("starter").
  */
 export const appCommitSource = pgEnum("app_commit_source", [
 	"agent",
@@ -36,6 +37,7 @@ export const appCommitSource = pgEnum("app_commit_source", [
 	"theme",
 	"github",
 	"mcp",
+	"starter",
 ]);
 
 export const appCommits = pgTable(

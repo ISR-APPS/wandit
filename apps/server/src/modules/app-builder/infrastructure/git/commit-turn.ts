@@ -3,7 +3,8 @@
  * The builder-turn task and the restore flow call it after a turn's file
  * changes; the theme save calls it for theme.json only; the GitHub Update
  * calls it for its merge commit. The MCP `apply_changes` tool calls it for
- * the paths that the agent changed. It runs git inside the sandbox through
+ * the paths that the agent changed. The `apply-starter-template` task calls
+ * it for the files of a starter template. It runs git inside the sandbox through
  * `SandboxHandle.exec`. It stores the patch and numstat in R2, pushes to
  * code.storage, writes the `app_commits` row, and moves the `main` head
  * compare-and-swap. Then it schedules the GitHub sync through
@@ -78,7 +79,7 @@ export type CommitTurnDeps = {
 
 /**
  * One commit input. The task fills the turn fields. A restore, a theme save,
- * and a GitHub Update set them to null.
+ * and a GitHub Update set them to null. A starter template commit sets only the chat.
  */
 export type CommitTurnInput = {
 	projectId: string;
@@ -86,21 +87,21 @@ export type CommitTurnInput = {
 	userId: string;
 	/** Org workspace of the project, or null on a personal project. */
 	organizationId: string | null;
-	/** The chat whose turn produced the commit; null on a restore, a theme save, and a GitHub Update. */
+	/** The chat whose turn produced the commit, or the first chat of a starter template project; null on a restore, a theme save, and a GitHub Update. */
 	chatId: string | null;
-	/** The `builder_turns` row; null on a restore, a theme save, a GitHub Update, and an MCP edit, which are not turns. */
+	/** The `builder_turns` row; null on a restore, a theme save, a GitHub Update, an MCP edit, and a starter template, which are not turns. */
 	turnId: string | null;
 	/**
 	 * Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore,
 	 * `theme-<uuid>` on a theme save, `github-<uuid>` or `pre-github-<uuid>` on a GitHub Update,
-	 * `mcp-<uuid>` on an `apply_changes` call.
+	 * `mcp-<uuid>` on an `apply_changes` call. On a starter template commit, the id of the first user message.
 	 */
 	messageId: string;
 	/**
 	 * The `app_commit_source` value. "github" is the merge commit of a GitHub Update; the sandbox then has MERGE_HEAD set.
-	 * "mcp" is a direct file edit of an external coding agent.
+	 * "mcp" is a direct file edit of an external coding agent. "starter" is the overlay of a starter template.
 	 */
-	source: "agent" | "wip" | "restore" | "theme" | "github" | "mcp";
+	source: "agent" | "wip" | "restore" | "theme" | "github" | "mcp" | "starter";
 	summary: string;
 	restoredFromSha?: string;
 	/**

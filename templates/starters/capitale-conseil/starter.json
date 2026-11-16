@@ -1,0 +1,33 @@
+{
+	"id": "capitale-conseil",
+	"removed": [],
+	"theme": {
+		"name": "Capitale Conseil",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "capitale"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "figtree",
+			"displayFont": "newsreader",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

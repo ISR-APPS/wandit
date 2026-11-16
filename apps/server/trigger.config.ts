@@ -107,7 +107,7 @@ export default defineConfig({
 			aptGet({ packages: ["git"] }),
 			mobileBuildTools(),
 			// The deployed worker has no repo checkout. This copies every packed
-			// template archive (web-app, mobile-app, desktop-app) and the base
+			// template archive (web-app, mobile-app, desktop-app, and each starter-<id>) and the base
 			// schema next to the bundle. The leading "../.." is dropped, so all
 			// land under `<build>/templates/`, the first folder
 			// `resolveTemplateArchiveDir` tries. The deploy workflow runs

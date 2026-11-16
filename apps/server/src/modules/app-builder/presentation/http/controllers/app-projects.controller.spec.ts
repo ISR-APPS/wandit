@@ -25,6 +25,8 @@ function setup() {
 			turnId: "turn-1",
 		})),
 		createChat: vi.fn<AppProjectsService["createChat"]>(),
+		createFromStarterTemplate:
+			vi.fn<AppProjectsService["createFromStarterTemplate"]>(),
 		get: vi.fn(),
 		listChats: vi.fn<AppProjectsService["listChats"]>(),
 	};
@@ -104,11 +106,14 @@ describe("AppProjectsController", () => {
 });
 
 describe("AppProjectsController route metadata", () => {
-	it("gates create on project:create", () => {
+	it.each([
+		"create",
+		"createFromStarterTemplate",
+	] as const)("gates %s on project:create", (route) => {
 		expect(
 			Reflect.getMetadata(
 				WORKSPACE_PERMISSION_KEY,
-				AppProjectsController.prototype.create,
+				AppProjectsController.prototype[route],
 			),
 		).toEqual({ actions: ["create"], resource: "project" });
 	});

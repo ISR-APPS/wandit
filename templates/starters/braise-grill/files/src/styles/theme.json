@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Braise",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "braise"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "nunito",
+		"displayFont": "bricolage-grotesque",
+		"scale": "md",
+		"radius": "sm",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "bar",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#fff6f4",
+			"foreground": "#251d1b",
+			"card": "#ffffff",
+			"cardForeground": "#251d1b",
+			"popover": "#ffffff",
+			"popoverForeground": "#251d1b",
+			"primary": "#d96b2c",
+			"primaryForeground": "#1c0d06",
+			"secondary": "#efe5e2",
+			"secondaryForeground": "#251d1b",
+			"muted": "#f5ebe8",
+			"mutedForeground": "#6e6563",
+			"accent": "#ffe7dc",
+			"accentForeground": "#251d1b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#e3d9d6",
+			"input": "#cfc5c2",
+			"ring": "#d96b2c",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f8eeeb",
+			"shadowColor": "#27201d"
+		},
+		"dark": {
+			"background": "#191210",
+			"foreground": "#f2e7da",
+			"card": "#201917",
+			"cardForeground": "#f2e7da",
+			"popover": "#251d1b",
+			"popoverForeground": "#f2e7da",
+			"primary": "#d96b2c",
+			"primaryForeground": "#1c0d06",
+			"secondary": "#2b2320",
+			"secondaryForeground": "#f2e7da",
+			"muted": "#261e1b",
+			"mutedForeground": "#aa9f96",
+			"accent": "#361d10",
+			"accentForeground": "#f2e7da",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#332a27",
+			"input": "#3e3532",
+			"ring": "#d96b2c",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#120c0a",
+			"shadowColor": "#030101"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Bricolage Grotesque",
+				"href": "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Bricolage Grotesque",
+				"href": "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

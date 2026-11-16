@@ -1,0 +1,33 @@
+{
+	"id": "vertu-law-firm",
+	"removed": [],
+	"theme": {
+		"name": "Vertu & Associes",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "cabinet"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "public-sans",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

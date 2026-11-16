@@ -1,0 +1,33 @@
+{
+	"id": "sina-polyclinic",
+	"removed": [],
+	"theme": {
+		"name": "Sina Polyclinic",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "serment"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "public-sans",
+			"displayFont": "source-serif-4",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

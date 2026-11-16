@@ -1,0 +1,862 @@
+/* Site CSS of the Braise home page: the layouts, the world motifs, and the motion that Tailwind classes cannot express.
+   LandingPage imports this file. Every color is a theme token or a color-mix() of tokens.
+   use-scroll-reveal.ts sets data-reveal-state; use-smoke-scrub.ts sets --br-smoke and --br-lit.
+   With no script, or with reduced motion, no state exists: every block is visible and every slate is lit. */
+
+/* ---------- page frame ---------- */
+/* The page variables. The phone menu panel renders in a portal outside the page, so it takes them too. */
+.br-page,
+.br-panel {
+	--br-gutter: clamp(20px, 5vw, 64px);
+	--br-maxw: 1240px;
+	/* The distance from the container content edge to the viewport edge. A bled photo uses it to reach the glass. */
+	--br-bleed: max(var(--br-gutter), calc((100vw - var(--br-maxw)) / 2));
+	--br-ash: color-mix(in oklab, var(--secondary), var(--accent) 40%);
+	--br-ember-hot: color-mix(in oklab, var(--primary), var(--warning) 28%);
+	--br-hair: color-mix(in oklab, var(--foreground) 12%, transparent);
+	--br-hair-strong: color-mix(in oklab, var(--foreground) 22%, transparent);
+	--br-heat: color-mix(in oklab, var(--primary) 50%, transparent);
+}
+
+.br-page {
+	/* 100vw above counts the scroll bar. Clip, not hidden, so the sticky header still sticks. */
+	overflow-x: clip;
+	background: var(--background);
+	color: var(--foreground);
+	font-size: clamp(15.5px, 1.02vw, 17.5px);
+	line-height: 1.62;
+	-webkit-font-smoothing: antialiased;
+}
+
+.br-page [id] {
+	scroll-margin-top: 96px;
+}
+
+.br-page :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+.br-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.br-wrap {
+	width: 100%;
+	max-width: calc(var(--br-maxw) + 2 * var(--br-gutter));
+	margin-inline: auto;
+	padding-inline: var(--br-gutter);
+}
+
+.br-section {
+	position: relative;
+	padding-block: clamp(4.5rem, 9vh, 8rem);
+}
+
+/* The room opens on its photo band, so the band touches the chef section above it. */
+.br-room {
+	padding-top: 0;
+}
+
+/* ---------- the ember underline: the one color gradient of the page ---------- */
+.br-uline,
+.br-fire__u,
+.br-slate__rule {
+	display: block;
+	transform-origin: left center;
+	background-image: linear-gradient(
+		90deg,
+		var(--primary) 0%,
+		var(--br-heat) 42%,
+		transparent 100%
+	);
+}
+
+/* In Arabic the heat still leaves the word from its start. */
+.br-uline:dir(rtl),
+.br-fire__u:dir(rtl),
+.br-slate__rule:dir(rtl) {
+	transform-origin: right center;
+	background-image: linear-gradient(
+		270deg,
+		var(--primary) 0%,
+		var(--br-heat) 42%,
+		transparent 100%
+	);
+}
+
+.br-uline {
+	height: 2px;
+	width: clamp(120px, 17vw, 232px);
+}
+
+.br-uline--wide {
+	width: min(100%, 560px);
+	height: 3px;
+}
+
+.br-uline--short {
+	width: clamp(72px, 9vw, 124px);
+}
+
+.br-uline--full {
+	width: 100%;
+	height: 3px;
+}
+
+.br-fire {
+	position: relative;
+	display: inline-block;
+}
+
+.br-fire__u {
+	position: absolute;
+	inset-inline: 0;
+	bottom: -0.055em;
+	height: 0.07em;
+}
+
+/* ---------- link hover: the underline grows from the start ---------- */
+.br-link {
+	background-image: linear-gradient(90deg, var(--primary), transparent);
+	background-size: 0 2px;
+	background-repeat: no-repeat;
+	background-position: 0 100%;
+	padding-bottom: 3px;
+	transition:
+		background-size 0.24s ease,
+		color 0.2s ease;
+}
+
+.br-link:dir(rtl) {
+	background-image: linear-gradient(270deg, var(--primary), transparent);
+	background-position: 100% 100%;
+}
+
+.br-link:hover,
+.br-link:focus-visible {
+	background-size: 100% 2px;
+}
+
+/* ---------- the live ember dot and its halo ---------- */
+.br-dot {
+	position: relative;
+	display: inline-flex;
+	flex: 0 0 9px;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--primary);
+}
+
+.br-halo {
+	position: absolute;
+	/* Physical centering is the same in both directions. translate and scale are separate, so the pulse keeps it. */
+	left: 50%;
+	top: 50%;
+	translate: -50% -50%;
+	width: 118px;
+	height: 118px;
+	border-radius: 50%;
+	pointer-events: none;
+	opacity: 0.4;
+	background: radial-gradient(
+		circle,
+		color-mix(in oklab, var(--primary) 45%, transparent),
+		transparent 68%
+	);
+}
+
+/* The halo of a dot is smaller than the halo behind a button. */
+.br-dot > .br-halo {
+	width: 44px;
+	height: 44px;
+}
+
+/* ---------- photographs: one grade, a hairline frame, a dark backing ---------- */
+.br-photo {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	filter: sepia(0.08) contrast(1.05);
+}
+
+.br-frame {
+	position: relative;
+	overflow: hidden;
+	border-radius: calc(var(--radius) * 0.5);
+	background: var(--canvas);
+}
+
+/* The hairline sits over the photo, so the image does not hide it. */
+.br-frame::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 1px var(--br-hair);
+	pointer-events: none;
+}
+
+/* ---------- charcoal slates ---------- */
+.br-slate {
+	position: relative;
+	overflow: hidden;
+	background: var(--canvas);
+	border: 1px solid var(--br-hair);
+	border-radius: calc(var(--radius) * 0.34);
+	padding: clamp(18px, 1.9vw, 26px) clamp(18px, 2vw, 28px)
+		clamp(20px, 2.2vw, 30px);
+}
+
+/* The booking slate holds the call to book, so it gets more air than a menu slate. */
+.br-slate--book {
+	padding: clamp(22px, 2.6vw, 38px);
+}
+
+/* The heat in the lower start corner. --br-lit is 1 with no script, so the slate is warm. */
+.br-slate__heat {
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	width: 62%;
+	pointer-events: none;
+	opacity: var(--br-lit, 1);
+	background: radial-gradient(
+		75% 120% at 0% 100%,
+		color-mix(in oklab, var(--primary) 20%, transparent),
+		transparent 70%
+	);
+}
+
+.br-slate__heat:dir(rtl) {
+	background: radial-gradient(
+		75% 120% at 100% 100%,
+		color-mix(in oklab, var(--primary) 20%, transparent),
+		transparent 70%
+	);
+}
+
+.br-slate__rule {
+	height: 2px;
+	margin-block: 14px 16px;
+	transform: scaleX(var(--br-lit, 1));
+}
+
+.br-dish {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding-block: 9px;
+	border-bottom: 1px solid
+		color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+.br-dish:last-child {
+	border-bottom: 0;
+	padding-bottom: 0;
+}
+
+/* The dotted leader between a dish and its price. */
+.br-leader {
+	flex: 1 1 22px;
+	min-width: 14px;
+	height: 1px;
+	border-bottom: 1px dotted
+		color-mix(in oklab, var(--foreground) 24%, transparent);
+	transform: translateY(-4px);
+}
+
+/* A price is chalk when its slate is lit, and 55% chalk before. The floor keeps the board readable. */
+.br-price {
+	color: color-mix(
+		in oklab,
+		var(--foreground) calc(55% + 45% * var(--br-lit, 1)),
+		transparent
+	);
+}
+
+/* ---------- hero: the seam between the text panel and the fire photo ---------- */
+.br-hero {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+	min-height: clamp(600px, 86vh, 880px);
+}
+
+.br-hero__col {
+	position: relative;
+	z-index: 3;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	padding-block: clamp(48px, 8vh, 96px) clamp(40px, 7vh, 80px);
+	padding-inline: var(--br-bleed) clamp(26px, 3.2vw, 54px);
+}
+
+.br-hero__media {
+	position: relative;
+	overflow: hidden;
+	background: var(--canvas);
+}
+
+.br-hero__media > img {
+	position: absolute;
+	inset: 0;
+	object-position: 58% 52%;
+}
+
+/* The seam: the ground runs into the photo. It is ground, not a dimmed image. */
+.br-hero__seam {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(
+		90deg,
+		var(--background) 0%,
+		color-mix(in oklab, var(--background) 62%, transparent) 16%,
+		transparent 46%
+	);
+}
+
+.br-hero__seam:dir(rtl) {
+	background: linear-gradient(
+		270deg,
+		var(--background) 0%,
+		color-mix(in oklab, var(--background) 62%, transparent) 16%,
+		transparent 46%
+	);
+}
+
+/* The tonight slate runs past the column, over the seam. */
+.br-hero__tonight {
+	margin-top: clamp(30px, 4vh, 52px);
+	width: calc(100% + clamp(30px, 9vw, 170px));
+}
+
+.br-tonight__cell {
+	flex: 1 1 120px;
+	min-width: 110px;
+}
+
+.br-tonight__cell + .br-tonight__cell {
+	border-inline-start: 1px solid var(--br-hair);
+	padding-inline-start: clamp(16px, 2vw, 28px);
+}
+
+/* ---------- 01 hearth: the photo bleeds off the start edge ---------- */
+.br-hearth__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 4fr) minmax(0, 7.6fr);
+	gap: clamp(24px, 4vw, 68px);
+	align-items: center;
+}
+
+/* On a wide screen the prose stops at 56ch. A larger photo fills the row, so the end side is not empty. */
+@media (min-width: 1280px) {
+	.br-hearth__grid {
+		grid-template-columns: minmax(0, 4.6fr) minmax(0, 7fr);
+	}
+}
+
+.br-hearth__fig {
+	margin: 0;
+	margin-inline-start: calc(-1 * var(--br-bleed));
+}
+
+.br-hearth__fig > .br-frame {
+	aspect-ratio: 3 / 4;
+	border-start-start-radius: 0;
+	border-end-start-radius: 0;
+}
+
+/* The photo bleeds, its caption does not: it starts on the content edge, like the ledger under it. */
+.br-hearth__fig > figcaption {
+	max-width: none;
+	padding-inline-start: var(--br-bleed);
+}
+
+/* ---------- 02 menu: the smoke rail beside the slates ---------- */
+.br-carte {
+	display: grid;
+	grid-template-columns: 96px minmax(0, 1fr);
+	grid-template-areas:
+		"rail head"
+		"rail list";
+	column-gap: clamp(14px, 2.6vw, 42px);
+	align-items: start;
+}
+
+.br-carte__head {
+	grid-area: head;
+}
+
+.br-carte__list {
+	grid-area: list;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: clamp(12px, 1.5vw, 20px);
+}
+
+.br-slate--wide {
+	grid-column: 1 / -1;
+}
+
+.br-smoke {
+	grid-area: rail;
+	align-self: stretch;
+	position: relative;
+}
+
+.br-smoke__in {
+	position: sticky;
+	top: 14vh;
+	height: 60vh;
+	min-height: 340px;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+}
+
+/* The mask reads alpha only: the top of the plume thins, then dissolves. */
+.br-smoke__svg {
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	-webkit-mask-image: linear-gradient(
+		to top,
+		var(--foreground) 0%,
+		var(--foreground) 42%,
+		color-mix(in oklab, var(--foreground) 25%, transparent) 88%,
+		transparent 100%
+	);
+	mask-image: linear-gradient(
+		to top,
+		var(--foreground) 0%,
+		var(--foreground) 42%,
+		color-mix(in oklab, var(--foreground) 25%, transparent) 88%,
+		transparent 100%
+	);
+}
+
+/* use-smoke-scrub.ts sets the dash of the path. With no script the plume is fully drawn. */
+.br-smoke__path {
+	stroke: var(--primary);
+	stroke-opacity: 0.92;
+}
+
+.br-smoke__tip {
+	fill: var(--br-ember-hot);
+}
+
+.br-smoke__glow {
+	fill: var(--primary);
+}
+
+.br-smoke__base {
+	position: absolute;
+	bottom: -9px;
+	inset-inline: 0;
+	margin-inline: auto;
+	width: 38px;
+	height: 5px;
+	border-radius: 2px;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		var(--br-ember-hot) 50%,
+		transparent
+	);
+}
+
+.br-smoke__base::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	translate: -50% -50%;
+	width: 86px;
+	height: 44px;
+	border-radius: 50%;
+	background: radial-gradient(
+		circle,
+		color-mix(in oklab, var(--primary) 42%, transparent),
+		transparent 70%
+	);
+}
+
+.br-feast {
+	position: relative;
+	z-index: 2;
+	display: grid;
+	grid-template-columns: 41% minmax(0, 1fr);
+	gap: clamp(18px, 2.6vw, 38px);
+	align-items: center;
+}
+
+.br-feast__photo {
+	aspect-ratio: 4 / 3;
+}
+
+.br-feast__photo > img {
+	object-position: 53% 80%;
+}
+
+/* ---------- 03 chef: the photo bleeds off the end edge ---------- */
+.br-chef__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 6.4fr) minmax(0, 5.2fr);
+	gap: clamp(24px, 4vw, 64px);
+	align-items: start;
+}
+
+.br-chef__fig {
+	order: 2;
+	margin: 0;
+	margin-inline-end: calc(-1 * var(--br-bleed));
+}
+
+.br-chef__fig > .br-frame {
+	aspect-ratio: 4 / 5;
+	border-start-end-radius: 0;
+	border-end-end-radius: 0;
+}
+
+.br-chef__body {
+	order: 1;
+}
+
+/* A wide screen crops the photo square, so its height matches the text column and leaves no empty area. */
+@media (min-width: 1080px) {
+	.br-chef__fig > .br-frame {
+		aspect-ratio: 1 / 1;
+	}
+}
+
+/* ---------- 04 room: the photo band and the register ---------- */
+.br-band {
+	position: relative;
+	margin: 0;
+	width: 100%;
+	height: clamp(230px, 39vh, 420px);
+	overflow: hidden;
+	background: var(--canvas);
+}
+
+.br-band > img {
+	position: absolute;
+	inset: 0;
+	object-position: 50% 46%;
+}
+
+.br-band__edge {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(
+		to bottom,
+		color-mix(in oklab, var(--background) 30%, transparent),
+		transparent 34%,
+		transparent 62%,
+		color-mix(in oklab, var(--background) 75%, transparent) 100%
+	);
+}
+
+.br-room__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 4.6fr) minmax(0, 7fr);
+	gap: clamp(26px, 4vw, 70px);
+	align-items: start;
+	margin-top: clamp(30px, 4.5vh, 52px);
+}
+
+/* ---------- 05 evening: three moments, each one lower than the last ---------- */
+.br-moments {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: clamp(20px, 3.4vw, 54px);
+	align-items: start;
+}
+
+.br-moment:nth-child(2) {
+	margin-top: clamp(26px, 6vh, 74px);
+}
+
+.br-moment:nth-child(3) {
+	margin-top: clamp(52px, 12vh, 148px);
+}
+
+/* ---------- 06 booking ---------- */
+.br-booking__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 5.2fr) minmax(0, 6.4fr);
+	gap: clamp(28px, 4.5vw, 76px);
+	align-items: start;
+}
+
+/* ---------- footer monument: the wordmark, capped at 150 px ---------- */
+.br-monument {
+	font-size: min(9.5vw, 150px);
+	line-height: 0.82;
+	letter-spacing: -0.045em;
+	white-space: nowrap;
+	overflow: hidden;
+	user-select: none;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1080px) {
+	.br-hearth__grid {
+		grid-template-columns: minmax(0, 4.4fr) minmax(0, 7fr);
+		gap: clamp(20px, 3vw, 40px);
+	}
+
+	.br-chef__grid {
+		grid-template-columns: minmax(0, 6fr) minmax(0, 5.4fr);
+	}
+
+	.br-room__grid,
+	.br-booking__grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.br-booking__grid {
+		gap: clamp(30px, 5vh, 48px);
+	}
+}
+
+@media (max-width: 859.98px) {
+	/* The hero stacks as text, then photo, then slate. The fire lands inside the first screen. */
+	.br-hero {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.br-hero__col {
+		display: contents;
+	}
+
+	.br-hero__text {
+		order: 1;
+		padding: clamp(34px, 5vh, 52px) var(--br-gutter) clamp(26px, 4vh, 38px);
+	}
+
+	.br-hero__media {
+		order: 2;
+		height: clamp(240px, 38vh, 360px);
+	}
+
+	.br-hero__seam,
+	.br-hero__seam:dir(rtl) {
+		background: linear-gradient(
+			to bottom,
+			var(--background) 0%,
+			color-mix(in oklab, var(--background) 50%, transparent) 12%,
+			transparent 42%
+		);
+	}
+
+	.br-hero__tonight {
+		order: 3;
+		width: auto;
+		margin: clamp(22px, 3.4vh, 32px) var(--br-gutter) clamp(34px, 5vh, 48px);
+	}
+
+	.br-hearth__grid,
+	.br-chef__grid {
+		grid-template-columns: minmax(0, 1fr);
+		gap: clamp(24px, 4vh, 38px);
+	}
+
+	.br-hearth__fig,
+	.br-chef__fig {
+		margin-inline: calc(-1 * var(--br-bleed));
+	}
+
+	.br-hearth__fig > .br-frame,
+	.br-chef__fig > .br-frame {
+		aspect-ratio: 4 / 3;
+		border-radius: 0;
+	}
+
+	.br-hearth__fig > figcaption,
+	.br-chef__fig > figcaption {
+		padding-inline: var(--br-gutter);
+	}
+
+	.br-chef__fig {
+		order: 1;
+	}
+
+	.br-chef__body {
+		order: 2;
+	}
+
+	/* The plume leaves the grid and rises in the start gutter, so head and slates keep one edge. */
+	.br-carte {
+		position: relative;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-areas:
+			"head"
+			"list";
+		column-gap: 0;
+	}
+
+	.br-carte__list {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.br-smoke {
+		grid-area: auto;
+		position: absolute;
+		inset-block: 0;
+		inset-inline-start: 0;
+		width: var(--br-gutter);
+		z-index: 3;
+		pointer-events: none;
+	}
+
+	.br-smoke__in {
+		top: 12vh;
+		height: 38vh;
+		min-height: 250px;
+	}
+
+	.br-smoke__base {
+		width: 16px;
+		height: 4px;
+	}
+
+	/* A small glow stays inside the gutter and does not smudge the start edge of the slate. */
+	.br-smoke__base::after {
+		width: 20px;
+		height: 16px;
+	}
+
+	.br-feast {
+		grid-template-columns: minmax(0, 1fr);
+		gap: clamp(16px, 3vh, 24px);
+	}
+
+	.br-moments {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0;
+	}
+
+	.br-moment:nth-child(n) {
+		margin-top: 0;
+	}
+
+	/* A phone shows the wordmark at about 80px, so it still reads as the signature of the footer. */
+	.br-monument {
+		font-size: min(21vw, 92px);
+	}
+}
+
+@media (max-width: 520px) {
+	.br-leader {
+		flex-basis: 30px;
+		min-width: 30px;
+	}
+}
+
+/* On a phone, and where the hero column is narrow, "Tonight" takes a full row.
+   The two sittings share the row under it, so no cell wraps alone. */
+@media (max-width: 520px), (min-width: 860px) and (max-width: 999.98px) {
+	.br-tonight__cell:first-child {
+		flex-basis: 100%;
+	}
+
+	.br-tonight__cell + .br-tonight__cell {
+		flex: 1 1 40%;
+		min-width: 0;
+		border-inline-start: 0;
+		padding-inline-start: 0;
+		border-top: 1px solid var(--br-hair);
+		padding-top: 14px;
+	}
+
+	.br-tonight__cell:nth-child(3) {
+		border-inline-start: 1px solid var(--br-hair);
+		padding-inline-start: 16px;
+	}
+}
+
+/* ---------- motion: only when the visitor accepts it ---------- */
+@media (prefers-reduced-motion: no-preference) {
+	/* The only loop of the page: a slow ember pulse on the dots and the main button halo. */
+	.br-halo {
+		animation: br-glow 1.5s ease-in-out infinite alternate;
+	}
+
+	.br-halo--late {
+		animation-delay: 0.35s;
+	}
+
+	/* use-scroll-reveal.ts sets these states only on blocks below the first screen. */
+	[data-reveal="rise"][data-reveal-state="waiting"],
+	[data-reveal="stagger"][data-reveal-state="waiting"] > * {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+
+	[data-reveal="rise"][data-reveal-state="shown"],
+	[data-reveal="stagger"][data-reveal-state="shown"] > * {
+		opacity: 1;
+		transform: none;
+		transition:
+			opacity 1.2s cubic-bezier(0.22, 0.61, 0.36, 1),
+			transform 1.2s cubic-bezier(0.22, 0.61, 0.36, 1);
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(2) {
+		transition-delay: 0.09s;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(3) {
+		transition-delay: 0.18s;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(4) {
+		transition-delay: 0.27s;
+	}
+
+	/* An ember underline draws from its start when its block arrives. */
+	[data-reveal-state="waiting"] .br-uline {
+		transform: scaleX(0);
+	}
+
+	[data-reveal-state="shown"] .br-uline {
+		transform: scaleX(1);
+		transition: transform 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) 0.15s;
+	}
+
+	/* A photograph arrives through fire: an ember scrim over the frame burns off. */
+	[data-reveal-state] .br-scrim::before {
+		content: "";
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		pointer-events: none;
+		background: radial-gradient(
+			120% 90% at 50% 70%,
+			color-mix(in oklab, var(--primary) 34%, transparent),
+			color-mix(in oklab, var(--background) 86%, transparent) 72%
+		);
+	}
+
+	[data-reveal-state="shown"] .br-scrim::before {
+		opacity: 0;
+		transition: opacity 1.5s cubic-bezier(0.39, 0.58, 0.57, 1);
+	}
+}
+
+@keyframes br-glow {
+	to {
+		opacity: 0.85;
+		scale: 1.16;
+	}
+}

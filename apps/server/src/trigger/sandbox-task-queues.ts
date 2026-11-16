@@ -4,6 +4,7 @@
  * `delete-app-project.task.ts` consumes `appProjectCleanupQueue` — its
  * per-project runs may overlap, unlike the single-scan sweep.
  * `capture-project-thumbnail.task.ts` consumes `projectThumbnailQueue`.
+ * `apply-starter-template.task.ts` consumes `starterTemplateQueue`.
  */
 import { type Queue, queue } from "@trigger.dev/sdk";
 
@@ -28,4 +29,14 @@ export const appProjectCleanupQueue: Queue = queue({
 export const projectThumbnailQueue: Queue = queue({
 	concurrencyLimit: 1,
 	name: "project-thumbnail",
+});
+
+/**
+ * One starter template apply per project at a time. The starter sets
+ * `concurrencyKey: projectId`. The Redis turn lock guards the same rule.
+ */
+// LIMIT: no global cap across projects; each run waits on one sandbox boot and one git push. Upgrade: a global queue limit.
+export const starterTemplateQueue: Queue = queue({
+	concurrencyLimit: 1,
+	name: "starter-template",
 });

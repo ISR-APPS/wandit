@@ -27,7 +27,7 @@ import {
 	listProjectChats,
 	listVersions,
 } from "./app-builder.services";
-import type { CodeSnapshot } from "./dto";
+import type { AppProject, CodeSnapshot } from "./dto";
 
 /** Query keys of the app builder. Every key starts with `app-builder`, so one prefix matches them all. */
 export const appBuilderKeys = {
@@ -119,11 +119,36 @@ export const chatCostQuery = (projectId: string, chatId: string | undefined) =>
 			chatId === undefined ? skipToken : () => getChatCost(projectId, chatId),
 	});
 
-/** null data means the project does not exist. */
+/** 3 s. The host applies a starter template in some seconds, so the builder sees the end soon after it. */
+const STARTER_TEMPLATE_POLL_MS = 3_000;
+
+/**
+ * True while the host applies the starter template of a project. The
+ * project then has a starter template id and no version yet. The apply step
+ * ends with the first version, or the API clears the id after a failure.
+ * The page shows the "Setting up your template" screen and locks the composer.
+ */
+export function isStarterTemplateApplying(
+	project: Pick<AppProject, "starterTemplateId" | "hasCodeChanges">,
+): boolean {
+	return project.starterTemplateId !== null && !project.hasCodeChanges;
+}
+
+/**
+ * null data means the project does not exist. The query polls while the host
+ * applies a starter template: no turn runs then, so no turn end refetches it.
+ */
 export const appProjectQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.project(projectId),
 		queryFn: () => getAppProject(projectId),
+		// The server pushes no event when the apply step ends, so the page asks.
+		// The API clears the id after the last failed attempt. For a lost run, the
+		// project read of this poll clears it 35 minutes after the create. So the poll always ends.
+		refetchInterval: ({ state }) =>
+			state.data && isStarterTemplateApplying(state.data)
+				? STARTER_TEMPLATE_POLL_MS
+				: false,
 	});
 
 /**

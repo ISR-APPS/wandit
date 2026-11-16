@@ -158,6 +158,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						isPayerActiveWorkspace: true,
 						onRemoveTarget: vi.fn(),
 						isSending: false,
+						isStarterTemplateApplying: false,
 						phase: null,
 						isFirstTurn: false,
 						liveMessageId: null,

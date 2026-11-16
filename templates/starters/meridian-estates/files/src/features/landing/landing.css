@@ -1,0 +1,383 @@
+/* Site CSS of the Meridian home page. LandingPage imports it. Every class starts with "mer-".
+   It holds what Tailwind classes cannot say: the film grain, the hero grade and its entrance,
+   the reveal states, the outlined numerals, the sideways portfolio row, and the hover craft.
+   Colors come only from the theme tokens. With reduced motion every block is still and visible. */
+
+.mer-page {
+	/* The one gutter of the page: side padding, and the edge of the off-grid parts. */
+	--mer-gutter: clamp(20px, 4.5vw, 84px);
+	--mer-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+	--mer-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+	--mer-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+	--mer-hairline: color-mix(in srgb, var(--foreground) 14%, transparent);
+	--mer-hairline-soft: color-mix(in srgb, var(--foreground) 8%, transparent);
+	overflow-x: clip;
+}
+
+.mer-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.mer-page :focus-visible {
+	outline: 1px solid var(--primary);
+	outline-offset: 4px;
+}
+
+.mer-gutter {
+	padding-inline: var(--mer-gutter);
+}
+
+.mer-wrap {
+	max-width: 1720px;
+	margin-inline: auto;
+	padding-inline: var(--mer-gutter);
+}
+
+/* ---- film grain: one fixed layer of fractal noise over the page ---- */
+
+.mer-grain {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	pointer-events: none;
+	opacity: 0.055;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 300px;
+}
+
+/* ---- header ---- */
+
+.mer-header {
+	transition:
+		background-color 0.5s ease,
+		border-color 0.5s ease,
+		transform 0.55s cubic-bezier(0.6, 0, 0.2, 1);
+}
+
+.mer-header[data-state="solid"] {
+	background: color-mix(in srgb, var(--background) 82%, transparent);
+	border-bottom-color: var(--mer-hairline-soft);
+	backdrop-filter: blur(14px);
+}
+
+.mer-header[data-state="hidden"] {
+	transform: translateY(-110%);
+}
+
+/* An underline that grows from the start edge on hover. */
+.mer-underline {
+	position: relative;
+}
+
+.mer-underline::after {
+	content: "";
+	position: absolute;
+	inset-inline: 0 100%;
+	bottom: 0;
+	height: 1px;
+	background: var(--primary);
+	transition: inset-inline-end 0.4s cubic-bezier(0.6, 0, 0.2, 1);
+}
+
+.mer-underline:hover::after,
+.mer-underline:focus-visible::after {
+	inset-inline-end: 0;
+}
+
+/* ---- hero: the cover plate ---- */
+
+.mer-hero-photo {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+
+.mer-hero-photo img {
+	width: 100%;
+	height: 112%;
+	object-fit: cover;
+	object-position: 50% 40%;
+	scale: 1.04;
+	/* 0.5 is the value at page load. The photo drifts down 10% while the hero leaves the view. */
+	translate: 0 calc((var(--mer-parallax, 0.5) - 0.5) * 20%);
+	animation: mer-settle 2.4s var(--mer-ease-out) both;
+}
+
+/* A phone shows about a quarter of the photo width. This crop keeps the house, the cliff, and the pool. */
+@media (max-width: 767px) {
+	.mer-hero-photo img {
+		object-position: 30% 50%;
+	}
+}
+
+/* A two-axis grade. The last stop equals the page ground, so the photo dissolves into the page. */
+.mer-hero-scrim {
+	position: absolute;
+	inset: 0;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--background) 62%, transparent) 0%,
+			color-mix(in srgb, var(--background) 12%, transparent) 32%,
+			color-mix(in srgb, var(--background) 5%, transparent) 52%,
+			color-mix(in srgb, var(--background) 80%, transparent) 84%,
+			var(--background) 100%
+		),
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--background) 50%, transparent) 0%,
+			transparent 45%
+		);
+}
+
+.mer-hero-scrim:dir(rtl) {
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--background) 62%, transparent) 0%,
+			color-mix(in srgb, var(--background) 12%, transparent) 32%,
+			color-mix(in srgb, var(--background) 5%, transparent) 52%,
+			color-mix(in srgb, var(--background) 80%, transparent) 84%,
+			var(--background) 100%
+		),
+		linear-gradient(
+			270deg,
+			color-mix(in srgb, var(--background) 50%, transparent) 0%,
+			transparent 45%
+		);
+}
+
+.mer-hero-shadow {
+	text-shadow: 0 2px 40px color-mix(in srgb, var(--background) 45%, transparent);
+}
+
+/* A title line rises out of its own mask. --mer-line staggers the lines. */
+.mer-line {
+	display: block;
+	overflow: hidden;
+	padding-bottom: 0.08em;
+	margin-bottom: -0.08em;
+}
+
+.mer-line > span {
+	display: block;
+	animation: mer-rise 1.35s var(--mer-ease-expo) both;
+	animation-delay: calc(0.12s + var(--mer-line, 0) * 0.14s);
+}
+
+.mer-fade-up {
+	animation: mer-fade-up 1s var(--mer-ease-out) 0.55s both;
+}
+
+/* The scroll cue: a hairline with a bronze segment that falls through it. Never a chevron. */
+.mer-cue {
+	position: absolute;
+	bottom: 0;
+	inset-inline-start: 50%;
+	width: 1px;
+	height: clamp(48px, 8vh, 84px);
+	overflow: hidden;
+	background: var(--mer-hairline);
+}
+
+.mer-cue::after {
+	content: "";
+	position: absolute;
+	inset-inline-start: 0;
+	top: -40%;
+	width: 1px;
+	height: 40%;
+	background: var(--primary);
+	animation: mer-cue 2.6s cubic-bezier(0.6, 0, 0.2, 1) infinite;
+}
+
+@keyframes mer-settle {
+	from {
+		scale: 1.16;
+	}
+}
+
+@keyframes mer-rise {
+	from {
+		transform: translateY(112%);
+	}
+}
+
+@keyframes mer-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(26px);
+	}
+}
+
+@keyframes mer-cue {
+	0% {
+		top: -40%;
+	}
+	60%,
+	100% {
+		top: 110%;
+	}
+}
+
+/* ---- outlined type: giant folio numerals and the hanging quote glyph ---- */
+
+.mer-outline {
+	color: transparent;
+	-webkit-text-stroke: 1px color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+/* ---- full-bleed residence photo ---- */
+
+.mer-residence-photo img {
+	position: absolute;
+	inset-inline: 0;
+	top: -12%;
+	width: 100%;
+	height: 124%;
+	object-fit: cover;
+	translate: 0 calc((var(--mer-parallax, 0.5) - 0.5) * -16%);
+}
+
+.mer-residence-photo::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--background) 45%, transparent),
+		transparent 30%,
+		transparent 55%,
+		color-mix(in srgb, var(--background) 70%, transparent) 88%,
+		var(--background)
+	);
+}
+
+/* ---- reveal states, set by use-scroll-reveal.ts after hydration ---- */
+
+.mer-rise[data-reveal-state="waiting"] {
+	opacity: 0;
+	transform: translateY(32px);
+}
+
+.mer-rise[data-reveal-state="shown"] {
+	transition:
+		opacity 1s var(--mer-ease-out),
+		transform 1s var(--mer-ease-out);
+	transition-delay: calc(var(--mer-step, 0) * 90ms);
+}
+
+/* A photo plate opens from a clipped window while the photo counter-zooms. */
+.mer-plate {
+	overflow: hidden;
+}
+
+.mer-plate img {
+	scale: 1.06;
+	transition: scale 1.8s var(--mer-ease-out);
+}
+
+.mer-plate[data-reveal-state="waiting"] {
+	opacity: 0;
+	clip-path: inset(14% 6% 14% 6%);
+}
+
+.mer-plate[data-reveal-state="waiting"] img {
+	scale: 1.18;
+}
+
+.mer-plate[data-reveal-state="shown"] {
+	transition:
+		clip-path 1.4s var(--mer-ease-in-out),
+		opacity 1.4s var(--mer-ease-in-out);
+}
+
+/* The swell on hover lives on a wrapper, so it never fights the reveal of the plate. */
+.mer-swell {
+	transition: scale 1.6s var(--mer-ease-out);
+}
+
+.mer-swell:hover {
+	scale: 1.015;
+}
+
+/* The closing wordmark rises out of its mask. */
+.mer-mask {
+	overflow: hidden;
+}
+
+.mer-mask > span {
+	display: block;
+}
+
+.mer-mask[data-reveal-state="waiting"] > span {
+	transform: translateY(104%);
+}
+
+.mer-mask[data-reveal-state="shown"] > span {
+	transition: transform 1.5s var(--mer-ease-expo);
+}
+
+/* ---- the portfolio: a stack on a phone, a sideways snap row from 768 px ---- */
+
+@media (min-width: 768px) {
+	.mer-row {
+		display: flex;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scroll-snap-type: x mandatory;
+		scrollbar-width: none;
+	}
+
+	.mer-row::-webkit-scrollbar {
+		display: none;
+	}
+
+	.mer-row > * {
+		flex-shrink: 0;
+		scroll-snap-align: start;
+	}
+}
+
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+	.mer-row {
+		scroll-behavior: smooth;
+	}
+}
+
+/* The progress rule: a bronze line that grows with the sideways travel of the row. */
+.mer-progress {
+	transform: scaleX(var(--mer-row-progress, 0));
+	transform-origin: 0 50%;
+	transition: transform 0.2s linear;
+}
+
+.mer-progress:dir(rtl) {
+	transform-origin: 100% 50%;
+}
+
+/* A ruled button whose arrow slides away on hover. */
+.mer-line-link {
+	transition:
+		color 0.3s ease,
+		border-color 0.3s ease,
+		gap 0.3s ease;
+}
+
+.mer-line-link:hover {
+	gap: 1.3rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.mer-hero-photo img,
+	.mer-line > span,
+	.mer-fade-up,
+	.mer-cue::after {
+		animation: none;
+	}
+
+	.mer-swell:hover {
+		scale: none;
+	}
+}

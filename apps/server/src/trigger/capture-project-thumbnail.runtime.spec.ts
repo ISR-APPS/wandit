@@ -106,6 +106,7 @@ function setup(over?: {
 				languages: ["en"],
 				networkAllowedHosts: [],
 				organizationId: null,
+				starterTemplateId: null,
 				suspendedReasonCode: null,
 				templateVersion: "web-app@1.0.0",
 				userId: "user-1",

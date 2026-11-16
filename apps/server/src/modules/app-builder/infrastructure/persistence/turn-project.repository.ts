@@ -2,7 +2,8 @@
  * Narrow read of the `projects` row the builder-turn task needs.
  * The `builder-turn` runtime calls `findForTurn`, and so does
  * `startSandboxWithoutTurn` (restore, wake, publish) for the same sandbox
- * inputs. The `desktop-build` runtime calls it at each stop check. The
+ * inputs. The `desktop-build` runtime calls it at each stop check, and the
+ * `apply-starter-template` runtime reads the starter template id. The
  * projects module owns the table, so this read-only view lives here instead
  * of widening `ProjectsRepository`.
  */
@@ -34,6 +35,8 @@ export type TurnProjectRow = {
 	organizationId: string | null;
 	/** Set while staff suspend the app (WANDIT-181). The desktop-build task then stops and deletes the installer. */
 	suspendedReasonCode: SuspendedReasonCode | null;
+	/** Id of the starter template the project started from. Null for a project from a prompt, and after a failed apply. */
+	starterTemplateId: string | null;
 };
 
 @Injectable()
@@ -54,6 +57,7 @@ export class TurnProjectRepository {
 				languages: projects.languages,
 				networkAllowedHosts: projects.networkAllowedHosts,
 				organizationId: projects.organizationId,
+				starterTemplateId: projects.starterTemplateId,
 				suspendedReasonCode: projects.suspendedReasonCode,
 				templateVersion: projects.templateVersion,
 				userId: projects.userId,

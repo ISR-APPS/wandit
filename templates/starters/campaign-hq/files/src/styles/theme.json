@@ -1,0 +1,120 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Campaign HQ",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "neo-pop"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "xl",
+		"border": "1.5",
+		"shadow": "md",
+		"shadowStyle": "hard",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "tint",
+		"activeItem": "block",
+		"header": "plain",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "bold",
+		"navIcon": "color"
+	},
+	"resolved": {
+		"light": {
+			"background": "#fffdf7",
+			"foreground": "oklch(0.18 0.01 300)",
+			"card": "#ffffff",
+			"cardForeground": "oklch(0.18 0.01 300)",
+			"popover": "#ffffff",
+			"popoverForeground": "oklch(0.18 0.01 300)",
+			"primary": "#ff2e9a",
+			"primaryForeground": "oklch(0.18 0.01 300)",
+			"secondary": "#ffe23a",
+			"secondaryForeground": "oklch(0.18 0.01 300)",
+			"muted": "#f5f3ee",
+			"mutedForeground": "oklch(0.47 0.01 300)",
+			"accent": "oklch(0.97 0.05 98)",
+			"accentForeground": "oklch(0.18 0.01 300)",
+			"destructive": "oklch(0.53 0.2 27)",
+			"destructiveForeground": "#ffffff",
+			"border": "oklch(0.18 0.01 300)",
+			"input": "oklch(0.18 0.01 300)",
+			"ring": "#ff2e9a",
+			"success": "#0b6b43",
+			"warning": "oklch(0.53 0.124 60)",
+			"info": "oklch(0.52 0.17 255)",
+			"canvas": "#f5f3ee",
+			"shadowColor": "oklch(0.18 0.01 300)",
+			"chart1": "#ff2e9a",
+			"chart2": "#ffd60a",
+			"chart3": "#3ddc97",
+			"chart4": "#4cb8ff",
+			"chart5": "#7c5cff",
+			"contrast": "oklch(0.18 0.01 300)",
+			"contrastForeground": "#fffdf7"
+		},
+		"dark": {
+			"background": "oklch(0.16 0.005 300)",
+			"foreground": "oklch(0.97 0.005 90)",
+			"card": "oklch(0.205 0.006 300)",
+			"cardForeground": "oklch(0.97 0.005 90)",
+			"popover": "oklch(0.23 0.007 300)",
+			"popoverForeground": "oklch(0.97 0.005 90)",
+			"primary": "#ffe23a",
+			"primaryForeground": "oklch(0.18 0.01 300)",
+			"secondary": "#ff2e9a",
+			"secondaryForeground": "oklch(0.18 0.01 300)",
+			"muted": "oklch(0.25 0.006 300)",
+			"mutedForeground": "oklch(0.72 0.006 300)",
+			"accent": "oklch(0.27 0.03 95)",
+			"accentForeground": "oklch(0.97 0.005 90)",
+			"destructive": "#f87171",
+			"destructiveForeground": "oklch(0.18 0.01 300)",
+			"border": "oklch(0.65 0.01 300)",
+			"input": "oklch(0.65 0.01 300)",
+			"ring": "#ffe23a",
+			"success": "#3ddc97",
+			"warning": "#fbbf24",
+			"info": "#60a5fa",
+			"canvas": "oklch(0.12 0.004 300)",
+			"shadowColor": "oklch(0.4 0.15 355)",
+			"chart1": "#ffe23a",
+			"chart2": "#ff2e9a",
+			"chart3": "#3ddc97",
+			"chart4": "#4cb8ff",
+			"chart5": "#9b85ff"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Plus Jakarta Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Unbounded",
+				"href": "https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Rubik",
+				"href": "https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Baloo Bhaijaan 2",
+				"href": "https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 700,
+			"headingTracking": "snug",
+			"numerals": "display"
+		}
+	}
+}

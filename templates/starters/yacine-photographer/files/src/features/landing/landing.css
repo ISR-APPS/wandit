@@ -1,0 +1,447 @@
+/* Film furniture and motion of the Yacine R. home page. landing-page.tsx imports this file.
+   It holds what Tailwind classes cannot express: the sprocket bands, the photo grade, the EXIF chip,
+   the cut entrances, and the drift of the wall. Every color is a theme token or a color-mix() of tokens.
+   The design world is "photographe": near-black ground, paper-white ink, one grey. The photographs give all the color. */
+
+.yr-page {
+	/* One dilution of the ink: the frame of the hero film base on a phone. */
+	--yr-hair: color-mix(in oklab, var(--foreground) 14%, transparent);
+	/* A sprocket hole: the film base (canvas) with a little light behind it. */
+	--yr-hole: color-mix(in oklab, var(--foreground) 11%, var(--canvas));
+	--yr-gutter: clamp(20px, 4.4vw, 56px);
+	--yr-max: 1360px;
+	--yr-section: clamp(4.6rem, 9.2vh, 7.4rem);
+	/* Both sides of a ground-to-panel junction use the tight value, so no dead band opens there. */
+	--yr-section-tight: clamp(3.2rem, 6.4vh, 5rem);
+	/* The pitch of 35 mm film: one 16 x 9 hole in each 26 x 16 tile. The shapes are masks, so they hold no color. */
+	--yr-sprocket-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='16'%3E%3Crect x='5' y='4' width='16' height='9' rx='2.5'/%3E%3C/svg%3E");
+	--yr-sprocket-y: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='26'%3E%3Crect x='4' y='5' width='9' height='16' rx='2.5'/%3E%3C/svg%3E");
+	--yr-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+
+	font-size: clamp(1rem, 0.94rem + 0.28vw, 1.12rem);
+	line-height: 1.62;
+	/* The base layer tightens Latin text. The body face of this page reads better at its natural width. */
+	letter-spacing: 0;
+	/* clip, not hidden: the sticky header needs a page with no scroll container. */
+	overflow-x: clip;
+}
+
+.yr-page ::selection {
+	background: var(--foreground);
+	color: var(--background);
+}
+
+.yr-page :focus-visible {
+	outline: 2px solid var(--foreground);
+	outline-offset: 3px;
+}
+
+/* The sticky header covers the top of a section that an anchor link opens. Each value is the header height plus 10px.
+   From 820px the header is one 66px row. Below, it adds the 44px row of section links. */
+.yr-page section[id] {
+	scroll-margin-top: 76px;
+}
+
+@media (max-width: 819.98px) {
+	.yr-page section[id] {
+		scroll-margin-top: 120px;
+	}
+}
+
+@media (max-width: 639.98px) {
+	.yr-page section[id] {
+		scroll-margin-top: 112px;
+	}
+}
+
+/* ---- The mono face: all that a machine prints (kickers, EXIF, frame numbers, captions, buttons). ----
+   It is the display font of theme.json, a mono for this starter. On a public page font-display is the
+   world face (Syne), so this class reads the source variable. */
+.yr-mono {
+	font-family:
+		var(--theme-font-display), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+/* Arabic has no mono in the theme. The labels take the Arabic text face. */
+:lang(ar) .yr-mono {
+	font-family: var(--font-sans);
+}
+
+/* ---- Sprocket bands. The holes run along both edges of a strip of film base. ---- */
+.yr-band-x::before,
+.yr-band-x::after,
+.yr-hero-figure::before,
+.yr-hero-figure::after,
+.yr-quote-strip::before,
+.yr-quote-strip::after {
+	position: absolute;
+	background-color: var(--yr-hole);
+	pointer-events: none;
+}
+
+.yr-band-x::before,
+.yr-band-x::after {
+	content: "";
+	inset-inline: 0;
+	height: 16px;
+	-webkit-mask: var(--yr-sprocket-x) repeat-x left center / 26px 16px;
+	mask: var(--yr-sprocket-x) repeat-x left center / 26px 16px;
+}
+
+.yr-band-x::before {
+	top: 0;
+}
+
+.yr-band-x::after {
+	bottom: 0;
+}
+
+/* The hero photograph. On a wide screen it is a bare frame, as high as 62% of the viewport,
+   so the strip under the hero stays in the first screen. 0.8 is the 4:5 ratio of the frame. */
+.yr-hero-figure {
+	width: 100%;
+	max-width: calc(clamp(380px, 62vh, 560px) * 0.8);
+	margin-inline-start: auto;
+}
+
+/* Below 760px the photograph sits on film base with holes on both flanks:
+   the film furniture must be in the first screen of a phone. */
+@media (max-width: 759px) {
+	.yr-hero-figure {
+		position: relative;
+		max-width: none;
+		border: 1px solid var(--yr-hair);
+		background: var(--canvas);
+		padding: 14px 20px 12px;
+	}
+
+	.yr-hero-figure::before,
+	.yr-hero-figure::after {
+		content: "";
+		top: 0;
+		bottom: 0;
+		width: 16px;
+		-webkit-mask: var(--yr-sprocket-y) repeat-y center top / 16px 26px;
+		mask: var(--yr-sprocket-y) repeat-y center top / 16px 26px;
+	}
+
+	.yr-hero-figure::before {
+		inset-inline-start: 0;
+	}
+
+	.yr-hero-figure::after {
+		inset-inline-end: 0;
+	}
+}
+
+/* The strip beside the client quote: holes on the flanks from 820px, on the top and the bottom below. */
+.yr-quote-strip::before,
+.yr-quote-strip::after {
+	content: "";
+}
+
+@media (min-width: 820px) {
+	.yr-quote-strip::before,
+	.yr-quote-strip::after {
+		top: 0;
+		bottom: 0;
+		width: 16px;
+		-webkit-mask: var(--yr-sprocket-y) repeat-y center top / 16px 26px;
+		mask: var(--yr-sprocket-y) repeat-y center top / 16px 26px;
+	}
+
+	.yr-quote-strip::before {
+		inset-inline-start: 0;
+	}
+
+	.yr-quote-strip::after {
+		inset-inline-end: 0;
+	}
+}
+
+@media (max-width: 819px) {
+	.yr-quote-strip::before,
+	.yr-quote-strip::after {
+		inset-inline: 0;
+		height: 16px;
+		-webkit-mask: var(--yr-sprocket-x) repeat-x left center / 26px 16px;
+		mask: var(--yr-sprocket-x) repeat-x left center / 26px 16px;
+	}
+
+	.yr-quote-strip::before {
+		top: 0;
+	}
+
+	.yr-quote-strip::after {
+		bottom: 0;
+	}
+}
+
+/* The rail of the strip under the hero scrolls sideways with no scrollbar. Its first frame lines up with the page container. */
+.yr-rail {
+	padding-inline: max(
+		var(--yr-gutter),
+		calc((100% - var(--yr-max)) / 2 + var(--yr-gutter))
+	);
+	scrollbar-width: none;
+}
+
+.yr-rail::-webkit-scrollbar {
+	display: none;
+}
+
+/* ---- The photograph. One grade for every image: all photos sit in one bath. ---- */
+.yr-ph {
+	position: relative;
+	display: block;
+	overflow: hidden;
+	background: var(--card);
+	/* The chip rules below read the width of the frame. */
+	container-type: inline-size;
+}
+
+.yr-ph img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	filter: contrast(1.04) saturate(0.92);
+}
+
+/* 3% grain, inside the photographs only. The ground stays flat. */
+.yr-ph::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: var(--yr-grain);
+	background-size: 160px 160px;
+	mix-blend-mode: overlay;
+	opacity: 0.03;
+	pointer-events: none;
+}
+
+/* Hover cuts the grade one step brighter, with no transition: a print under a stronger lamp. */
+.yr-ph:hover img {
+	filter: contrast(1.1) saturate(1) brightness(1.08);
+}
+
+/* The frame number, as the film edge prints it. Top corner on a single photograph. */
+.yr-fnum {
+	position: absolute;
+	inset-inline-end: 10px;
+	top: 9px;
+	z-index: 3;
+	background: color-mix(in oklab, var(--canvas) 72%, transparent);
+	padding: 3px 6px;
+	color: var(--foreground);
+	font-size: 0.62rem;
+	line-height: 1.4;
+	letter-spacing: 0.12em;
+}
+
+/* In a strip or a sheet the number sits in the base corner, as on a real contact sheet. */
+.yr-fnum-base {
+	inset-inline: 6px auto;
+	top: auto;
+	bottom: 6px;
+	background: color-mix(in oklab, var(--canvas) 80%, transparent);
+}
+
+/* The EXIF chip: the settings of the exposure on a mono plate. */
+.yr-exif {
+	position: absolute;
+	inset-inline-start: 10px;
+	bottom: 10px;
+	z-index: 3;
+	border: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+	background: color-mix(in oklab, var(--canvas) 86%, transparent);
+	padding: 5px 9px;
+	color: var(--foreground);
+	font-size: 0.64rem;
+	line-height: 1.4;
+	letter-spacing: 0.07em;
+	white-space: nowrap;
+}
+
+/* Where the number takes the base corner, the chip moves to the top corner. */
+.yr-exif-top {
+	inset-inline-start: 6px;
+	top: 6px;
+	bottom: auto;
+}
+
+/* The chip always stays inside its frame. A frame under 248px drops the lens, and under 192px the film speed.
+   A frame under 152px also gets smaller type. */
+@container (max-width: 15.5rem) {
+	.yr-exif-lens {
+		display: none;
+	}
+}
+
+@container (max-width: 12rem) {
+	.yr-exif-iso {
+		display: none;
+	}
+}
+
+@container (max-width: 9.5rem) {
+	.yr-exif {
+		padding: 3px 5px;
+		font-size: 0.56rem;
+		letter-spacing: 0.04em;
+	}
+}
+
+/* With a pointer the chip rests hidden and slides in on hover.
+   It is the one eased motion of the page. With no pointer, on a phone, the chip is always on. */
+@media (hover: hover) {
+	.yr-exif {
+		transform: translateX(-10px);
+		opacity: 0;
+		transition:
+			opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
+			transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+	}
+
+	/* In a right-to-left language the chip sits at the right edge, so it slides in from that side. */
+	[dir="rtl"] .yr-exif {
+		transform: translateX(10px);
+	}
+
+	.yr-ph:hover .yr-exif {
+		transform: none;
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.yr-exif {
+		transition: none;
+	}
+}
+
+/* ---- The grease-pencil mark around a kept frame. It straddles the edge of the frame by 6px. ---- */
+.yr-grease {
+	position: absolute;
+	inset-inline-start: -6px;
+	top: -6px;
+	z-index: 4;
+	width: calc(100% + 12px);
+	height: calc(100% + 12px);
+	transform: rotate(-0.6deg);
+	pointer-events: none;
+}
+
+/* Each mark has its own tilt and mirror, so no two marks repeat. */
+.yr-grease-b {
+	transform: rotate(0.7deg) scaleX(-1);
+}
+
+.yr-grease-c {
+	transform: rotate(-0.9deg) scaleY(-1);
+}
+
+.yr-grease path {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.72;
+	vector-effect: non-scaling-stroke;
+}
+
+/* ---- Entrances are cuts: each item of a group appears in one frame, 45ms after the item before it. ----
+   cut-group.tsx sets data-cut after hydration, so the server HTML shows every item. */
+[data-cut="waiting"] .yr-cut {
+	opacity: 0;
+}
+
+[data-cut="entered"] .yr-cut {
+	animation: yr-cut 1ms step-end both;
+	animation-delay: calc(var(--cut, 0) * 45ms);
+}
+
+@keyframes yr-cut {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-cut] .yr-cut {
+		opacity: 1;
+		animation: none;
+	}
+}
+
+/* ---- The wall of prints: the one scrubbed scene of the page. ----
+   A clipped window holds three columns that are taller than it. Each column moves inside its own overflow,
+   so no gap can open: at share 0 its top is at the top of the window, at share 1 its bottom is at the bottom.
+   --yr-drift is the scroll progress from 0 to 1 (use-drift-progress.ts). --from and --to are the shares of a column. */
+.yr-drift {
+	--yr-drift-height: clamp(560px, 102vh, 1000px);
+	--yr-drift-gap: clamp(10px, 1.4vw, 20px);
+
+	position: relative;
+	height: var(--yr-drift-height);
+	overflow: clip;
+}
+
+.yr-drift-col {
+	transform: translate3d(
+		0,
+		calc(
+			(var(--yr-drift-height) - 100%) *
+			(var(--from) + (var(--to) - var(--from)) * var(--yr-drift, 0))
+		),
+		0
+	);
+	will-change: transform;
+}
+
+/* Columns 1 and 3 go up, column 2 comes down against them. A column travels about 520px on a desktop. */
+.yr-drift-col:nth-child(1) {
+	--from: 0.08;
+	--to: 0.36;
+}
+
+.yr-drift-col:nth-child(2) {
+	--from: 0.72;
+	--to: 0.44;
+}
+
+.yr-drift-col:nth-child(3) {
+	--from: 0.2;
+	--to: 0.48;
+}
+
+/* A tablet has three narrow columns. A window of 72vw shows about three prints in each,
+   so a photograph never shows in two side-by-side columns (content.ts). */
+@media (min-width: 761px) and (max-width: 1023px) {
+	.yr-drift {
+		--yr-drift-height: min(clamp(560px, 102vh, 1000px), 72vw);
+	}
+}
+
+/* A phone shows two shorter columns in a lower window, so each one travels most of its overflow. */
+@media (max-width: 760px) {
+	.yr-drift {
+		--yr-drift-height: min(66vh, 560px);
+	}
+
+	.yr-drift-col:nth-child(1) {
+		--to: 0.8;
+	}
+
+	.yr-drift-col:nth-child(2) {
+		--to: 0.06;
+	}
+
+	.yr-drift-col:nth-child(3) {
+		display: none;
+	}
+}

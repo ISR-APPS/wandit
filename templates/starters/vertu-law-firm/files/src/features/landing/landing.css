@@ -1,0 +1,535 @@
+/* Site CSS of the Vertu & Associés home page. LandingPage imports it once.
+   It draws what Tailwind classes cannot: the dossier tabs, the clause rules, the brass plates, the folders,
+   the drawn drawer, and the x-only entrances. Every color is a theme token or a color-mix() of tokens.
+   Capital text stays in the page files (the "uppercase" class), because a CSS class reaches the app area too. */
+
+/* ---------- the page inks: one scope for the green room, one for the cream interlude ---------- */
+.vt-scope {
+	--vt-ground: var(--background);
+	--vt-ink: var(--foreground);
+	--vt-ink-70: color-mix(in srgb, var(--foreground) 74%, transparent);
+	--vt-ink-50: color-mix(in srgb, var(--foreground) 56%, transparent);
+	--vt-soft: color-mix(in srgb, var(--foreground) 56%, transparent);
+	--vt-brass: var(--primary);
+	--vt-brass-hi: color-mix(in srgb, var(--primary) 76%, var(--foreground));
+	--vt-line: color-mix(in srgb, var(--primary) 34%, transparent);
+	--vt-faint: color-mix(in srgb, var(--primary) 17%, transparent);
+	--vt-raised: var(--card);
+	--vt-raised-on: color-mix(in srgb, var(--card) 95%, var(--foreground));
+	--vt-recess: var(--canvas);
+	/* The plate stays filled brass in both scopes. Its screws and slots are the brass darkened toward its ink. */
+	--vt-plate: var(--primary);
+	--vt-plate-ink: var(--background);
+	--vt-screw: color-mix(in srgb, var(--primary) 62%, var(--primary-foreground));
+	--vt-slot: color-mix(in srgb, var(--primary) 36%, var(--primary-foreground));
+	--vt-card-stock: inset 0 1px 0
+		color-mix(in srgb, var(--foreground) 5%, transparent);
+	--vt-tab-clip: polygon(0 100%, 10px 0, calc(100% - 10px) 0, 100% 100%);
+	--vt-ease: cubic-bezier(0.45, 0, 0.55, 1);
+	--vt-section-pad: clamp(4.5rem, 9vh, 7.5rem);
+	background: var(--vt-ground);
+	color: var(--vt-ink);
+	overflow-x: clip;
+}
+
+/* Ground B is a few points lighter than the room, so the 56% caption tier lifts to 62% to keep 4.5:1. */
+.vt-band-b {
+	--vt-ground: var(--card);
+	--vt-ink-50: color-mix(in srgb, var(--foreground) 62%, transparent);
+	background: var(--vt-ground);
+}
+
+/* The cream interlude: the ink becomes the ground, and the brass deepens so that its text keeps 4.5:1 on cream. */
+.vt-cream {
+	--vt-ground: var(--foreground);
+	--vt-ink: var(--background);
+	--vt-ink-70: color-mix(in srgb, var(--background) 80%, transparent);
+	--vt-ink-50: color-mix(in srgb, var(--background) 66%, transparent);
+	--vt-brass: color-mix(in srgb, var(--primary) 60%, var(--primary-foreground));
+	--vt-brass-hi: color-mix(
+		in srgb,
+		var(--primary) 44%,
+		var(--primary-foreground)
+	);
+	--vt-line: color-mix(in srgb, var(--vt-brass) 40%, transparent);
+	--vt-faint: color-mix(in srgb, var(--vt-brass) 22%, transparent);
+	background: var(--vt-ground);
+	color: var(--vt-ink);
+}
+
+.vt-wrap {
+	width: min(1280px, 90%);
+	margin-inline: auto;
+}
+
+.vt-section {
+	padding-block: var(--vt-section-pad);
+	scroll-margin-top: 4.5rem;
+}
+
+.vt-scope ::selection {
+	background: var(--vt-brass);
+	color: var(--vt-ground);
+}
+
+.vt-scope :focus-visible {
+	outline: 2px solid var(--vt-brass);
+	outline-offset: 4px;
+}
+
+/* ---------- the dossier tab: a flat-topped trapezoid whose 1px edge is its own background ---------- */
+/* The size variables have fallbacks instead of defaults, so a Tailwind class such as [--tab-px:16px] can set them. */
+.vt-tab {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.55rem;
+	height: var(--tab-h, 34px);
+	padding-inline: var(--tab-px, 20px);
+	background: var(--vt-line);
+	clip-path: var(--vt-tab-clip);
+	color: var(--vt-brass);
+	text-decoration: none;
+	white-space: nowrap;
+	transition:
+		transform 180ms ease,
+		background-color 180ms ease;
+}
+
+.vt-tab::before {
+	content: "";
+	position: absolute;
+	inset: 1px 1px 0 1px;
+	background: var(--tab-fill, var(--vt-ground));
+	clip-path: var(--vt-tab-clip);
+}
+
+.vt-tab > span {
+	position: relative;
+	z-index: 1;
+}
+
+/* A link tab is pulled up out of the drawer on hover: the only vertical motion of the page. */
+a.vt-tab:hover,
+a.vt-tab:focus-visible {
+	transform: translateY(-3px);
+}
+
+.vt-tab-on {
+	background: var(--vt-brass);
+	color: var(--vt-plate-ink);
+}
+
+.vt-tab-on::before {
+	background: var(--vt-brass);
+}
+
+.vt-tab-section {
+	--tab-h: 38px;
+	--tab-px: 24px;
+}
+
+.vt-tab-rail {
+	--tab-h: 46px;
+	--tab-px: clamp(12px, 1.6vw, 26px);
+}
+
+/* A tab always rides a rule: it sinks 1px into the hairline under it. */
+.vt-on-rule {
+	margin-bottom: -1px;
+}
+
+/* ---------- hairlines ---------- */
+.vt-line {
+	border-color: var(--vt-line);
+}
+
+.vt-faint {
+	border-color: var(--vt-faint);
+}
+
+/* The clause rule fills the rest of the clause head and sits on the x-height of the title. */
+.vt-rule {
+	flex: 1 1 2rem;
+	min-width: 1.5rem;
+	height: 1px;
+	align-self: center;
+	background: var(--vt-line);
+	transform-origin: left center;
+}
+
+/* A phone has no room for the rule beside a long title. The title takes its own line,
+   and the rule runs after "Art. n" in the place of the dash, so every clause head has the same shape. */
+.vt-clause-head {
+	flex-wrap: nowrap;
+}
+
+@media (max-width: 639px) {
+	.vt-clause-head {
+		flex-wrap: wrap;
+	}
+
+	.vt-clause-head > h3 {
+		order: 3;
+		flex-basis: 100%;
+	}
+
+	.vt-clause-head .vt-rule {
+		order: 2;
+	}
+
+	.vt-clause-dash {
+		display: none;
+	}
+}
+
+[dir="rtl"] .vt-rule {
+	transform-origin: right center;
+}
+
+/* ---------- the brass nameplate with exactly four screw heads ---------- */
+.vt-plate {
+	position: relative;
+	background: var(--vt-plate);
+	color: var(--vt-plate-ink);
+	border-radius: 2px;
+}
+
+.vt-plate-sub {
+	color: color-mix(in srgb, var(--vt-plate-ink) 80%, transparent);
+}
+
+.vt-screw {
+	--screw: 8px;
+	--inset: 9px;
+	position: absolute;
+	width: var(--screw);
+	height: var(--screw);
+	border-radius: 50%;
+	background: var(--vt-screw);
+}
+
+.vt-plate-small .vt-screw {
+	--screw: 6px;
+	--inset: 7px;
+}
+
+.vt-screw::after {
+	content: "";
+	position: absolute;
+	inset-inline: 1px;
+	top: 50%;
+	height: 1px;
+	background: var(--vt-slot);
+	transform: translateY(-50%) rotate(-32deg);
+}
+
+.vt-screw-tl {
+	top: var(--inset);
+	inset-inline-start: var(--inset);
+}
+
+.vt-screw-tr {
+	top: var(--inset);
+	inset-inline-end: var(--inset);
+}
+
+.vt-screw-bl {
+	bottom: var(--inset);
+	inset-inline-start: var(--inset);
+}
+
+.vt-screw-br {
+	bottom: var(--inset);
+	inset-inline-end: var(--inset);
+}
+
+/* ---------- buttons: solid brass, or a hairline ghost ---------- */
+.vt-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 48px;
+	padding: 1rem 1.7rem;
+	border: 1px solid var(--vt-brass);
+	border-radius: 2px;
+	background: var(--vt-brass);
+	color: var(--vt-ground);
+	text-align: center;
+	text-decoration: none;
+	transition:
+		background-color 200ms ease,
+		border-color 200ms ease,
+		color 200ms ease;
+}
+
+.vt-btn:hover,
+.vt-btn:focus-visible {
+	background: var(--vt-brass-hi);
+	border-color: var(--vt-brass-hi);
+}
+
+.vt-btn-ghost {
+	background: transparent;
+	color: var(--vt-ink);
+	border-color: var(--vt-line);
+}
+
+.vt-btn-ghost:hover,
+.vt-btn-ghost:focus-visible {
+	background: transparent;
+	border-color: var(--vt-brass);
+}
+
+/* The cross-reference link: brass with a faint underline that fills on hover. */
+.vt-renvoi {
+	color: var(--vt-brass);
+	text-decoration: none;
+	border-bottom: 1px solid var(--vt-faint);
+	padding-bottom: 1px;
+	transition:
+		border-color 200ms ease,
+		color 200ms ease;
+}
+
+.vt-renvoi:hover,
+.vt-renvoi:focus-visible {
+	color: var(--vt-brass-hi);
+	border-color: var(--vt-brass);
+}
+
+/* ---------- card stock: the folder body and the recessed blocks ---------- */
+.vt-stock {
+	border: 1px solid var(--vt-line);
+	border-radius: 0 6px 2px 2px;
+	box-shadow: var(--vt-card-stock);
+}
+
+[dir="rtl"] .vt-stock {
+	border-radius: 6px 0 2px 2px;
+}
+
+/* ---------- the practice folders of the drawer ---------- */
+.vt-folder {
+	position: relative;
+	display: block;
+	width: 100%;
+	padding-bottom: 1rem;
+	background: var(--vt-raised);
+	border: 1px solid var(--vt-faint);
+	border-radius: 0 4px 2px 2px;
+	box-shadow: var(--vt-card-stock);
+	color: inherit;
+	text-decoration: none;
+	transition:
+		transform 450ms var(--vt-ease),
+		border-color 250ms ease,
+		background-color 250ms ease;
+}
+
+/* Below lg the drawer is a compact index above the panels, so the folder sheds its bottom margin. */
+@media (max-width: 1023px) {
+	.vt-folder {
+		padding-bottom: 0.75rem;
+	}
+}
+
+.vt-folder:hover {
+	border-color: var(--vt-line);
+}
+
+.vt-folder[aria-current="true"] {
+	background: var(--vt-raised-on);
+	border-color: var(--vt-line);
+}
+
+/* The folder tab fans out of a perfect stack: --i is the folder index and --fan the entrance progress. */
+.vt-ftab {
+	--tab-h: 32px;
+	--tab-px: 16px;
+	--tab-fill: var(--vt-raised);
+	margin-top: -1px;
+	background: var(--vt-faint);
+	transform: translateX(calc(var(--i, 0) * -26px * (1 - var(--fan, 1))));
+	transition:
+		transform 200ms linear,
+		background-color 250ms ease;
+}
+
+.vt-folder[aria-current="true"] .vt-ftab {
+	background: var(--vt-brass);
+	color: var(--vt-plate-ink);
+}
+
+.vt-folder[aria-current="true"] .vt-ftab::before {
+	background: var(--vt-brass);
+}
+
+/* The pull chevron says that the folder comes out of the drawer. */
+.vt-chevron {
+	position: absolute;
+	inset-inline-end: 1.3rem;
+	top: 50%;
+	width: 9px;
+	height: 9px;
+	border-top: 1px solid var(--vt-line);
+	border-inline-end: 1px solid var(--vt-line);
+	transform: translateY(-50%) rotate(45deg);
+	transition: border-color 250ms ease;
+}
+
+[dir="rtl"] .vt-chevron {
+	transform: translateY(-50%) rotate(-45deg);
+}
+
+.vt-folder[aria-current="true"] .vt-chevron {
+	border-color: var(--vt-brass);
+}
+
+/* Only the two-column drawer (Tailwind lg, 1024px) has room to slide the current folder 34px forward. */
+@media (min-width: 1024px) {
+	.vt-folder[aria-current="true"] {
+		transform: translateX(34px);
+	}
+
+	[dir="rtl"] .vt-folder[aria-current="true"] {
+		transform: translateX(-34px);
+	}
+}
+
+/* ---------- the drawn drawer of the hero ---------- */
+.vt-drawer-box {
+	fill: var(--vt-recess);
+	stroke: color-mix(in srgb, var(--primary) 50%, transparent);
+}
+
+.vt-drawer-inside {
+	fill: color-mix(in srgb, var(--canvas) 62%, var(--shadow-color));
+	stroke: color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.vt-file-a {
+	fill: var(--card);
+}
+
+.vt-file-b {
+	fill: color-mix(in srgb, var(--card) 93%, var(--foreground));
+}
+
+.vt-file-stroke {
+	stroke: color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+.vt-file-out {
+	fill: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--card) 84%, var(--success)) 93%,
+		var(--foreground)
+	);
+	stroke: color-mix(in srgb, var(--primary) 62%, transparent);
+}
+
+.vt-brass-fill {
+	fill: var(--primary);
+}
+
+/* ---------- the quote bar: the one rule of the page that is not 1px ---------- */
+.vt-quote-bar {
+	width: clamp(44px, 5.6vw, 92px);
+	height: 3px;
+	background: var(--vt-brass);
+}
+
+/* ---------- entrances: paper slides in a drawer, on x only ---------- */
+/* The hero plays once at load with CSS alone. It ends visible with no script. */
+/* One keyframe for both sides. A media query changes only the offset, so the animation never restarts. */
+@keyframes vt-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(calc(var(--enter-x, -34px) * var(--vt-dir, 1)));
+	}
+}
+
+/* The h1 is the largest text of the first screen. It moves but never fades, so it paints at once. */
+@keyframes vt-slide-only {
+	from {
+		transform: translateX(calc(-34px * var(--vt-dir, 1)));
+	}
+}
+
+.vt-enter-title {
+	animation: vt-slide-only 0.8s var(--vt-ease) both;
+}
+
+.vt-enter-start,
+.vt-enter-end {
+	animation: vt-slide-in 0.8s var(--vt-ease) both;
+	animation-delay: var(--delay, 0ms);
+}
+
+/* End-side blocks come from the end side only where the end column exists (lg). Below, they travel from the start side. */
+@media (min-width: 1024px) {
+	.vt-enter-end {
+		--enter-x: 34px;
+	}
+}
+
+/* In RTL the start side is on the right, so every offset flips. */
+[dir="rtl"] {
+	--vt-dir: -1;
+}
+
+/* Blocks below the first screen: use-scroll-reveal.ts sets the state, and only after hydration. */
+[data-reveal-state="waiting"] {
+	opacity: 0;
+	transform: translateX(calc(var(--reveal-x, -30px) * var(--vt-dir, 1)));
+}
+
+[data-reveal-state="waiting"] .vt-rule {
+	transform: scaleX(0);
+}
+
+[data-reveal-state="shown"] {
+	opacity: 1;
+	transform: none;
+	transition:
+		opacity 0.8s var(--vt-ease),
+		transform 0.8s var(--vt-ease);
+	transition-delay: var(--delay, 0ms);
+}
+
+[data-reveal-state="shown"] .vt-rule {
+	transition: transform 0.7s var(--vt-ease) 0.3s;
+}
+
+@media (min-width: 1024px) {
+	[data-reveal="end"] {
+		--reveal-x: 30px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* The reveal hook does not start under reduced motion, so only the CSS motion stops here. */
+	.vt-enter-start,
+	.vt-enter-end,
+	.vt-enter-title {
+		animation: none;
+	}
+
+	.vt-folder,
+	.vt-ftab,
+	.vt-tab {
+		transition: none;
+	}
+
+	.vt-folder[aria-current="true"],
+	[dir="rtl"] .vt-folder[aria-current="true"] {
+		transform: none;
+	}
+
+	a.vt-tab:hover,
+	a.vt-tab:focus-visible {
+		transform: none;
+	}
+}

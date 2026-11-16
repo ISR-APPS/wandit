@@ -1,0 +1,33 @@
+{
+	"id": "campus-numidia",
+	"removed": [],
+	"theme": {
+		"name": "Campus Numidia",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "campus"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "public-sans",
+			"displayFont": "outfit",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

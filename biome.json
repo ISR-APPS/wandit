@@ -36,6 +36,7 @@
 			"!apps/web/src/features/landing/assets",
 			"!_production-ex",
 			"!_admin-dashboard",
+			"!templates/starters/*/files",
 			"!packages/db/src/migrations/meta/**"
 		]
 	},

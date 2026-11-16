@@ -12,7 +12,8 @@
  * When the agent asks the user something, the request tray opens on top of
  * the composer. While the payer has no credits, the send locks and a
  * strip shows above the composer: the upgrade strip when the payer is the
- * active workspace, else a note to ask the owner. While GitHub has commits
+ * active workspace, else a note to ask the owner. While the host applies a
+ * starter template, the send locks and a hint shows there. While GitHub has commits
  * that the project did not pull, a GitHub strip with Update shows above the
  * composer too. A project viewer gets a note instead of the composer, no
  * Stop, no Retry, no GitHub strip, and no card actions.
@@ -97,6 +98,8 @@ export type ChatPaneProps = {
 	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs. Locks the composer and shows the status line. */
 	isSending: boolean;
+	/** True while the host applies the starter template of the project, from the page. Locks the composer and shows a hint above it. */
+	isStarterTemplateApplying: boolean;
 	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the status line label before the reply has steps. */
 	phase: TurnStreamPhase | null;
 	/** True on the first turn of the project, null while the history loads. From useBuilderThread. Picks the preparation lines. */
@@ -190,6 +193,7 @@ export function ChatPane({
 	isPayerActiveWorkspace,
 	onRemoveTarget,
 	isSending,
+	isStarterTemplateApplying,
 	phase,
 	isFirstTurn,
 	liveMessageId,
@@ -243,15 +247,16 @@ export function ChatPane({
 	// refuses a turn of this conversation while another one holds it.
 	const otherBusyChatId = busyChatId === openChatId ? null : busyChatId;
 	// False for a viewer, while a turn runs, the chat is not ready, the payer
-	// has no credits, or another conversation holds the project: a send then
-	// only gets a 403, a 402, or a 409. The composer and the plan card button
-	// lock on it.
+	// has no credits, another conversation holds the project, or the host
+	// applies a starter template: a send then only gets a 403, a 402, or a 409.
+	// The composer and the plan card button lock on it.
 	const canSend =
 		!isReadOnly &&
 		!isSending &&
 		isReady &&
 		!outOfCredits &&
-		otherBusyChatId === null;
+		otherBusyChatId === null &&
+		!isStarterTemplateApplying;
 	// Retry is a send too, so it locks on the same rule.
 	const retryInput = canSend ? retryInputOf(messages) : null;
 
@@ -525,6 +530,14 @@ export function ChatPane({
 							{t("sharing.credits.payerEmpty")}
 						</p>
 					)
+				) : isStarterTemplateApplying ? (
+					// The preview says what happens. This line says why the composer does not send.
+					<p
+						role="status"
+						className="mb-2 rounded-[1.25rem] bg-spark/[0.14] px-4 py-2 text-night text-xs dark:bg-spark/[0.12] dark:text-foreground"
+					>
+						{t("templates.composerHint")}
+					</p>
 				) : null}
 				{isReadOnly ? (
 					<p className="rounded-[1.25rem] border border-night/[0.1] px-4 py-3 font-sans text-[13px] text-night/60 dark:border-white/[0.1] dark:text-foreground/60">

@@ -673,6 +673,13 @@
       "when": 1794650087648,
       "tag": "0095_desktop-engine",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1794842920314,
+      "tag": "0096_starter-templates",
+      "breakpoints": true
     }
   ]
 }

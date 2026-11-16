@@ -1,0 +1,33 @@
+{
+	"id": "nour-objets",
+	"removed": [],
+	"theme": {
+		"name": "NOUR Objets",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "catalogue"
+			},
+			"mode": "light",
+			"primary": "#2e4e3f",
+			"font": "hanken-grotesk",
+			"displayFont": "ibm-plex-mono",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

@@ -1,0 +1,33 @@
+{
+	"id": "horizon-voyages",
+	"removed": [],
+	"theme": {
+		"name": "Horizon Voyages",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "horizon"
+			},
+			"mode": "light",
+			"primary": "#e8a23c",
+			"font": "public-sans",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "light",
+			"navIcon": "plain"
+		}
+	}
+}

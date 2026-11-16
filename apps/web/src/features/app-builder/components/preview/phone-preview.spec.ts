@@ -32,6 +32,7 @@ const project: AppProject = {
 	versionNumber: 4,
 	unpublishedChanges: 3,
 	hasCodeChanges: true,
+	starterTemplateId: null,
 };
 
 const PREVIEW_ORIGIN =
@@ -58,6 +59,7 @@ const idleBoot: BootContext = {
 	backend: undefined,
 	hasCodeChanges: true,
 	isPlanning: false,
+	isStarterTemplateApplying: false,
 };
 
 // Each mint answers the next token, so no network call happens.

@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Atelier Nord-Sud",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "gabarit"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "ibm-plex-sans",
+		"displayFont": "archivo",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f4f6f8",
+			"foreground": "#182e4b",
+			"card": "#fcfdfe",
+			"cardForeground": "#182e4b",
+			"popover": "#fcfdfe",
+			"popoverForeground": "#182e4b",
+			"primary": "#d44331",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e3e7eb",
+			"secondaryForeground": "#182e4b",
+			"muted": "#e9ecf0",
+			"mutedForeground": "#58687b",
+			"accent": "#ffe3de",
+			"accentForeground": "#182e4b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d6dce2",
+			"input": "#c3cbd3",
+			"ring": "#d44331",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eceef0",
+			"shadowColor": "#142235"
+		},
+		"dark": {
+			"background": "#131415",
+			"foreground": "#edf2fa",
+			"card": "#191b1c",
+			"cardForeground": "#edf2fa",
+			"popover": "#1e1f21",
+			"popoverForeground": "#edf2fa",
+			"primary": "#db4a38",
+			"primaryForeground": "#1d0c09",
+			"secondary": "#242628",
+			"secondaryForeground": "#edf2fa",
+			"muted": "#1f2022",
+			"mutedForeground": "#a3a8ad",
+			"accent": "#371b17",
+			"accentForeground": "#edf2fa",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2b2d2f",
+			"input": "#37393c",
+			"ring": "#db4a38",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0c0d0f",
+			"shadowColor": "#010202"
+		},
+		"fonts": {
+			"sans": {
+				"family": "IBM Plex Sans",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+			},
+			"display": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "IBM Plex Mono",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

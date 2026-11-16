@@ -129,6 +129,7 @@ import {
 	type SupabaseRateLimiter,
 } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerApplyStarterTemplateTaskStarter } from "./infrastructure/trigger/trigger-apply-starter-template-task-starter";
 import { TriggerDesktopBuildTaskStarter } from "./infrastructure/trigger/trigger-desktop-build-task-starter";
 import { TriggerGithubSyncScheduler } from "./infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
@@ -300,6 +301,8 @@ export function createCloudSupabaseClient(
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
 		TemplateVersionService,
+		// `AppProjectsService` queues the starter template apply through it.
+		TriggerApplyStarterTemplateTaskStarter,
 		TriggerSyncBackendAuthUrlsTaskStarter,
 		// The sandbox start of a restore and a wake reads the egress hosts here.
 		TurnProjectRepository,

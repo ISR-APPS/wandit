@@ -1,0 +1,398 @@
+/* Site CSS of the Clinique Lumia home page. LandingPage imports it.
+   It holds what Tailwind classes cannot say: the page colors mixed from the theme tokens, the photo orbit
+   of the hero, the drift and bloom keyframes, the scroll reveal states, and the reduced-motion rules.
+   Every color is a theme token or a color-mix() of tokens. The page reads complete with no script. */
+
+/* The page colors of the Éclat world, mixed from the theme tokens.
+   The sheet of the phone menu renders outside the page root, so it takes this class too. */
+.lumia-scope {
+	/* The deeper cream of alternate sections: the ground with a touch of bronze. */
+	--lumia-cream-deep: color-mix(in srgb, var(--background) 94%, var(--primary));
+	/* Blush: the support color of capsules and of the booking panel. */
+	--lumia-blush: color-mix(in srgb, var(--accent) 88%, var(--primary));
+	/* Soft cacao for secondary text. */
+	--lumia-ink-soft: color-mix(
+		in srgb,
+		var(--foreground) 80%,
+		var(--background)
+	);
+	/* The deeper bronze of a hovered or warmed call to action. */
+	--lumia-bronze-deep: color-mix(
+		in srgb,
+		var(--primary) 84%,
+		var(--foreground)
+	);
+	/* Cacao hairline at 14%. The bronze is never a hairline in this world. */
+	--lumia-hair: color-mix(in srgb, var(--foreground) 14%, transparent);
+	/* The one warm shadow of the world. Only floating photos cast it, never a card. */
+	--lumia-photo-shadow: 0 18px 40px
+		color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.lumia-scope ::selection {
+	background: var(--lumia-blush);
+	color: var(--foreground);
+}
+
+.lumia-scope :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+/* ---- Photographs ---- */
+
+/* A rounded mask. The radius comes from the component class (28px to 48px). */
+.lumia-mask {
+	position: relative;
+	overflow: hidden;
+	isolation: isolate;
+	background: var(--lumia-cream-deep);
+}
+
+.lumia-mask img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+/* Hover: the photo rises 4px and warms a little. The photos take no focus, so there is no focus state. */
+.lumia-photo {
+	transition: transform 0.35s ease;
+}
+
+.lumia-photo img {
+	transition: filter 0.35s ease;
+}
+
+.lumia-photo:hover {
+	transform: translateY(-4px);
+}
+
+.lumia-photo:hover img {
+	filter: brightness(1.03) saturate(1.05);
+}
+
+.lumia-floating {
+	box-shadow: var(--lumia-photo-shadow);
+}
+
+/* ---- Capsule glyph ---- */
+
+/* The petal glyph of a hero badge turns 15 degrees while the orbit scrub blooms its badge. */
+.lumia-glyph-turn {
+	transform: rotate(calc(15deg * var(--lumia-badge-on, 0)));
+}
+
+/* ---- Hero: the photo orbit ---- */
+
+/* The bloom at page load: a scale from 0.96 and a fade. CSS runs it, so it also ends with no script. */
+@keyframes lumia-bloom {
+	from {
+		opacity: 0;
+		transform: scale(0.96) translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.lumia-enter {
+	animation: lumia-bloom 1.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* The idle drift of a floating photo: a slow sine on two axes. Each photo sets its own amplitude and period. */
+@keyframes lumia-drift {
+	from {
+		transform: translate(0, 0);
+	}
+	to {
+		transform: translate(
+			calc(var(--lumia-drift-x, 0px) * var(--lumia-drift-scale, 1)),
+			calc(var(--lumia-drift-y, 10px) * var(--lumia-drift-scale, 1))
+		);
+	}
+}
+
+.lumia-drift {
+	animation: lumia-drift var(--lumia-drift-half, 3.6s) ease-in-out
+		var(--lumia-drift-delay, 0s) infinite alternate both;
+}
+
+/* The phone and tablet orbit: a composed cluster under the claim. The portrait fills the first column. */
+.lumia-orbit-layer {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+	grid-template-rows: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+	width: min(100%, 30rem);
+	height: clamp(15rem, 54vw, 25rem);
+	margin-inline: auto;
+	/* The cluster photos sit 12px apart, so their drift shrinks to a third: they never touch. */
+	--lumia-drift-scale: 0.35;
+}
+
+/* Each photo has its own drift and its cluster place.
+   Amplitudes 9px to 16px and periods 6.4s to 9.4s: no two photos move together. */
+.lumia-orbit-1 {
+	grid-row: 1 / 3;
+	grid-column: 1;
+	--lumia-drift-x: 4px;
+	--lumia-drift-y: 12px;
+	--lumia-drift-half: 3.6s;
+	--lumia-drift-delay: 0s;
+}
+
+.lumia-orbit-2 {
+	grid-row: 1;
+	grid-column: 2;
+	--lumia-drift-x: -5px;
+	--lumia-drift-y: 16px;
+	--lumia-drift-half: 4.3s;
+	--lumia-drift-delay: -1.1s;
+}
+
+.lumia-orbit-3 {
+	grid-row: 2;
+	grid-column: 2;
+	--lumia-drift-x: -3px;
+	--lumia-drift-y: 9px;
+	--lumia-drift-half: 3.2s;
+	--lumia-drift-delay: -2.3s;
+}
+
+/* The cluster has three places. The fourth photo stays rendered but unseen: with display none,
+   a later layout change would restart its bloom. */
+.lumia-orbit-4 {
+	position: absolute;
+	visibility: hidden;
+	--lumia-drift-x: 4px;
+	--lumia-drift-y: 14px;
+	--lumia-drift-half: 4.7s;
+	--lumia-drift-delay: -3.6s;
+}
+
+/* The bloom, drift, lift, and mask layers of an orbit photo all fill its slot. */
+.lumia-orbit-photo :is(div, figure) {
+	height: 100%;
+}
+
+/* Desktop: the claim sits in the middle of the stage, and four photos float around it.
+   Each photo has three stops. --lumia-orbit goes from 0 to 1 while the hero scrolls away:
+   the first half moves each photo to its middle stop, the second half to the place of the next photo. */
+@media (min-width: 64rem) {
+	.lumia-hero-stage {
+		height: clamp(40rem, calc(100svh - 5.5rem), 53.75rem);
+	}
+
+	.lumia-hero-copy {
+		position: absolute;
+		inset-inline-start: 50%;
+		top: 49%;
+		z-index: 3;
+		width: min(42.5rem, 62%);
+		transform: translate(-50%, -50%);
+	}
+
+	.lumia-scope:dir(rtl) .lumia-hero-copy {
+		transform: translate(50%, -50%);
+	}
+
+	.lumia-orbit-layer {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		display: block;
+		width: auto;
+		height: auto;
+		margin: 0;
+		pointer-events: none;
+		--lumia-drift-scale: 1;
+		/* The two halves of the scrub, each eased by the script. Unset: the first frame. */
+		--lumia-a: var(--lumia-orbit-a, 0);
+		--lumia-b: var(--lumia-orbit-b, 0);
+	}
+
+	.lumia-orbit-photo {
+		position: absolute;
+		pointer-events: auto;
+		inset-inline-start: calc(
+			var(--x0) +
+			(var(--x1) - var(--x0)) *
+			var(--lumia-a) +
+			(var(--x2) - var(--x1)) *
+			var(--lumia-b)
+		);
+		top: calc(
+			var(--y0) +
+			(var(--y1) - var(--y0)) *
+			var(--lumia-a) +
+			(var(--y2) - var(--y1)) *
+			var(--lumia-b)
+		);
+		transform: translate(-50%, -50%);
+	}
+
+	.lumia-scope:dir(rtl) .lumia-orbit-photo {
+		transform: translate(50%, -50%);
+	}
+
+	/* The stops of each photo, in percent of the stage. The last stop of one photo is the first stop of the next. */
+	.lumia-orbit-1 {
+		--x0: 9%;
+		--y0: 38%;
+		--x1: 48%;
+		--y1: 15%;
+		--x2: 88.5%;
+		--y2: 21%;
+		width: clamp(8.875rem, 13vw, 11.25rem);
+		height: clamp(11.875rem, 18vw, 14.875rem);
+	}
+
+	.lumia-orbit-2 {
+		--x0: 88.5%;
+		--y0: 21%;
+		--x1: 92%;
+		--y1: 45%;
+		--x2: 90%;
+		--y2: 70%;
+		width: clamp(7rem, 10.5vw, 9.125rem);
+		height: clamp(8.25rem, 12vw, 10.125rem);
+	}
+
+	.lumia-orbit-3 {
+		--x0: 90%;
+		--y0: 70%;
+		--x1: 52%;
+		--y1: 90%;
+		--x2: 12%;
+		--y2: 79%;
+		width: clamp(6.25rem, 9.5vw, 8.25rem);
+		height: clamp(7rem, 10.5vw, 9.0625rem);
+	}
+
+	.lumia-orbit-4 {
+		visibility: visible;
+		--x0: 12%;
+		--y0: 79%;
+		--x1: 8%;
+		--y1: 57%;
+		--x2: 9%;
+		--y2: 38%;
+		width: clamp(6.625rem, 10vw, 8.625rem);
+		height: clamp(8.125rem, 12vw, 10.375rem);
+	}
+}
+
+/* The scrub states of the badges and of the call to action. With reduced motion they keep their full color. */
+@media (min-width: 64rem) and (prefers-reduced-motion: no-preference) {
+	/* Each hero badge blooms at its own point of the scrub. --lumia-badge-at is its start, set on the badge. */
+	.lumia-hero .lumia-hero-badge {
+		--lumia-badge-on: clamp(
+			0,
+			(var(--lumia-orbit, 0) - var(--lumia-badge-at, 0)) /
+			0.16,
+			1
+		);
+		background-color: color-mix(
+			in srgb,
+			var(--lumia-blush) calc(48% + 46% * var(--lumia-badge-on)),
+			transparent
+		);
+	}
+
+	/* The call to action warms to the deep bronze at the end of the scrub. A solid color, never a gradient. */
+	.lumia-hero .lumia-hero-cta {
+		background-color: color-mix(
+			in srgb,
+			var(--lumia-bronze-deep)
+				calc(100% * clamp(0, (var(--lumia-orbit, 0) - 0.88) / 0.12, 1)),
+			var(--primary)
+		);
+	}
+
+	/* This file is not in a Tailwind layer, so the rule above beats the hover class. Hover and focus still deepen. */
+	.lumia-hero .lumia-hero-cta:is(:hover, :focus-visible, :active) {
+		background-color: var(--lumia-bronze-deep);
+	}
+}
+
+/* ---- Ritual steps ---- */
+
+/* The small ritual photos drift on their own phases, slower and shorter than the hero orbit. */
+.lumia-ritual-drift-1 {
+	--lumia-drift-x: 0px;
+	--lumia-drift-y: 9px;
+	--lumia-drift-half: 3.6s;
+	--lumia-drift-delay: 0s;
+}
+
+.lumia-ritual-drift-2 {
+	--lumia-drift-x: 0px;
+	--lumia-drift-y: 12px;
+	--lumia-drift-half: 4.4s;
+	--lumia-drift-delay: -1.1s;
+}
+
+.lumia-ritual-drift-3 {
+	--lumia-drift-x: 0px;
+	--lumia-drift-y: 8px;
+	--lumia-drift-half: 3.2s;
+	--lumia-drift-delay: -2.2s;
+}
+
+.lumia-ritual-drift-4 {
+	--lumia-drift-x: 0px;
+	--lumia-drift-y: 11px;
+	--lumia-drift-half: 4.8s;
+	--lumia-drift-delay: -3.3s;
+}
+
+/* ---- Scroll reveals ---- */
+
+/* The hook sets "waiting" only on a block below the first screen, after hydration. No script: no state, all visible. */
+[data-reveal-state="waiting"] {
+	opacity: 0;
+	transform: scale(0.96) translateY(12px);
+}
+
+[data-reveal-state="shown"] {
+	opacity: 1;
+	transform: none;
+	transition:
+		opacity 1.4s cubic-bezier(0.22, 0.61, 0.36, 1),
+		transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+	transition-delay: var(--lumia-reveal-delay, 0s);
+}
+
+/* Blooms are shorter on a phone and a tablet (the Éclat skill says 0.9s to 1.1s).
+   A visitor who taps "Book an appointment" then lands on a booking panel that is already clear. */
+@media (max-width: 63.99rem) {
+	.lumia-enter {
+		animation-duration: 1s;
+	}
+
+	[data-reveal-state="shown"] {
+		transition-duration: 1s;
+	}
+}
+
+/* ---- Reduced motion: a still page that looks composed. ---- */
+
+@media (prefers-reduced-motion: reduce) {
+	.lumia-enter,
+	.lumia-drift {
+		animation: none;
+	}
+
+	.lumia-photo,
+	.lumia-photo img {
+		transition: none;
+	}
+
+	.lumia-photo:hover {
+		transform: none;
+	}
+}

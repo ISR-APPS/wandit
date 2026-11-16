@@ -50,6 +50,8 @@ export const apiErrorCodes = [
 	"V2_MODEL_UNPRICED",
 	"V2_MODEL_DENIED",
 	"MOBILE_TEMPLATE_UNAVAILABLE",
+	// 404 of POST /api/v2/projects/from-starter-template: the id is not in the catalog, or the API has no archive for it.
+	"STARTER_TEMPLATE_NOT_FOUND",
 	"BUILDER_APPROVAL_PENDING",
 	"BUILDER_TURN_ACTIVE",
 	// 409 on a turn create while another conversation of the project has an unfinished turn. The details carry its `chatId`.

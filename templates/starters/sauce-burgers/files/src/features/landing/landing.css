@@ -1,0 +1,306 @@
+/* Site CSS of the SAUCE! landing page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the page measures, the mustard color, the photo grade,
+   the flick entrances of hooks/use-flick-serve.ts, and the sticky exploded burger of hooks/use-sticky-progress.ts.
+   Every color is a theme token or a color-mix() of tokens. */
+
+.sc-page {
+	/* Side gutter, section rhythm, and drip height of the page chassis. */
+	--sc-gut: clamp(18px, 4vw, 44px);
+	--sc-pad: clamp(74px, 9.5vh, 124px);
+	--sc-drip: clamp(30px, 4.6vw, 66px);
+	/* The free space on each side of the 1320px container. It is 0 on a narrow screen. */
+	--sc-side: max(0px, calc((100vw - 1320px) / 2));
+	/* Height of the sticky header: a 58px row and its 2px ink edge. */
+	--sc-bar: 60px;
+	/* The mustard, the support accent. The amber of the warning token, moved to yellow with 8% of the green token,
+	   then made light with the card color. The hsl space keeps the color vivid when it gets light. */
+	--sc-mustard: color-mix(
+		in hsl,
+		color-mix(in hsl, var(--warning) 92%, var(--success)) 54%,
+		var(--card)
+	);
+	/* Mustard for text and focus rings on the hot ground: 3.35:1 on the red, enough for text of 24px or more.
+	   The full mustard gives only 2.9:1 there, so it stays for rules, leader lines, and fills. */
+	--sc-mustard-on-hot: color-mix(in hsl, var(--sc-mustard) 70%, var(--card));
+	/* 1 in a left-to-right language, -1 in Arabic. It mirrors the flicks. */
+	--sc-dir: 1;
+}
+
+.sc-page:dir(rtl) {
+	--sc-dir: -1;
+}
+
+.sc-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.sc-page :focus-visible {
+	outline: 3px solid var(--primary);
+	outline-offset: 3px;
+}
+
+/* On the hot ground and on the ink footer the accent ring does not show. The mustard does. */
+.sc-on-hot :focus-visible {
+	outline-color: var(--sc-mustard-on-hot);
+}
+
+/* The one grade of every photo: a little more color and contrast, as studio food light. */
+.sc-photo {
+	filter: saturate(1.15) contrast(1.06);
+}
+
+/* ---- Flick serve: the entrances. ----
+   use-flick-serve.ts sets data-flick-state on a group below the first screen: "waiting", then "served".
+   With no script no state exists, so every group stays visible. The first screen has no entrance: it paints at once. */
+
+@keyframes sc-flick {
+	from {
+		opacity: 0;
+		transform: translateX(calc(var(--sc-flick-from, -34px) * var(--sc-dir)));
+	}
+}
+
+@keyframes sc-cut {
+	from {
+		opacity: 0;
+	}
+}
+
+[data-flick="r"] {
+	--sc-flick-from: 34px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	[data-flick-state="waiting"] > * {
+		opacity: 0;
+	}
+
+	/* "backwards" holds the hidden frame during the delay only. After the flick, hover states are free again. */
+	[data-flick-state="served"] > * {
+		animation: sc-flick 0.35s cubic-bezier(0.215, 0.61, 0.355, 1) backwards;
+	}
+
+	/* A photo cuts in: no slide, no scale. */
+	[data-flick="cut"][data-flick-state="served"] > * {
+		animation: sc-cut 0.3s ease-out backwards;
+	}
+
+	/* The children of one group follow each other by 55ms. */
+	[data-flick-state="served"] > :nth-child(2) {
+		animation-delay: 55ms;
+	}
+
+	[data-flick-state="served"] > :nth-child(3) {
+		animation-delay: 110ms;
+	}
+
+	[data-flick-state="served"] > :nth-child(4) {
+		animation-delay: 165ms;
+	}
+
+	[data-flick-state="served"] > :nth-child(5) {
+		animation-delay: 220ms;
+	}
+
+	[data-flick-state="served"] > :nth-child(n + 6) {
+		animation-delay: 275ms;
+	}
+}
+
+/* ---- The exploded burger: one photo in six slices that separate on scroll. ----
+   The open stack with its labels is the rest state. It shows with no script and with reduced motion.
+   use-sticky-progress.ts writes --sc-progress on the section: 0 is the closed burger, 1 is the open stack. */
+
+.sc-explode {
+	/* Width and height of the whole photo. The photo ratio is 3:4. The 62vh limit keeps the stack on a phone that lies on its side.
+	   50vw leaves the other half of a phone to the labels. */
+	--sc-bw: min(50vw, 62vh, 300px);
+	--sc-bh: calc(var(--sc-bw) * 1.3333);
+	/* The gap between two slices of the open stack. */
+	--sc-gap: clamp(13px, 3vh, 30px);
+	/* Height of the open stack: the six slices hold 72.2% of the photo, plus five gaps. */
+	--sc-stack-h: calc(var(--sc-bh) * 0.722 + var(--sc-gap) * 5);
+	--sc-progress: 1;
+}
+
+/* Whole pixels: a photo width that 3 divides gives a whole height, and an even gap gives a whole half spread.
+   Then the closed burger shows no hairline between two slices. An old browser without round() keeps the values above. */
+@supports (width: round(down, 10px, 3px)) {
+	.sc-explode {
+		--sc-bw: round(down, min(50vw, 62vh, 300px), 3px);
+		--sc-bh: calc(var(--sc-bw) / 3 * 4);
+		--sc-gap: round(nearest, clamp(13px, 3vh, 30px), 2px);
+	}
+}
+
+.sc-track {
+	padding-block: var(--sc-pad);
+}
+
+.sc-explode-grid {
+	display: grid;
+	gap: clamp(26px, 4vh, 40px);
+}
+
+.sc-stage {
+	display: flex;
+	justify-content: center;
+}
+
+.sc-stack {
+	/* 1 when the burger is closed, 0 when the stack is open. */
+	--sc-closed: calc(1 - var(--sc-progress));
+	width: 100%;
+	max-width: 740px;
+	/* The closed burger moves down by half of the five gaps, so it stays in the center of the open stack. */
+	transform: translateY(calc(var(--sc-gap) * 2.5 * var(--sc-closed)));
+	/* The photo grade of .sc-photo, one time for the whole stack. One filter costs less than six when the slices move. */
+	filter: saturate(1.15) contrast(1.06);
+}
+
+.sc-layer {
+	/* The two cuts of the slice in px, from the top of the photo. */
+	--sc-cut-top: calc(var(--sc-bh) * var(--layer-top));
+	--sc-cut-bottom: calc(var(--sc-bh) * var(--layer-bottom));
+	position: relative;
+	height: calc(var(--sc-cut-bottom) - var(--sc-cut-top));
+	margin-bottom: var(--sc-gap);
+	/* A closed slice moves up by all the gaps above it. */
+	transform: translateY(
+		calc(var(--sc-gap) * var(--layer-index) * -1 * var(--sc-closed))
+	);
+}
+
+.sc-layer:last-child {
+	margin-bottom: 0;
+}
+
+.sc-layer-photo {
+	width: var(--sc-bw);
+	/* 1px more than the slice: the closed burger shows no seam between two slices. */
+	height: calc(100% + 1px);
+	background-image: url("/images/double-burger.webp");
+	background-repeat: no-repeat;
+	background-size: var(--sc-bw) var(--sc-bh);
+	background-position: 0 calc(var(--sc-cut-top) * -1);
+}
+
+/* Each cut on a whole pixel. The bottom cut of a slice is the top cut of the next one, so no row of the photo is lost. */
+@supports (width: round(down, 10px, 3px)) {
+	.sc-layer {
+		--sc-cut-top: round(nearest, calc(var(--sc-bh) * var(--layer-top)), 1px);
+		--sc-cut-bottom: round(
+			nearest,
+			calc(var(--sc-bh) * var(--layer-bottom)),
+			1px
+		);
+	}
+}
+
+.sc-layer-label {
+	position: absolute;
+	inset-block: 0;
+	inset-inline: calc(var(--sc-bw) + 14px) 0;
+	display: flex;
+	align-items: center;
+}
+
+.sc-layer-tag {
+	/* 0 before the label starts, 1 when it is in place. Each label takes 16% of the scroll. */
+	--sc-on: clamp(0, calc((var(--sc-progress) - var(--label-start)) / 0.16), 1);
+	position: relative;
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	opacity: var(--sc-on);
+	transform: translateX(calc(26px * var(--sc-dir) * (1 - var(--sc-on))));
+}
+
+/* The leader line belongs to the label, so it arrives with its text.
+   It points at the numeral line, also when the name wraps to two lines. */
+.sc-layer-tag::before {
+	content: "";
+	position: absolute;
+	inset-inline-start: -12px;
+	top: 0.55em;
+	width: 9px;
+	height: 2px;
+	background: var(--sc-mustard);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* Phone: the section is taller than the screen, so only the stack sticks, in the center under the header.
+	   The stack track is 65% of a screen longer than the stack: that scroll opens the burger. */
+	.sc-stage-track {
+		height: calc(var(--sc-stack-h) + 65svh);
+	}
+
+	.sc-stage {
+		position: sticky;
+		top: calc(var(--sc-bar) + (100svh - var(--sc-bar) - var(--sc-stack-h)) / 2);
+	}
+}
+
+/* Desktop: the head, the facts, and the stack fit one screen. */
+@media (min-width: 901px) and (min-height: 600px) {
+	.sc-explode {
+		--sc-bw: min(33vw, 54vh, 470px);
+	}
+
+	@supports (width: round(down, 10px, 3px)) {
+		.sc-explode {
+			--sc-bw: round(down, min(33vw, 54vh, 470px), 3px);
+		}
+	}
+
+	.sc-explode-grid {
+		grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+		grid-template-areas:
+			"head stage"
+			"facts stage";
+		column-gap: clamp(24px, 4vw, 56px);
+		row-gap: clamp(16px, 2.6vh, 26px);
+		width: 100%;
+	}
+
+	.sc-explode-head {
+		grid-area: head;
+		align-self: end;
+	}
+
+	.sc-explode-facts {
+		grid-area: facts;
+		align-self: start;
+	}
+
+	.sc-stage-track {
+		grid-area: stage;
+		align-self: center;
+		height: auto;
+	}
+
+	.sc-stage {
+		position: static;
+	}
+}
+
+/* Desktop with motion: the whole field sticks under the header for 90% of a screen of scroll. */
+@media (min-width: 901px) and (min-height: 600px) and (
+		prefers-reduced-motion: no-preference
+	) {
+	.sc-track {
+		height: calc(190svh - var(--sc-bar));
+		padding-block: 0;
+	}
+
+	.sc-pin {
+		position: sticky;
+		top: var(--sc-bar);
+		display: flex;
+		align-items: center;
+		height: calc(100svh - var(--sc-bar));
+		/* The drip edge hangs into the top of the field. The content stays under it. */
+		padding-top: calc(var(--sc-drip) * 0.8);
+	}
+}

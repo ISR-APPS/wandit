@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Clinique Lumia",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "eclat"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "nunito",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "xl",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "light",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f6ede3",
+			"foreground": "#3d281c",
+			"card": "#f9f4ef",
+			"cardForeground": "#3d281c",
+			"popover": "#f9f4ef",
+			"popoverForeground": "#3d281c",
+			"primary": "#8c5b3f",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e8ded3",
+			"secondaryForeground": "#3d281c",
+			"muted": "#ede3d9",
+			"mutedForeground": "#716054",
+			"accent": "#f7ddcf",
+			"accentForeground": "#3d281c",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#ded3c8",
+			"input": "#cec2b6",
+			"ring": "#8c5b3f",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eee5db",
+			"shadowColor": "#301c11"
+		},
+		"dark": {
+			"background": "#19130c",
+			"foreground": "#f9f0eb",
+			"card": "#201912",
+			"cardForeground": "#f9f0eb",
+			"popover": "#241e17",
+			"popoverForeground": "#f9f0eb",
+			"primary": "#8c5b3f",
+			"primaryForeground": "#ffffff",
+			"secondary": "#2b241d",
+			"secondaryForeground": "#f9f0eb",
+			"muted": "#251f18",
+			"mutedForeground": "#aea5a0",
+			"accent": "#351d0f",
+			"accentForeground": "#f9f0eb",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#332c25",
+			"input": "#3f3831",
+			"ring": "#8c5b3f",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#120c06",
+			"shadowColor": "#030100"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Geist",
+				"href": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Instrument Serif",
+				"href": "https://fonts.googleapis.com/css2?family=Instrument+Serif&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

@@ -24,6 +24,7 @@ const PROJECT: AppProject = {
 	versionNumber: 4,
 	unpublishedChanges: 3,
 	hasCodeChanges: true,
+	starterTemplateId: null,
 };
 
 const ACTIVE_BACKEND: CloudBackendResponse = {

@@ -137,6 +137,7 @@ function setup(
 			languages: ["en"],
 			networkAllowedHosts: [],
 			organizationId: null,
+			starterTemplateId: null,
 			suspendedReasonCode: null,
 			templateVersion: "1.0.0",
 			userId: "user-1",

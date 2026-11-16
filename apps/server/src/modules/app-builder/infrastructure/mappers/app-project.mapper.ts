@@ -26,6 +26,7 @@ export function mapAppProjectRow(
 		// The column is text[]; the database check constraint allows only
 		// ar, fr, en, so the parse cannot fail on a good row.
 		languages: appLanguageSchema.array().parse(row.languages),
+		starterTemplateId: row.starterTemplateId,
 		targetPlatform: row.targetPlatform,
 		templateVersion: row.templateVersion,
 		hasCodeChanges,

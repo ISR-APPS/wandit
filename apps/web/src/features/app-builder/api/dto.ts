@@ -12,6 +12,7 @@ import type {
 	HarnessCompactionOutput,
 	ProjectAccess,
 	ProjectEngine,
+	StarterTemplateNoteData,
 	TargetPlatform,
 	TurnDataParts,
 	TurnErrorData,
@@ -46,6 +47,11 @@ export type AppProject = {
 	unpublishedChanges: number;
 	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
 	hasCodeChanges: boolean;
+	/**
+	 * Catalog id of the starter template the project started from. Null for a project from a prompt,
+	 * and after the host could not apply the starter template. Set with `hasCodeChanges` false: the host applies it now.
+	 */
+	starterTemplateId: string | null;
 	/**
 	 * The caller's project role and the project's workspace. Every V2 panel reads it,
 	 * never the workspace header role. Absent from an older API: full access, as before.
@@ -107,7 +113,8 @@ export type BuilderDiffLine = {
  * settled cost of a turn. `compaction` marks the point where Claude Code
  * summarized the older conversation; both views show it. `security-report`
  * ends a `security_scan` turn: the counts of its findings. `targets` sits in
- * a user message: the elements it picked in the preview.
+ * a user message: the elements it picked in the preview. `starter-template`
+ * is the note of a project that started from a starter template.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -205,6 +212,8 @@ export type BuilderDataParts = {
 	/** The `data-security-report` payload as the stream sends it. The chat card shows it; the panel reads the full report. */
 	"security-report": TurnSecurityReportData;
 	targets: TurnTargetsData;
+	/** The `data-starter-template` payload: the catalog id, and `applied` or `failed`. The apply step stores it; no turn sends it. */
+	"starter-template": StarterTemplateNoteData;
 };
 
 /** One chat message in the AI SDK shape, as lib/turn-parts.ts maps it from a `TurnMessage`. */
