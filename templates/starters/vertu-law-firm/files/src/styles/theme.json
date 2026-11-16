@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Vertu & Associes",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "cabinet"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "public-sans",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "sm",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f2fbf5",
+			"foreground": "#15231b",
+			"card": "#ffffff",
+			"cardForeground": "#15231b",
+			"popover": "#ffffff",
+			"popoverForeground": "#15231b",
+			"primary": "#a98b4f",
+			"primaryForeground": "#181003",
+			"secondary": "#e0eae4",
+			"secondaryForeground": "#15231b",
+			"muted": "#e7f0ea",
+			"mutedForeground": "#5f6b64",
+			"accent": "#f8ebd3",
+			"accentForeground": "#15231b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d4ded8",
+			"input": "#c0cbc4",
+			"ring": "#a98b4f",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eaf3ed",
+			"shadowColor": "#17251d"
+		},
+		"dark": {
+			"background": "#15231b",
+			"foreground": "#ede6d6",
+			"card": "#1c2a22",
+			"cardForeground": "#ede6d6",
+			"popover": "#212f27",
+			"popoverForeground": "#ede6d6",
+			"primary": "#a98b4f",
+			"primaryForeground": "#181003",
+			"secondary": "#27342a",
+			"secondaryForeground": "#ede6d6",
+			"muted": "#212f25",
+			"mutedForeground": "#a5a696",
+			"accent": "#3b2e14",
+			"accentForeground": "#ede6d6",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2e3b30",
+			"input": "#3a453a",
+			"ring": "#a98b4f",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0e1c14",
+			"shadowColor": "#000301"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Public Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Libre Caslon Text",
+				"href": "https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Libre Caslon Text",
+				"href": "https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

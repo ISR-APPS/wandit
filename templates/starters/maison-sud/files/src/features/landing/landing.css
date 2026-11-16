@@ -1,0 +1,330 @@
+/* Site CSS of the Maison Sud landing page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the layout measures, the serif face, and the raised plinth.
+   It also holds the reveal states of hooks/use-scroll-reveal.ts and the room walk of components/room-walk.tsx.
+   Every color is a theme token or a color-mix() of tokens. */
+
+.ms-page {
+	/* Side padding, grid gutter, and section rhythm of the page chassis. */
+	--ms-pad: clamp(20px, 5vw, 58px);
+	--ms-gap: clamp(20px, 3vw, 40px);
+	--ms-rhythm: clamp(4.4rem, 8vw, 8rem);
+	/* How far the hero plinth leaves its photo and enters the text column. */
+	--ms-seam: calc(var(--ms-gap) + 14px);
+	/* The warm thread: one earth pigment between the warning and the destructive tokens. Three uses per page. */
+	--ms-warm: color-mix(in oklch, var(--warning) 55%, var(--destructive));
+	--ms-hair-mid: color-mix(in oklab, var(--foreground) 18%, transparent);
+	--ms-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	/* The room walk eases in and out. Nothing snaps and nothing overshoots. */
+	--ms-walk-ease: cubic-bezier(0.455, 0.03, 0.515, 0.955);
+	/* Entrances start fast and settle slowly, so a block reads at once. */
+	--ms-enter-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+	/* 1 in a left-to-right language, -1 in Arabic. It mirrors the lateral pans. */
+	--ms-direction: 1;
+}
+
+.ms-page:dir(rtl) {
+	--ms-direction: -1;
+}
+
+/* At full container width the plinth leaves a quarter of itself on bare ground. */
+@media (min-width: 1241px) {
+	.ms-page {
+		--ms-seam: calc(var(--ms-gap) + 45px);
+	}
+}
+
+/* The text column is too narrow to lend 14px: the plinth stops inside the gutter. */
+@media (max-width: 1100px) {
+	.ms-page {
+		--ms-seam: calc(var(--ms-gap) - 4px);
+	}
+}
+
+.ms-page ::selection {
+	background: color-mix(in oklab, var(--primary) 22%, transparent);
+	color: var(--foreground);
+}
+
+/* Warm thread, use 2: the focus ring and the link hover. */
+.ms-page :focus-visible {
+	outline: 2px solid var(--ms-warm);
+	outline-offset: 3px;
+}
+
+.ms-warm-hover {
+	transition: color 0.32s var(--ms-ease);
+}
+
+/* The link box is a touch target of 44px or more. Its hairline sits on the inner text, not on the box. */
+.ms-warm-line {
+	transition: border-color 0.32s var(--ms-ease);
+}
+
+.ms-warm-hover:hover .ms-warm-line,
+.ms-warm-hover:focus-visible .ms-warm-line {
+	border-color: var(--ms-warm);
+}
+
+/* Warm thread, use 3: the rule beside the fee note. */
+.ms-warm-rule {
+	border-inline-start: 1px solid var(--ms-warm);
+}
+
+/* ---- the serif face: the names of projects, rooms, and materials. ----
+   Public pages draw font-display with the world face. The serif is the display face of the theme. */
+
+.ms-serif {
+	font-family: var(--theme-font-display), ui-serif, Georgia, serif;
+	letter-spacing: 0;
+}
+
+/* The Arabic display face replaces the Latin serif. */
+:lang(ar) .ms-serif {
+	font-family: var(--font-display);
+}
+
+/* ---- apertures and plinths ---- */
+
+.ms-frame {
+	transition: border-color 0.32s var(--ms-ease);
+}
+
+.ms-fig:hover .ms-frame {
+	border-color: var(--ms-hair-mid);
+}
+
+/* The photo is a little larger than its frame, so the lateral pan never shows an edge. */
+.ms-frame img {
+	transform: scale(1.045);
+}
+
+/* The plinth is raised: a soft far shadow and a 1px near shadow, both from the shadow token. */
+.ms-plinth {
+	box-shadow:
+		0 10px 26px color-mix(in oklab, var(--shadow-color) 7%, transparent),
+		0 1px 0 color-mix(in oklab, var(--shadow-color) 5%, transparent);
+	transition: transform 0.32s var(--ms-ease);
+}
+
+.ms-fig:hover .ms-plinth {
+	transform: translateY(-2px);
+}
+
+/* The hero plinth. On a phone it crosses the top edge of the photo, so the legend is on the first screen. */
+.ms-plinth-seam {
+	top: -18px;
+	inset-inline-start: clamp(12px, 3vw, 30px);
+	max-width: min(74%, 262px);
+}
+
+/* From 768px it crosses the seam between the photo and the text column. */
+@media (min-width: 768px) {
+	.ms-plinth-seam {
+		top: auto;
+		bottom: -20px;
+		inset-inline-start: calc(-1 * var(--ms-seam));
+		max-width: min(66%, 250px);
+	}
+}
+
+@media (min-width: 1024px) {
+	.ms-plinth-seam {
+		max-width: min(80%, 340px);
+	}
+}
+
+/* ---- entrance reveals. use-scroll-reveal.ts sets data-reveal-state after hydration. ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+	/* A waiting block hides at once. Only the way in has a transition. */
+	[data-reveal="lift"][data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(26px);
+	}
+
+	[data-reveal="lift"][data-reveal-state="shown"] {
+		transition:
+			opacity 1s var(--ms-enter-ease),
+			transform 1s var(--ms-enter-ease);
+	}
+
+	/* An aperture lifts while its photo walks in from the side. The photo never zooms. */
+	[data-reveal="aperture"][data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(34px);
+	}
+
+	[data-reveal="aperture"][data-reveal-state="waiting"] .ms-frame img {
+		transform: translateX(calc(-2.2% * var(--ms-direction))) scale(1.045);
+	}
+
+	[data-reveal="aperture"][data-reveal-state="waiting"] .ms-plinth {
+		opacity: 0;
+	}
+
+	[data-reveal="aperture"][data-reveal-state="shown"] {
+		transition:
+			opacity 1.1s var(--ms-enter-ease),
+			transform 1.1s var(--ms-enter-ease);
+	}
+
+	[data-reveal="aperture"][data-reveal-state="shown"] .ms-frame img {
+		transition: transform 1.1s var(--ms-enter-ease);
+	}
+
+	/* The plinth lands last. The fill mode holds the start state only during the delay, so the hover lift still works. */
+	[data-reveal="aperture"][data-reveal-state="shown"] .ms-plinth {
+		animation: ms-plinth-land 0.8s var(--ms-enter-ease) 0.15s backwards;
+	}
+
+	/* The items of a glyph row or of the material grid arrive one after the other. */
+	[data-reveal="stagger"][data-reveal-state="waiting"] > * {
+		opacity: 0;
+		transform: translateY(16px);
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > * {
+		transition:
+			opacity 0.7s var(--ms-enter-ease),
+			transform 0.7s var(--ms-enter-ease);
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(2) {
+		transition-delay: 60ms;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(3) {
+		transition-delay: 120ms;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(4) {
+		transition-delay: 180ms;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(5) {
+		transition-delay: 240ms;
+	}
+
+	[data-reveal="stagger"][data-reveal-state="shown"] > :nth-child(6) {
+		transition-delay: 300ms;
+	}
+}
+
+@keyframes ms-plinth-land {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+}
+
+/* ---- the room walk: one aperture that walks from room to room. ---- */
+
+/* The photo of a room that is not on show waits at the side, with no opacity. */
+.ms-walk-room {
+	transition:
+		opacity 1.4s var(--ms-walk-ease),
+		transform 1.4s var(--ms-walk-ease);
+}
+
+.ms-walk-room[data-place="before"] {
+	opacity: 0;
+	transform: translateX(calc(-4% * var(--ms-direction)));
+}
+
+.ms-walk-room[data-place="after"] {
+	opacity: 0;
+	transform: translateX(calc(5% * var(--ms-direction)));
+}
+
+/* One plinth for the five rooms. The new legend appears at the middle of the walk. */
+.ms-walk-legend {
+	opacity: 0;
+	transition: opacity 0.3s var(--ms-ease);
+}
+
+.ms-walk-legend[data-on="true"] {
+	opacity: 1;
+	transition-delay: 0.55s;
+}
+
+/* Warm thread, use 1: the number of the room on show. */
+.ms-walk-row[data-state="active"] .ms-walk-number {
+	color: var(--ms-warm);
+}
+
+/* The stone hairline under a row. It is full under the room on show and under each room before it. */
+.ms-walk-fill {
+	position: absolute;
+	inset-inline-start: 0;
+	bottom: -1px;
+	width: 0;
+	height: 1px;
+	background: var(--primary);
+}
+
+.ms-walk-row[data-state="done"] .ms-walk-fill,
+.ms-walk-row[data-state="active"] .ms-walk-fill {
+	width: 100%;
+}
+
+/* The 2px rail under the list shows how far the visit is. */
+.ms-walk-rail {
+	transition: width 1.4s var(--ms-walk-ease);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The hairline of the room on show is the clock of the visit: 5.2 s of hold, then RoomWalk goes to the next room.
+	   The clock exists only in the "auto" mode. After a visitor selects a room, the hairline stays full. */
+	.ms-walk[data-mode="auto"] .ms-walk-row[data-state="active"] .ms-walk-fill {
+		animation: ms-walk-hold 5.2s linear both paused;
+	}
+
+	.ms-walk[data-mode="auto"][data-playing="true"]
+		.ms-walk-row[data-state="active"]
+		.ms-walk-fill {
+		animation-play-state: running;
+	}
+
+	/* A visitor who reads the list stops the clock for that time. */
+	.ms-walk[data-mode="auto"][data-playing="true"]
+		.ms-walk-list:is(:hover, :focus-within)
+		.ms-walk-fill {
+		animation-play-state: paused;
+	}
+
+	.ms-walk-numeral {
+		animation: ms-numeral-lift 0.45s var(--ms-enter-ease) backwards;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ms-walk-room,
+	.ms-walk-legend,
+	.ms-walk-rail {
+		transition-duration: 1ms;
+		transition-delay: 0s;
+	}
+}
+
+/* With no script the stage cannot change room. RoomWalk then shows the five rooms from its noscript block. */
+@media (scripting: none) {
+	.ms-walk-live {
+		display: none;
+	}
+}
+
+@keyframes ms-walk-hold {
+	from {
+		width: 0;
+	}
+	to {
+		width: 100%;
+	}
+}
+
+@keyframes ms-numeral-lift {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+}

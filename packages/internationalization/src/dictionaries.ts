@@ -20,6 +20,7 @@ import enOnboarding from "../dictionaries/en/onboarding.json";
 import enProjects from "../dictionaries/en/projects.json";
 import enSettings from "../dictionaries/en/settings.json";
 import enSharing from "../dictionaries/en/sharing.json";
+import enTemplates from "../dictionaries/en/templates.json";
 import enWorkspace from "../dictionaries/en/workspace.json";
 import enWorkspaces from "../dictionaries/en/workspaces.json";
 import type { Locale } from "./config";
@@ -40,6 +41,7 @@ const en = {
 	legal: enLegal,
 	settings: enSettings,
 	sharing: enSharing,
+	templates: enTemplates,
 	errors: enErrors,
 	native: enNative,
 	onboarding: enOnboarding,
@@ -116,6 +118,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		legal,
 		settings,
 		sharing,
+		templates,
 		errors,
 		native,
 		onboarding,
@@ -135,6 +138,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/legal.json"),
 		import("../dictionaries/fr/settings.json"),
 		import("../dictionaries/fr/sharing.json"),
+		import("../dictionaries/fr/templates.json"),
 		import("../dictionaries/fr/errors.json"),
 		import("../dictionaries/fr/native.json"),
 		import("../dictionaries/fr/onboarding.json"),
@@ -156,6 +160,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		legal: legal.default,
 		settings: settings.default,
 		sharing: sharing.default,
+		templates: templates.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,
@@ -179,6 +184,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		legal,
 		settings,
 		sharing,
+		templates,
 		errors,
 		native,
 		onboarding,
@@ -198,6 +204,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/legal.json"),
 		import("../dictionaries/ar/settings.json"),
 		import("../dictionaries/ar/sharing.json"),
+		import("../dictionaries/ar/templates.json"),
 		import("../dictionaries/ar/errors.json"),
 		import("../dictionaries/ar/native.json"),
 		import("../dictionaries/ar/onboarding.json"),
@@ -219,6 +226,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		legal: legal.default,
 		settings: settings.default,
 		sharing: sharing.default,
+		templates: templates.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,

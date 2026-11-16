@@ -1,0 +1,36 @@
+{
+	"id": "quota-sales",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Quota",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "eclipse"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "md",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "brand",
+			"activeItem": "block",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "fill",
+			"navIcon": "plain"
+		}
+	}
+}

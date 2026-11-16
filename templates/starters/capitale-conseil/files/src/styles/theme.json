@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Capitale Conseil",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "capitale"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "figtree",
+		"displayFont": "newsreader",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f8f8f6",
+			"foreground": "#101c33",
+			"card": "#fffffe",
+			"cardForeground": "#101c33",
+			"popover": "#fffffe",
+			"popoverForeground": "#101c33",
+			"primary": "#17335f",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e6e7e3",
+			"secondaryForeground": "#101c33",
+			"muted": "#ededea",
+			"mutedForeground": "#536b6b",
+			"accent": "#e2edff",
+			"accentForeground": "#101c33",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d9dbd6",
+			"input": "#c3c9c1",
+			"ring": "#17335f",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f0f0ee",
+			"shadowColor": "#172135"
+		},
+		"dark": {
+			"background": "#141413",
+			"foreground": "#edf2fa",
+			"card": "#1b1b19",
+			"cardForeground": "#edf2fa",
+			"popover": "#1f1f1e",
+			"popoverForeground": "#edf2fa",
+			"primary": "#456494",
+			"primaryForeground": "#ffffff",
+			"secondary": "#252624",
+			"secondaryForeground": "#edf2fa",
+			"muted": "#20201f",
+			"mutedForeground": "#a1a9ab",
+			"accent": "#16243a",
+			"accentForeground": "#edf2fa",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2d2e2c",
+			"input": "#383937",
+			"ring": "#456494",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0d0d0c",
+			"shadowColor": "#020201"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Figtree",
+				"href": "https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Newsreader",
+				"href": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Newsreader",
+				"href": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

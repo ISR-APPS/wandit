@@ -21,7 +21,8 @@ export const commitShaSchema = z
  * (WANDIT-163). "theme" is a save of the builder Thème sheet: a commit of
  * `src/styles/theme.json` only. "github" is the merge commit of an Update
  * from the linked GitHub repo. "mcp" is a direct file edit of an external
- * coding agent through the `apply_changes` MCP tool.
+ * coding agent through the `apply_changes` MCP tool. "starter" is the host
+ * commit that puts the files of a starter template in a new project.
  */
 export const appCommitSources = [
 	"agent",
@@ -31,6 +32,7 @@ export const appCommitSources = [
 	"theme",
 	"github",
 	"mcp",
+	"starter",
 ] as const;
 
 /** Runtime validator for an app commit source. */

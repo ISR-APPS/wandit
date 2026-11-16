@@ -1,0 +1,184 @@
+/* Site CSS of the Capitale Conseil home page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the page measures, the mixed colors, the duotone photo plate,
+   the reveal states of hooks/use-scroll-reveal.ts, and the focus ring.
+   Every color is a theme token or a color-mix() of tokens. The page has no gradient, no shadow, and no round corner. */
+
+/* The page root and the phone menu panel carry this class. The panel renders outside the page root. */
+.cap-scope {
+	/* Side padding of the 1240px container. */
+	--cap-gutter: 24px;
+	/* Free margin outside the container. From 1180px it keeps the index spine clear of the text. */
+	--cap-edge: 0px;
+	/* Height of the sticky header. Anchors stop below it. */
+	--cap-bar: 64px;
+	/* The pale steel ground of the calm bands: the muted ground with a part of the blue accent. */
+	--cap-steel: color-mix(in srgb, var(--accent) 38%, var(--muted));
+	/* The hover tint of a ledger row. It is lighter than the steel ground. */
+	--cap-tint: color-mix(in srgb, var(--cap-steel) 40%, var(--card));
+	/* The three inks of the deep band, from the brightest to the quietest. */
+	--cap-band-note: color-mix(in srgb, var(--accent) 78%, var(--primary));
+	--cap-band-soft: color-mix(in srgb, var(--accent) 62%, var(--primary));
+	--cap-band-faint: color-mix(in srgb, var(--accent) 48%, var(--primary));
+	/* The copper of the current spine numeral on the deep band. The plain copper is too dark there. */
+	--cap-copper-lift: color-mix(in srgb, var(--warning) 70%, var(--background));
+	/* The pale ink that the duotone lays over the highlights of a photo. */
+	--cap-plate-ink: color-mix(in srgb, var(--primary) 20%, var(--accent));
+	/* Entrances start fast and settle slowly. Nothing overshoots. */
+	--cap-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+@media (min-width: 900px) {
+	.cap-scope {
+		--cap-gutter: 40px;
+		--cap-bar: 68px;
+	}
+}
+
+@media (min-width: 1180px) {
+	.cap-scope {
+		--cap-edge: 48px;
+	}
+}
+
+.cap-scope ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.cap-scope :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+/* The deep band inverts the ink, so the focus ring takes the pale band ink. */
+.cap-band :focus-visible {
+	outline-color: var(--cap-band-soft);
+}
+
+.cap-steel {
+	background: var(--cap-steel);
+}
+
+/* ---- the container: 1240px with the gutters inside it, on a hard left axis. ---- */
+
+.cap-wrap {
+	width: min(1240px, 100% - 2 * var(--cap-edge));
+	margin-inline: auto;
+	padding-inline: var(--cap-gutter);
+}
+
+/* The hero keeps the left axis of the container, and drops its right gutter from 900px so the photo reaches the edge. */
+.cap-hero {
+	padding-inline-start: max(
+		calc(var(--cap-gutter) + var(--cap-edge)),
+		calc((100% - 1240px) / 2 + var(--cap-gutter))
+	);
+	padding-inline-end: var(--cap-gutter);
+}
+
+@media (min-width: 900px) {
+	.cap-hero {
+		padding-inline-end: 0;
+	}
+}
+
+/* ---- the duotone plate: a photo printed in two inks, the deep ink and the pale plate ink. ---- */
+
+.cap-plate {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	background: var(--foreground);
+	/* Exposure of the photo before the duotone. A dark interior takes the lifted values. */
+	--cap-exposure: 1.08;
+	--cap-contrast: 1.14;
+}
+
+.cap-plate-lifted {
+	--cap-exposure: 1.34;
+	--cap-contrast: 1.1;
+}
+
+/* The gray photo adds its light to the deep ground. */
+.cap-plate img {
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	filter: grayscale(1) contrast(var(--cap-contrast))
+		brightness(var(--cap-exposure));
+	mix-blend-mode: screen;
+}
+
+/* The pale ink lands on the highlights. */
+.cap-plate::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	background: var(--cap-plate-ink);
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+
+/* The frame hairline sits above the two blends, so it never blends. */
+.cap-plate::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+	pointer-events: none;
+}
+
+/* ---- reveals: use-scroll-reveal.ts sets data-reveal-state on a [data-reveal] block below the first screen. ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+	.cap-scope [data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(24px);
+	}
+
+	.cap-scope [data-reveal-state="shown"] {
+		transition:
+			opacity 0.7s var(--cap-ease),
+			transform 0.7s var(--cap-ease);
+		/* 80ms between the children of one group. --cap-order is the place of the child. */
+		transition-delay: calc(var(--cap-order, 0) * 80ms);
+	}
+
+	/* A hairline draws from its start edge and never fades. */
+	.cap-scope [data-reveal="rule"] {
+		transform-origin: left center;
+	}
+
+	[dir="rtl"] .cap-scope [data-reveal="rule"] {
+		transform-origin: right center;
+	}
+
+	.cap-scope [data-reveal="rule"][data-reveal-state="waiting"] {
+		opacity: 1;
+		transform: scaleX(0);
+	}
+
+	.cap-scope [data-reveal="rule"][data-reveal-state="shown"] {
+		transition: transform 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+	}
+
+	.cap-scope [data-reveal-group] > :nth-child(2) {
+		--cap-order: 1;
+	}
+
+	.cap-scope [data-reveal-group] > :nth-child(3) {
+		--cap-order: 2;
+	}
+
+	.cap-scope [data-reveal-group] > :nth-child(4) {
+		--cap-order: 3;
+	}
+
+	.cap-scope [data-reveal-group] > :nth-child(5) {
+		--cap-order: 4;
+	}
+}

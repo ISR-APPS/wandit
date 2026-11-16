@@ -659,6 +659,13 @@
       "when": 1794050737719,
       "tag": "0093_theme-design-operation",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794486960964,
+      "tag": "0094_starter-templates",
+      "breakpoints": true
     }
   ]
 }

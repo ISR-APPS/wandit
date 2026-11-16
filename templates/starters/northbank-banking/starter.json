@@ -1,0 +1,36 @@
+{
+	"id": "northbank-banking",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Northbank",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "marine"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "source-serif-4",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "offcanvas",
+			"sidebarStart": "open",
+			"sidebarTone": "contrast",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "header",
+			"frame": "outlined",
+			"icons": "light",
+			"navIcon": "plain"
+		}
+	}
+}

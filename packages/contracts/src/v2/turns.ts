@@ -9,7 +9,7 @@ import { z } from "zod";
 import { askUserKindSchema, worldCardSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
-import { uuidSchema } from "../v1/shared/primitives";
+import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
 import {
 	askUserHostToolActionSchema,
 	presentPlanHostToolInputSchema,
@@ -685,6 +685,30 @@ export const turnContextDataPartSchema = z.object({
 export type TurnContextData = z.infer<typeof turnContextDataSchema>;
 
 /**
+ * `data` of the `data-starter-template` part: the note of a project that
+ * started from a starter template. The apply task stores it once, in one
+ * assistant message, and no turn stream sends it. The chat shows "ready"
+ * for `applied`, and a notice that the project is empty for `failed`.
+ */
+export const starterTemplateNoteDataSchema = z.object({
+	// The web reads the name and the kind with `findStarterTemplate`.
+	starterTemplateId: starterTemplateIdSchema,
+	status: z.enum(["applied", "failed"]),
+});
+
+/** The `data-starter-template` part of an assistant message; see `starterTemplateNoteDataSchema`. */
+export const starterTemplateNoteDataPartSchema = z.object({
+	type: z.literal("data-starter-template"),
+	id: z.literal("starter-template"),
+	data: starterTemplateNoteDataSchema,
+});
+
+/** Inferred from `starterTemplateNoteDataSchema`; the result of the starter template apply step. */
+export type StarterTemplateNoteData = z.infer<
+	typeof starterTemplateNoteDataSchema
+>;
+
+/**
  * Name of the dynamic tool part that `HarnessAgent` (`@ai-sdk/harness`)
  * writes when Claude Code compacts the conversation. The stored reply keeps
  * the part, so the chat shows the compaction line after a reload too.
@@ -712,8 +736,8 @@ export type HarnessCompactionOutput = z.infer<
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
- * `data-targets` is the exception: only the user message row holds it, and
- * `hydrateTurnMessages` parses it.
+ * `data-targets` and `data-starter-template` are the exceptions: only a
+ * stored message row holds them, and `hydrateTurnMessages` parses them.
  */
 export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnCreatedDataPartSchema,
@@ -728,6 +752,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
 	turnContextDataPartSchema,
+	starterTemplateNoteDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -752,4 +777,5 @@ export type TurnDataParts = {
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;
 	"turn-context": TurnContextData;
+	"starter-template": StarterTemplateNoteData;
 };

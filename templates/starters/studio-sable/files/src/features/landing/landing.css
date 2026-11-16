@@ -1,0 +1,831 @@
+/* Site CSS of the studio sable home page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the ledger grids, the section grids, the typographic plates,
+   the cover preview, the entrance cascade (hooks/use-cascade.ts), and the row that opens with the scroll (hooks/use-case-scrub.ts).
+   Every color is a theme token or a color-mix() of tokens. No rule sets a corner or a shadow: this world is square and flat.
+   These rules are outside the Tailwind layers, so they win over a utility class. A rule here never sets a property that a section sets with a utility. */
+
+.sable-page {
+	/* Side padding of the page chassis, and the vertical rhythm of a section. */
+	--sable-gutter: clamp(18px, 4.6vw, 72px);
+	--sable-section: clamp(3.5rem, 7vh, 6.5rem);
+	/* Hairlines: the ink at 14% between rows, at 24% under a field or a link. */
+	--sable-line: color-mix(in srgb, var(--foreground) 14%, transparent);
+	--sable-line-strong: color-mix(in srgb, var(--foreground) 24%, transparent);
+	/* The third plate tone: a sand made from neutral tokens only, so a status color change does not reach it. */
+	--sable-sand: color-mix(in srgb, var(--foreground) 7%, var(--muted));
+	/* Hover and focus changes take 160 ms. Entrances take 500 ms and never overshoot. */
+	--sable-ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+	--sable-enter: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+	/* 1 in a left-to-right language, -1 in Arabic. It mirrors each lateral move. */
+	--sable-dir: 1;
+}
+
+.sable-page:dir(rtl) {
+	--sable-dir: -1;
+}
+
+.sable-page ::selection {
+	background: var(--primary);
+	color: var(--background);
+}
+
+.sable-page :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+/* An anchor jump is smooth only after the visitor used a link. A script scroll with no focus stays instant. */
+@media (prefers-reduced-motion: no-preference) {
+	html:has(.sable-page):focus-within {
+		scroll-behavior: smooth;
+	}
+}
+
+/* The ledger face: the display font of theme.json, which is a mono for this starter.
+   On a public page font-display is the world face, so this class reads the source variable. */
+.sable-mono {
+	font-family:
+		var(--theme-font-display), ui-monospace, "SFMono-Regular", Menlo, monospace;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Arabic has no mono in the theme. The ledger takes the Arabic text face. */
+:lang(ar) .sable-mono {
+	font-family: var(--font-sans);
+}
+
+/* An arrow that moves 6px when its link has the pointer or the focus. Reduced motion keeps it still. */
+.sable-arrow {
+	display: inline-block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.sable-arrow {
+		transition: transform 0.16s var(--sable-ease);
+	}
+	:is(a, button):is(:hover, :focus-visible) .sable-arrow {
+		transform: translateX(calc(6px * var(--sable-dir)));
+	}
+}
+
+/* ---------- index rows ---------- */
+
+/* Seven columns: number, name, sector, year, role, scope, arrow.
+   The name column is the widest: a name of two words stays on one line from 1181px. */
+.sable-ledger-head,
+.sable-index-row {
+	display: grid;
+	grid-template-columns:
+		56px minmax(0, 1.6fr) minmax(0, 1fr) 84px minmax(0, 1.1fr)
+		minmax(0, 0.7fr) 28px;
+	gap: 24px;
+	align-items: center;
+}
+
+.sable-ledger-head {
+	padding-block: 11px;
+	border-bottom: 1px solid var(--sable-line);
+}
+
+.sable-index-row {
+	position: relative;
+	min-height: 92px;
+	padding-block: 14px;
+	border-bottom: 1px solid var(--sable-line);
+	transition: border-color 0.16s var(--sable-ease);
+}
+
+.sable-index-name,
+.sable-index-arrow {
+	transition:
+		color 0.16s var(--sable-ease),
+		transform 0.16s var(--sable-ease);
+}
+
+.sable-index-scope,
+.sable-index-arrow {
+	text-align: end;
+}
+
+/* The active row: the name, the arrow, and the hairline take the accent. The ground stays paper. */
+.sable-index-row:is(:hover, :focus-visible, [data-active]) {
+	border-bottom-color: var(--primary);
+}
+
+.sable-index-row:is(:hover, :focus-visible, [data-active]) .sable-index-name {
+	color: var(--primary);
+}
+
+.sable-index-row:is(:hover, :focus-visible, [data-active]) .sable-index-arrow {
+	color: var(--primary);
+	transform: translateX(calc(6px * var(--sable-dir)));
+}
+
+.sable-index-row:focus-visible {
+	outline-offset: -2px;
+}
+
+/* The open row of the case study, and the compact rows under it: five columns. */
+.sable-case-head,
+.sable-ghost-row {
+	display: grid;
+	grid-template-columns: 56px minmax(0, 1.35fr) minmax(0, 1fr) 84px 28px;
+	gap: 24px;
+	align-items: center;
+}
+
+.sable-case-head {
+	min-height: 92px;
+	padding-block: 14px;
+	border-top: 1px solid var(--foreground);
+	border-bottom: 1px solid var(--primary);
+}
+
+.sable-case-arrow {
+	justify-self: end;
+}
+
+.sable-ghost-row {
+	min-height: 72px;
+	padding-block: 8px;
+	border-bottom: 1px solid var(--sable-line);
+}
+
+.sable-ghost-row > :last-child {
+	text-align: end;
+}
+
+/* The compact rows exist only for the scrubbed opening. Below 1200px the band is open and they are gone. */
+.sable-case-ghosts {
+	display: none;
+}
+
+@media (max-width: 1180px) {
+	/* The scope column leaves. It comes back on the second line of a phone row. */
+	.sable-ledger-head,
+	.sable-index-row {
+		grid-template-columns:
+			48px minmax(0, 1.3fr) minmax(0, 1fr) 72px minmax(0, 1fr)
+			24px;
+		gap: 18px;
+	}
+	.sable-ledger-head > :nth-child(6),
+	.sable-index-scope {
+		display: none;
+	}
+	.sable-case-head,
+	.sable-ghost-row {
+		grid-template-columns: 48px minmax(0, 1.3fr) minmax(0, 1fr) 72px 24px;
+		gap: 18px;
+	}
+}
+
+@media (max-width: 860px) {
+	/* A phone row has two lines: the name and the year, then the role and the scope. */
+	.sable-ledger-head {
+		display: none;
+	}
+	.sable-index-row {
+		grid-template-columns: 34px minmax(0, 1fr) auto;
+		grid-template-areas:
+			"num name year"
+			". role scope";
+		gap: 6px 14px;
+		min-height: 76px;
+		padding-block: 16px;
+	}
+	.sable-index-num {
+		grid-area: num;
+		align-self: start;
+		padding-top: 6px;
+	}
+	.sable-index-name {
+		grid-area: name;
+	}
+	.sable-index-year {
+		grid-area: year;
+		align-self: start;
+		padding-top: 8px;
+		text-align: end;
+	}
+	.sable-index-sector,
+	.sable-index-arrow {
+		display: none;
+	}
+	.sable-index-role {
+		grid-area: role;
+	}
+	.sable-index-scope {
+		display: block;
+		grid-area: scope;
+	}
+	.sable-case-head {
+		grid-template-columns: 34px minmax(0, 1fr) auto;
+		grid-template-areas:
+			"num name year"
+			". sector sector";
+		gap: 6px 14px;
+		min-height: 76px;
+	}
+	.sable-case-head > :nth-child(1) {
+		grid-area: num;
+		align-self: start;
+		padding-top: 6px;
+	}
+	.sable-case-head > :nth-child(2) {
+		grid-area: name;
+	}
+	.sable-case-head > :nth-child(3) {
+		grid-area: sector;
+	}
+	.sable-case-head > :nth-child(4) {
+		grid-area: year;
+		align-self: start;
+		padding-top: 8px;
+	}
+	.sable-case-arrow {
+		display: none;
+	}
+}
+
+/* ---------- section grids ---------- */
+
+/* Offers: four columns split by hairlines. Two columns below 1024px, one column on a phone. */
+.sable-offers {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	border-top: 1px solid var(--foreground);
+}
+
+.sable-offer {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding-block: 24px;
+	border-bottom: 1px solid var(--sable-line);
+}
+
+.sable-offer:last-child {
+	border-bottom: 0;
+}
+
+@media (min-width: 601px) {
+	.sable-offers {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.sable-offer {
+		padding: 26px clamp(16px, 1.8vw, 28px);
+		border-inline-start: 1px solid var(--sable-line);
+	}
+	.sable-offer:nth-child(odd) {
+		padding-inline-start: 0;
+		border-inline-start: 0;
+	}
+	.sable-offer:nth-child(even) {
+		padding-inline-end: 0;
+	}
+	.sable-offer:nth-child(n + 3) {
+		border-bottom: 0;
+	}
+}
+
+@media (min-width: 1024px) {
+	.sable-offers {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+	.sable-offer {
+		padding: clamp(20px, 2.4vw, 32px) clamp(16px, 1.8vw, 28px);
+		border-bottom: 0;
+	}
+	.sable-offer:nth-child(n) {
+		padding-inline: clamp(16px, 1.8vw, 28px);
+		border-inline-start: 1px solid var(--sable-line);
+	}
+	.sable-offer:first-child {
+		padding-inline-start: 0;
+		border-inline-start: 0;
+	}
+	.sable-offer:last-child {
+		padding-inline-end: 0;
+	}
+}
+
+/* The wall: a mosaic on twelve columns with three plate sizes. The rows have unequal heights on purpose. */
+.sable-wall {
+	display: grid;
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+	gap: clamp(16px, 2vw, 32px);
+	align-items: start;
+}
+
+.sable-wall-item {
+	grid-column: span 12;
+	/* An index row jumps to its cover. The cover then stops below the top edge of the screen. */
+	scroll-margin-top: 24px;
+}
+
+@media (min-width: 601px) {
+	.sable-wall-item {
+		grid-column: span 6;
+	}
+}
+
+@media (min-width: 1024px) {
+	.sable-wall-item:nth-child(3n + 1) {
+		grid-column: span 5;
+	}
+	.sable-wall-item:nth-child(3n + 2) {
+		grid-column: span 3;
+	}
+	.sable-wall-item:nth-child(3n) {
+		grid-column: span 4;
+	}
+	/* The second row mirrors the first: 4, 3, 5. */
+	.sable-wall-item:nth-child(4) {
+		grid-column: span 4;
+	}
+	.sable-wall-item:nth-child(6) {
+		grid-column: span 5;
+	}
+}
+
+/* The rail: the closing ledger across the full width. Four cells, or two rows of two below 1024px. */
+.sable-rail {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	border-top: 1px solid var(--foreground);
+	border-bottom: 1px solid var(--sable-line);
+}
+
+.sable-rail-cell {
+	min-width: 0;
+	padding: 13px clamp(14px, 1.6vw, 26px) 15px;
+	border-inline-start: 1px solid var(--sable-line);
+}
+
+.sable-rail-cell:nth-child(odd) {
+	padding-inline-start: 0;
+	border-inline-start: 0;
+}
+
+.sable-rail-cell:nth-child(even) {
+	padding-inline-end: 0;
+}
+
+.sable-rail-cell:nth-child(-n + 2) {
+	border-bottom: 1px solid var(--sable-line);
+}
+
+@media (min-width: 1024px) {
+	.sable-rail {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+	.sable-rail-cell:nth-child(n) {
+		padding-inline: clamp(14px, 1.6vw, 26px);
+		border-bottom: 0;
+		border-inline-start: 1px solid var(--sable-line);
+	}
+	.sable-rail-cell:first-child {
+		padding-inline-start: 0;
+		border-inline-start: 0;
+	}
+	.sable-rail-cell:last-child {
+		padding-inline-end: 0;
+	}
+}
+
+/* ---------- typographic plates ---------- */
+
+/* A plate sizes its type from its own width (cqw), so one plate works at 264px and at 900px.
+   The caller gives the aspect ratio. */
+.sable-plate {
+	position: relative;
+	display: block;
+	width: 100%;
+	overflow: hidden;
+	container-type: inline-size;
+	background: var(--background);
+	color: var(--foreground);
+	--sable-plate-ground: var(--background);
+}
+
+.sable-plate[data-tone="ultra"] {
+	background: var(--primary);
+	color: var(--background);
+	--sable-plate-ground: var(--primary);
+}
+
+.sable-plate[data-tone="ink"] {
+	background: var(--foreground);
+	color: var(--background);
+	--sable-plate-ground: var(--foreground);
+}
+
+.sable-plate[data-tone="sand"] {
+	background: var(--sable-sand);
+	--sable-plate-ground: var(--sable-sand);
+}
+
+/* Paper on paper needs a frame, or the plate has no edge. */
+.sable-plate[data-tone="paper"] {
+	border: 1px solid var(--sable-line);
+}
+
+.sable-plate-code {
+	position: absolute;
+	inset-block-start: 5cqw;
+	inset-inline-start: 5cqw;
+	font-size: 3.1cqw;
+	line-height: 1.5;
+	letter-spacing: 0.07em;
+	opacity: 0.72;
+}
+
+/* Recipe "name": one rule at 26% of the height, the name at the foot. */
+.sable-plate-rule {
+	position: absolute;
+	inset-inline: 0;
+	top: 26%;
+	height: 1px;
+	background: currentColor;
+	opacity: 0.45;
+}
+
+.sable-plate-name {
+	position: absolute;
+	inset-inline: 5cqw;
+	bottom: 14%;
+	font-size: 19cqw;
+	font-weight: 500;
+	line-height: 0.84;
+	letter-spacing: -0.035em;
+	white-space: nowrap;
+}
+
+/* Recipe "letter": the initial alone, cut by the plate edge. The code moves to the far corner. */
+.sable-plate[data-recipe="letter"] .sable-plate-code {
+	inset-block: auto 5cqw;
+	inset-inline: auto 5cqw;
+}
+
+.sable-plate-letter {
+	position: absolute;
+	inset-inline-start: -2cqw;
+	bottom: -2cqw;
+	font-size: 72cqw;
+	font-weight: 500;
+	line-height: 0.72;
+	letter-spacing: -0.06em;
+}
+
+/* Recipe "stack": the name four times. The stack fades into the ground of the plate. */
+.sable-plate-stack {
+	position: absolute;
+	inset: 15cqw 5cqw 5cqw;
+	display: flex;
+	flex-direction: column;
+}
+
+.sable-plate-stack > span {
+	font-size: 13.5cqw;
+	font-weight: 400;
+	line-height: 0.86;
+	letter-spacing: -0.035em;
+	white-space: nowrap;
+}
+
+.sable-plate-stack > span:nth-child(2) {
+	font-weight: 500;
+}
+
+.sable-plate-stack > span:nth-child(3) {
+	color: color-mix(in srgb, currentColor 46%, var(--sable-plate-ground));
+}
+
+.sable-plate-stack > span:nth-child(4) {
+	color: color-mix(in srgb, currentColor 14%, var(--sable-plate-ground));
+}
+
+/* Recipe "point": the name at a small size, then the full stop as a large square.
+   The square sits on the baseline of the type. Centered on the x-height it reads as a loose block. */
+.sable-plate-lockup {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.sable-plate-line {
+	display: flex;
+	align-items: baseline;
+	gap: 2.5cqw;
+}
+
+.sable-plate-small {
+	font-size: 8.4cqw;
+	font-weight: 500;
+	line-height: 1;
+	letter-spacing: -0.025em;
+	white-space: nowrap;
+}
+
+.sable-plate-dot {
+	display: block;
+	width: 16cqw;
+	height: 16cqw;
+	background: currentColor;
+}
+
+.sable-plate:is([data-tone="sand"], [data-tone="paper"]) .sable-plate-dot {
+	background: var(--primary);
+}
+
+/* ---------- cover preview ---------- */
+
+/* A 264px plate that follows the pointer over the index. cover-preview.tsx writes its transform.
+   The left and top edges are physical: the pointer position is in physical pixels. */
+.sable-preview {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: 60;
+	width: 264px;
+	pointer-events: none;
+	will-change: transform;
+}
+
+.sable-preview-caption {
+	overflow: hidden;
+	padding: 7px 10px;
+	border: 1px solid var(--sable-line);
+	border-top: 0;
+	background: var(--background);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Keyboard focus, a first tap, and reduced motion dock the plate at the bottom corner. */
+.sable-preview[data-docked] {
+	top: auto;
+	left: auto;
+	inset-inline-end: 28px;
+	bottom: 28px;
+}
+
+@media (max-width: 860px) {
+	/* On a phone the docked plate is a strip: the plate, then its caption. */
+	.sable-preview[data-docked] {
+		inset-inline: 16px;
+		bottom: 16px;
+		display: flex;
+		width: auto;
+		align-items: stretch;
+	}
+	.sable-preview[data-docked] .sable-preview-frame {
+		flex: none;
+		width: 132px;
+	}
+	.sable-preview[data-docked] .sable-preview-caption {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		border: 1px solid var(--sable-line);
+		border-inline-start: 0;
+		white-space: normal;
+	}
+}
+
+/* ---------- case study: the row that opens ---------- */
+
+/* The band and the compact rows share one grid cell. So the stage has its open height at all times,
+   and the page below never moves while the row opens. */
+.sable-case-body {
+	display: grid;
+}
+
+.sable-case-band,
+.sable-case-ghosts {
+	grid-area: 1 / 1;
+}
+
+/* ---------- entrance cascade ---------- */
+
+@keyframes sable-rise {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+
+@keyframes sable-slide {
+	from {
+		opacity: 0;
+		transform: translateX(calc(-8px * var(--sable-dir)));
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The hero opens at page load. A keyframe animation runs with no script, so the index never stays hidden. */
+	.sable-hero .sable-fade {
+		animation: sable-rise 0.5s var(--sable-enter) both;
+		animation-delay: calc(var(--sable-i, 0) * 80ms);
+	}
+
+	.sable-hero .sable-row {
+		animation: sable-slide 0.5s var(--sable-enter) both;
+		animation-delay: calc(160ms + var(--sable-i, 0) * 60ms);
+	}
+
+	/* The first row is the second child of the index, after the ledger header.
+	   LIMIT: nine rows have a stagger number. Upgrade: add one rule for each more row. */
+	.sable-hero .sable-index-row:nth-child(3) {
+		--sable-i: 1;
+	}
+	.sable-hero .sable-index-row:nth-child(4) {
+		--sable-i: 2;
+	}
+	.sable-hero .sable-index-row:nth-child(5) {
+		--sable-i: 3;
+	}
+	.sable-hero .sable-index-row:nth-child(6) {
+		--sable-i: 4;
+	}
+	.sable-hero .sable-index-row:nth-child(7) {
+		--sable-i: 5;
+	}
+	.sable-hero .sable-index-row:nth-child(8) {
+		--sable-i: 6;
+	}
+	.sable-hero .sable-index-row:nth-child(9) {
+		--sable-i: 7;
+	}
+	.sable-hero .sable-index-row:nth-child(10) {
+		--sable-i: 8;
+	}
+
+	/* The other sections: use-cascade.ts sets "waiting" on a section below the screen, then "shown" when it enters.
+	   It also numbers the blocks with --sable-i. A section with no state is visible. */
+	[data-cascade="waiting"] .sable-fade {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+
+	[data-cascade="waiting"] .sable-row {
+		opacity: 0;
+		transform: translateX(calc(-8px * var(--sable-dir)));
+	}
+
+	/* A hairline draws from the start side. */
+	[data-cascade="waiting"] .sable-rule {
+		transform: scaleX(0);
+	}
+
+	/* The stagger stops after six blocks, so the last block of a long section does not wait a full second. */
+	[data-cascade="shown"] .sable-fade {
+		--sable-wait: calc(min(var(--sable-i, 0), 5) * 80ms);
+		transition:
+			opacity 0.5s var(--sable-enter) var(--sable-wait),
+			transform 0.5s var(--sable-enter) var(--sable-wait),
+			color 0.16s var(--sable-ease),
+			border-color 0.16s var(--sable-ease);
+	}
+
+	[data-cascade="shown"] .sable-row {
+		--sable-wait: calc(min(var(--sable-i, 0), 6) * 60ms);
+		transition:
+			opacity 0.5s var(--sable-enter) var(--sable-wait),
+			transform 0.5s var(--sable-enter) var(--sable-wait);
+	}
+
+	[data-cascade="shown"] .sable-rule {
+		transition: transform 0.6s var(--sable-enter) calc(var(--sable-i, 0) * 50ms);
+	}
+}
+
+.sable-rule {
+	transform-origin: left center;
+}
+
+.sable-page:dir(rtl) .sable-rule {
+	transform-origin: right center;
+}
+
+/* ---------- case study: the scrubbed opening ---------- */
+
+@media (min-width: 1200px) and (prefers-reduced-motion: no-preference) {
+	.sable-case-stage {
+		overflow: hidden;
+		/* use-case-scrub.ts writes --sable-case from 0 (closed) to 1 (open). With no script the row is open. */
+		--sable-p: var(--sable-case, 1);
+		/* Each step is a window of the progress, eased with 1 - (1 - t)². */
+		--sable-band-t: clamp(0, calc((var(--sable-p) - 0.04) / 0.5), 1);
+		--sable-band: calc(
+			1 -
+			(1 - var(--sable-band-t)) *
+			(1 - var(--sable-band-t))
+		);
+		--sable-cover-t: clamp(0, calc((var(--sable-p) - 0.14) / 0.42), 1);
+		--sable-cover: calc(
+			1 -
+			(1 - var(--sable-cover-t)) *
+			(1 - var(--sable-cover-t))
+		);
+	}
+
+	/* The arrow turns over during the first fifth of the scroll. */
+	.sable-case-arrow {
+		transform: rotate(calc(clamp(0, var(--sable-p) / 0.2, 1) * 180deg));
+	}
+
+	/* The band unfolds downward from the open row. */
+	.sable-case-band {
+		clip-path: inset(0 0 calc((1 - var(--sable-band)) * 100%) 0);
+	}
+
+	/* The compact rows ride the lower edge of the band, then fade one after the other. */
+	.sable-case-ghosts {
+		display: block;
+		transform: translateY(calc(var(--sable-band) * 100%));
+		pointer-events: none;
+	}
+
+	.sable-ghost-row {
+		--sable-ghost-t: clamp(
+			0,
+			calc((var(--sable-p) - 0.06 - var(--sable-step, 0) * 0.05) / 0.28),
+			1
+		);
+		opacity: calc(1 - var(--sable-ghost-t));
+		transform: translateY(calc(var(--sable-ghost-t) * 16px));
+	}
+
+	.sable-ghost-row:nth-child(2) {
+		--sable-step: 1;
+	}
+	.sable-ghost-row:nth-child(3) {
+		--sable-step: 2;
+	}
+	.sable-ghost-row:nth-child(4) {
+		--sable-step: 3;
+	}
+	.sable-ghost-row:nth-child(5) {
+		--sable-step: 4;
+	}
+
+	/* The cover wipes in from the start side. */
+	.sable-case-cover {
+		clip-path: inset(0 calc((1 - var(--sable-cover)) * 100%) 0 0);
+		transform: translateX(calc((var(--sable-cover) - 1) * 5%));
+	}
+
+	.sable-case-cover:dir(rtl) {
+		clip-path: inset(0 0 0 calc((1 - var(--sable-cover)) * 100%));
+		transform: translateX(calc((1 - var(--sable-cover)) * 5%));
+	}
+
+	/* The copy and the ledger rows follow. --sable-step is the place of a block in that order.
+	   These rules have the specificity of the cascade rules above and come after them, so they win inside the stage. */
+	.sable-case-stage :is(.sable-fade, .sable-row) {
+		--sable-step-t: clamp(
+			0,
+			calc((var(--sable-p) - 0.26 - var(--sable-step, 0) * 0.045) / 0.3),
+			1
+		);
+		--sable-step-e: calc(
+			1 -
+			(1 - var(--sable-step-t)) *
+			(1 - var(--sable-step-t))
+		);
+		opacity: var(--sable-step-e);
+		transition: none;
+	}
+
+	/* The ledger rows come after the four blocks of copy.
+	   LIMIT: five ledger rows and five compact rows have a step number. Upgrade: add one rule for each more row. */
+	.sable-case-stage .sable-row:nth-child(1) {
+		--sable-step: 4;
+	}
+	.sable-case-stage .sable-row:nth-child(2) {
+		--sable-step: 5;
+	}
+	.sable-case-stage .sable-row:nth-child(3) {
+		--sable-step: 6;
+	}
+	.sable-case-stage .sable-row:nth-child(4) {
+		--sable-step: 7;
+	}
+	.sable-case-stage .sable-row:nth-child(5) {
+		--sable-step: 8;
+	}
+
+	.sable-case-stage .sable-fade {
+		transform: translateY(calc((1 - var(--sable-step-e)) * 10px));
+	}
+
+	.sable-case-stage .sable-row {
+		transform: translateX(
+			calc((var(--sable-step-e) - 1) * 8px * var(--sable-dir))
+		);
+	}
+}

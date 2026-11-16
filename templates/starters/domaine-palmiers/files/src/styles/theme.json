@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Domaine Les Palmiers",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "domaine"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "hanken-grotesk",
+		"displayFont": "playfair-display",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "light",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f6f3ed",
+			"foreground": "#26221b",
+			"card": "#fbfaf7",
+			"cardForeground": "#26221b",
+			"popover": "#fbfaf7",
+			"popoverForeground": "#26221b",
+			"primary": "#8a6d3f",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e6e3dc",
+			"secondaryForeground": "#26221b",
+			"muted": "#ebe8e2",
+			"mutedForeground": "#69655e",
+			"accent": "#f5e6ce",
+			"accentForeground": "#26221b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#dad7d1",
+			"input": "#c8c4be",
+			"ring": "#8a6d3f",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eeebe5",
+			"shadowColor": "#25211a"
+		},
+		"dark": {
+			"background": "#16140f",
+			"foreground": "#f6f1e9",
+			"card": "#1c1a16",
+			"cardForeground": "#f6f1e9",
+			"popover": "#211f1b",
+			"popoverForeground": "#f6f1e9",
+			"primary": "#8a6d3f",
+			"primaryForeground": "#ffffff",
+			"secondary": "#282521",
+			"secondaryForeground": "#f6f1e9",
+			"muted": "#22201b",
+			"mutedForeground": "#aba7a0",
+			"accent": "#302107",
+			"accentForeground": "#f6f1e9",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2f2d28",
+			"input": "#3b3934",
+			"ring": "#8a6d3f",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0f0d09",
+			"shadowColor": "#020201"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Hanken Grotesk",
+				"href": "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Playfair Display",
+				"href": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Prata",
+				"href": "https://fonts.googleapis.com/css2?family=Prata&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

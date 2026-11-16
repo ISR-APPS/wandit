@@ -253,6 +253,7 @@ const API_PROJECT = {
 	framework: "tanstack-start",
 	templateVersion: "1",
 	languages: ["ar", "fr", "en"],
+	starterTemplateId: null,
 	hasCodeChanges: true,
 	versionNumber: 5,
 	unpublishedChanges: 2,

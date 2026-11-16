@@ -344,7 +344,7 @@ Rules the code pins:
 
 ## Projects (WANDIT-175)
 
-Three routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
+Four routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
 the same workspace permissions V1 uses (`project:create`, read = any
 member):
 
@@ -360,6 +360,8 @@ member):
   `turnId: null`. It also stores one assistant message with a
   `data-turn-error` part, so the chat shows the error card and Retry.
   The title job and `v2_project_created` follow.
+- `POST /from-starter-template` creates a project from a starter template
+  with no turn. See "Starter templates".
 - `GET /:projectId` answers the `AppProject` shape; a `v1_page` row in
   scope answers 404 like a missing one.
 - `GET /:projectId/chats/:chatId/cost` answers `ChatCostResponse`: the
@@ -391,6 +393,78 @@ outputs), `desktop/<id>/` (the desktop release), and `desktop-temp/<id>/`
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
+
+## Starter templates
+
+A starter template is a set of files on top of the web template (D37). A
+project that starts from one gets its code with no agent turn and no credit
+spend. The catalog is `packages/contracts/src/v2/starter-template-catalog.ts`; the
+web and the API import it by subpath. The source and the pack script are in
+`templates/starters/` (see its README).
+
+- `POST /api/v2/projects/from-starter-template` has the guards and the
+  `project:create` permission of `POST /`, and its own rate-limit bucket
+  with the same limits. The body is `{ starterTemplateId, locale }`.
+- `AppProjectsService.createFromStarterTemplate` answers 404
+  `STARTER_TEMPLATE_NOT_FOUND` when the catalog does not hold the id, or
+  when the API has no archive `starter-<id>.tar.gz` in
+  `TEMPLATE_ARCHIVE_DIR` (it also logs an error: this is a deploy problem).
+  Then it runs the settled-balance gate of `POST /`. One transaction writes
+  the project (`starter_template_id`, the name of the starter template,
+  `languages = ['en']`), the chat, one user message with the text
+  `<name> - <tagline>` in the request locale, and the `builder_sessions`
+  row. Backend provisioning follows, as in `POST /`. No title job runs.
+- The service then queues the `apply-starter-template` task with the
+  idempotency key `apply-starter-template:<projectId>`. A failed handoff
+  logs, stores the failed note, and sets `starter_template_id` to NULL. The
+  route still answers 201 with `turnId: null`.
+- The task runs on the `starter-template` queue, one run per project, with
+  3 attempts. Each attempt takes the turn lock with the holder
+  `restore:starter-<uuid>` (TTL 2 min, refresh 60 s), so a chat turn
+  answers 409 `BUILDER_TURN_ACTIVE`. It starts the sandbox through
+  `startSandboxWithoutTurn` with the harness key, so a new sandbox boots
+  from the template snapshot.
+- `applyStarterTemplateArchive` extracts the archive in `/tmp` and parses
+  `manifest.json` with `starterTemplateManifestSchema`
+  (`packages/contracts/src/v2/starter-template-archive.ts`). The id must
+  be the id of the payload, and each `removed` path must stay in the
+  project. Then it copies `files/` over the workspace and deletes the
+  `removed` paths with an argument array. No install runs.
+- `commitTurn` commits with the source `starter`, the chat id, and the id
+  of the first user message as the commit message id. The commit is the
+  first version of the project, so `hasCodeChanges` becomes true.
+- The task stores one assistant message with the id
+  `starter-template-<projectId>` and one `data-starter-template` part:
+  `{ starterTemplateId, status: "applied" | "failed" }`. The fixed id makes
+  a second write a no-op. After the lock release, it schedules the
+  dashboard thumbnail of the commit and stamps the sandbox activity.
+- A retry is safe. An attempt first reads the versions of the project. A
+  `starter` commit means that the files are in: the attempt only stores the
+  note. Other versions and no `starter` commit mean that a turn ran first:
+  the attempt stores the failed note, sets the column to NULL, and applies
+  nothing.
+- An archive whose commit changes no file cannot end the wait of the web,
+  because `hasCodeChanges` stays false. The attempt stores the failed note,
+  sets the column to NULL, and answers `failed` with the reason
+  `empty_archive`. In the two `failed` cases, the note goes before the
+  column: a retry after a failed note write then comes to the same branch.
+- After the last failed attempt, the `onFailure` hook sets
+  `starter_template_id` to NULL and stores the failed note. The project then
+  behaves as a project from a prompt with no code. The sandbox can still
+  hold files of the starter template; the next turn commits them.
+- `GET /:projectId` answers `starterTemplateId`. The web shows the "setting
+  up" state while it is set and `hasCodeChanges` is false.
+- Trigger.dev does not call `onFailure` for a crashed or canceled run, and
+  does not retry a hook that throws. So `AppProjectsService.get` has a time
+  rule: a project with the id set and no code changes, 35 minutes after its
+  create, gets the column NULL and the failed note. The answer then has
+  `starterTemplateId: null`. The limit is longer than 3 attempts of 600 s.
+- A builder turn of a project whose `starter_template_id` is in the catalog
+  gets three more sentences in the session instructions
+  (`starterTemplateInstructionOf` in `builder-turn.runtime.ts`): the project
+  started from the starter template, this is not a first build, and the
+  agent reads `STARTER.md` first. `ensureThemeFile` keeps the theme of the
+  starter template, because its `theme.json` has the origin `host`.
 
 ## Agent browser and thumbnails
 

@@ -1,0 +1,36 @@
+{
+	"id": "keystone-realty",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Keystone",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "riad"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "md",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "floating",
+			"sidebarCollapse": "offcanvas",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "pill",
+			"header": "blur",
+			"userMenu": "header",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

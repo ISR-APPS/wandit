@@ -1,0 +1,270 @@
+// Every user-facing string of the app, in the default language (`locales[0]`).
+// Components read it through `t("group.key")` from useT(); translate.ts loads it.
+// A second language gets its own file with the same keys (CLAUDE.md "Languages").
+// The groups `site` to `footer` hold the home page of Onde. All names, prices, and contact details are fictional.
+/** The default-language dictionary. `shell` and `table` hold the strings of the app shell and DataTable. */
+export const messages = {
+	common: {
+		appName: "Onde",
+		save: "Save",
+		retry: "Try again",
+		signOut: "Sign out",
+		language: "Language",
+	},
+	site: {
+		metaTitle: "Onde — hammam & spa, Oran",
+		metaDescription:
+			"Onde is a hammam and spa on the Oran seafront. Steam, black-soap scrub, a cold pool, and a tea room. Rituals by appointment, and gift cards.",
+		skipToContent: "Skip to the content",
+		brand: "onde",
+		descriptor: "hammam & spa",
+		brandHome: "Onde, hammam and spa: back to the top",
+		navLabel: "Sections of the page",
+		navRitual: "the ritual",
+		navTreatments: "treatments",
+		navHouse: "the house",
+		navGifts: "gift cards",
+		bookCta: "book",
+		menuOpen: "Open the menu",
+		menuDescription:
+			"The sections of the page, the telephone, and the booking.",
+		phoneLabel: "telephone",
+		phoneDisplay: "041 00 00 00",
+		phoneHref: "tel:+21341000000",
+		phoneAria: "Call Onde on 041 00 00 00",
+	},
+	hero: {
+		label: "oran — on the seafront, since 1998",
+		title: "Time slows down at the door.",
+		lead: "Steam, a black-soap scrub, a cold pool, a tea room. One ritual of three hours, taken slowly, above the bay.",
+		primaryCta: "book a ritual",
+		secondaryCta: "see the treatments",
+		photoAlt:
+			"The pale marble steam room, full of steam, lit by a warm cornice above the stone basin.",
+		caption: "the steam room — 42°C",
+		indexLabel: "The three stages of the ritual",
+		stage1Name: "the steam",
+		stage1Meta: "40 min · 42°C",
+		stage2Name: "the pool",
+		stage2Meta: "15 min · 14°C",
+		stage3Name: "the rest",
+		stage3Meta: "60 min · tea room",
+	},
+	threshold: {
+		label: "Practical facts",
+		hours: "open 9 am – 9 pm",
+		days: "separate days for women and men",
+		guests: "twenty-six guests at most",
+		appointment: "by appointment only",
+	},
+	ritual: {
+		label: "the ritual",
+		title: "Three stages, always in this order.",
+		body: "Here you do not choose your route. You follow it. The steam opens, the cold water closes, the rest keeps.",
+		stageAlt:
+			"The three stages of the ritual: the steam room, the cold pool, and the tea tray of the tea room.",
+		step1Title: "the steam",
+		step1Body:
+			"Forty minutes at 42°C under the dome. The skin opens, and the black soap does the rest.",
+		step1Meta: "40 min · Kristel marble",
+		step2Title: "the pool",
+		step2Body:
+			"Fourteen degrees, six seconds, three times. The blood comes back at once. The head sits straight again.",
+		step2Meta: "15 min · water renewed without pause",
+		step3Title: "the rest",
+		step3Body:
+			"One hour under warm linen, a mint tea, a few dates. Nobody comes to rush you.",
+		step3Meta: "60 min · tea room",
+	},
+	treatments: {
+		label: "treatments",
+		title: "The menu, kept short.",
+		intro:
+			"Five treatments, not thirty. Each one books alone or joins the ritual.",
+		includedLabel: "included in every price",
+		included1: "Linen sheets and slippers",
+		included2: "Black soap and the horsehair mitt",
+		included3: "Herbal tea and dates at rest",
+		included4: "A locked changing room and a shower",
+		linenAlt:
+			"A stack of folded raw linen sheets on a stone shelf, in the steam.",
+		linenCaption:
+			"The linen is washed and folded the day before. Each sheet serves once.",
+		listLabel: "Treatments and prices",
+		currency: "DA",
+		hammamName: "The traditional hammam",
+		hammamBody:
+			"Steam, a scrub with the horsehair mitt, black soap from Béjaïa, a rinse of orange-blossom water.",
+		hammamDuration: "60 minutes",
+		hammamPrice: "3 500",
+		ritualName: "The Onde ritual",
+		ritualBody:
+			"The full route: steam, scrub, cold pool, a rhassoul clay wrap, then the tea room.",
+		ritualDuration: "3 hours",
+		ritualPrice: "7 200",
+		arganName: "Argan oil massage",
+		arganBody:
+			"Slow pressure and warm oil pressed in Tlemcen. Four hands on request.",
+		arganDuration: "50 minutes",
+		arganPrice: "4 800",
+		clayName: "Clay facial",
+		clayBody:
+			"Soft steam, green clay, a scalp massage, and prickly-pear seed oil.",
+		clayDuration: "45 minutes",
+		clayPrice: "4 200",
+		dayName: "The whole day",
+		dayBody:
+			"The hammam and the pool as long as you like, one treatment of your choice, and a light lunch on the terrace.",
+		dayDuration: "10 am to 5 pm",
+		dayPrice: "12 000",
+		note: "Prices are per person. Children are welcome on Sunday mornings, with an adult.",
+	},
+	water: {
+		sectionLabel: "The cold pool",
+		poolAlt:
+			"Detail of the cold pool: a round ripple opens on the water against the stone edge.",
+		caption: "the cold pool — 14°C",
+		label: "one rule",
+		quote: "Water never hurries. Neither do we.",
+		author:
+			"Yasmine Haddad — keeper of the house, twenty-eight years of hammam",
+	},
+	house: {
+		label: "the house",
+		title: "Four rooms, one light.",
+		intro:
+			"A house from 1930, restored stone by stone, two streets from the corniche. Twenty-six guests at most, never more.",
+		room1Label: "room one",
+		room1Title: "The steam dome",
+		room1Body:
+			"Pale marble, heated benches, a single skylight. The steam rises from the floor, never from the walls.",
+		room1Fact: "42°C",
+		room2Label: "room two",
+		room2Title: "The rest room",
+		room2Body:
+			"Six low beds, washed linen, half-closed shutters. No screen, no music, no obligation.",
+		room2Fact: "silence",
+		room3Label: "room three",
+		room3Title: "The cold pool",
+		room3Body:
+			"Three metres by two, fed without pause by the spring. Four steps lead down, slowly.",
+		room3Fact: "14°C",
+		room4Label: "room four",
+		room4Title: "The high terrace",
+		room4Body:
+			"Two tables under the vine, the bay below. Lunch is served there from March to November.",
+		room4Fact: "south-facing",
+		teaAlt:
+			"A wooden tea tray: a stoneware teapot and three bowls on a linen cloth.",
+		teaCaption:
+			"The tea room — fresh mint, lemon verbena, orange blossom. The tea is free, and so is the time.",
+	},
+	gifts: {
+		label: "gift cards",
+		title: "Give three hours.",
+		intro:
+			"Handed over in a linen sleeve sewn in our workshop, or sent by courier within Oran. Valid for twelve months, with no conditions.",
+		card1Label: "discovery card",
+		card1Title: "The hammam alone",
+		card1Body:
+			"Steam, scrub, black soap, and herbal tea. The first visit, the one that decides all the others.",
+		card1Price: "3 500",
+		card1Duration: "60 minutes",
+		card2Label: "onde card",
+		card2Title: "The full ritual",
+		card2Body:
+			"The three stages, three hours for one guest, with the rhassoul wrap and the rest.",
+		card2Price: "7 200",
+		card2Duration: "3 hours",
+		card3Label: "duo card",
+		card3Title: "The ritual for two",
+		card3Body:
+			"Two full rituals on the same day, a private rest room, and a light lunch on the terrace.",
+		card3Price: "16 000",
+		card3Duration: "for two, 3 hours",
+		foot: "We write the first name by hand on the card. Just tell us which one.",
+		cta: "order a card",
+	},
+	booking: {
+		label: "book",
+		title: "Tell us the day.",
+		lead: "Call us between 9 am and 7 pm. We set the exact hour on the same call, and we ask for no deposit.",
+		askLabel: "What we ask on the telephone",
+		ask1Label: "the ritual",
+		ask1Value: "The Onde ritual, or one treatment",
+		ask2Label: "the day",
+		ask2Value: "Women Sun to Tue, men Wed to Sat",
+		ask3Label: "the time of day",
+		ask3Value: "Morning, afternoon, or evening",
+		ask4Label: "how many guests",
+		ask4Value: "One to four, more on request",
+		ask5Label: "a word for us",
+		ask5Value: "An occasion, an allergy, a room you prefer",
+		callCta: "call 041 00 00 00",
+		callNote: "The call takes about two minutes. Have your calendar near you.",
+		addressLabel: "address",
+		addressLine1: "18, rue de la Source",
+		addressLine2: "Oran 31000 — 300 m from the corniche",
+		hoursLabel: "hours",
+		hoursWomen: "Women: Sunday → Tuesday, 9 am – 9 pm",
+		hoursMen: "Men: Wednesday → Saturday, 9 am – 9 pm",
+		phoneLabel: "telephone",
+		firstVisitLabel: "first visit",
+		firstVisitBody:
+			"Arrive twenty minutes before your hour. The body needs that time to settle.",
+		infoNote:
+			"The car park behind the house is free after 6 pm. Bring a swimsuit for the pool.",
+		stonesAlt:
+			"Warm stones stacked beside a bowl of argan oil, on a wet stone shelf.",
+		stonesCaption:
+			"The stones are warmed before each massage, and the argan oil with them.",
+	},
+	footer: {
+		aboutTitle: "onde",
+		aboutLine1: "Hammam & spa, Oran.",
+		aboutLine2: "A house opened in 1998, taken over in 2019.",
+		visitTitle: "go and see",
+		contactTitle: "reach us",
+		wordmarkNote1: "hammam & spa — Oran",
+		wordmarkNote2: "the house has been open since 1998",
+		legal: "© Onde — hammam & spa",
+		prices: "Prices in Algerian dinars, taxes included",
+	},
+	login: {
+		title: "Sign in",
+		subtitle: "Use your email and password.",
+		signUpTitle: "Create an account",
+		signUpSubtitle: "Your account works at once.",
+		email: "Email",
+		emailPlaceholder: "you@example.com",
+		password: "Password",
+		confirmPassword: "Confirm password",
+		submit: "Sign in",
+		signUpSubmit: "Create account",
+		sending: "Please wait…",
+		toSignUp: "No account yet? Create one",
+		toSignIn: "Already have an account? Sign in",
+		passwordMismatch: "The two passwords do not match.",
+		error: "Sign-in failed. Check your email and password.",
+		signUpError:
+			"Sign-up failed. Try again, or sign in if you already have an account.",
+	},
+	profile: {
+		title: "Profile",
+		fullName: "Full name",
+		fullNamePlaceholder: "Your display name",
+		saved: "Your profile was updated.",
+		loadError: "Your profile did not load. Check the connection and try again.",
+		saveError: "Your profile was not saved. Try again.",
+	},
+	shell: {
+		toggleSidebar: "Toggle sidebar",
+		profile: "Profile",
+		signOutError: "Sign-out failed. Try again.",
+	},
+	table: {
+		search: "Search",
+		previous: "Previous",
+		next: "Next",
+	},
+} as const;

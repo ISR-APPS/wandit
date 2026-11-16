@@ -915,7 +915,8 @@
 			"merge": "Merge",
 			"theme": "Theme",
 			"github": "GitHub",
-			"mcp": "Coding agent"
+			"mcp": "Coding agent",
+			"starter": "Template"
 		},
 		"diff": "Diff",
 		"numstat": "+{added} −{removed}",

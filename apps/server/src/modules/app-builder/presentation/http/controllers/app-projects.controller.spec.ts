@@ -24,6 +24,8 @@ function setup() {
 			projectId: "project-1",
 			turnId: "turn-1",
 		})),
+		createFromStarterTemplate:
+			vi.fn<AppProjectsService["createFromStarterTemplate"]>(),
 		get: vi.fn(),
 	};
 	const controller = new AppProjectsController(appProjects);
@@ -102,11 +104,14 @@ describe("AppProjectsController", () => {
 });
 
 describe("AppProjectsController route metadata", () => {
-	it("gates create on project:create", () => {
+	it.each([
+		"create",
+		"createFromStarterTemplate",
+	] as const)("gates %s on project:create", (route) => {
 		expect(
 			Reflect.getMetadata(
 				WORKSPACE_PERMISSION_KEY,
-				AppProjectsController.prototype.create,
+				AppProjectsController.prototype[route],
 			),
 		).toEqual({ actions: ["create"], resource: "project" });
 	});

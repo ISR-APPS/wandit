@@ -144,6 +144,8 @@ export * from "./v2/preview";
 export * from "./v2/preview-token";
 // V2 app project contracts.
 export * from "./v2/projects";
+// The 50 catalog entries are not exported here, for the same bundle reason as the theme modules.
+// Import them by subpath: "@wandit/contracts/v2/starter-template-catalog".
 // V2 publish contracts: the user Worker name, the KV host pointer, and the suspend codes.
 export * from "./v2/publish";
 // V2 app-builder route paths.
@@ -152,6 +154,8 @@ export * from "./v2/routes";
 export * from "./v2/secrets";
 // V2 project sharing: grants, invitations, invite link, transfer, move, and shared projects.
 export * from "./v2/sharing";
+// V2 starter template vocabulary: the kinds, the categories, and the entry schema.
+export * from "./v2/starter-templates";
 // V2 Supabase Management API contracts.
 export * from "./v2/supabase-management";
 // V2 builder turn and stream contracts.

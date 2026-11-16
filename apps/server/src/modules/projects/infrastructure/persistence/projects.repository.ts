@@ -113,6 +113,8 @@ export type ProjectQueryRow = {
 	pendingDeploymentCount: number;
 	previewImageUrl: string | null;
 	prompt: string;
+	// Id of the starter template of a V2 project; null on V1 rows and on a project from a prompt.
+	starterTemplateId: string | null;
 	// "web" or "mobile" on V2 rows; null on V1 rows.
 	targetPlatform: TargetPlatform | null;
 	// The caller's role and the project's workspace. Null when the project's
@@ -294,6 +296,8 @@ export class ProjectsRepository {
 			framework: string;
 			/** First line of `templates/<framework>/template_version`, for example "mobile-app@1.0.0". */
 			templateVersion: string;
+			/** Catalog id of the starter template the project starts from. Absent for a project from a prompt. */
+			starterTemplateId?: string;
 		};
 		attachments?: FileRef[];
 		chatId: string;
@@ -322,6 +326,7 @@ export class ProjectsRepository {
 								engine: "v2_app" as const,
 								framework: input.app.framework,
 								languages: [...input.app.languages],
+								starterTemplateId: input.app.starterTemplateId ?? null,
 								targetPlatform: input.app.targetPlatform,
 								templateVersion: input.app.templateVersion,
 							}
@@ -507,6 +512,31 @@ export class ProjectsRepository {
 		return rows.length > 0;
 	}
 
+	/**
+	 * Sets `starter_template_id` to NULL when it still holds `starterTemplateId`.
+	 * `AppProjectsService` and the `apply-starter-template` task call it after a
+	 * failed apply. The project then behaves as a project with no starter template.
+	 */
+	async clearStarterTemplateId(
+		projectId: string,
+		starterTemplateId: string,
+	): Promise<void> {
+		await this.db
+			.update(projects)
+			.set({
+				starterTemplateId: null,
+				// A background write is not a user edit. The dashboard orders by
+				// `updatedAt`, so the column keeps its value.
+				updatedAt: sql`${projects.updatedAt}`,
+			})
+			.where(
+				and(
+					eq(projects.id, projectId),
+					eq(projects.starterTemplateId, starterTemplateId),
+				),
+			);
+	}
+
 	// Shared SELECT builder used by list/get/update.
 	private firstMessagesSelect() {
 		// Get the first user message text for each project.
@@ -585,6 +615,7 @@ export class ProjectsRepository {
 				pendingDeploymentCount: sql<number>`coalesce(${deploymentAgg.pendingDeploymentCount}, 0)::int`,
 				previewImageUrl: projects.previewImageUrl,
 				prompt: sql<string>`coalesce(${firstMessages.prompt}, '')`,
+				starterTemplateId: projects.starterTemplateId,
 				targetPlatform: projects.targetPlatform,
 				templateVersion: projects.templateVersion,
 				tiktokPixelId: projects.tiktokPixelId,

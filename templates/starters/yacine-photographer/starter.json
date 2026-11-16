@@ -1,0 +1,33 @@
+{
+	"id": "yacine-photographer",
+	"removed": [],
+	"theme": {
+		"name": "Yacine R.",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "photographe"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "instrument-sans",
+			"displayFont": "ibm-plex-mono",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

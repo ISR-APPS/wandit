@@ -1,7 +1,8 @@
 /**
- * HTTP routes for V2 app projects: create, get, and the cost of one chat.
+ * HTTP routes for V2 app projects: create, create from a starter template,
+ * get, and the cost of one chat.
  * `V2BuilderEnabledGuard` gates the whole controller, and
- * `RedisRateLimitGuard` reads the `@RateLimit` on create. Create reads the
+ * `RedisRateLimitGuard` reads the `@RateLimit` on each create. Each create reads the
  * workspace header; the `:projectId` routes use the global ProjectAccessGuard. Platform,
  * attachment, credits, and engine checks live in `AppProjectsService`; this
  * file parses and delegates.
@@ -20,8 +21,10 @@ import type { AuthUser } from "@wandit/auth";
 import {
 	type AppProject,
 	type ChatCostResponse,
+	type CreateAppProjectFromStarterTemplateRequest,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
+	createAppProjectFromStarterTemplateRequestSchema,
 	createAppProjectRequestSchema,
 	uuidSchema,
 } from "@wandit/contracts";
@@ -65,7 +68,7 @@ export class AppProjectsController {
 		@Inject(AppProjectsService)
 		private readonly appProjects: Pick<
 			AppProjectsService,
-			"chatCost" | "create" | "get"
+			"chatCost" | "create" | "createFromStarterTemplate" | "get"
 		>,
 	) {}
 
@@ -88,6 +91,33 @@ export class AppProjectsController {
 			// Edge geo header, best-effort context only (not a security input).
 			countryCode: readRequestCountryCode(request.headers),
 		});
+	}
+
+	// Its own bucket with the limits of create: each call can provision a
+	// backend and boots a sandbox, so the cap stops a script that farms them.
+	@RequireWorkspacePermission("project", "create")
+	@RateLimit({
+		ipLimit: PROJECT_CREATE_IP_LIMIT,
+		key: "project-create-from-starter-template",
+		limit: PROJECT_CREATE_LIMIT,
+		windowMs: PROJECT_CREATE_WINDOW_MS,
+	})
+	@Post("from-starter-template")
+	createFromStarterTemplate(
+		@Body(
+			new ZodValidationPipe(createAppProjectFromStarterTemplateRequestSchema),
+		)
+		body: CreateAppProjectFromStarterTemplateRequest,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: FastifyRequest,
+	): Promise<CreateAppProjectResponse> {
+		return this.appProjects.createFromStarterTemplate(
+			projectScopeFrom(workspace, user.id),
+			body,
+			// Edge geo header, best-effort context only (not a security input).
+			{ countryCode: readRequestCountryCode(request.headers) },
+		);
 	}
 
 	@RequireProjectRole("viewer")

@@ -1,0 +1,33 @@
+{
+	"id": "rive-nord-realty",
+	"removed": [],
+	"theme": {
+		"name": "Rive Nord Realty",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "affiche"
+			},
+			"mode": "light",
+			"primary": "#2742d6",
+			"font": "archivo",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "bar",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

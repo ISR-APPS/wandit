@@ -11,6 +11,7 @@ const PROJECT: TurnProjectRow = {
 	languages: ["en"],
 	networkAllowedHosts: ["api.stripe.com"],
 	organizationId: null,
+	starterTemplateId: null,
 	suspendedReasonCode: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",

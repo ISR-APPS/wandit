@@ -39,6 +39,7 @@ const PROJECT: AppProject = {
 	versionNumber: 4,
 	unpublishedChanges: 3,
 	hasCodeChanges: true,
+	starterTemplateId: null,
 };
 
 // The bar shows tooltips and translated labels; the page mounts both providers.

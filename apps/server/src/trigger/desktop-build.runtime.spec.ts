@@ -483,6 +483,7 @@ async function setup(options: SetupOptions = {}) {
 							languages: ["en"],
 							networkAllowedHosts: [],
 							organizationId: null,
+							starterTemplateId: null,
 							suspendedReasonCode: state.suspendedReasonCode,
 							templateVersion: "desktop-app@1.0.0",
 							userId: "user-1",

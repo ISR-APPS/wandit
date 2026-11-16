@@ -1,0 +1,33 @@
+{
+	"id": "lume-lamp",
+	"removed": [],
+	"theme": {
+		"name": "LUME",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "atelier"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "dm-sans",
+			"displayFont": "newsreader",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

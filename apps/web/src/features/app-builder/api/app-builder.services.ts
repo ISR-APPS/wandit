@@ -123,6 +123,7 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		versionNumber: project.versionNumber,
 		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
+		starterTemplateId: project.starterTemplateId,
 		access: project.access,
 	};
 }

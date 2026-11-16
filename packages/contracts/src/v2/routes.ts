@@ -9,6 +9,8 @@ export const appBuilderRoutes = {
 	health: "/api/v2/health",
 	// POST create an app project from a prompt.
 	createProject: "/api/v2/projects",
+	// POST create an app project from a starter template. No turn runs.
+	createProjectFromStarterTemplate: "/api/v2/projects/from-starter-template",
 	// GET one app project.
 	project: (projectId: string) => `/api/v2/projects/${projectId}`,
 	// POST start a builder turn.

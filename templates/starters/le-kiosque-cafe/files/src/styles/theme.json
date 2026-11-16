@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Le Kiosque",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "gazette"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "archivo",
+		"displayFont": "newsreader",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f6f1e5",
+			"foreground": "#191510",
+			"card": "#faf8f2",
+			"cardForeground": "#191510",
+			"popover": "#faf8f2",
+			"popoverForeground": "#191510",
+			"primary": "#a63325",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e4dfd4",
+			"secondaryForeground": "#191510",
+			"muted": "#ebe6da",
+			"mutedForeground": "#67625a",
+			"accent": "#fcded8",
+			"accentForeground": "#191510",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d8d3c8",
+			"input": "#c4bfb5",
+			"ring": "#a63325",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eee9dd",
+			"shadowColor": "#25211c"
+		},
+		"dark": {
+			"background": "#17130b",
+			"foreground": "#f7f1e9",
+			"card": "#1e1a12",
+			"cardForeground": "#f7f1e9",
+			"popover": "#231f16",
+			"popoverForeground": "#f7f1e9",
+			"primary": "#ad3a2b",
+			"primaryForeground": "#ffffff",
+			"secondary": "#29251d",
+			"secondaryForeground": "#f7f1e9",
+			"muted": "#242017",
+			"mutedForeground": "#aca69e",
+			"accent": "#371b17",
+			"accentForeground": "#f7f1e9",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#312d24",
+			"input": "#3d3830",
+			"ring": "#ad3a2b",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#100d06",
+			"shadowColor": "#030200"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Newsreader",
+				"href": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Playfair Display",
+				"href": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

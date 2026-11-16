@@ -1,0 +1,114 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Rive Nord Realty",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "affiche"
+		},
+		"mode": "light",
+		"primary": "#2742d6",
+		"font": "archivo",
+		"displayFont": "archivo",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "bar",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "bold",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f4e6cb",
+			"foreground": "#1a1714",
+			"card": "#f5eee0",
+			"cardForeground": "#1a1714",
+			"popover": "#f5eee0",
+			"popoverForeground": "#1a1714",
+			"primary": "#2742d6",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e3d6bd",
+			"secondaryForeground": "#1a1714",
+			"muted": "#e9dcc2",
+			"mutedForeground": "#655c51",
+			"accent": "#d1ddf4",
+			"accentForeground": "#1a1714",
+			"destructive": "#c9222b",
+			"destructiveForeground": "#ffffff",
+			"border": "#d7cab2",
+			"input": "#c4b7a2",
+			"ring": "#2742d6",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#ecdec3",
+			"shadowColor": "#24211e",
+			"chart1": "#2742d6"
+		},
+		"dark": {
+			"background": "#1a1304",
+			"foreground": "#f5f1ed",
+			"card": "#211909",
+			"cardForeground": "#f5f1ed",
+			"popover": "#261e0e",
+			"popoverForeground": "#f5f1ed",
+			"primary": "#3152e6",
+			"primaryForeground": "#ffffff",
+			"secondary": "#2c2416",
+			"secondaryForeground": "#f5f1ed",
+			"muted": "#271f10",
+			"mutedForeground": "#ada69e",
+			"accent": "#19233a",
+			"accentForeground": "#f5f1ed",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#342c1e",
+			"input": "#40382a",
+			"ring": "#3152e6",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#130c01",
+			"shadowColor": "#030100",
+			"chart1": "#3152e6"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Archivo",
+				"href": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Anton",
+				"href": "https://fonts.googleapis.com/css2?family=Anton&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

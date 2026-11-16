@@ -10,6 +10,7 @@ import {
 	createAppProjectRequestSchema,
 	type UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
+import type { StarterTemplate } from "@wandit/contracts/v2/starter-templates";
 import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
@@ -28,6 +29,7 @@ import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import type { LlmProxyRequestsRepository } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import type { TemplateVersionService } from "../../infrastructure/template/template-version.service";
+import type { TriggerApplyStarterTemplateTaskStarter } from "../../infrastructure/trigger/trigger-apply-starter-template-task-starter";
 import { AppProjectsService } from "./app-projects.service";
 
 const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
@@ -35,6 +37,22 @@ const BODY: CreateAppProjectRequest = {
 	languages: ["fr", "en"],
 	prompt: "Build me a booking app",
 	targetPlatform: "web",
+};
+
+// The one entry of the fake catalog. The real catalog changes with each new starter template.
+const STARTER_TEMPLATE: StarterTemplate = {
+	category: "crm",
+	description: { ar: "وصف", en: "A CRM app.", fr: "Une app CRM." },
+	id: "crm-pro",
+	kind: "app",
+	mode: "light",
+	name: "Crm Pro",
+	shots: 0,
+	tagline: {
+		ar: "تتبع العملاء",
+		en: "Track your clients",
+		fr: "Suivez vos clients",
+	},
 };
 
 function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
@@ -54,6 +72,7 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 		pendingDeploymentCount: 0,
 		previewImageUrl: null,
 		prompt: "Build me a booking app",
+		starterTemplateId: null,
 		targetPlatform: "web",
 		templateVersion: "web-app@1.0.0",
 		tiktokPixelId: null,
@@ -64,6 +83,9 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 
 function setup() {
 	const projects = {
+		clearStarterTemplateId: vi.fn<ProjectsRepository["clearStarterTemplateId"]>(
+			async () => undefined,
+		),
 		createWithChatAndFirstMessage: vi.fn<
 			ProjectsRepository["createWithChatAndFirstMessage"]
 		>(async (input) => ({
@@ -137,12 +159,29 @@ function setup() {
 		findAccessibleChatById: vi.fn<ChatsRepository["findAccessibleChatById"]>(
 			async () => null,
 		),
+		findAccessibleChatByProjectId: vi.fn<
+			ChatsRepository["findAccessibleChatByProjectId"]
+		>(async () => ({
+			id: "chat-1",
+			projectId: "project-1",
+			userId: "user-1",
+		})),
 		insertUiMessagesIfAbsent: vi.fn<
 			ChatsRepository["insertUiMessagesIfAbsent"]
 		>(async () => undefined),
 	};
 	const proxyRequests = {
 		sumByChat: vi.fn<LlmProxyRequestsRepository["sumByChat"]>(),
+	};
+	const starterTemplateTasks = {
+		start: vi.fn<TriggerApplyStarterTemplateTaskStarter["start"]>(
+			async () => undefined,
+		),
+	};
+	const starterTemplates = {
+		find: (starterTemplateId: string) =>
+			starterTemplateId === STARTER_TEMPLATE.id ? STARTER_TEMPLATE : undefined,
+		hasArchive: vi.fn((_starterTemplateId: string) => true),
 	};
 
 	const service = new AppProjectsService(
@@ -158,6 +197,8 @@ function setup() {
 		appCommits,
 		chats,
 		proxyRequests,
+		starterTemplateTasks,
+		starterTemplates,
 	);
 
 	return {
@@ -171,6 +212,8 @@ function setup() {
 		projectsService,
 		proxyRequests,
 		service,
+		starterTemplates,
+		starterTemplateTasks,
 		templateVersion,
 		turns,
 	};
@@ -505,6 +548,122 @@ describe("AppProjectsService.create", () => {
 	});
 });
 
+describe("AppProjectsService.createFromStarterTemplate", () => {
+	const STARTER_BODY = {
+		locale: "fr",
+		starterTemplateId: STARTER_TEMPLATE.id,
+	} as const;
+
+	it.each([
+		{
+			archive: true,
+			id: "not-in-catalog",
+			name: "an id that the catalog does not hold",
+		},
+		{
+			archive: false,
+			id: STARTER_TEMPLATE.id,
+			name: "a catalog entry with no archive on the server",
+		},
+	])("answers 404 STARTER_TEMPLATE_NOT_FOUND and writes no row for $name", async ({
+		archive,
+		id,
+	}) => {
+		const {
+			credits,
+			projects,
+			service,
+			starterTemplates,
+			starterTemplateTasks,
+		} = setup();
+		starterTemplates.hasArchive.mockReturnValue(archive);
+
+		const failure = await service
+			.createFromStarterTemplate(
+				SCOPE,
+				{ locale: "en", starterTemplateId: id },
+				{ countryCode: null },
+			)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(NotFoundException);
+		// SAFETY: toBeInstanceOf proves the type; getResponse carries the body.
+		expect((failure as NotFoundException).getResponse()).toMatchObject({
+			code: "STARTER_TEMPLATE_NOT_FOUND",
+		});
+		expect(credits.getSettledBalance).not.toHaveBeenCalled();
+		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
+		expect(starterTemplateTasks.start).not.toHaveBeenCalled();
+	});
+
+	it("answers 402 on a zero settled balance before any row and any task", async () => {
+		const { backends, credits, projects, service, starterTemplateTasks } =
+			setup();
+		credits.getSettledBalance.mockResolvedValue({
+			balance: 0,
+			plan: 0,
+			promo: 0,
+			settledBalance: 0,
+			settledPlan: 0,
+			settledPromo: 0,
+			settledTopup: 0,
+			topup: 0,
+		});
+
+		const failure = await service
+			.createFromStarterTemplate(SCOPE, STARTER_BODY, { countryCode: null })
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(InsufficientCreditsError);
+		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
+		expect(backends.provisionBackend).not.toHaveBeenCalled();
+		expect(starterTemplateTasks.start).not.toHaveBeenCalled();
+	});
+
+	it("still answers the ids when the task handoff fails, clears the column, and stores the failed note", async () => {
+		const { chats, projects, service, starterTemplateTasks, turns } = setup();
+		starterTemplateTasks.start.mockRejectedValue(new Error("trigger down"));
+
+		const result = await service.createFromStarterTemplate(
+			SCOPE,
+			STARTER_BODY,
+			{ countryCode: null },
+		);
+
+		const written = projects.createWithChatAndFirstMessage.mock.calls[0]?.[0];
+		expect(result).toEqual({
+			chatId: written?.chatId,
+			projectId: written?.projectId,
+			turnId: null,
+		});
+		// No agent turn runs on this path, also not after a failed handoff.
+		expect(turns.create).not.toHaveBeenCalled();
+		expect(projects.clearStarterTemplateId).toHaveBeenCalledWith(
+			result.projectId,
+			STARTER_TEMPLATE.id,
+		);
+		expect(chats.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			result.chatId,
+			[
+				expect.objectContaining({
+					parts: [
+						{
+							data: {
+								starterTemplateId: STARTER_TEMPLATE.id,
+								status: "failed",
+							},
+							id: "starter-template",
+							type: "data-starter-template",
+						},
+					],
+					role: "assistant",
+				}),
+			],
+			null,
+		);
+	});
+});
+
 describe("AppProjectsService.get", () => {
 	it("maps a v2_app row to the contract", async () => {
 		const { service } = setup();
@@ -542,6 +701,67 @@ describe("AppProjectsService.get", () => {
 
 		expect(project).toMatchObject({ unpublishedChanges: 2, versionNumber: 7 });
 		expect(appCommits.countVersions).toHaveBeenCalledWith("project-1");
+	});
+
+	// The web waits while the id is set and the project has no code. The
+	// limit is 35 minutes from the create.
+	it.each([
+		{
+			ageMinutes: 36,
+			answeredId: null,
+			hasCodeChanges: false,
+			name: "ends the apply of an old project with no code",
+		},
+		{
+			ageMinutes: 34,
+			answeredId: STARTER_TEMPLATE.id,
+			hasCodeChanges: false,
+			name: "keeps the apply of a new project with no code",
+		},
+		{
+			ageMinutes: 36,
+			answeredId: STARTER_TEMPLATE.id,
+			hasCodeChanges: true,
+			name: "keeps the id of an old project that has its code",
+		},
+	])("$name", async ({ ageMinutes, answeredId, hasCodeChanges }) => {
+		const { appCommits, chats, projects, service } = setup();
+		projects.findByIdForScope.mockResolvedValue(
+			projectRow({
+				createdAt: new Date(Date.now() - ageMinutes * 60_000),
+				starterTemplateId: STARTER_TEMPLATE.id,
+			}),
+		);
+		appCommits.hasFileChanges.mockResolvedValue(hasCodeChanges);
+
+		const project = await service.get(SCOPE, "project-1");
+
+		const isEnded = answeredId === null;
+		expect(project.starterTemplateId).toBe(answeredId);
+		expect(projects.clearStarterTemplateId).toHaveBeenCalledTimes(
+			isEnded ? 1 : 0,
+		);
+		// The failed note goes to the first chat of the project.
+		expect(chats.insertUiMessagesIfAbsent).toHaveBeenCalledTimes(
+			isEnded ? 1 : 0,
+		);
+	});
+
+	// A lost note leaves the web with an empty project and no failure notice.
+	it("keeps the id when the failed note write throws, so the next get tries again", async () => {
+		const { appCommits, chats, projects, service } = setup();
+		projects.findByIdForScope.mockResolvedValue(
+			projectRow({
+				createdAt: new Date(Date.now() - 36 * 60_000),
+				starterTemplateId: STARTER_TEMPLATE.id,
+			}),
+		);
+		appCommits.hasFileChanges.mockResolvedValue(false);
+		chats.insertUiMessagesIfAbsent.mockRejectedValue(new Error("db down"));
+
+		await service.get(SCOPE, "project-1");
+
+		expect(projects.clearStarterTemplateId).not.toHaveBeenCalled();
 	});
 
 	it("404s on a v1_page row", async () => {

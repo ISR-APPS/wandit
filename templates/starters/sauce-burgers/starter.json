@@ -1,0 +1,33 @@
+{
+	"id": "sauce-burgers",
+	"removed": [],
+	"theme": {
+		"name": "SAUCE!",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "sauce"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "figtree",
+			"displayFont": "figtree",
+			"scale": "md",
+			"radius": "none",
+			"border": "2",
+			"shadow": "none",
+			"shadowStyle": "hard",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

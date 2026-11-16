@@ -1,0 +1,77 @@
+{
+	"meta": {
+		"title": "Templates — Wandit"
+	},
+	"title": "Templates",
+	"intro": "Start from a finished design. Then tell Wandit what to change.",
+	"resultCount": {
+		"one": "{count} template",
+		"other": "{count} templates"
+	},
+	"searchPlaceholder": "Search templates",
+	"filters": {
+		"kindLabel": "Type",
+		"categoryLabel": "Category",
+		"all": "All",
+		"websites": "Websites",
+		"apps": "Apps",
+		"allCategories": "All categories",
+		"clear": "Clear filters"
+	},
+	"kinds": {
+		"website": "Website",
+		"app": "App"
+	},
+	"categories": {
+		"analytics": "Analytics",
+		"crm": "CRM",
+		"ecommerce": "E-commerce",
+		"finance": "Finance",
+		"health": "Health",
+		"hospitality": "Hospitality",
+		"real-estate": "Real estate",
+		"logistics": "Logistics",
+		"education": "Education",
+		"productivity": "Productivity",
+		"sales": "Sales",
+		"hr": "HR",
+		"food": "Food",
+		"fitness": "Fitness",
+		"marketing": "Marketing",
+		"support": "Support",
+		"inventory": "Inventory",
+		"legal": "Legal",
+		"agency": "Agency",
+		"events": "Events",
+		"travel": "Travel",
+		"beauty": "Beauty",
+		"interior": "Interior design",
+		"portfolio": "Portfolio",
+		"saas": "SaaS",
+		"services": "Services"
+	},
+	"noResults": {
+		"title": "No template matches",
+		"body": "Try another word, or clear the filters."
+	},
+	"detail": {
+		"back": "All templates",
+		"use": "Use this template",
+		"appNote": "This is an app. Create an account in the preview to sign in and see it.",
+		"coverAlt": "Home screen of {name}",
+		"shotAlt": "{name}, screenshot {number}"
+	},
+	"notFound": {
+		"title": "This template is not available."
+	},
+	"note": {
+		"applied": "Your project is ready. Tell me what to change.",
+		"appSignUp": "To enter the app, create an account in the preview.",
+		"failed": "The template could not be applied. Describe what you want to build, and I will start from there."
+	},
+	"boot": {
+		"title": "Setting up your template",
+		"body": "Wandit copies the pages and the design into your project. This takes a few seconds."
+	},
+	"composerHint": "You can send a message when your template is ready."
+}

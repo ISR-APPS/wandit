@@ -237,6 +237,7 @@ async function setup(
 				...PROJECT,
 				languages: ["en"],
 				networkAllowedHosts: [],
+				starterTemplateId: null,
 			})),
 		},
 		publish: {

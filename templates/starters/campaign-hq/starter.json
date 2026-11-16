@@ -1,0 +1,36 @@
+{
+	"id": "campaign-hq",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Campaign HQ",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "neo-pop"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "xl",
+			"border": "1.5",
+			"shadow": "md",
+			"shadowStyle": "hard",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "block",
+			"header": "plain",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "bold",
+			"navIcon": "color"
+		}
+	}
+}

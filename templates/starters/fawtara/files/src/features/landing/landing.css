@@ -1,0 +1,427 @@
+/* Site CSS of the Fawtara landing page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the sky tints, the floating card, the two legal gradients,
+   the pill-tab switcher, the money-path diagram, and the entrance motion.
+   Every color is a theme token or a color-mix() of tokens. */
+
+.fw-page {
+	/* Side padding and section rhythm of the page chassis. */
+	--fw-pad: clamp(20px, 4vw, 48px);
+	--fw-rhythm: clamp(4.5rem, 9vh, 7.5rem);
+	/* The deep blue of hovers and of the foot of the button gradient. */
+	--fw-blue-deep: color-mix(in oklch, var(--primary) 82%, var(--foreground));
+	/* The sky family: the only mid-tones between the paper and the blue. */
+	--fw-sky: color-mix(in oklch, var(--primary) 18%, var(--card));
+	--fw-sky-soft: color-mix(in oklch, var(--primary) 8%, var(--card));
+	--fw-dash: color-mix(in oklch, var(--primary) 34%, var(--card));
+	/* The single elevation of the page. On shadow "lg" it is 0 2px 6px at 6%, then 0 24px 48px -20px at 18%. */
+	--fw-card-shadow:
+		0 calc(var(--shadow-offset) / 3) var(--shadow-offset)
+		color-mix(in oklch, var(--shadow-color) 6%, transparent),
+		0 calc(var(--shadow-offset) * 4) calc(var(--shadow-offset) * 8)
+		calc(var(--shadow-offset) * -3.34)
+		color-mix(in oklch, var(--shadow-color) 18%, transparent);
+	--fw-card-shadow-lifted:
+		0 calc(var(--shadow-offset) / 3) var(--shadow-offset)
+		color-mix(in oklch, var(--shadow-color) 7%, transparent),
+		0 calc(var(--shadow-offset) * 4) calc(var(--shadow-offset) * 8)
+		calc(var(--shadow-offset) * -2.67)
+		color-mix(in oklch, var(--shadow-color) 22%, transparent);
+	/* Entrances start fast and settle slowly. Nothing overshoots. */
+	--fw-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+	--fw-slide-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	/* 1 in a left-to-right language, -1 in Arabic. It mirrors the tab slide. */
+	--fw-direction: 1;
+}
+
+.fw-page:dir(rtl) {
+	--fw-direction: -1;
+}
+
+.fw-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.fw-page :focus-visible {
+	outline: 3px solid color-mix(in oklch, var(--primary) 40%, transparent);
+	outline-offset: 2px;
+}
+
+/* The sticky header covers 73px. An anchor jump stops below it. */
+.fw-page section[id] {
+	scroll-margin-top: 84px;
+}
+
+/* ---- the floating card: the only shadow of the page ---- */
+
+.fw-card {
+	border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+	border-radius: calc(var(--radius) * 1.125);
+	background: var(--card);
+	box-shadow: var(--fw-card-shadow);
+}
+
+/* The recommended price and the product node: a blue edge at 40%. */
+.fw-card-featured {
+	border: 1.5px solid color-mix(in oklch, var(--primary) 40%, transparent);
+}
+
+.fw-card-lift {
+	transition:
+		transform 0.25s ease,
+		box-shadow 0.25s ease;
+}
+
+.fw-card-lift:hover,
+.fw-card-lift:focus-within {
+	transform: translateY(-4px);
+	box-shadow: var(--fw-card-shadow-lifted);
+}
+
+/* ---- the two legal gradients ---- */
+
+/* Gradient 1: the primary action, from the blue to the deep blue.
+   Only the lift animates. A browser cannot fade a gradient into a solid color. */
+.fw-cta {
+	background: linear-gradient(180deg, var(--primary), var(--fw-blue-deep));
+	transition: transform 0.25s ease;
+}
+
+.fw-cta:hover,
+.fw-cta:focus-visible {
+	background: var(--fw-blue-deep);
+	transform: translateY(-1px);
+}
+
+.fw-cta:active {
+	transform: translateY(0);
+}
+
+/* Gradient 2: the sky halo behind the hero tableau. It ends at 70% of the radius. */
+.fw-halo {
+	background: radial-gradient(
+		closest-side,
+		color-mix(in oklch, var(--primary) 24%, transparent),
+		color-mix(in oklch, var(--primary) 11%, transparent) 42%,
+		transparent 70%
+	);
+}
+
+/* The hero ground: the cool ground at the top, the paper at the foot. */
+.fw-hero {
+	background: linear-gradient(180deg, var(--background), var(--card));
+}
+
+/* ---- the warm counterpoint: three moments on the page ----
+   The element also takes the class "dark". There the warning token is the bright amber of the dark palette. */
+
+.fw-warm {
+	background: color-mix(in oklch, var(--warning) 86%, var(--destructive));
+	color: var(--background);
+}
+
+/* The arrow of a text link moves 4px on hover. */
+.fw-arrow {
+	transition: transform 0.25s ease;
+}
+
+.fw-arrow-link:hover .fw-arrow,
+.fw-arrow-link:focus-visible .fw-arrow {
+	transform: translateX(calc(4px * var(--fw-direction)));
+}
+
+/* ---- hero tableau ---- */
+
+@media (min-width: 1024px) {
+	/* The two satellites drift while the hero leaves the screen. hooks/use-scroll-progress.ts sets --fw-hero. */
+	.fw-sat-pay {
+		translate: 0 calc(var(--fw-hero, 0) * -14px);
+	}
+
+	.fw-sat-chart {
+		translate: 0 calc(var(--fw-hero, 0) * 18px);
+	}
+}
+
+/* ---- the pill-tab switcher ----
+   Three radio inputs hold the state, so the tabs work with no script. The track slides to the checked verb. */
+
+.fw-tab {
+	transition:
+		color 0.25s ease,
+		background-color 0.25s ease,
+		box-shadow 0.25s ease;
+}
+
+.fw-tab:hover {
+	color: var(--fw-blue-deep);
+}
+
+.fw-tab:has(input:checked) {
+	background: var(--card);
+	color: var(--fw-blue-deep);
+	box-shadow: var(--fw-card-shadow);
+}
+
+.fw-tab:has(input:focus-visible) {
+	outline: 3px solid color-mix(in oklch, var(--primary) 40%, transparent);
+	outline-offset: 2px;
+}
+
+.fw-track {
+	transition: transform 0.45s var(--fw-slide-ease);
+}
+
+.fw-switch:has(input[value="collect"]:checked) .fw-track {
+	transform: translateX(calc(-100% * var(--fw-direction)));
+}
+
+.fw-switch:has(input[value="declare"]:checked) .fw-track {
+	transform: translateX(calc(-200% * var(--fw-direction)));
+}
+
+/* A panel off the stage is hidden, so the keyboard cannot reach its link. */
+.fw-panel {
+	visibility: hidden;
+	opacity: 0;
+	transition:
+		opacity 0.45s var(--fw-slide-ease),
+		visibility 0s 0.45s;
+}
+
+.fw-switch:has(input[value="invoice"]:checked) .fw-panel[data-verb="invoice"],
+.fw-switch:has(input[value="collect"]:checked) .fw-panel[data-verb="collect"],
+.fw-switch:has(input[value="declare"]:checked) .fw-panel[data-verb="declare"] {
+	visibility: visible;
+	opacity: 1;
+	transition:
+		opacity 0.45s var(--fw-slide-ease),
+		visibility 0s;
+}
+
+/* ---- the money-path diagram ----
+   --fw-path goes from 0 to 1 while the diagram scrolls into view. hooks/use-scroll-progress.ts sets it.
+   Its default is 1: with no script or with reduced motion, the path is complete. */
+
+.fw-path-scene {
+	--fw-path: 1;
+	/* The three beats of the story: the invoice leaves, the payment comes home, the G50 is ready. */
+	--fw-beat-send: clamp(0, var(--fw-path) / 0.34, 1);
+	--fw-beat-pay: clamp(0, (var(--fw-path) - 0.4) / 0.34, 1);
+	--fw-beat-g50: clamp(0, (var(--fw-path) - 0.8) / 0.16, 1);
+	/* Each result goes from 0 to 1 in a short step at the end of its beat. */
+	--fw-result-send: clamp(0, (var(--fw-path) - 0.32) * 25, 1);
+	--fw-result-pay: clamp(0, (var(--fw-path) - 0.72) * 25, 1);
+	--fw-result-g50: clamp(0, (var(--fw-path) - 0.94) * 25, 1);
+}
+
+.fw-path-canvas {
+	aspect-ratio: 1100 / 540;
+}
+
+/* Arabic reads the diagram from the right: the links mirror with the nodes. */
+.fw-path-canvas:dir(rtl) .fw-path-links {
+	transform: scaleX(-1);
+}
+
+.fw-base-link {
+	fill: none;
+	stroke: var(--fw-dash);
+	stroke-width: 2.5;
+	stroke-dasharray: 6 7;
+}
+
+/* Each lit path has pathLength 1. A gap of 2 keeps the round cap of an empty dash off the canvas. */
+.fw-lit {
+	fill: none;
+	stroke: var(--primary);
+	stroke-width: 3;
+	stroke-linecap: round;
+	stroke-dasharray: 1 2;
+}
+
+.fw-lit-send {
+	stroke-dashoffset: calc(1 - var(--fw-beat-send));
+}
+
+.fw-lit-pay {
+	stroke-dashoffset: calc(1 - var(--fw-beat-pay));
+}
+
+.fw-lit-g50 {
+	stroke-dashoffset: calc(1 - var(--fw-beat-g50));
+}
+
+/* The payment dot travels from the customer to the bank, then home. It shows only during its beat. */
+.fw-pay-dot {
+	fill: var(--primary);
+	opacity: 0;
+}
+
+@supports (offset-path: path("M0 0")) {
+	.fw-pay-dot {
+		offset-path: path(
+			"M946 108 C 985 210, 970 330, 924 420 C 790 390, 680 330, 550 270"
+		);
+		offset-distance: calc(var(--fw-beat-pay) * 100%);
+		offset-rotate: 0deg;
+		opacity: calc(
+			clamp(0, (var(--fw-path) - 0.39) * 50, 1) *
+			clamp(0, (0.76 - var(--fw-path)) * 50, 1)
+		);
+	}
+}
+
+/* The node places are percentages of the canvas. The link paths of path-diagram.tsx end at the same points. */
+.fw-node {
+	position: absolute;
+	transform: translate(-50%, -50%);
+}
+
+.fw-node:dir(rtl) {
+	transform: translate(50%, -50%);
+}
+
+.fw-node-shop {
+	inset-inline-start: 14%;
+	top: 24%;
+}
+
+.fw-node-fawtara {
+	inset-inline-start: 50%;
+	top: 50%;
+}
+
+.fw-node-customer {
+	inset-inline-start: 86%;
+	top: 20%;
+}
+
+.fw-node-bank {
+	inset-inline-start: 84%;
+	top: 78%;
+}
+
+.fw-node-accountant {
+	inset-inline-start: 16%;
+	top: 80%;
+}
+
+/* A result chip sits beside the node that receives. It pops at the end of its beat. */
+.fw-chip-sent {
+	inset-inline-start: 86%;
+	top: 5%;
+	opacity: var(--fw-result-send);
+	scale: calc(0.92 + 0.08 * var(--fw-result-send));
+}
+
+.fw-chip-received {
+	inset-inline-start: 84%;
+	top: 94%;
+	opacity: var(--fw-result-pay);
+	scale: calc(0.92 + 0.08 * var(--fw-result-pay));
+}
+
+.fw-chip-ready {
+	inset-inline-start: 16%;
+	top: 96%;
+	opacity: var(--fw-result-g50);
+	scale: calc(0.92 + 0.08 * var(--fw-result-g50));
+}
+
+/* A numbered step under the diagram is dim until its beat starts. */
+.fw-step {
+	opacity: calc(0.5 + 0.5 * var(--fw-step-on));
+	transition: opacity 0.3s ease;
+}
+
+.fw-step-send {
+	--fw-step-on: clamp(0, var(--fw-path) * 50, 1);
+}
+
+.fw-step-pay {
+	--fw-step-on: clamp(0, (var(--fw-path) - 0.39) * 50, 1);
+}
+
+.fw-step-g50 {
+	--fw-step-on: clamp(0, (var(--fw-path) - 0.79) * 50, 1);
+}
+
+/* The numeral of a step fills with blue when the step is on. */
+.fw-step-number {
+	background: color-mix(
+		in oklch,
+		var(--primary) calc(var(--fw-step-on) * 100%),
+		var(--fw-sky)
+	);
+	color: color-mix(
+		in oklch,
+		var(--primary-foreground) calc(var(--fw-step-on) * 100%),
+		var(--fw-blue-deep)
+	);
+}
+
+/* The phone rail: a dashed spine from each bead to the next one, and one blue bead beside each card. */
+.fw-rail {
+	border-inline-start: 2px dashed var(--fw-dash);
+}
+
+.fw-rail-bead {
+	border: 3px solid var(--fw-sky);
+	background: var(--primary);
+}
+
+/* ---- FAQ: the plus turns into a cross when the answer is open ---- */
+
+.fw-faq summary::-webkit-details-marker {
+	display: none;
+}
+
+.fw-plus {
+	transition: transform 0.25s ease;
+}
+
+.fw-faq details[open] .fw-plus {
+	transform: rotate(45deg);
+}
+
+/* ---- motion: soft float-ups with a slight scale ---- */
+
+@keyframes fw-rise {
+	from {
+		opacity: 0;
+		transform: translateY(28px) scale(0.97);
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The hero plays at page load. --fw-order sets the place of a block in the stagger. */
+	.fw-rise {
+		animation: fw-rise 0.85s var(--fw-ease) backwards;
+		animation-delay: calc(var(--fw-order, 0) * 100ms);
+	}
+
+	/* hooks/use-scroll-reveal.ts sets the two states on the blocks below the first screen. */
+	[data-reveal-state] {
+		transition:
+			opacity 0.6s var(--fw-ease),
+			transform 0.6s var(--fw-ease);
+		transition-delay: var(--fw-delay, 0ms);
+	}
+
+	[data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(28px) scale(0.97);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.fw-track,
+	.fw-panel,
+	.fw-card-lift,
+	.fw-cta,
+	.fw-arrow,
+	.fw-plus {
+		transition: none;
+	}
+}

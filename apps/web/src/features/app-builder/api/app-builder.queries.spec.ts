@@ -11,6 +11,7 @@ import {
 	appBuilderKeys,
 	codeSnapshotPollMs,
 	codeSnapshotQuery,
+	isStarterTemplateApplying,
 } from "./app-builder.queries";
 
 const PROJECT_ID = crypto.randomUUID();
@@ -44,6 +45,19 @@ describe("codeSnapshotPollMs", () => {
 		expect(codeSnapshotPollMs(snapshot, true)).toBe(false);
 		expect(codeSnapshotPollMs(null, false)).toBe(false);
 		expect(codeSnapshotPollMs(undefined, true)).toBe(false);
+	});
+});
+
+describe("isStarterTemplateApplying", () => {
+	it.each([
+		["a starter template and no version yet", "clinic", false, true],
+		["a starter template after its first version", "clinic", true, false],
+		["a failed apply step, which clears the id", null, false, false],
+		["a project from a prompt with a version", null, true, false],
+	])("%s", (_name, starterTemplateId, hasCodeChanges, expected) => {
+		expect(
+			isStarterTemplateApplying({ starterTemplateId, hasCodeChanges }),
+		).toBe(expected);
 	});
 });
 

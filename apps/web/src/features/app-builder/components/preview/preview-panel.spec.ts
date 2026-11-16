@@ -37,6 +37,7 @@ const IDLE_BOOT: BootContext = {
 	backend: undefined,
 	hasCodeChanges: true,
 	isPlanning: false,
+	isStarterTemplateApplying: false,
 };
 
 /** A mint that answers `SANDBOX_NOT_RUNNING`, like the API while no sandbox runs. */

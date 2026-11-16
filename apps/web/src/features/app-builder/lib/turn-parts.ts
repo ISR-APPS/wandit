@@ -781,8 +781,8 @@ function hasAssistantMessageAfter(
  * The parts of one assistant message in stream order: text and notes, a
  * thought row per reasoning block, a step row per visible tool call (a run
  * of reads and searches merges into one row), a compaction line, the summary,
- * the question, approval, and plan cards, then the error, the stopped line,
- * and the receipt.
+ * the question, approval, and plan cards, the starter template note, then
+ * the error, the stopped line, and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -921,6 +921,10 @@ function assistantPartsOf(
 				// later reply (the build or the changed plan) closes it.
 				data: { ...part.data, isOpen: !isRunning && !hasReplyAfter },
 			});
+		}
+		// The note of the starter template apply step. The card reads the stored payload as it is.
+		if (part.type === "data-starter-template") {
+			parts.push(part);
 		}
 	}
 	const error = errorOf(message.parts);

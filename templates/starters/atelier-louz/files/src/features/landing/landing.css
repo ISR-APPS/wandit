@@ -1,0 +1,638 @@
+/* Site CSS of the Atelier Louz home page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the arch shapes, the drawn-scene palette, the grain, and the motion.
+   The data-material attribute of the page root picks the colors of the material library. The retint reads them.
+   Every color is a theme token or a color-mix() of tokens. Nothing here sets capital text: the pages do. */
+
+/* ---- palette: the world colors, mixed from the tokens of theme.json ---- */
+
+.louz {
+	/* Ground B: warm sand, a few points darker than the plaster ground. Sections alternate the two. */
+	--louz-sand: color-mix(
+		in oklab,
+		var(--background) 84%,
+		color-mix(in oklab, var(--warning) 62%, var(--foreground))
+	);
+	--louz-hair: color-mix(in oklab, var(--foreground) 20%, transparent);
+	--louz-line: color-mix(in oklab, var(--foreground) 45%, transparent);
+	/* The deep companion: palm green. It fills the one interlude and small shapes in the scenes. */
+	--louz-palm: color-mix(
+		in oklab,
+		var(--foreground) 47%,
+		color-mix(in oklab, var(--success) 72%, var(--info))
+	);
+	--louz-palm-soft: color-mix(in oklab, var(--success) 50%, var(--louz-palm));
+	/* One brighter glaze for the zellige jitter. Pure --success is too loud next to the other tiles. */
+	--louz-palm-bright: color-mix(
+		in oklab,
+		var(--success) 72%,
+		var(--louz-palm-pale)
+	);
+	--louz-palm-pale: color-mix(
+		in oklab,
+		var(--success) 14%,
+		color-mix(in oklab, var(--background) 80%, var(--primary-foreground))
+	);
+	/* Brass: rationed to lamps, medallions, and the footer rules. */
+	--louz-brass: color-mix(
+		in oklab,
+		var(--warning) 70%,
+		color-mix(in oklab, var(--background) 67%, var(--foreground))
+	);
+	--louz-brass-deep: color-mix(
+		in oklab,
+		var(--louz-brass) 72%,
+		var(--foreground)
+	);
+	--louz-walnut: color-mix(
+		in oklab,
+		var(--foreground) 52%,
+		color-mix(in oklab, var(--warning) 79%, var(--background))
+	);
+	--louz-walnut-deep: color-mix(
+		in oklab,
+		var(--foreground) 70%,
+		color-mix(in oklab, var(--warning) 83%, var(--background))
+	);
+	--louz-clay: color-mix(
+		in oklab,
+		var(--primary) 70%,
+		color-mix(in oklab, var(--warning) 50%, var(--background))
+	);
+	--louz-clay-deep: color-mix(in oklab, var(--primary) 86%, var(--foreground));
+	--louz-clay-deeper: color-mix(
+		in oklab,
+		var(--primary) 70%,
+		var(--foreground)
+	);
+	--louz-wall: color-mix(
+		in oklab,
+		var(--background) 86%,
+		color-mix(in oklab, var(--warning) 64%, var(--foreground))
+	);
+	--louz-wall-deep: color-mix(
+		in oklab,
+		var(--louz-wall) 78%,
+		var(--louz-brass)
+	);
+	/* The light inside the drawings: a pale glow, an apricot middle, and a terracotta dusk. */
+	--louz-glow: color-mix(
+		in oklab,
+		var(--primary-foreground) 74%,
+		color-mix(in oklab, var(--warning) 72%, var(--background))
+	);
+	--louz-sun-mid: color-mix(
+		in oklab,
+		var(--warning) 46%,
+		color-mix(in oklab, var(--primary-foreground) 89%, var(--primary))
+	);
+	--louz-sun-low: color-mix(
+		in oklab,
+		var(--primary) 50%,
+		color-mix(in oklab, var(--warning) 60%, var(--primary-foreground))
+	);
+	--louz-fibre: color-mix(
+		in oklab,
+		var(--warning) 44%,
+		color-mix(in oklab, var(--primary-foreground) 66%, var(--background))
+	);
+	--louz-linen: color-mix(
+		in oklab,
+		var(--background) 80%,
+		color-mix(in oklab, var(--muted-foreground) 60%, var(--warning))
+	);
+	--louz-linen-deep: color-mix(
+		in oklab,
+		var(--muted-foreground) 52%,
+		color-mix(in oklab, var(--background) 80%, var(--warning))
+	);
+
+	/* The material library state. Tadelakt is the first material, so these are its values. */
+	--louz-tint: var(--primary);
+	--louz-room-wall: var(--louz-wall);
+	--louz-room-floor: var(--louz-clay);
+	--louz-room-rug: var(--primary);
+	--louz-room-sofa: var(--louz-palm);
+	--louz-room-cushion: var(--louz-brass);
+
+	/* Entrances start fast and settle slowly. Nothing bounces. */
+	--louz-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+	/* 0.6 s: the retint duration of the world spec. */
+	--louz-tint-time: 0.6s;
+	/* Arch feet: small radii under the round crowns. They follow the radius axis of theme.json. */
+	--louz-foot-sm: calc(var(--radius) * 0.75);
+	--louz-foot: calc(var(--radius) * 1.333);
+	--louz-foot-lg: calc(var(--radius) * 2);
+}
+
+.louz[data-material="zellige"] {
+	--louz-tint: var(--louz-palm);
+	--louz-room-wall: var(--louz-palm-pale);
+	--louz-room-floor: var(--louz-palm-soft);
+	--louz-room-rug: var(--louz-linen);
+	--louz-room-sofa: var(--louz-clay-deep);
+	--louz-room-cushion: var(--louz-sand);
+}
+
+.louz[data-material="walnut"] {
+	--louz-tint: var(--louz-walnut);
+	--louz-room-wall: var(--louz-wall);
+	--louz-room-floor: var(--louz-walnut);
+	--louz-room-rug: var(--louz-fibre);
+	--louz-room-sofa: var(--louz-palm);
+	--louz-room-cushion: var(--primary);
+}
+
+.louz[data-material="alfa"] {
+	--louz-tint: color-mix(in oklab, var(--warning) 58%, var(--foreground));
+	--louz-room-wall: color-mix(
+		in oklab,
+		var(--louz-wall) 70%,
+		var(--louz-fibre)
+	);
+	--louz-room-floor: color-mix(
+		in oklab,
+		var(--louz-fibre) 65%,
+		var(--louz-brass)
+	);
+	--louz-room-rug: var(--louz-brass);
+	--louz-room-sofa: var(--louz-walnut);
+	--louz-room-cushion: var(--louz-palm);
+}
+
+.louz[data-material="brass"] {
+	--louz-tint: var(--louz-brass-deep);
+	--louz-room-wall: var(--louz-wall);
+	--louz-room-floor: color-mix(in oklab, var(--primary) 50%, var(--louz-brass));
+	--louz-room-rug: var(--louz-brass);
+	--louz-room-sofa: var(--foreground);
+	--louz-room-cushion: var(--louz-brass);
+}
+
+.louz[data-material="linen"] {
+	--louz-tint: color-mix(in oklab, var(--muted-foreground) 82%, var(--warning));
+	--louz-room-wall: color-mix(in oklab, var(--background) 60%, var(--card));
+	--louz-room-floor: color-mix(
+		in oklab,
+		var(--louz-linen) 55%,
+		var(--louz-linen-deep)
+	);
+	--louz-room-rug: var(--louz-linen);
+	--louz-room-sofa: color-mix(
+		in oklab,
+		var(--muted-foreground) 88%,
+		var(--warning)
+	);
+	--louz-room-cushion: var(--primary);
+}
+
+/* ---- page chassis ---- */
+
+.louz {
+	/* The marquee and the interlude sun are wider than the page. Clip keeps the page from scrolling sideways. */
+	overflow-x: clip;
+}
+
+.louz ::selection {
+	background: var(--louz-tint);
+	color: var(--primary-foreground);
+}
+
+.louz :focus-visible {
+	outline: 2px solid var(--louz-tint);
+	outline-offset: 3px;
+}
+
+.louz-section {
+	padding-block: clamp(5rem, 11vh, 8.5rem);
+	scroll-margin-top: 1rem;
+}
+
+.louz-sand {
+	background-color: var(--louz-sand);
+}
+
+/* The 4% plaster grain. One fixed layer over the whole page; it never moves. */
+.louz-grain {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	pointer-events: none;
+	opacity: 0.04;
+	background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='260' height='260' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 260px 260px;
+}
+
+/* ---- arch shapes: every label, button, and frame has a round crown ---- */
+
+.louz-tag {
+	border: 1.5px solid var(--louz-line);
+	border-radius: 999px 999px var(--louz-foot-sm) var(--louz-foot-sm);
+	padding: 0.62em 1.15em 0.55em;
+}
+
+.louz-tag-light {
+	border-color: color-mix(in oklab, var(--background) 55%, transparent);
+	color: var(--background);
+}
+
+.louz-chip {
+	border: 1.5px solid color-mix(in oklab, var(--foreground) 40%, transparent);
+	border-radius: 999px 999px var(--louz-foot-sm) var(--louz-foot-sm);
+	padding: 0.55em 1em 0.45em;
+}
+
+.louz-chip-fill {
+	background-color: var(--louz-tint);
+	border-color: transparent;
+	color: var(--primary-foreground);
+	transition: background-color var(--louz-tint-time) ease;
+}
+
+.louz-btn {
+	border-radius: 999px 999px var(--louz-foot) var(--louz-foot);
+	background-color: var(--louz-tint);
+	color: var(--primary-foreground);
+	box-shadow: 0 10px 24px -14px
+		color-mix(in oklab, var(--shadow-color) 70%, transparent);
+	transition:
+		background-color var(--louz-tint-time) ease,
+		transform 0.25s ease,
+		box-shadow 0.25s ease;
+}
+
+.louz-btn-ghost {
+	border-radius: 999px 999px var(--louz-foot) var(--louz-foot);
+	border: 1.7px solid color-mix(in oklab, var(--foreground) 55%, transparent);
+	transition:
+		border-color var(--louz-tint-time) ease,
+		color var(--louz-tint-time) ease,
+		transform 0.25s ease;
+}
+
+@media (hover: hover) {
+	.louz-btn:hover {
+		background-color: color-mix(
+			in oklab,
+			var(--louz-tint) 86%,
+			var(--foreground)
+		);
+		transform: translateY(-2px);
+	}
+
+	.louz-btn-ghost:hover {
+		border-color: var(--louz-tint);
+		color: var(--louz-tint);
+	}
+}
+
+.louz-tint-text {
+	color: var(--louz-tint);
+	transition: color var(--louz-tint-time) ease;
+}
+
+.louz-tint-fill {
+	fill: var(--louz-tint);
+	transition: fill var(--louz-tint-time) ease;
+}
+
+.louz-tint-stroke {
+	stroke: var(--louz-tint);
+	transition: stroke var(--louz-tint-time) ease;
+}
+
+/* The room layers that follow the chosen material. 0.7 s: a slow fill, as paint dries. */
+.louz-room-layer {
+	transition: fill 0.7s ease;
+}
+
+.louz-frame-arch {
+	border-radius: 999px 999px var(--louz-foot-lg) var(--louz-foot-lg);
+}
+
+.louz-cabinet {
+	border-radius: 260px 260px var(--louz-foot-lg) var(--louz-foot-lg);
+	box-shadow: 0 30px 60px -45px
+		color-mix(in oklab, var(--shadow-color) 70%, transparent);
+}
+
+/* 560 px: the max width of the cabinet. Below it, the crown radius gets smaller. */
+@media (max-width: 560px) {
+	.louz-cabinet {
+		border-radius: 200px 200px var(--louz-foot) var(--louz-foot);
+	}
+}
+
+/* ---- hero arcade scene ---- */
+
+.louz-arcade {
+	width: min(100%, 520px);
+	border-radius: 999px 999px var(--louz-foot-lg) var(--louz-foot-lg);
+	background: linear-gradient(
+		165deg,
+		color-mix(in oklab, var(--louz-wall) 70%, var(--primary-foreground)) 0%,
+		var(--louz-wall) 50%,
+		var(--louz-wall-deep) 100%
+	);
+	box-shadow:
+		0 40px 80px -50px color-mix(in oklab, var(--shadow-color) 80%, transparent),
+		inset 0 0 0 3px color-mix(in oklab, var(--foreground) 35%, transparent);
+}
+
+.louz-arcade-window {
+	border-radius: 999px 999px 0 0;
+	background: linear-gradient(
+		180deg,
+		var(--louz-glow) 0%,
+		var(--louz-sun-mid) 52%,
+		var(--louz-sun-low) 100%
+	);
+	box-shadow:
+		inset 0 0 0 9px color-mix(in oklab, var(--louz-walnut) 35%, transparent),
+		inset 0 -30px 60px color-mix(in oklab, var(--primary) 25%, transparent);
+}
+
+.louz-arcade-floor {
+	background:
+		repeating-linear-gradient(
+			90deg,
+			color-mix(in oklab, var(--foreground) 13%, transparent) 0 2px,
+			transparent 2px 64px
+		),
+		repeating-linear-gradient(
+			0deg,
+			color-mix(in oklab, var(--foreground) 11%, transparent) 0 2px,
+			transparent 2px 46px
+		),
+		linear-gradient(180deg, var(--primary) 0%, var(--louz-clay-deep) 100%);
+	border-top: 3px solid color-mix(in oklab, var(--foreground) 28%, transparent);
+}
+
+.louz-arcade-rug {
+	border-radius: 999px;
+	background:
+		repeating-linear-gradient(
+			0deg,
+			color-mix(in oklab, var(--background) 40%, transparent) 0 4px,
+			transparent 4px 12px
+		),
+		var(--louz-palm);
+	box-shadow: 0 6px 14px -6px
+		color-mix(in oklab, var(--shadow-color) 50%, transparent);
+}
+
+.louz-arcade-pool {
+	background: linear-gradient(
+		180deg,
+		color-mix(in oklab, var(--louz-glow) 70%, transparent),
+		transparent
+	);
+	transform: skewX(-16deg);
+}
+
+/* On a wide screen the arcade fills the first screen: its height (width / 0.8) stays under the viewport less 9rem. */
+@media (min-width: 64rem) {
+	.louz-arcade {
+		width: min(100%, 640px, calc((100svh - 9rem) * 0.8));
+	}
+}
+
+/* The palm shadow sways on the wall, slower than a breath. */
+.louz-sway {
+	transform-origin: 8% 6%;
+}
+
+/* ---- material marquee ---- */
+
+.louz-band-track {
+	display: flex;
+	width: max-content;
+}
+
+/* ---- material library swatches ---- */
+
+.louz-swatch {
+	border-radius: 90px 90px var(--louz-foot) var(--louz-foot);
+	transition:
+		box-shadow 0.3s ease,
+		transform 0.3s ease,
+		background-color 0.3s ease;
+}
+
+.louz-swatch svg {
+	filter: drop-shadow(
+		0 6px 10px color-mix(in oklab, var(--shadow-color) 22%, transparent)
+	);
+}
+
+.louz-swatch[aria-pressed="true"] {
+	background-color: color-mix(in oklab, var(--louz-sand) 85%, transparent);
+	box-shadow: 0 0 0 3px var(--louz-tint);
+}
+
+@media (hover: hover) {
+	.louz-swatch:hover {
+		background-color: color-mix(in oklab, var(--louz-sand) 60%, transparent);
+		transform: translateY(-3px);
+	}
+}
+
+/* ---- projects: the pinned scene column crossfades ---- */
+
+.louz-scene-stack > * {
+	transition: opacity 0.55s ease;
+}
+
+/* ---- interlude: the arch sun rises with the scroll ---- */
+
+.louz-interlude {
+	background-color: var(--louz-palm);
+	color: var(--background);
+	/* 0 to 1: how far the visitor scrolled through the section. 0.62 is the composed frame with no script. */
+	--louz-sun-progress: 0.62;
+}
+
+.louz-sun {
+	aspect-ratio: 2 / 1;
+	border-radius: 999px 999px 0 0;
+	background:
+		radial-gradient(
+			120% 120% at 50% 100%,
+			color-mix(in oklab, var(--background) 25%, transparent) 0%,
+			transparent 46%
+		),
+		linear-gradient(
+			180deg,
+			var(--louz-sun-mid) 0%,
+			var(--louz-sun-low) 60%,
+			var(--primary) 100%
+		);
+	box-shadow: 0 -30px 90px
+		color-mix(in oklab, var(--louz-sun-mid) 35%, transparent);
+	/* 60%: at progress 0 the sun shows its top two fifths. 8%: at progress 1 it stands high in the frame. */
+	transform: translate(-50%, calc(60% - var(--louz-sun-progress) * 52%));
+	will-change: transform;
+}
+
+.louz-sun:dir(rtl) {
+	transform: translate(50%, calc(60% - var(--louz-sun-progress) * 52%));
+}
+
+/* ---- method: the arc and its medallions ---- */
+
+.louz-medal {
+	border-radius: 999px 999px var(--radius) var(--radius);
+	background-color: var(--louz-tint);
+	color: var(--primary-foreground);
+	box-shadow: 0 12px 24px -12px
+		color-mix(in oklab, var(--shadow-color) 60%, transparent);
+	transition: background-color var(--louz-tint-time) ease;
+}
+
+.louz-spine-path {
+	stroke: var(--louz-brass);
+	stroke-dasharray: 1;
+	stroke-dashoffset: 0;
+}
+
+/* ---- footer ---- */
+
+.louz-brass-rule {
+	border-color: var(--louz-brass);
+}
+
+.louz-giant {
+	/* 14.8vw keeps the two words inside the content column. 216 px fills the 1276 px column of a wide screen. */
+	font-size: min(14.8vw, 216px);
+	line-height: 0.95;
+}
+
+/* ---- motion: everything below runs only when the visitor accepts motion ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+	/* Hero entrance. CSS only, so it also runs before the script loads. */
+	.louz-enter {
+		animation: louz-rise 1s var(--louz-ease) both;
+	}
+
+	.louz-enter-2 {
+		animation-delay: 0.12s;
+	}
+
+	.louz-enter-3 {
+		animation-delay: 0.24s;
+	}
+
+	.louz-enter-4 {
+		animation-delay: 0.36s;
+	}
+
+	.louz-enter-5 {
+		animation-delay: 0.48s;
+	}
+
+	.louz-enter-scene {
+		animation: louz-rise 1.15s var(--louz-ease) 0.05s both;
+	}
+
+	.louz-sway {
+		animation: louz-sway 9s ease-in-out infinite alternate;
+	}
+
+	/* 32 s per loop: the world bans a marquee faster than 30 s. */
+	.louz-band-track {
+		animation: louz-tick 32s linear infinite;
+	}
+
+	.louz-band-track:dir(rtl) {
+		animation-name: louz-tick-rtl;
+	}
+
+	/* Scroll reveals. hooks/use-scroll-reveal.ts sets the state after hydration, so no block hides without a script. */
+	[data-reveal-state="waiting"] {
+		opacity: 0;
+		transform: translateY(42px);
+	}
+
+	[data-reveal-state="shown"] {
+		opacity: 1;
+		transform: none;
+		transition:
+			opacity 0.95s var(--louz-ease),
+			transform 0.95s var(--louz-ease);
+	}
+
+	/* The method arc draws itself, then each medallion and step arrives on it. */
+	[data-reveal-state] .louz-spine-path {
+		transition: stroke-dashoffset 1.8s ease-in-out;
+	}
+
+	[data-reveal-state="waiting"] .louz-spine-path {
+		stroke-dashoffset: 1;
+	}
+
+	[data-reveal-state] .louz-on-arc {
+		transition:
+			opacity 0.6s var(--louz-ease),
+			transform 0.6s var(--louz-ease);
+		transition-delay: var(--louz-arc-delay, 0s);
+	}
+
+	[data-reveal-state="waiting"] .louz-on-arc {
+		opacity: 0;
+		transform: translateY(18px);
+	}
+
+	/* The spine itself stays in place; only its children move. */
+	.louz-spine[data-reveal-state] {
+		opacity: 1;
+		transform: none;
+	}
+
+	.louz-on-arc-1 {
+		--louz-arc-delay: 0.2s;
+	}
+
+	.louz-on-arc-2 {
+		--louz-arc-delay: 0.6s;
+	}
+
+	.louz-on-arc-3 {
+		--louz-arc-delay: 1s;
+	}
+
+	.louz-on-arc-4 {
+		--louz-arc-delay: 1.4s;
+	}
+}
+
+@keyframes louz-rise {
+	from {
+		opacity: 0;
+		transform: translateY(36px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes louz-sway {
+	from {
+		transform: rotate(-1.6deg);
+	}
+	to {
+		transform: rotate(1.4deg);
+	}
+}
+
+@keyframes louz-tick {
+	to {
+		transform: translateX(-50%);
+	}
+}
+
+@keyframes louz-tick-rtl {
+	to {
+		transform: translateX(50%);
+	}
+}

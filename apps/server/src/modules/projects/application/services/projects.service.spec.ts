@@ -511,6 +511,7 @@ function projectRow(overrides: { logoUrl: string | null }): ProjectQueryRow {
 		pendingDeploymentCount: 0,
 		previewImageUrl: null,
 		prompt: "Build a page",
+		starterTemplateId: null,
 		targetPlatform: null,
 		templateVersion: null,
 		tiktokPixelId: null,

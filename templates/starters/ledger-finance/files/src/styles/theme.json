@@ -1,0 +1,122 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Ledger",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "plomb"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "sm",
+		"radius": "sm",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "offcanvas",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "plain",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "light",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "oklch(0.972 0.004 250)",
+			"foreground": "oklch(0.22 0.01 250)",
+			"card": "oklch(0.995 0.002 250)",
+			"cardForeground": "oklch(0.22 0.01 250)",
+			"popover": "oklch(0.995 0.002 250)",
+			"popoverForeground": "oklch(0.22 0.01 250)",
+			"primary": "oklch(0.56 0.22 260)",
+			"primaryForeground": "oklch(0.985 0.003 250)",
+			"secondary": "oklch(0.94 0.006 250)",
+			"secondaryForeground": "oklch(0.24 0.01 250)",
+			"muted": "oklch(0.945 0.005 250)",
+			"mutedForeground": "oklch(0.48 0.012 250)",
+			"accent": "oklch(0.935 0.007 250)",
+			"accentForeground": "oklch(0.22 0.01 250)",
+			"destructive": "oklch(0.54 0.2 25)",
+			"destructiveForeground": "oklch(0.985 0.003 250)",
+			"border": "oklch(0.87 0.008 250)",
+			"input": "oklch(0.82 0.01 250)",
+			"ring": "oklch(0.56 0.22 260)",
+			"success": "oklch(0.5 0.12 150)",
+			"warning": "oklch(0.54 0.11 70)",
+			"info": "oklch(0.5 0.085 215)",
+			"canvas": "oklch(0.935 0.006 250)",
+			"shadowColor": "oklch(0.22 0.01 250)",
+			"chart1": "oklch(0.56 0.22 260)",
+			"chart2": "oklch(0.56 0.09 215)",
+			"chart3": "oklch(0.52 0.12 150)",
+			"chart4": "oklch(0.62 0.12 75)",
+			"chart5": "oklch(0.6 0.01 250)",
+			"contrast": "oklch(0.24 0.01 250)",
+			"contrastForeground": "oklch(0.96 0.004 250)"
+		},
+		"dark": {
+			"background": "oklch(0.21 0.008 250)",
+			"foreground": "oklch(0.93 0.006 250)",
+			"card": "oklch(0.24 0.009 250)",
+			"cardForeground": "oklch(0.93 0.006 250)",
+			"popover": "oklch(0.265 0.01 250)",
+			"popoverForeground": "oklch(0.93 0.006 250)",
+			"primary": "oklch(0.68 0.16 252)",
+			"primaryForeground": "oklch(0.16 0.012 252)",
+			"secondary": "oklch(0.285 0.01 250)",
+			"secondaryForeground": "oklch(0.93 0.006 250)",
+			"muted": "oklch(0.27 0.009 250)",
+			"mutedForeground": "oklch(0.72 0.01 250)",
+			"accent": "oklch(0.3 0.011 250)",
+			"accentForeground": "oklch(0.95 0.005 250)",
+			"destructive": "oklch(0.72 0.17 22)",
+			"destructiveForeground": "oklch(0.17 0.012 22)",
+			"border": "oklch(0.335 0.01 250)",
+			"input": "oklch(0.4 0.012 250)",
+			"ring": "oklch(0.68 0.16 252)",
+			"success": "oklch(0.78 0.15 150)",
+			"warning": "oklch(0.82 0.13 80)",
+			"info": "oklch(0.78 0.1 205)",
+			"canvas": "oklch(0.18 0.008 250)",
+			"shadowColor": "oklch(0.1 0.006 250)",
+			"chart1": "oklch(0.68 0.16 252)",
+			"chart2": "oklch(0.78 0.1 205)",
+			"chart3": "oklch(0.78 0.15 150)",
+			"chart4": "oklch(0.82 0.13 80)",
+			"chart5": "oklch(0.6 0.01 250)",
+			"contrast": "oklch(0.16 0.008 250)",
+			"contrastForeground": "oklch(0.93 0.006 250)"
+		},
+		"fonts": {
+			"sans": {
+				"family": "IBM Plex Sans",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+			},
+			"display": {
+				"family": "IBM Plex Mono",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "IBM Plex Sans Arabic",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "IBM Plex Sans Arabic",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 500,
+			"headingTracking": "snug",
+			"numerals": "display"
+		}
+	}
+}

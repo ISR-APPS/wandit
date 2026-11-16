@@ -1,0 +1,36 @@
+{
+	"id": "tablekeeper-pos",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Tablekeeper",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "miel"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "lg",
+			"radius": "xl",
+			"border": "1",
+			"shadow": "md",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "collapsed",
+			"sidebarTone": "brand",
+			"activeItem": "block",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "outlined",
+			"icons": "fill",
+			"navIcon": "plain"
+		}
+	}
+}

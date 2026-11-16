@@ -1,0 +1,290 @@
+/* Site CSS of the Le Kiosque home page: the paper frame, the ruled columns, and the press motion.
+   LandingPage imports this file. Every color is a theme token or a color-mix() of tokens.
+   use-press-roll.ts sets data-roll-state; use-edition-press.ts sets data-press, data-pin, and --ks-p on the showpiece.
+   With no script, or with reduced motion, no state exists: every block shows and the edition is printed. */
+
+/* ---------- page frame ---------- */
+/* The page variables. The phone menu panel renders in a portal outside the page, so it takes them too. */
+.ks-page,
+.ks-panel {
+	--ks-gutter: clamp(1.1rem, 4vw, 3rem);
+	--ks-maxw: 1360px;
+	/* Hairlines are ink at 16, 25, and 42%: faint row rules, column rules, and frame edges. */
+	--ks-rule-faint: color-mix(in srgb, var(--foreground) 16%, transparent);
+	--ks-rule: color-mix(in srgb, var(--foreground) 25%, transparent);
+	--ks-rule-strong: color-mix(in srgb, var(--foreground) 42%, transparent);
+	--ks-coupon-edge: color-mix(in srgb, var(--foreground) 55%, transparent);
+	/* The hover of the one brick button: brick darkened with ink. */
+	--ks-brick-deep: color-mix(in srgb, var(--primary), var(--foreground) 24%);
+	/* The proof stamp of the showpiece: brick at 15% on the paper. */
+	--ks-proof-ink: color-mix(in srgb, var(--primary) 15%, transparent);
+	/* The gazette world sets its prose in a news serif. The host body list has only sans faces, so the paper
+	   reads the app heading face of theme.json (Newsreader). Playfair stays the masthead face (font-display). */
+	--ks-serif: var(--theme-font-display), ui-serif, serif;
+}
+
+/* Arabic: the news serif has no Arabic letters, so the prose takes the Arabic text face of the theme. */
+.ks-page:lang(ar),
+.ks-panel:lang(ar) {
+	--ks-serif: var(--font-sans);
+}
+
+.ks-page {
+	/* Clip, not hidden: no section may scroll the page sideways, and nothing here needs to stick. */
+	overflow-x: clip;
+	background: var(--background);
+	color: var(--foreground);
+	font-family: var(--ks-serif);
+	font-size: clamp(1rem, 0.96rem + 0.18vw, 1.0625rem);
+	line-height: 1.6;
+	font-variant-numeric: lining-nums;
+	-webkit-font-smoothing: antialiased;
+}
+
+.ks-page [id] {
+	scroll-margin-top: 1rem;
+}
+
+.ks-page :focus-visible,
+.ks-panel :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+.ks-page ::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.ks-serif {
+	font-family: var(--ks-serif);
+}
+
+.ks-wrap {
+	width: 100%;
+	max-width: calc(var(--ks-maxw) + 2 * var(--ks-gutter));
+	margin-inline: auto;
+	padding-inline: var(--ks-gutter);
+}
+
+.ks-section {
+	padding-block: clamp(2.5rem, 7vh, 5rem);
+}
+
+/* ---------- broadsheet columns: justified, hyphenated, and ruled ---------- */
+.ks-cols {
+	column-width: 17rem;
+	column-gap: clamp(1.6rem, 3vw, 2.4rem);
+	column-rule: 1px solid var(--ks-rule);
+	text-align: justify;
+	hyphens: auto;
+	-webkit-hyphens: auto;
+}
+
+.ks-cols p + p {
+	margin-top: 0.85rem;
+}
+
+.ks-cols-narrow {
+	column-width: 15rem;
+}
+
+/* ---------- the load press roll of the first screen (CSS only) ---------- */
+/* The rules wipe from the start side and each line rises, each with its --ks-delay. The animation runs from
+   the first paint of the server HTML, so no script hides anything and the end state is the printed page. */
+@keyframes ks-wipe-in {
+	from {
+		transform: scaleX(0);
+	}
+}
+
+@keyframes ks-rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(34px);
+	}
+}
+
+.ks-load-wipe {
+	transform-origin: left center;
+	animation: ks-wipe-in 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)
+		var(--ks-delay, 0ms) both;
+}
+
+.ks-load-wipe:dir(rtl) {
+	transform-origin: right center;
+}
+
+.ks-load-rise {
+	animation: ks-rise-in 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94)
+		var(--ks-delay, 0ms) both;
+}
+
+/* The masthead lands slower and harder, as the world asks (power3.out, 0.9 s). */
+.ks-load-slow {
+	animation-duration: 0.9s;
+	animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+/* ---------- the scroll press roll of the inside pages ---------- */
+.ks-wipe {
+	transform-origin: left center;
+	transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.ks-wipe:dir(rtl) {
+	transform-origin: right center;
+}
+
+.ks-roll {
+	transition:
+		opacity 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+		transform 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* A stamp lands brisk, not bouncy: scale 1.07 to 1 in 0.42 s. */
+.ks-stamp {
+	transition:
+		opacity 0.42s ease-out,
+		transform 0.42s ease-out;
+}
+
+[data-roll-state="waiting"] [data-wipe] {
+	transform: scaleX(0);
+}
+
+[data-roll-state="waiting"] [data-roll] {
+	opacity: 0;
+	transform: translateY(38px);
+}
+
+[data-roll-state="waiting"] [data-stamp] {
+	opacity: 0;
+	transform: scale(1.07);
+}
+
+[data-roll-state="shown"] [data-roll],
+[data-roll-state="shown"] [data-stamp] {
+	transition-delay: var(--ks-roll-delay, 0ms);
+}
+
+/* ---------- the showpiece: tomorrow's edition composes ---------- */
+/* The pin: two screens of scroll hold the stage while the sheet prints. Only the hook sets data-pin, so
+   no script and reduced motion keep the plain section. overflow-x: clip on .ks-page keeps sticky working. */
+.ks-press[data-pin] {
+	min-height: 200vh;
+}
+
+.ks-press[data-pin] .ks-press-stage {
+	position: sticky;
+	top: 6vh;
+}
+
+/* Each block owns one part of --ks-p (0 to 1) and maps it to a local --t from 0 to 1.
+   The rules apply only under data-press="on". Without it, the sheet is the printed page. */
+.ks-press[data-press="on"] {
+	--ks-t-mast: clamp(0, var(--ks-p) / 0.1, 1);
+	--ks-t-bar: clamp(0, (var(--ks-p) - 0.08) / 0.08, 1);
+	--ks-t-kicker: clamp(0, (var(--ks-p) - 0.14) / 0.08, 1);
+	--ks-t-head: clamp(0, (var(--ks-p) - 0.2) / 0.12, 1);
+	--ks-t-deck: clamp(0, (var(--ks-p) - 0.28) / 0.08, 1);
+	--ks-t-col1: clamp(0, (var(--ks-p) - 0.34) / 0.14, 1);
+	--ks-t-col2: clamp(0, (var(--ks-p) - 0.44) / 0.14, 1);
+	--ks-t-plate: clamp(0, (var(--ks-p) - 0.54) / 0.06, 1);
+	--ks-t-dev-l: clamp(0, (var(--ks-p) - 0.58) / 0.18, 1);
+	--ks-t-dev-m: clamp(0, (var(--ks-p) - 0.62) / 0.18, 1);
+	--ks-t-dev-d: clamp(0, (var(--ks-p) - 0.66) / 0.18, 1);
+	--ks-t-caption: clamp(0, (var(--ks-p) - 0.82) / 0.06, 1);
+	--ks-t-stamp: clamp(0, (var(--ks-p) - 0.86) / 0.08, 1);
+	--ks-t-proof: clamp(0, (var(--ks-p) - 0.92) / 0.08, 1);
+}
+
+.ks-press[data-press="on"] .ks-p-mast {
+	opacity: var(--ks-t-mast);
+	transform: scale(calc(1.12 - 0.12 * var(--ks-t-mast)));
+}
+
+.ks-press[data-press="on"] .ks-p-bar {
+	transform-origin: left center;
+	transform: scaleX(var(--ks-t-bar));
+}
+
+.ks-press[data-press="on"] .ks-p-bar:dir(rtl) {
+	transform-origin: right center;
+}
+
+.ks-press[data-press="on"] .ks-p-kicker {
+	opacity: var(--ks-t-kicker);
+	transform: scale(calc(1.08 - 0.08 * var(--ks-t-kicker)));
+}
+
+.ks-press[data-press="on"] .ks-p-head {
+	opacity: var(--ks-t-head);
+	transform: translateY(calc((1 - var(--ks-t-head)) * 36px));
+}
+
+.ks-press[data-press="on"] .ks-p-deck {
+	opacity: var(--ks-t-deck);
+	transform: translateY(calc((1 - var(--ks-t-deck)) * 18px));
+}
+
+.ks-press[data-press="on"] .ks-p-col1 {
+	opacity: var(--ks-t-col1);
+	transform: translateY(calc((1 - var(--ks-t-col1)) * 60px));
+}
+
+.ks-press[data-press="on"] .ks-p-col2 {
+	opacity: var(--ks-t-col2);
+	transform: translateY(calc((1 - var(--ks-t-col2)) * 60px));
+}
+
+.ks-press[data-press="on"] .ks-p-plate {
+	opacity: var(--ks-t-plate);
+}
+
+.ks-press[data-press="on"] .ks-p-caption {
+	opacity: var(--ks-t-caption);
+}
+
+/* The "Continued" stamp turns in from -20° to its resting -8° (the -rotate-8 class) and lands from 1.5x. */
+.ks-press[data-press="on"] .ks-p-stamp {
+	opacity: var(--ks-t-stamp);
+	transform: rotate(calc((1 - var(--ks-t-stamp)) * -12deg))
+		scale(calc(1.5 - 0.5 * var(--ks-t-stamp)));
+}
+
+.ks-press[data-press="on"] .ks-proof {
+	opacity: calc(1 - var(--ks-t-proof));
+}
+
+/* The develop: each dot of the portrait grows from nothing to its screen size, like a print in the bath. */
+.ks-dev {
+	transform-box: fill-box;
+	transform-origin: center;
+}
+
+.ks-press[data-press="on"] .ks-dev-l {
+	transform: scale(var(--ks-t-dev-l));
+}
+
+.ks-press[data-press="on"] .ks-dev-m {
+	transform: scale(var(--ks-t-dev-m));
+}
+
+.ks-press[data-press="on"] .ks-dev-d {
+	transform: scale(var(--ks-t-dev-d));
+}
+
+/* ---------- reduced motion: the page is printed at rest ---------- */
+@media (prefers-reduced-motion: reduce) {
+	.ks-load-wipe,
+	.ks-load-rise {
+		animation: none;
+	}
+
+	.ks-wipe,
+	.ks-roll,
+	.ks-stamp {
+		transition: none;
+	}
+}

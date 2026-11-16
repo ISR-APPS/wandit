@@ -1,0 +1,120 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Tablekeeper",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "miel"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "lg",
+		"radius": "xl",
+		"border": "1",
+		"shadow": "md",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "collapsed",
+		"sidebarTone": "brand",
+		"activeItem": "block",
+		"header": "plain",
+		"userMenu": "header",
+		"frame": "outlined",
+		"icons": "fill",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "oklch(0.975 0.016 85)",
+			"foreground": "oklch(0.27 0.035 60)",
+			"card": "oklch(0.995 0.005 85)",
+			"cardForeground": "oklch(0.27 0.035 60)",
+			"popover": "oklch(0.995 0.005 85)",
+			"popoverForeground": "oklch(0.27 0.035 60)",
+			"primary": "oklch(0.52 0.12 60)",
+			"primaryForeground": "oklch(0.985 0.01 85)",
+			"secondary": "oklch(0.92 0.06 88)",
+			"secondaryForeground": "oklch(0.3 0.05 60)",
+			"muted": "oklch(0.95 0.018 85)",
+			"mutedForeground": "oklch(0.48 0.035 60)",
+			"accent": "oklch(0.94 0.035 88)",
+			"accentForeground": "oklch(0.28 0.04 60)",
+			"destructive": "oklch(0.52 0.19 25)",
+			"destructiveForeground": "oklch(0.985 0.005 25)",
+			"border": "oklch(0.895 0.022 80)",
+			"input": "oklch(0.82 0.03 75)",
+			"ring": "oklch(0.52 0.12 60)",
+			"success": "oklch(0.5 0.11 150)",
+			"warning": "oklch(0.55 0.13 50)",
+			"info": "oklch(0.5 0.1 245)",
+			"canvas": "oklch(0.95 0.022 85)",
+			"shadowColor": "oklch(0.35 0.05 60)",
+			"chart1": "oklch(0.52 0.12 60)",
+			"chart2": "oklch(0.8 0.14 88)",
+			"chart3": "oklch(0.6 0.1 150)",
+			"chart4": "oklch(0.6 0.12 25)",
+			"chart5": "oklch(0.55 0.06 260)",
+			"contrast": "oklch(0.29 0.04 60)",
+			"contrastForeground": "oklch(0.96 0.016 85)"
+		},
+		"dark": {
+			"background": "oklch(0.2 0.02 60)",
+			"foreground": "oklch(0.95 0.016 85)",
+			"card": "oklch(0.235 0.024 60)",
+			"cardForeground": "oklch(0.95 0.016 85)",
+			"popover": "oklch(0.255 0.026 60)",
+			"popoverForeground": "oklch(0.95 0.016 85)",
+			"primary": "oklch(0.8 0.13 80)",
+			"primaryForeground": "oklch(0.22 0.04 60)",
+			"secondary": "oklch(0.3 0.04 75)",
+			"secondaryForeground": "oklch(0.94 0.02 85)",
+			"muted": "oklch(0.27 0.022 62)",
+			"mutedForeground": "oklch(0.75 0.03 80)",
+			"accent": "oklch(0.3 0.035 75)",
+			"accentForeground": "oklch(0.95 0.016 85)",
+			"destructive": "oklch(0.7 0.16 25)",
+			"destructiveForeground": "oklch(0.2 0.03 25)",
+			"border": "oklch(0.33 0.024 62)",
+			"input": "oklch(0.42 0.028 65)",
+			"ring": "oklch(0.8 0.13 80)",
+			"success": "oklch(0.77 0.12 150)",
+			"warning": "oklch(0.8 0.13 55)",
+			"info": "oklch(0.76 0.1 245)",
+			"canvas": "oklch(0.17 0.018 60)",
+			"shadowColor": "oklch(0.08 0.015 60)",
+			"chart1": "oklch(0.8 0.13 80)",
+			"chart2": "oklch(0.72 0.12 60)",
+			"chart3": "oklch(0.75 0.1 150)",
+			"chart4": "oklch(0.72 0.12 25)",
+			"chart5": "oklch(0.7 0.06 260)"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Reem Kufi",
+				"href": "https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@400;500;600;700&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 700,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

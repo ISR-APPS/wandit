@@ -1,0 +1,36 @@
+{
+	"id": "sprintboard-projects",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Sprintboard",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "graphite"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "sm",
+			"radius": "md",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "outline",
+			"header": "plain",
+			"userMenu": "sidebar-header",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

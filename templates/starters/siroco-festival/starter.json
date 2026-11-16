@@ -1,0 +1,33 @@
+{
+	"id": "siroco-festival",
+	"removed": [],
+	"theme": {
+		"name": "Festival Siroco",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "affiche"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "archivo",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "hard",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

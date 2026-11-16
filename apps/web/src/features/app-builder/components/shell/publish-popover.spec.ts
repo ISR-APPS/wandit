@@ -85,6 +85,7 @@ const MOBILE_PROJECT: AppProject = {
 	versionNumber: 0,
 	unpublishedChanges: 0,
 	hasCodeChanges: true,
+	starterTemplateId: null,
 };
 
 const WEB_PROJECT: AppProject = {

@@ -987,7 +987,8 @@
 			"merge": "دمج",
 			"theme": "السمة",
 			"github": "GitHub",
-			"mcp": "وكيل برمجة"
+			"mcp": "وكيل برمجة",
+			"starter": "قالب"
 		},
 		"diff": "الفرق",
 		"numstat": "+{added} −{removed}",

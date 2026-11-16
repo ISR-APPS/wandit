@@ -1,0 +1,774 @@
+/* Site CSS of the LUME product page. components/landing-page.tsx imports it.
+   It holds what Tailwind classes cannot express: the colorway variables, the grain, the arch frames, the stage,
+   the buttons, the ticker, the entrances, and the states that the hooks write (reveal, parallax).
+   Every color is a theme token or a color-mix() of tokens. Capital text stays in the TSX classes.
+   These rules are outside the Tailwind layers, so they win over a utility class. */
+
+.lume-page {
+	/* Side padding of every container, and the shared ease of about twenty transitions. */
+	--lume-pad: clamp(1.25rem, 4.5vw, 4.5rem);
+	--lume-ease: cubic-bezier(0.22, 0.61, 0.2, 1);
+	/* The brass family. Deep is the hover and the small-text brass (4.5:1 on the paper). Light is brass on dark grounds. */
+	--lume-brass-deep: color-mix(in srgb, var(--primary) 74%, var(--foreground));
+	--lume-brass-light: color-mix(in srgb, var(--primary) 58%, var(--background));
+	--lume-brass-mid: color-mix(in srgb, var(--primary) 82%, var(--background));
+	/* The ground of the reserve chapter: the paper, about 2% darker. */
+	--lume-paper-soft: color-mix(
+		in srgb,
+		var(--foreground) 4%,
+		var(--background)
+	);
+	/* The colorway variables. The hero, the header, and the toggle read them. Crème is the paper of the theme. */
+	--lume-ground: var(--background);
+	--lume-ink: var(--foreground);
+	--lume-ink-muted: color-mix(in srgb, var(--foreground) 66%, transparent);
+	--lume-line: color-mix(in srgb, var(--foreground) 16%, transparent);
+	--lume-accent: var(--primary);
+	--lume-glow: color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+/* Noir turns the stage to ink: the header and the hero only. The other chapters keep their own grounds.
+   The accent goes one step lighter, so the brass still reads on the dark ground. */
+.lume-page[data-colorway="noir"] :is(.lume-header, .lume-hero) {
+	--lume-ground: var(--foreground);
+	--lume-ink: var(--background);
+	--lume-ink-muted: color-mix(in srgb, var(--background) 66%, transparent);
+	--lume-line: color-mix(in srgb, var(--background) 18%, transparent);
+	--lume-accent: var(--lume-brass-light);
+	--lume-glow: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+.lume-page ::selection {
+	background: var(--primary);
+	color: var(--background);
+}
+
+.lume-page :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+	border-radius: 2px;
+}
+
+/* An anchor jump is smooth only after the visitor used a link or a button, and only with motion allowed.
+   A script scroll with no focus stays instant. */
+@media (prefers-reduced-motion: no-preference) {
+	html:has(.lume-page):focus-within {
+		scroll-behavior: smooth;
+	}
+}
+
+html:has(.lume-page),
+body:has(.lume-page) {
+	overflow-x: clip;
+}
+
+/* ---------- grain ---------- */
+
+/* A sheet of SVG noise over the whole page. Multiply keeps it in the ink, so the paper reads as tinted stock.
+   It covers the page root, not the viewport, so a full-page capture shows the grain from top to bottom. */
+.lume-grain {
+	position: absolute;
+	inset: 0;
+	z-index: 90;
+	pointer-events: none;
+	opacity: 0.16;
+	mix-blend-mode: multiply;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/* ---------- type ---------- */
+
+/* The italic turn of every headline: the serif of theme.json, slanted, in the brass.
+   On a public page font-display is the grotesk of the world, so this class reads the source variable. */
+.lume-turn {
+	font-family: var(--theme-font-display), ui-serif, Georgia, serif;
+	font-style: italic;
+	font-weight: 400;
+	letter-spacing: 0;
+	color: var(--lume-accent);
+}
+
+/* The serif for pull-quotes, the medium line, and the quote glyph. Same face, never upright. */
+.lume-serif {
+	font-family: var(--theme-font-display), ui-serif, Georgia, serif;
+	font-style: italic;
+	font-weight: 400;
+}
+
+/* Arabic has no italic. The turn keeps the brass and takes the display face of the theme. */
+:lang(ar) .lume-turn,
+:lang(ar) .lume-serif {
+	font-family: var(--font-display);
+	font-style: normal;
+}
+
+/* The currency mark of a price: small, raised, and brass. */
+.lume-sup {
+	position: relative;
+	top: -0.9em;
+	font-size: 0.45em;
+	font-weight: 500;
+	color: var(--lume-accent);
+}
+
+/* A struck regular price. The strike is brass. */
+.lume-struck {
+	text-decoration: line-through;
+	text-decoration-color: var(--primary);
+	text-decoration-thickness: 1.5px;
+}
+
+/* A micro label with its 2.4rem brass rule before it. */
+.lume-ruled::before {
+	content: "";
+	width: 2.4rem;
+	height: 1px;
+	flex: none;
+	background: currentColor;
+}
+
+/* A rail item: a brass dot before the words. */
+.lume-dot::before {
+	content: "";
+	width: 0.32em;
+	height: 0.32em;
+	flex: none;
+	border-radius: 50%;
+	background: var(--primary);
+}
+
+/* ---------- buttons ---------- */
+
+/* The pill. Ink fill and paper text; hover lifts it 2px and turns it deep brass. The arrow moves on its own transition. */
+.lume-btn {
+	display: inline-flex;
+	min-height: 2.75rem;
+	align-items: center;
+	gap: 0.65em;
+	padding: 1.02em 1.7em;
+	border-radius: 999px;
+	font-size: 0.95rem;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	line-height: 1;
+	white-space: nowrap;
+	background: var(--foreground);
+	color: var(--background);
+	transition:
+		background-color 0.35s,
+		color 0.35s,
+		translate 0.35s var(--lume-ease);
+}
+
+.lume-btn:hover {
+	background: var(--lume-brass-deep);
+	color: var(--background);
+	translate: 0 -2px;
+}
+
+.lume-btn .lume-arrow {
+	transition: translate 0.35s var(--lume-ease);
+}
+
+.lume-btn:hover .lume-arrow {
+	translate: 4px 0;
+}
+
+.lume-btn:dir(rtl):hover .lume-arrow {
+	translate: -4px 0;
+}
+
+.lume-btn-small {
+	padding: 0.78em 1.35em;
+	font-size: 0.85rem;
+}
+
+/* The stage pill follows the colorway: ink on crème, paper on noir. */
+.lume-btn-stage {
+	background: var(--lume-ink);
+	color: var(--lume-ground);
+	transition:
+		background-color 0.8s var(--lume-ease),
+		color 0.8s var(--lume-ease),
+		translate 0.35s var(--lume-ease);
+}
+
+.lume-btn-stage:hover {
+	background: var(--primary);
+	color: var(--lume-ground);
+}
+
+/* The paper pill of the dark chapters. */
+.lume-btn-paper {
+	background: var(--background);
+	color: var(--foreground);
+}
+
+.lume-btn-paper:hover {
+	background: var(--primary);
+	color: var(--foreground);
+}
+
+/* The quiet text link: a hairline under the words that turns brass on hover. */
+.lume-quiet {
+	display: inline-flex;
+	min-height: 2.75rem;
+	align-items: center;
+}
+
+.lume-quiet > span {
+	padding-bottom: 0.2em;
+	border-bottom: 1px solid var(--lume-line);
+	transition:
+		border-color 0.3s,
+		color 0.3s;
+}
+
+.lume-quiet:hover > span {
+	color: var(--lume-brass-deep);
+	border-color: var(--primary);
+}
+
+/* ---------- header ---------- */
+
+/* Default: the stage ground. Scrolled: the same ground at 90% with a blur and one hairline under it. */
+.lume-header {
+	background: var(--lume-ground);
+	color: var(--lume-ink);
+	transition:
+		color 0.8s var(--lume-ease),
+		background-color 0.8s var(--lume-ease),
+		box-shadow 0.5s;
+}
+
+.lume-header[data-scrolled="true"] {
+	background: color-mix(in srgb, var(--lume-ground) 90%, transparent);
+	-webkit-backdrop-filter: blur(14px);
+	backdrop-filter: blur(14px);
+	box-shadow: 0 1px 0 var(--lume-line);
+}
+
+/* ---------- hero ---------- */
+
+.lume-hero {
+	background: var(--lume-ground);
+	color: var(--lume-ink);
+	transition:
+		background-color 0.8s var(--lume-ease),
+		color 0.8s var(--lume-ease);
+}
+
+/* The first screen: the height of the viewport minus the announce bar and the header. */
+.lume-hero-grid {
+	min-height: calc(100svh - 8.2rem);
+}
+
+@media (max-width: 1023px) {
+	.lume-hero-grid {
+		min-height: 0;
+	}
+}
+
+/* The glow behind the object: the lamp's own warmth on the paper. 130% wide, so it leaves the stage on purpose. */
+.lume-glow {
+	position: absolute;
+	inset-inline-start: 50%;
+	top: 44%;
+	width: 130%;
+	aspect-ratio: 1;
+	translate: -50% -50%;
+	background: radial-gradient(circle, var(--lume-glow) 0%, transparent 62%);
+	filter: blur(6px);
+	pointer-events: none;
+	transition: background 0.8s;
+}
+
+.lume-glow:dir(rtl) {
+	translate: 50% -50%;
+}
+
+/* The glow of the noir chapter is always the dark one. */
+.lume-glow-dark {
+	--lume-glow: color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+/* The arch: the silhouette of the orb on its stem. Four scales across the page. */
+.lume-arch {
+	position: relative;
+	overflow: hidden;
+	border-radius: 15rem 15rem 1.1rem 1.1rem;
+}
+
+.lume-arch-story {
+	border-radius: 12rem 12rem 1.1rem 1.1rem;
+}
+
+.lume-arch-order {
+	border-radius: 9rem 9rem 1rem 1rem;
+}
+
+@media (max-width: 599px) {
+	.lume-arch {
+		border-radius: 10rem 10rem 1rem 1rem;
+	}
+	.lume-arch-order {
+		border-radius: 8rem 8rem 1rem 1rem;
+	}
+}
+
+/* Photographs are the only things with a shadow: large blur, negative spread, tinted with the ink. */
+.lume-photo-shadow {
+	box-shadow: 0 40px 90px -30px
+		color-mix(in srgb, var(--foreground) 35%, transparent);
+}
+
+.lume-photo-shadow-dark {
+	box-shadow: 0 40px 90px -30px
+		color-mix(in srgb, var(--foreground) 80%, transparent);
+}
+
+.lume-photo-shadow-small {
+	box-shadow: 0 30px 70px -30px
+		color-mix(in srgb, var(--foreground) 35%, transparent);
+}
+
+/* Two photos stacked in one frame. The one that leaves fades out and grows to 104%. */
+.lume-swap img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	transition:
+		opacity 0.9s var(--lume-ease),
+		scale 0.9s var(--lume-ease);
+}
+
+.lume-swap img[data-active="false"] {
+	opacity: 0;
+	scale: 1.04;
+}
+
+/* The edition seal hangs outside the top corner of the frame and turns once in 30 s. */
+.lume-seal {
+	position: absolute;
+	top: -2.4rem;
+	inset-inline-start: -2.4rem;
+	z-index: 3;
+	width: 7.2rem;
+	height: 7.2rem;
+	pointer-events: none;
+	color: var(--lume-ink);
+	transition: color 0.8s;
+}
+
+.lume-seal svg {
+	width: 100%;
+	height: 100%;
+}
+
+/* On a phone the side gutter is only 1.25rem, so the seal moves in to stay inside it. */
+@media (max-width: 599px) {
+	.lume-seal {
+		top: -1.2rem;
+		inset-inline-start: -0.25rem;
+		width: 5.6rem;
+		height: 5.6rem;
+	}
+}
+
+/* The colorway toggle straddles the bottom edge of the frame. */
+.lume-toggle {
+	position: absolute;
+	inset-inline-start: 50%;
+	bottom: -1.55rem;
+	z-index: 4;
+	translate: -50% 0;
+	width: min(19rem, 86%);
+	padding: 0.3rem;
+	border: 1px solid var(--lume-line);
+	border-radius: 999px;
+	background: var(--lume-ground);
+	box-shadow: 0 18px 40px -18px
+		color-mix(in srgb, var(--foreground) 40%, transparent);
+	transition:
+		background-color 0.8s,
+		border-color 0.8s;
+}
+
+.lume-toggle:dir(rtl) {
+	translate: 50% 0;
+}
+
+/* The thumb slides under the chosen label. The label color flips 0.05 s after the thumb starts. */
+.lume-toggle::after {
+	content: "";
+	position: absolute;
+	top: 0.3rem;
+	bottom: 0.3rem;
+	inset-inline-start: 0.3rem;
+	z-index: 0;
+	width: calc(50% - 0.3rem);
+	border-radius: 999px;
+	background: var(--lume-ink);
+	transition:
+		translate 0.5s var(--lume-ease),
+		background-color 0.8s;
+}
+
+.lume-page[data-colorway="noir"] .lume-toggle::after {
+	translate: 100% 0;
+}
+
+.lume-page[data-colorway="noir"] .lume-toggle:dir(rtl)::after {
+	translate: -100% 0;
+}
+
+.lume-toggle label {
+	color: var(--lume-ink);
+	transition: color 0.45s 0.05s;
+}
+
+.lume-toggle label:has(input:checked) {
+	color: var(--lume-ground);
+}
+
+.lume-toggle label:has(input:focus-visible) {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+/* The small colorway dots: lit ceramic for crème, charcoal for noir. */
+.lume-chip-creme {
+	background: radial-gradient(
+		circle at 34% 30%,
+		var(--background),
+		color-mix(in srgb, var(--primary) 30%, var(--background))
+	);
+}
+
+.lume-chip-noir {
+	background: radial-gradient(
+		circle at 34% 30%,
+		color-mix(in srgb, var(--foreground) 70%, var(--background)),
+		var(--foreground)
+	);
+}
+
+.lume-chip {
+	box-shadow:
+		inset 0 0 0 1px color-mix(in srgb, var(--foreground) 14%, transparent),
+		inset -4px -6px 10px color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+/* The two stage captions sit on one line and cross-fade with the toggle. */
+.lume-caption-line {
+	transition: opacity 0.6s;
+}
+
+.lume-caption-line[data-active="false"] {
+	opacity: 0;
+}
+
+/* ---------- ticker ---------- */
+
+.lume-ticker-track {
+	display: flex;
+	width: max-content;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.lume-ticker-track {
+		animation: lume-ticker 30s linear infinite;
+	}
+	.lume-ticker-track:dir(rtl) {
+		animation-name: lume-ticker-rtl;
+	}
+	.lume-seal svg {
+		animation: lume-spin 30s linear infinite;
+	}
+	.lume-glow {
+		animation: lume-breathe 3.4s ease-in-out infinite alternate;
+	}
+}
+
+@keyframes lume-ticker {
+	to {
+		translate: -50% 0;
+	}
+}
+
+@keyframes lume-ticker-rtl {
+	to {
+		translate: 50% 0;
+	}
+}
+
+@keyframes lume-spin {
+	to {
+		rotate: 360deg;
+	}
+}
+
+/* The one ambient loop of the page: the lamp breathes light. */
+@keyframes lume-breathe {
+	to {
+		scale: 1.12;
+		opacity: 0.75;
+	}
+}
+
+/* ---------- photo band ---------- */
+
+/* The photo is 124% tall and starts at -12%, so the parallax never shows an edge. */
+.lume-breath img {
+	position: absolute;
+	inset-inline-start: 0;
+	top: -12%;
+	width: 100%;
+	height: 124%;
+	object-fit: cover;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	/* use-scroll-progress.ts writes --lume-progress from -1 to 1 while the band crosses the screen. */
+	.lume-breath img {
+		translate: 0 calc(var(--lume-progress, 0) * 7%);
+	}
+}
+
+/* The scrim: dark only where the quote sits. */
+.lume-breath::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		to top,
+		color-mix(in srgb, var(--foreground) 70%, transparent),
+		color-mix(in srgb, var(--foreground) 5%, transparent) 60%
+	);
+}
+
+/* ---------- placard ---------- */
+
+/* The wall label: a raking-light sheen from the top corner. */
+.lume-placard {
+	background: linear-gradient(
+		160deg,
+		color-mix(in srgb, var(--card) 80%, transparent),
+		transparent 55%
+	);
+}
+
+/* ---------- reviews ---------- */
+
+/* The opening quote glyph leaves its column upward and toward the start side. */
+.lume-quote-glyph {
+	inset-inline-start: -0.35rem;
+}
+
+/* Above 1024px the three reviews sit in columns. A hairline runs in the middle of each gutter. */
+@media (min-width: 1024px) {
+	.lume-review + .lume-review {
+		border-inline-start: 1px solid
+			color-mix(in srgb, var(--foreground) 16%, transparent);
+		padding-inline-start: clamp(2rem, 3vw, 3rem);
+		margin-inline-start: calc(clamp(2rem, 4vw, 4rem) * -0.5);
+	}
+	.lume-review + .lume-review .lume-quote-glyph {
+		inset-inline-start: calc(clamp(2rem, 3vw, 3rem) - 0.35rem);
+	}
+}
+
+/* ---------- reserve ---------- */
+
+/* A swatch card: hairline at rest, brass edge and a lighter fill when chosen. The check dot pops in. */
+.lume-swatch {
+	border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+	background: color-mix(in srgb, var(--card) 40%, transparent);
+	transition:
+		border-color 0.3s,
+		background-color 0.3s,
+		box-shadow 0.3s;
+}
+
+.lume-swatch:hover {
+	border-color: var(--primary);
+}
+
+.lume-swatch:has(input:checked) {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 1px var(--primary);
+	background: color-mix(in srgb, var(--card) 85%, transparent);
+}
+
+.lume-swatch:has(input:focus-visible) {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+.lume-check {
+	border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+	transition: border-color 0.3s;
+}
+
+.lume-check::after {
+	content: "";
+	width: 0.55rem;
+	height: 0.55rem;
+	border-radius: 50%;
+	background: var(--primary);
+	scale: 0;
+	transition: scale 0.3s var(--lume-ease);
+}
+
+.lume-swatch:has(input:checked) .lume-check {
+	border-color: var(--primary);
+}
+
+.lume-swatch:has(input:checked) .lume-check::after {
+	scale: 1;
+}
+
+/* The stepper buttons invert on hover. */
+.lume-step {
+	transition:
+		background-color 0.25s,
+		color 0.25s,
+		opacity 0.25s;
+}
+
+.lume-step:hover:not(:disabled) {
+	background: var(--foreground);
+	color: var(--background);
+}
+
+.lume-step:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}
+
+/* The edition bar: brass to mid brass. Its width follows the count-up. */
+.lume-meter-fill {
+	background: linear-gradient(to right, var(--primary), var(--lume-brass-mid));
+}
+
+.lume-meter-fill:dir(rtl) {
+	background: linear-gradient(to left, var(--primary), var(--lume-brass-mid));
+}
+
+/* ---------- questions ---------- */
+
+/* An answer opens from 0fr to 1fr, the way to animate a height of auto. */
+.lume-answer {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 0.5s var(--lume-ease);
+}
+
+.lume-answer[data-open="true"] {
+	grid-template-rows: 1fr;
+}
+
+/* The plus sign: two 1.5px brass bars. The upright bar turns flat when the answer opens. */
+.lume-plus::before,
+.lume-plus::after {
+	content: "";
+	position: absolute;
+	inset-inline-start: 0;
+	top: 50%;
+	width: 100%;
+	height: 1.5px;
+	background: var(--primary);
+	transition: rotate 0.45s var(--lume-ease);
+}
+
+.lume-plus::after {
+	rotate: 90deg;
+}
+
+[aria-expanded="true"] .lume-plus::after {
+	rotate: 0deg;
+}
+
+/* ---------- footer ---------- */
+
+/* The closing monument: the wordmark outlined in brass at half strength. */
+.lume-monument {
+	color: transparent;
+	-webkit-text-stroke: 1px
+		color-mix(in srgb, var(--lume-brass-light) 55%, transparent);
+	user-select: none;
+}
+
+/* ---------- motion ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The hero entrance. CSS plays it with no script. Backwards fill: the element keeps its own transforms after. */
+	.lume-enter {
+		animation: lume-rise 1s var(--lume-ease) backwards;
+		animation-delay: var(--lume-delay, 0s);
+	}
+	.lume-enter-soft {
+		animation: lume-rise-soft 0.8s var(--lume-ease) backwards;
+		animation-delay: var(--lume-delay, 1.05s);
+	}
+	.lume-enter-frame {
+		animation: lume-frame 1.25s var(--lume-ease) 0.3s backwards;
+	}
+	.lume-enter-frame img[data-active="true"] {
+		animation: lume-settle 1.8s ease-out 0.3s backwards;
+	}
+
+	/* use-reveal.ts sets data-reveal on a block below the first screen: "waiting", then "shown". */
+	.lume-page [data-reveal="waiting"] {
+		opacity: 0;
+		translate: 0 30px;
+	}
+	.lume-page [data-reveal="shown"] {
+		transition:
+			opacity 0.9s var(--lume-ease),
+			translate 0.9s var(--lume-ease);
+	}
+	/* A framed photo opens like a curtain from the bottom while the photo settles from 114%. */
+	.lume-page [data-reveal="waiting"] .lume-wipe {
+		clip-path: inset(100% 0 0 0);
+	}
+	.lume-page [data-reveal="waiting"] .lume-wipe img {
+		scale: 1.14;
+	}
+	.lume-page [data-reveal="shown"] .lume-wipe {
+		transition: clip-path 1s cubic-bezier(0.65, 0, 0.35, 1) 0.1s;
+	}
+	.lume-page [data-reveal="shown"] .lume-wipe img {
+		transition: scale 1.4s ease-out 0.1s;
+	}
+}
+
+@keyframes lume-rise {
+	from {
+		opacity: 0;
+		translate: 0 34px;
+	}
+}
+
+@keyframes lume-rise-soft {
+	from {
+		opacity: 0;
+		translate: 0 14px;
+	}
+}
+
+@keyframes lume-frame {
+	from {
+		opacity: 0;
+		translate: 0 60px;
+		scale: 0.96;
+	}
+}
+
+@keyframes lume-settle {
+	from {
+		scale: 1.16;
+	}
+}

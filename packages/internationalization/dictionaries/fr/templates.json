@@ -1,0 +1,77 @@
+{
+	"meta": {
+		"title": "Templates — Wandit"
+	},
+	"title": "Templates",
+	"intro": "Pars d’un design déjà prêt. Dis ensuite à Wandit ce qu’il faut changer.",
+	"resultCount": {
+		"one": "{count} template",
+		"other": "{count} templates"
+	},
+	"searchPlaceholder": "Rechercher un template",
+	"filters": {
+		"kindLabel": "Type",
+		"categoryLabel": "Catégorie",
+		"all": "Tous",
+		"websites": "Sites web",
+		"apps": "Applications",
+		"allCategories": "Toutes les catégories",
+		"clear": "Effacer les filtres"
+	},
+	"kinds": {
+		"website": "Site web",
+		"app": "Application"
+	},
+	"categories": {
+		"analytics": "Analytique",
+		"crm": "CRM",
+		"ecommerce": "E-commerce",
+		"finance": "Finance",
+		"health": "Santé",
+		"hospitality": "Hôtellerie",
+		"real-estate": "Immobilier",
+		"logistics": "Logistique",
+		"education": "Éducation",
+		"productivity": "Productivité",
+		"sales": "Ventes",
+		"hr": "RH",
+		"food": "Restauration",
+		"fitness": "Fitness",
+		"marketing": "Marketing",
+		"support": "Support client",
+		"inventory": "Stock",
+		"legal": "Juridique",
+		"agency": "Agence",
+		"events": "Événements",
+		"travel": "Voyage",
+		"beauty": "Beauté",
+		"interior": "Décoration intérieure",
+		"portfolio": "Portfolio",
+		"saas": "SaaS",
+		"services": "Services"
+	},
+	"noResults": {
+		"title": "Aucun template correspondant",
+		"body": "Essaie un autre mot ou efface les filtres."
+	},
+	"detail": {
+		"back": "Tous les templates",
+		"use": "Utiliser ce template",
+		"appNote": "C’est une application. Crée un compte dans l’aperçu pour te connecter et la voir.",
+		"coverAlt": "Écran d’accueil de {name}",
+		"shotAlt": "{name}, capture d’écran {number}"
+	},
+	"notFound": {
+		"title": "Ce template n’est pas disponible."
+	},
+	"note": {
+		"applied": "Ton projet est prêt. Dis-moi ce qu’il faut changer.",
+		"appSignUp": "Pour entrer dans l’application, crée un compte dans l’aperçu.",
+		"failed": "Le template n’a pas pu être appliqué. Décris ce que tu veux créer, et je pars de là."
+	},
+	"boot": {
+		"title": "Préparation de ton template",
+		"body": "Wandit copie les pages et le design dans ton projet. Cela prend quelques secondes."
+	},
+	"composerHint": "Tu pourras envoyer un message quand ton template sera prêt."
+}

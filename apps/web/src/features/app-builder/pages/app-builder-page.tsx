@@ -18,9 +18,15 @@
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
  * strip, and a pull reloads the preview.
+ * While the host applies a starter template, the preview shows the starter
+ * note and no send starts. The chat loads again when that step ends.
  */
 
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import {
+	useQuery,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { PREVIEW_TARGETS_MAX, type PreviewTarget } from "@wandit/contracts";
 import {
@@ -41,8 +47,10 @@ import { useWorkspace } from "@/features/workspaces";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import {
+	appBuilderKeys,
 	appProjectQuery,
 	chatCostQuery,
+	isStarterTemplateApplying,
 	turnEstimateQuery,
 } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
@@ -200,6 +208,23 @@ export default function AppBuilderPage({
 		if (!chatOpen && !panel.isCollapsed()) panel.collapse();
 	}, [chatOpen, isMobile]);
 
+	const queryClient = useQueryClient();
+	// The project query polls while this state holds. See appProjectQuery.
+	const isStarterApplying =
+		project !== null && isStarterTemplateApplying(project);
+	// The apply step stores its chat note with no turn stream, so no stream end loads the chat.
+	// The cleanup runs when the state ends: the chat history then loads again and shows the note.
+	// On a failure, the server stores the note before it ends the state.
+	// LIMIT: on success, the commit row ends the state some milliseconds before the note write. A poll in that gap shows the note at the next chat load. Upgrade: load the chat again when the note is absent.
+	useEffect(() => {
+		if (!isStarterApplying) return;
+		return () => {
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.chatHistory(projectId),
+			});
+		};
+	}, [isStarterApplying, projectId, queryClient]);
+
 	if (!project) return <AppNotFound />;
 
 	// Product rule: a project viewer gets a read-only builder (workspaces-sharing.md 6).
@@ -217,14 +242,23 @@ export default function AppBuilderPage({
 		project.access === undefined ||
 		activeWorkspace?.id === project.access.workspace.id;
 
+	// Product rule: the apply step already made the sandbox of a starter template project.
+	// So no chat turn of that project is a first turn, and the "create" copy never shows.
+	const isFirstTurn =
+		project.starterTemplateId === null ? thread.isFirstTurn : false;
+	// A turn cannot start while the host applies the starter template: the API answers 409.
+	const canStartTurn =
+		canEdit && thread.isReady && !thread.isSending && !isStarterApplying;
+
 	const bootContext: BootContext = {
 		isTurnRunning: thread.isTurnRunning,
 		turnPhase: thread.phase,
 		lastTurnFailed: thread.lastTurnFailed,
-		isFirstTurn: thread.isFirstTurn,
+		isFirstTurn,
 		backend,
 		hasCodeChanges: project.hasCodeChanges,
 		isPlanning: thread.latestTurnMode === "plan",
+		isStarterTemplateApplying: isStarterApplying,
 	};
 
 	const view = search.view ?? "preview";
@@ -290,8 +324,9 @@ export default function AppBuilderPage({
 				})
 			}
 			isSending={thread.isSending}
+			isStarterTemplateApplying={isStarterApplying}
 			phase={thread.phase}
-			isFirstTurn={thread.isFirstTurn}
+			isFirstTurn={isFirstTurn}
 			liveMessageId={thread.liveMessageId}
 			isDeveloperView={isDeveloperView}
 			// The switch exists only in local dev. A production build always shows the production view.
@@ -374,7 +409,7 @@ export default function AppBuilderPage({
 						reloadKey={reloadKey}
 						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
-						canStartTurn={canEdit && thread.isReady && !thread.isSending}
+						canStartTurn={canStartTurn}
 						canEditTheme={canEdit}
 						isSelecting={isSelecting}
 						onSelectingChange={setIsSelecting}
@@ -394,7 +429,7 @@ export default function AppBuilderPage({
 						bootContext={bootContext}
 						// A device session needs the editor role.
 						canRunOnDevice={canEdit && isDevicePreviewEnabled}
-						canStartTurn={canEdit && thread.isReady && !thread.isSending}
+						canStartTurn={canStartTurn}
 						onTryToFix={(message) => thread.send({ text: message, files: [] })}
 					/>
 				)}
@@ -462,7 +497,7 @@ export default function AppBuilderPage({
 				setIsActivityOpen(false);
 				setSearch({ view: next }, false);
 			}}
-			canAskFix={thread.isReady && !thread.isSending}
+			canAskFix={thread.isReady && !thread.isSending && !isStarterApplying}
 			onAskFix={(text) => {
 				thread.send({ files: [], text });
 				// The reply shows in the chat, so a closed chat opens. On a phone it covers the work pane.

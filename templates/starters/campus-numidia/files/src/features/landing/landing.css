@@ -1,0 +1,275 @@
+/* Site CSS of the Campus Numidia home page. LandingPage imports it.
+   It maps the campus palette to mixes of the theme tokens, and holds the block-pop reveal,
+   the timetable grid, the admission rail, and the meters. Capital text stays in the page files. */
+
+.cn-page {
+	/* The sand support block. The theme has no yellow, so a light mix of the warning tone gives a warm sand. */
+	--cn-sand: color-mix(in oklch, var(--warning) 30%, var(--background));
+	--cn-sand-deep: color-mix(in oklch, var(--warning) 40%, var(--background));
+	/* Small caps labels on sand, for example the date strip labels. */
+	--cn-sand-ink: color-mix(in oklch, var(--warning) 70%, var(--foreground));
+	/* The pale sky support block and its lighter step. */
+	--cn-pale: color-mix(in oklch, var(--primary) 15%, var(--background));
+	--cn-pale-2: color-mix(in oklch, var(--primary) 7%, var(--background));
+	--cn-pale-line: color-mix(in oklch, var(--primary) 26%, var(--background));
+	/* Sky fills that carry white text. Pure primary gives 4.0:1 with white; this step gives 4.7:1. */
+	--cn-sky: color-mix(in oklch, var(--primary) 88%, var(--foreground));
+	--cn-sky-deep: color-mix(in oklch, var(--primary) 74%, var(--foreground));
+	/* On the navy band the accent lifts, so the rail and the links keep their contrast. */
+	--cn-sky-lift: color-mix(in oklch, var(--primary) 68%, var(--background));
+	/* Body text one step under the ink, and the deep navy of the footer. */
+	--cn-ink-2: color-mix(in oklch, var(--foreground) 80%, var(--background));
+	--cn-navy-deep: color-mix(
+		in oklch,
+		var(--foreground) 82%,
+		var(--primary-foreground)
+	);
+	/* 14px with the "lg" radius of the theme: blocks, cards, photos, and sheets. */
+	--cn-r: calc(var(--radius) * 7 / 6);
+	/* The hero photo bleeds to the edge. clip cuts the scrollbar width of 100vw without a scroll box. */
+	overflow-x: clip;
+}
+
+/* A section link stops under the sticky header, which is 68px high. */
+html:has(.cn-page) {
+	scroll-padding-top: 76px;
+}
+
+.cn-r {
+	border-radius: var(--cn-r);
+}
+
+/* ── Photos: one grade for every image of the world ── */
+.cn-photo {
+	filter: saturate(1.08) brightness(1.02);
+}
+
+/* ── Links: sky-deep text over a 2px sand underline, 3px under the text ──
+   The anchor keeps a 44px touch area. Its inner span carries the underline, so the line stays close to the text. */
+.cn-link {
+	color: var(--cn-sky-deep);
+	transition: color 0.16s ease;
+}
+.cn-link > span {
+	border-bottom: 2px solid var(--cn-sand-deep);
+	padding-bottom: 3px;
+	transition: border-color 0.16s ease;
+}
+.cn-link-on-dark {
+	color: var(--background);
+	transition: color 0.16s ease;
+}
+.cn-link-on-dark > span {
+	border-bottom: 2px solid var(--cn-sand);
+	padding-bottom: 3px;
+}
+.cn-link:hover {
+	color: var(--foreground);
+}
+.cn-link-on-dark:hover {
+	color: var(--cn-sand);
+}
+.cn-link:hover > span {
+	border-bottom-color: var(--primary);
+}
+
+/* ── Buttons: a pill, fill changes on hover only ── */
+.cn-btn {
+	background: var(--cn-sky);
+	color: var(--background);
+	border: 1px solid var(--cn-sky);
+	transition:
+		background-color 0.16s ease,
+		border-color 0.16s ease;
+}
+.cn-btn:hover {
+	background: var(--cn-sky-deep);
+	border-color: var(--cn-sky-deep);
+}
+.cn-btn-sand {
+	background: var(--cn-sand);
+	color: var(--foreground);
+	border: 1px solid var(--cn-sand);
+	transition:
+		background-color 0.16s ease,
+		border-color 0.16s ease;
+}
+.cn-btn-sand:hover {
+	background: var(--cn-sand-deep);
+	border-color: var(--cn-sand-deep);
+}
+
+/* ── The course block of the timetable and the day vignette ── */
+.cn-course-lecture {
+	background: var(--cn-sky);
+	border-color: var(--cn-sky);
+	color: var(--background);
+}
+.cn-course-tutorial {
+	background: var(--foreground);
+	border-color: var(--foreground);
+	color: var(--background);
+}
+.cn-course-lab {
+	background: var(--cn-pale);
+	border-color: var(--cn-pale-line);
+	color: var(--foreground);
+}
+.cn-course-languages {
+	background: var(--cn-sand);
+	border-color: var(--cn-sand);
+	color: var(--foreground);
+}
+.cn-course-optional {
+	background: transparent;
+	border-color: var(--input);
+	color: var(--foreground);
+}
+.cn-course-free {
+	background: transparent;
+	border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+	color: color-mix(in oklch, var(--foreground) 34%, transparent);
+}
+
+/* The week grid: a time column and five day columns. Under 900px the sheet scrolls inside itself. */
+.cn-week {
+	display: grid;
+	grid-template-columns: 58px repeat(5, minmax(124px, 1fr));
+	grid-auto-rows: minmax(82px, auto);
+	grid-template-rows: auto;
+	gap: 8px;
+	min-width: 748px;
+}
+
+/* ── The hero column on the right bleeds to the viewport edge on wide screens ── */
+@media (min-width: 900px) {
+	/* The page wrap is 80rem wide with a clamp() gutter. The margin cancels the gutter and the side space. */
+	.cn-bleed {
+		margin-inline-end: calc(
+			-1 *
+			(max(0px, (100vw - 80rem) / 2) + clamp(20px, 4vw, 56px))
+		);
+		border-start-end-radius: 0;
+		border-end-end-radius: 0;
+	}
+}
+
+/* ── The admission rail ── */
+.cn-rail-track {
+	background: color-mix(in oklch, var(--background) 16%, transparent);
+}
+.cn-rail-fill {
+	background: var(--cn-sky-lift);
+	transform-origin: left center;
+	transition: transform 0.25s linear;
+}
+[dir="rtl"] .cn-rail-fill {
+	transform-origin: right center;
+}
+.cn-disc {
+	background: var(--cn-sand);
+	border: 2px solid var(--cn-sand);
+	color: var(--foreground);
+	transition:
+		background-color 0.28s ease,
+		border-color 0.28s ease,
+		color 0.28s ease;
+}
+.cn-flag {
+	background: var(--cn-sand);
+	color: var(--foreground);
+}
+.cn-step,
+.cn-flag-wrap {
+	transition:
+		opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (max-width: 899px) {
+	.cn-rail-fill {
+		transform-origin: center top;
+	}
+	[dir="rtl"] .cn-rail-fill {
+		transform-origin: center top;
+	}
+}
+
+/* The live state. The page adds .cn-live after hydration when motion is allowed.
+   Without it (no script, reduced motion) the rail is full and every step is solid. */
+.cn-live .cn-rail-fill {
+	transform: scaleX(max(0.07, var(--cn-rail, 0)));
+}
+@media (max-width: 899px) {
+	.cn-live .cn-rail-fill {
+		transform: scaleY(max(0.07, var(--cn-rail, 0)));
+	}
+}
+.cn-live .cn-step:not(.is-on) {
+	opacity: 0.55;
+	transform: translateY(10px);
+}
+.cn-live .cn-step:not(.is-on) .cn-disc {
+	background: color-mix(in oklch, var(--background) 10%, transparent);
+	border-color: color-mix(in oklch, var(--background) 38%, transparent);
+	color: color-mix(in oklch, var(--background) 70%, transparent);
+}
+.cn-live .cn-flag-wrap:not(.is-on) {
+	opacity: 0.35;
+	transform: scale(0.985);
+}
+
+/* ── The meters ── */
+.cn-meter-fill {
+	transition: max-width 1.05s cubic-bezier(0.33, 1, 0.68, 1);
+	max-width: 100%;
+}
+.cn-live .cn-meter:not(.is-in) .cn-meter-fill {
+	max-width: 64px;
+}
+
+/* ── Block pop: the entrance of every block ── */
+.cn-live [data-pop] {
+	transition:
+		opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+	transition-delay: calc(var(--cn-i, 0) * 60ms);
+}
+.cn-live [data-pop]:not(.is-in) {
+	opacity: 0;
+	transform: translateY(12px) scale(0.97);
+}
+/* Timetable cells are the one faster beat. */
+.cn-live [data-cell] {
+	transition:
+		opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+	transition-delay: calc(var(--cn-i, 0) * 28ms);
+}
+.cn-live [data-cell]:not(.is-in) {
+	opacity: 0;
+	transform: translateY(8px) scale(0.96);
+}
+
+/* ── FAQ: the plus and minus disc of each question ── */
+.cn-faq summary::-webkit-details-marker {
+	display: none;
+}
+.cn-faq-sign {
+	background: var(--cn-pale);
+	color: var(--cn-sky-deep);
+	transition: background-color 0.16s ease;
+}
+.cn-faq summary:hover .cn-faq-sign,
+.cn-faq details[open] .cn-faq-sign {
+	background: var(--cn-sand);
+	color: var(--foreground);
+}
+.cn-faq-minus {
+	display: none;
+}
+.cn-faq details[open] .cn-faq-minus {
+	display: inline;
+}
+.cn-faq details[open] .cn-faq-plus {
+	display: none;
+}

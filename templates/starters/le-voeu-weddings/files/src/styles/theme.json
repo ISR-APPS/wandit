@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Le Voeu",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "voeu"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "public-sans",
+		"displayFont": "look",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "light",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#faf3ee",
+			"foreground": "#41242a",
+			"card": "#fefaf8",
+			"cardForeground": "#41242a",
+			"popover": "#fefaf8",
+			"popoverForeground": "#41242a",
+			"primary": "#ba7c81",
+			"primaryForeground": "#1d0c0d",
+			"secondary": "#ece3dd",
+			"secondaryForeground": "#41242a",
+			"muted": "#f1e9e3",
+			"mutedForeground": "#78615e",
+			"accent": "#ffe0e2",
+			"accentForeground": "#41242a",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#e2d8d2",
+			"input": "#d3c6bf",
+			"ring": "#ba7c81",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f2ebe6",
+			"shadowColor": "#32191e"
+		},
+		"dark": {
+			"background": "#17130f",
+			"foreground": "#faeff0",
+			"card": "#1e1a16",
+			"cardForeground": "#faeff0",
+			"popover": "#231e1b",
+			"popoverForeground": "#faeff0",
+			"primary": "#c98a8e",
+			"primaryForeground": "#1d0c0d",
+			"secondary": "#2a2421",
+			"secondaryForeground": "#faeff0",
+			"muted": "#241f1c",
+			"mutedForeground": "#aea5a4",
+			"accent": "#371a1d",
+			"accentForeground": "#faeff0",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#322c29",
+			"input": "#3e3734",
+			"ring": "#c98a8e",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#110c09",
+			"shadowColor": "#030101"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Public Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Geist",
+				"href": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Gilda Display",
+				"href": "https://fonts.googleapis.com/css2?family=Gilda+Display&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

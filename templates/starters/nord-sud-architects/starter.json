@@ -1,0 +1,33 @@
+{
+	"id": "nord-sud-architects",
+	"removed": [],
+	"theme": {
+		"name": "Atelier Nord-Sud",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "gabarit"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "ibm-plex-sans",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "centered",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

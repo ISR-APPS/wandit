@@ -1,0 +1,36 @@
+{
+	"id": "dealflow-crm",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Dealflow",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "saphir"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "contrast",
+			"activeItem": "bar",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

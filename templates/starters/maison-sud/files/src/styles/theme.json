@@ -1,0 +1,112 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Maison Sud",
+	"selection": {
+		"source": {
+			"kind": "world",
+			"world": "maison"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "albert-sans",
+		"displayFont": "eb-garamond",
+		"scale": "md",
+		"radius": "none",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "centered",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "bar",
+		"userMenu": "sidebar-footer",
+		"frame": "flat",
+		"icons": "light",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f4f2ee",
+			"foreground": "#21201d",
+			"card": "#faf9f7",
+			"cardForeground": "#21201d",
+			"popover": "#faf9f7",
+			"popoverForeground": "#21201d",
+			"primary": "#767268",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e3e1dd",
+			"secondaryForeground": "#21201d",
+			"muted": "#e9e7e3",
+			"mutedForeground": "#666461",
+			"accent": "#ebe6db",
+			"accentForeground": "#21201d",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d8d6d2",
+			"input": "#c5c3bf",
+			"ring": "#767268",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eceae6",
+			"shadowColor": "#23221f"
+		},
+		"dark": {
+			"background": "#151411",
+			"foreground": "#f3f2ed",
+			"card": "#1c1a18",
+			"cardForeground": "#f3f2ed",
+			"popover": "#201f1c",
+			"popoverForeground": "#f3f2ed",
+			"primary": "#767268",
+			"primaryForeground": "#ffffff",
+			"secondary": "#272623",
+			"secondaryForeground": "#f3f2ed",
+			"muted": "#21201d",
+			"mutedForeground": "#a9a7a3",
+			"accent": "#27241b",
+			"accentForeground": "#f3f2ed",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2e2d2a",
+			"input": "#3a3936",
+			"ring": "#767268",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0e0d0b",
+			"shadowColor": "#020201"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Albert Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "EB Garamond",
+				"href": "https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700;800&display=swap"
+			},
+			"publicDisplay": {
+				"family": "Albert Sans",
+				"href": "https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

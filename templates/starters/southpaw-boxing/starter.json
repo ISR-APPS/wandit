@@ -1,0 +1,33 @@
+{
+	"id": "southpaw-boxing",
+	"removed": [],
+	"theme": {
+		"name": "Southpaw Boxing Club",
+		"selection": {
+			"source": {
+				"kind": "world",
+				"world": "palestre"
+			},
+			"mode": "dark",
+			"primary": "#b3202c",
+			"font": "archivo",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "hard",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "bar",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

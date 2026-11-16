@@ -1,0 +1,36 @@
+{
+	"id": "stride-fitness",
+	"removed": [
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Stride",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "acide"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "sm",
+			"border": "2",
+			"shadow": "md",
+			"shadowStyle": "hard",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "bar",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "bold",
+			"navIcon": "solid"
+		}
+	}
+}

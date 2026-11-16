@@ -1,0 +1,821 @@
+/* Site CSS of the Grin Dental Studio home page. LandingPage imports it. SiteMenu adds gd-page to its panel.
+   It holds what Tailwind classes cannot express: the sticker colors, the sticker recipe with its hard ink shadows,
+   the scallops, the keyframes of Chompy and the marquee, the scroll entrances of hooks/use-pop-in.ts,
+   and the dotted path of hooks/use-visit-path.ts. Every color is a theme token or a color-mix() of tokens. */
+
+.gd-page {
+	/* The six sticker colors. The theme gives ink, cream, white, and coral directly. */
+	--gd-ink: var(--foreground);
+	--gd-cream: var(--background);
+	--gd-white: var(--card);
+	--gd-coral: var(--primary);
+	/* Sunshine: the amber of the warning token moved to yellow with 20% of the green token, then made light with
+	   the card color. The hsl space keeps the yellow vivid when it gets light. */
+	--gd-sun: color-mix(
+		in hsl,
+		color-mix(in hsl, var(--warning) 80%, var(--success)) 56%,
+		var(--card)
+	);
+	/* Teal: the green and the blue of the theme in hsl, then 16% of the ink to make it deep. */
+	--gd-teal: color-mix(
+		in srgb,
+		color-mix(in hsl, var(--success) 60%, var(--info)) 84%,
+		var(--foreground)
+	);
+	/* Peach and mint are the two soft tints: a little coral and sun on cream, a little teal on white. */
+	--gd-peach: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--primary) 50%, var(--gd-sun)) 22%,
+		var(--background)
+	);
+	--gd-mint: color-mix(in srgb, var(--gd-teal) 15%, var(--card));
+	/* The four skin tones of the drawn portraits, warm mixes of coral, amber, ink, and cream. */
+	--gd-skin-deep: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--primary) 40%, var(--foreground)) 85%,
+		var(--background)
+	);
+	--gd-skin-tan: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--primary) 20%, var(--warning)) 70%,
+		var(--card)
+	);
+	--gd-skin-light: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--primary) 55%, var(--warning)) 40%,
+		var(--background)
+	);
+	--gd-skin-fair: color-mix(
+		in srgb,
+		color-mix(in srgb, var(--primary) 20%, var(--background)) 95%,
+		var(--warning)
+	);
+	/* The outline of every sticker: 1.25 times the border width of the theme, 2.5px with a 2px theme border. */
+	--gd-line: calc(var(--border-width, 2px) * 1.25);
+	/* The springy overshoot that every hover and entrance of the page shares. */
+	--gd-pop: cubic-bezier(0.34, 1.8, 0.4, 1);
+	--gd-back: cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+
+/* The recipes sit in the components layer, so a Tailwind class on the same element wins over them. */
+@layer components {
+	.gd-page ::selection {
+		background: var(--gd-sun);
+		color: var(--gd-ink);
+	}
+
+	.gd-page :focus-visible {
+		outline: 3px solid var(--gd-teal);
+		outline-offset: 3px;
+	}
+
+	/* On teal, coral, and ink grounds the teal ring does not show. The sun does. */
+	.gd-on-dark :focus-visible {
+		outline-color: var(--gd-sun);
+	}
+
+	/* ---- sticker recipe: an ink outline plus a hard ink shadow with no blur ---- */
+
+	.gd-sticker {
+		background: var(--gd-white);
+		border: var(--gd-line) solid var(--gd-ink);
+		border-radius: calc(var(--radius) * 1.625);
+		box-shadow: 7px 7px 0 var(--gd-ink);
+	}
+
+	.gd-outline {
+		border: var(--gd-line) solid var(--gd-ink);
+	}
+
+	.gd-outline-thin {
+		border: 2px solid var(--gd-ink);
+	}
+
+	.gd-shadow-3 {
+		box-shadow: 3px 3px 0 var(--gd-ink);
+	}
+
+	.gd-shadow-4 {
+		box-shadow: 4px 4px 0 var(--gd-ink);
+	}
+
+	.gd-shadow-5 {
+		box-shadow: 5px 5px 0 var(--gd-ink);
+	}
+
+	.gd-shadow-6 {
+		box-shadow: 6px 6px 0 var(--gd-ink);
+	}
+
+	.gd-shadow-9 {
+		box-shadow: 9px 9px 0 var(--gd-ink);
+	}
+
+	/* A die-cut line: a dashed ring 9px outside the sticker, like the cut of a sticker sheet. */
+	.gd-diecut {
+		position: relative;
+	}
+
+	.gd-diecut::before {
+		content: "";
+		position: absolute;
+		inset: -9px;
+		border: 2px dashed color-mix(in srgb, var(--gd-ink) 28%, transparent);
+		border-radius: calc(var(--radius) * 2.125);
+		pointer-events: none;
+	}
+
+	.gd-diecut-light::before {
+		border-color: color-mix(in srgb, var(--gd-cream) 45%, transparent);
+	}
+
+	/* ---- buttons: a pill sticker that lifts on hover and presses flat on click ---- */
+
+	.gd-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.55em;
+		min-height: 44px;
+		border: var(--gd-line) solid var(--gd-ink);
+		border-radius: 999px;
+		background: var(--gd-coral);
+		color: var(--gd-ink);
+		box-shadow: 5px 5px 0 var(--gd-ink);
+		text-decoration: none;
+		transition:
+			translate 0.18s var(--gd-pop),
+			scale 0.18s var(--gd-pop),
+			box-shadow 0.18s var(--gd-pop);
+	}
+
+	.gd-btn:hover {
+		translate: -2px -2px;
+		box-shadow: 7px 7px 0 var(--gd-ink);
+	}
+
+	.gd-btn:active {
+		translate: 4px 4px;
+		scale: 0.97 0.94;
+		box-shadow: 1px 1px 0 var(--gd-ink);
+	}
+
+	.gd-btn-white {
+		background: var(--gd-white);
+	}
+
+	.gd-btn-sun {
+		background: var(--gd-sun);
+	}
+
+	/* ---- the highlighter sweep and the squiggle underline of the hero title ---- */
+
+	.gd-highlight {
+		background: linear-gradient(
+			100deg,
+			transparent 1%,
+			var(--gd-sun) 4% 96%,
+			transparent 99%
+		);
+		border-radius: 0.15em;
+		padding: 0.02em 0.1em;
+		box-decoration-break: clone;
+	}
+
+	.gd-squiggle {
+		position: relative;
+		display: inline-block;
+	}
+
+	.gd-squiggle > svg {
+		position: absolute;
+		inset-inline: 0;
+		bottom: -0.16em;
+		width: 100%;
+		height: 0.2em;
+		overflow: visible;
+	}
+
+	/* ---- scallop edges and the dot grids of the grounds ---- */
+
+	.gd-dots {
+		background-image: radial-gradient(
+			circle,
+			color-mix(in srgb, var(--gd-ink) 7%, transparent) 2px,
+			transparent 2.6px
+		);
+		background-size: 30px 30px;
+	}
+
+	.gd-dots-cream {
+		background-image: radial-gradient(
+			circle,
+			color-mix(in srgb, var(--gd-cream) 22%, transparent) 3px,
+			transparent 3.6px
+		);
+		background-size: 44px 44px;
+	}
+
+	/* The striped awning on top of the price menu: coral and white in 46px bands. */
+	.gd-awning {
+		background: repeating-linear-gradient(
+			90deg,
+			var(--gd-coral) 0 46px,
+			var(--gd-white) 46px 92px
+		);
+	}
+
+	/* The dotted leader between a menu item and its price. */
+	.gd-leader {
+		border-bottom: 3px dotted color-mix(in srgb, var(--gd-ink) 28%, transparent);
+		translate: 0 -4px;
+	}
+
+	/* The tail of a review bubble: a square turned 45 degrees with two ink edges, in the bubble color. */
+	.gd-bubble::after {
+		content: "";
+		position: absolute;
+		inset-inline-start: 34px;
+		bottom: -11px;
+		width: 18px;
+		height: 18px;
+		background: inherit;
+		border-inline-end: var(--gd-line) solid var(--gd-ink);
+		border-bottom: var(--gd-line) solid var(--gd-ink);
+		rotate: 45deg;
+	}
+
+	.gd-bubble-small::after {
+		inset-inline-start: 26px;
+		bottom: -9px;
+		width: 14px;
+		height: 14px;
+		border-width: 0 2px 2px 0;
+	}
+
+	/* The club headline: cream letters with a hard ink drop. */
+	.gd-ink-drop {
+		text-shadow: 4px 4px 0 var(--gd-ink);
+	}
+
+	/* ---- the tilt of a sticker and its hover: it turns straight and grows ----
+   A component sets --gd-r with a class such as [--gd-r:-1.4deg]. */
+
+	.gd-tilt {
+		rotate: var(--gd-r, 0deg);
+	}
+
+	.gd-lift {
+		transition:
+			rotate 0.24s var(--gd-pop),
+			scale 0.24s var(--gd-pop),
+			translate 0.24s var(--gd-pop),
+			box-shadow 0.24s var(--gd-pop);
+	}
+
+	.gd-lift:hover {
+		rotate: 0deg;
+		scale: 1.035;
+		box-shadow: 10px 10px 0 var(--gd-ink);
+		z-index: 3;
+	}
+
+	.gd-lift-small:hover {
+		rotate: 0deg;
+		translate: 0 -5px;
+		scale: 1.05;
+		box-shadow: 9px 10px 0 var(--gd-ink);
+		z-index: 3;
+	}
+
+	/* ---- Chompy: the pupils follow --gd-look-x and --gd-look-y; the body squashes from its feet ---- */
+
+	.gd-pupils {
+		translate: var(--gd-look-x, 0px) var(--gd-look-y, 0px);
+	}
+
+	.gd-squash-origin {
+		transform-box: fill-box;
+		transform-origin: 50% 100%;
+	}
+
+	/* ---- the visit request card: chips are radio inputs dressed as pills ---- */
+
+	.gd-chip-face {
+		background: var(--gd-cream);
+		transition:
+			background-color 0.15s,
+			rotate 0.18s var(--gd-pop),
+			box-shadow 0.18s var(--gd-pop);
+	}
+
+	.gd-chip > input:checked + .gd-chip-face {
+		background: var(--gd-sun);
+		box-shadow: 3px 3px 0 var(--gd-ink);
+		rotate: -2deg;
+	}
+
+	.gd-chip > input:focus-visible + .gd-chip-face {
+		outline: 3px solid var(--gd-teal);
+		outline-offset: 2px;
+	}
+
+	/* ---- the dotted path of the first visit, from 1024px ----
+   --gd-visit is the share of the path that is drawn, from 0 to 1. Without a script it stays 1: the whole path shows.
+   hooks/use-visit-path.ts writes it while the section scrolls by. */
+
+	.gd-visit-stage {
+		--gd-visit: 1;
+	}
+
+	.gd-visit-reveal {
+		stroke-dasharray: 1;
+		stroke-dashoffset: calc(1 - var(--gd-visit));
+	}
+
+	/* ---- the confetti stars of Chompy: 16 stars fly out on a fixed fan of directions ---- */
+
+	.gd-confetti > .gd-star {
+		position: absolute;
+		inset-inline-start: 50%;
+		top: 45%;
+		width: 18px;
+		height: 18px;
+		margin: -9px;
+		pointer-events: none;
+		animation: gd-confetti 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+	}
+
+	.gd-confetti > .gd-star:nth-child(4n + 1) {
+		color: var(--gd-coral);
+	}
+
+	.gd-confetti > .gd-star:nth-child(4n + 2) {
+		color: var(--gd-teal);
+	}
+
+	.gd-confetti > .gd-star:nth-child(4n + 3) {
+		color: var(--gd-sun);
+	}
+
+	.gd-confetti > .gd-star:nth-child(4n + 4) {
+		color: var(--gd-white);
+	}
+
+	/* Each star gets its own end point (x, y in px) and its own spin. */
+	.gd-confetti > .gd-star:nth-child(1) {
+		--gd-dx: 150px;
+		--gd-dy: -60px;
+		--gd-spin: 200deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(2) {
+		--gd-dx: 120px;
+		--gd-dy: -150px;
+		--gd-spin: -160deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(3) {
+		--gd-dx: 40px;
+		--gd-dy: -190px;
+		--gd-spin: 240deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(4) {
+		--gd-dx: -50px;
+		--gd-dy: -180px;
+		--gd-spin: -220deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(5) {
+		--gd-dx: -130px;
+		--gd-dy: -140px;
+		--gd-spin: 180deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(6) {
+		--gd-dx: -170px;
+		--gd-dy: -50px;
+		--gd-spin: -260deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(7) {
+		--gd-dx: -160px;
+		--gd-dy: 50px;
+		--gd-spin: 140deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(8) {
+		--gd-dx: -100px;
+		--gd-dy: 130px;
+		--gd-spin: -120deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(9) {
+		--gd-dx: -20px;
+		--gd-dy: 170px;
+		--gd-spin: 300deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(10) {
+		--gd-dx: 70px;
+		--gd-dy: 150px;
+		--gd-spin: -200deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(11) {
+		--gd-dx: 140px;
+		--gd-dy: 90px;
+		--gd-spin: 160deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(12) {
+		--gd-dx: 190px;
+		--gd-dy: 10px;
+		--gd-spin: -280deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(13) {
+		--gd-dx: 80px;
+		--gd-dy: -110px;
+		--gd-spin: 220deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(14) {
+		--gd-dx: -80px;
+		--gd-dy: -100px;
+		--gd-spin: -180deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(15) {
+		--gd-dx: -100px;
+		--gd-dy: 60px;
+		--gd-spin: 260deg;
+	}
+
+	.gd-confetti > .gd-star:nth-child(16) {
+		--gd-dx: 110px;
+		--gd-dy: 40px;
+		--gd-spin: -240deg;
+	}
+
+	/* ---- motion: only when the visitor accepts it. Every element is visible and complete without it. ---- */
+
+	@media (prefers-reduced-motion: no-preference) {
+		/* Hero entrance on load: the tag drops, the title words rise one by one, the rest follows. */
+		.gd-intro-tag {
+			animation: gd-drop 0.5s var(--gd-back) 0.1s backwards;
+		}
+
+		.gd-word {
+			display: inline-block;
+			animation: gd-word 0.6s var(--gd-back) backwards;
+		}
+
+		.gd-word:nth-child(1) {
+			animation-delay: 0.15s;
+		}
+
+		.gd-word:nth-child(2) {
+			animation-delay: 0.21s;
+		}
+
+		.gd-word:nth-child(3) {
+			animation-delay: 0.27s;
+		}
+
+		.gd-word:nth-child(4) {
+			animation-delay: 0.33s;
+		}
+
+		.gd-word:nth-child(5) {
+			animation-delay: 0.39s;
+		}
+
+		.gd-word:nth-child(6) {
+			animation-delay: 0.45s;
+		}
+
+		.gd-word:nth-child(7) {
+			animation-delay: 0.51s;
+		}
+
+		.gd-word:nth-child(n + 8) {
+			animation-delay: 0.57s;
+		}
+
+		.gd-intro-late {
+			animation: gd-rise 0.5s var(--gd-back) 0.6s backwards;
+		}
+
+		.gd-intro-stage {
+			animation: gd-spring-in 0.9s var(--gd-pop) 0.3s backwards;
+		}
+
+		.gd-intro-sticker {
+			animation: gd-pop 0.5s var(--gd-pop) backwards;
+		}
+
+		/* Chompy: he floats, blinks, and wiggles now and then to say "poke me". */
+		.gd-float {
+			animation: gd-float 2.4s ease-in-out infinite alternate;
+		}
+
+		.gd-wiggle {
+			animation: gd-wiggle 8.6s ease-in-out 2.8s infinite;
+		}
+
+		.gd-eye {
+			transform-box: fill-box;
+			transform-origin: center;
+			animation: gd-blink 4.7s 2s infinite;
+		}
+
+		.gd-pupils {
+			transition: translate 0.35s ease-out;
+		}
+
+		.gd-mouth {
+			transition: d 0.35s var(--gd-back);
+		}
+
+		.gd-tongue {
+			transition: opacity 0.3s;
+		}
+
+		.gd-chompy {
+			transition: scale 0.35s var(--gd-back);
+		}
+
+		.gd-bubble-pop {
+			animation: gd-pop 0.5s var(--gd-pop) backwards;
+		}
+
+		.gd-spin {
+			animation: gd-spin 42s linear infinite;
+		}
+
+		.gd-spin-slow {
+			animation: gd-spin 36s linear infinite;
+		}
+
+		.gd-blob-a {
+			animation: gd-blob-a 6s ease-in-out infinite alternate;
+		}
+
+		.gd-blob-b {
+			animation: gd-blob-b 7s ease-in-out infinite alternate;
+		}
+
+		.gd-bob {
+			animation: gd-bob 3s ease-in-out infinite alternate;
+		}
+
+		.gd-wobble {
+			animation: gd-wobble 3.4s ease-in-out infinite alternate;
+		}
+
+		.gd-marquee-track {
+			animation: gd-marquee 26s linear infinite;
+		}
+
+		.gd-marquee-track-reverse {
+			animation: gd-marquee 34s linear infinite reverse;
+		}
+
+		/* Scroll entrances. use-pop-in.ts marks a [data-pop] element below the first screen "waiting",
+	   then "shown" when it enters the view. Only translate, scale, and opacity move,
+	   so the tilt of each sticker (rotate) stays. */
+		[data-pop="self"][data-pop-state="waiting"],
+		[data-pop="kids"][data-pop-state="waiting"] > * {
+			opacity: 0;
+		}
+
+		[data-pop="self"][data-pop-state="shown"] {
+			animation: gd-pop-up 0.7s var(--gd-back) backwards;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > * {
+			animation: gd-pop-up 0.6s var(--gd-back) backwards;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(2) {
+			animation-delay: 0.09s;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(3) {
+			animation-delay: 0.18s;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(4) {
+			animation-delay: 0.27s;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(5) {
+			animation-delay: 0.36s;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(6) {
+			animation-delay: 0.45s;
+		}
+
+		[data-pop="kids"][data-pop-state="shown"] > :nth-child(n + 7) {
+			animation-delay: 0.54s;
+		}
+
+		/* The "0 scary words" stat stamps in with a spring and a wiggle when its row shows. */
+		[data-pop-state="shown"] .gd-stamp {
+			animation: gd-stamp 1.3s var(--gd-pop) 0.2s backwards;
+		}
+	}
+}
+
+@keyframes gd-drop {
+	from {
+		opacity: 0;
+		translate: 0 30px;
+		rotate: -12deg;
+	}
+}
+
+@keyframes gd-word {
+	from {
+		opacity: 0;
+		translate: 0 60px;
+	}
+}
+
+@keyframes gd-rise {
+	from {
+		opacity: 0;
+		translate: 0 30px;
+	}
+}
+
+@keyframes gd-spring-in {
+	from {
+		opacity: 0;
+		scale: 0.5;
+	}
+}
+
+@keyframes gd-pop {
+	from {
+		opacity: 0;
+		scale: 0;
+	}
+}
+
+@keyframes gd-pop-up {
+	from {
+		opacity: 0;
+		translate: 0 46px;
+		scale: 0.9;
+	}
+}
+
+@keyframes gd-float {
+	to {
+		translate: 0 -8px;
+	}
+}
+
+@keyframes gd-wiggle {
+	0%,
+	88%,
+	100% {
+		rotate: 0deg;
+	}
+
+	90% {
+		rotate: -6deg;
+	}
+
+	92% {
+		rotate: 6deg;
+	}
+
+	94% {
+		rotate: -3deg;
+	}
+
+	96% {
+		rotate: 2deg;
+	}
+}
+
+@keyframes gd-blink {
+	0%,
+	92%,
+	100% {
+		scale: 1 1;
+	}
+
+	95% {
+		scale: 1 0.08;
+	}
+}
+
+@keyframes gd-spin {
+	to {
+		rotate: 360deg;
+	}
+}
+
+@keyframes gd-blob-a {
+	from {
+		border-radius: 46% 54% 55% 45% / 52% 44% 56% 48%;
+	}
+
+	to {
+		border-radius: 53% 47% 44% 56% / 46% 55% 45% 54%;
+	}
+}
+
+@keyframes gd-blob-b {
+	from {
+		border-radius: 57% 43% 44% 56% / 49% 58% 42% 51%;
+	}
+
+	to {
+		border-radius: 44% 56% 58% 42% / 56% 44% 56% 44%;
+	}
+}
+
+@keyframes gd-bob {
+	to {
+		translate: 0 -12px;
+	}
+}
+
+@keyframes gd-wobble {
+	from {
+		rotate: -5deg;
+	}
+
+	to {
+		rotate: 5deg;
+	}
+}
+
+@keyframes gd-marquee {
+	to {
+		translate: -50% 0;
+	}
+}
+
+@keyframes gd-stamp {
+	0% {
+		scale: 0.25;
+		rotate: -14deg;
+	}
+
+	30% {
+		scale: 1.22;
+		rotate: 0deg;
+	}
+
+	45% {
+		rotate: -7deg;
+	}
+
+	55% {
+		scale: 0.95;
+		rotate: 6deg;
+	}
+
+	70% {
+		scale: 1.04;
+		rotate: -3deg;
+	}
+
+	100% {
+		scale: 1;
+		rotate: 0deg;
+	}
+}
+
+@keyframes gd-confetti {
+	0% {
+		opacity: 1;
+		translate: 0 0;
+		scale: 0;
+		rotate: 0deg;
+	}
+
+	20% {
+		scale: 1.1;
+	}
+
+	45% {
+		opacity: 1;
+		translate: var(--gd-dx) var(--gd-dy);
+	}
+
+	100% {
+		opacity: 0;
+		translate: var(--gd-dx) calc(var(--gd-dy) + 220px);
+		scale: 0.8;
+		rotate: var(--gd-spin);
+	}
+}

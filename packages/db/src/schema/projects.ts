@@ -113,6 +113,10 @@ export const projects = pgTable(
 		framework: text("framework"),
 		// Version of the app template the project was created from.
 		templateVersion: text("template_version"),
+		// Id of the starter template of a V2 project: an entry of `STARTER_TEMPLATES` in
+		// `@wandit/contracts/v2/starter-template-catalog`. Null for a project from a prompt, and
+		// after the host could not apply the starter template.
+		starterTemplateId: text("starter_template_id"),
 		// UI locale at project creation (D7): a hint for the app language only.
 		// The check below allows only ar, fr, and en.
 		languages: text("languages").array().notNull().default(sql`'{}'::text[]`),
