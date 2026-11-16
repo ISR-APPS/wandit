@@ -54,7 +54,9 @@ export class ApiResponseEnvelopeInterceptor implements NestInterceptor {
 		return next.handle().pipe(
 			map((value: unknown) => {
 				// If the route already sent bytes itself, do not touch it.
-				if (reply.sent) {
+				// A 304 has no body. A payload makes Fastify send a wrong
+				// Content-Type and Content-Length (RFC 9110 section 8.6).
+				if (reply.sent || reply.statusCode === 304) {
 					return value;
 				}
 

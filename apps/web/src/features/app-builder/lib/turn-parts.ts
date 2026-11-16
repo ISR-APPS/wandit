@@ -1,9 +1,11 @@
 /**
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
- * `toBuilderMessages`, `livePhaseOf`, and `latestTurnModeOf`. chat-pane.tsx calls
+ * `toBuilderMessages`, `livePhaseOf`, `latestTurnModeOf`, and
+ * `contextUsageOf`. chat-pane.tsx calls
  * `liveStatusOf` for its status line; the chat and the details panel call
- * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
+ * `isActivityPart` and `workedDurationOf`. context-ring.tsx calls
+ * `contextToneOf`. Pure functions, no React, no
  * copy: the components translate each row.
  */
 
@@ -13,6 +15,8 @@ import {
 	deployFunctionToolInputSchema,
 	generateImageHostToolInputSchema,
 	generateImageHostToolOutputSchema,
+	HARNESS_COMPACTION_TOOL_NAME,
+	harnessCompactionOutputSchema,
 	requestNetworkHostToolInputSchema,
 	runSqlToolInputSchema,
 	setSecretToolInputSchema,
@@ -71,8 +75,10 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 
 // Tools that get no row. The to-do list, the task list, the tool search, and
 // the plan mode are agent bookkeeping. The questions show in the tray, and
-// the plan of `present_plan` shows as the plan card.
+// the plan of `present_plan` shows as the plan card. A compaction shows as
+// its own divider line (assistantPartsOf).
 const HIDDEN_TOOL_NAMES = new Set([
+	HARNESS_COMPACTION_TOOL_NAME,
 	"TodoWrite",
 	"TaskCreate",
 	"TaskGet",
@@ -111,6 +117,12 @@ const DETAIL_MAX_LINES = 40;
 
 /** 2 KB of shell output, counted in characters. A run row shows the end of the output. */
 const RUN_OUTPUT_MAX_CHARS = 2_048;
+
+/**
+ * Tokens before the compaction point where the context ring starts its
+ * warning tone. Zack's rule: on the 300,000 point it starts at 250,000.
+ */
+const CONTEXT_NOTICE_MARGIN_TOKENS = 50_000;
 
 const toolOutputStatusSchema = z.object({ status: z.string() });
 
@@ -517,7 +529,10 @@ function mergeExplore(previous: Step, next: Step): Step {
 	};
 }
 
-/** The payload of the last `data-turn-error` part of one message, or null. */
+/**
+ * The payload of the last `data-turn-error` part of one message, or null.
+ * The turn mode comes from the payload, else from the live `data-turn-created` frame.
+ */
 export function errorOf(
 	parts: readonly TurnMessagePart[],
 ): BuilderDataParts["error"] | null {
@@ -525,7 +540,13 @@ export function errorOf(
 		(part): part is Extract<TurnMessagePart, { type: "data-turn-error" }> =>
 			part.type === "data-turn-error",
 	);
-	return error?.data ?? null;
+	if (error === undefined) return null;
+	const created = parts.find(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-created" }> =>
+			part.type === "data-turn-created",
+	);
+	// An error the relay makes has no mode. The live created frame still tells it.
+	return { ...error.data, mode: error.data.mode ?? created?.data.mode };
 }
 
 /**
@@ -607,6 +628,65 @@ export function latestTurnModeOf(
 		}
 	}
 	return "build";
+}
+
+/** How full the model context is after one turn. contextUsageOf makes it; the context ring of the composer shows it. */
+export type ContextUsage = {
+	/** Tokens of the conversation that Claude Code sends on its next model call. */
+	tokens: number;
+	/** Token count where Claude Code compacts the conversation by itself. */
+	compactAtTokens: number;
+	/** Whole percent of `compactAtTokens` that `tokens` fills, at most 100. */
+	percent: number;
+};
+
+/**
+ * How full the conversation is, against the Claude Code compaction point.
+ * Reads the newest `data-turn-context` part. Null when no turn wrote one,
+ * or when a newer reply compacted and wrote no count.
+ */
+export function contextUsageOf(
+	messages: readonly TurnMessage[],
+): ContextUsage | null {
+	for (const message of messages.toReversed()) {
+		const context = message.parts.findLast(
+			(part): part is Extract<TurnMessagePart, { type: "data-turn-context" }> =>
+				part.type === "data-turn-context",
+		);
+		if (context === undefined) {
+			// A failed, stopped, or paused turn writes no count. When it compacted,
+			// the older count is out of date, so the ring hides.
+			// LIMIT: after a paused turn (plan, question, approval), the ring shows the
+			// lower count of an older turn. Upgrade: read the count on the pause settle.
+			const compacted = message.parts.some(
+				(part) =>
+					isToolUIPart(part) &&
+					getToolName(part) === HARNESS_COMPACTION_TOOL_NAME,
+			);
+			if (compacted) return null;
+			continue;
+		}
+		const { tokens, compactAtTokens } = context.data;
+		return {
+			tokens,
+			compactAtTokens,
+			// Claude Code can count past the point before it compacts, so the percent stops at 100.
+			percent: Math.min(100, Math.round((tokens / compactAtTokens) * 100)),
+		};
+	}
+	return null;
+}
+
+/** Color tone of the context ring. `full` means the next turn compacts the conversation. */
+export type ContextTone = "neutral" | "warning" | "full";
+
+/** Picks the ring tone: `full` at 100 percent, `warning` inside the notice margin, else `neutral`. */
+export function contextToneOf(usage: ContextUsage): ContextTone {
+	if (usage.percent >= 100) return "full";
+	// Product rule: the warning starts CONTEXT_NOTICE_MARGIN_TOKENS before the point.
+	return usage.tokens < usage.compactAtTokens - CONTEXT_NOTICE_MARGIN_TOKENS
+		? "neutral"
+		: "warning";
 }
 
 /** A part of the turn activity: the details panel shows it, the production chat does not. */
@@ -733,8 +813,9 @@ function hasAssistantMessageAfter(
 /**
  * The parts of one assistant message in stream order: text and notes, a
  * thought row per reasoning block, a step row per visible tool call (a run
- * of reads and searches merges into one row), the summary, the question,
- * approval, and plan cards, then the error, the stopped line, and the receipt.
+ * of reads and searches merges into one row), a compaction line, the summary,
+ * the question, approval, plan, and security report cards, then the error,
+ * the stopped line, and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -793,6 +874,23 @@ function assistantPartsOf(
 			continue;
 		}
 		if (isToolUIPart(part)) {
+			if (getToolName(part) === HARNESS_COMPACTION_TOOL_NAME) {
+				// The stored reply comes back from the database, so the output is
+				// parsed. The vendor writes the call and its result together: a
+				// pending part is only a flash and shows nothing.
+				const output =
+					part.state === "output-available"
+						? harnessCompactionOutputSchema.safeParse(part.output)
+						: null;
+				if (output?.success) {
+					parts.push({
+						type: "data-compaction",
+						id: part.toolCallId,
+						data: output.data,
+					});
+				}
+				continue;
+			}
 			const step = stepOf(part, isLive);
 			if (step === null) continue;
 			const previous = parts.at(-1);
@@ -855,6 +953,14 @@ function assistantPartsOf(
 				// Like a question: the card waits for the end of the turn, and a
 				// later reply (the build or the changed plan) closes it.
 				data: { ...part.data, isOpen: !isRunning && !hasReplyAfter },
+			});
+			continue;
+		}
+		if (part.type === "data-security-report") {
+			parts.push({
+				type: "data-security-report",
+				id: part.id,
+				data: part.data,
 			});
 		}
 	}

@@ -168,6 +168,7 @@ function desktopProject(
 	overrides: Partial<DesktopProject> = {},
 ): DesktopProject {
 	return {
+		desktopEngine: null,
 		engine: "v2_app",
 		framework: "desktop-app",
 		id: PROJECT_ID,
@@ -798,6 +799,44 @@ describe("DesktopBuildsService.release", () => {
 				.platforms,
 		).toEqual({ "darwin-aarch64": entry, "darwin-aarch64-app": entry });
 		expect(build).toMatchObject({ isCurrent: true, platform: "macos" });
+	});
+
+	// An Electron Mac app installs from the disk image, and its build has no
+	// archive. A Tauri build without its archive has no update file.
+	it.each([
+		{ desktopEngine: "electron" as const, isReleased: true },
+		{ desktopEngine: "tauri" as const, isReleased: false },
+		{ desktopEngine: null, isReleased: false },
+	])("releases a macOS build without an archive with the disk image URL only for the electron engine ($desktopEngine)", async ({
+		desktopEngine,
+		isReleased,
+	}) => {
+		const { builds, puts, service } = setup();
+		builds.findProject.mockResolvedValue(desktopProject({ desktopEngine }));
+		builds.findApp.mockResolvedValue(appRow());
+		builds.findById.mockResolvedValue(macReadyRow({ updateArchiveKey: null }));
+
+		const release = service.release(PERSONAL, PROJECT_ID, BUILD_ID, IP);
+
+		if (!isReleased) {
+			await expect(release).rejects.toMatchObject({
+				response: { code: "DESKTOP_BUILD_NOT_READY" },
+			});
+			expect(puts).toEqual([]);
+			return;
+		}
+		await release;
+		const entry = {
+			signature: "c2lnbmF0dXJlIHRleHQ=",
+			url: `https://updates.example/${DMG_KEY}`,
+		};
+		expect(puts.map((put) => put.key)).toEqual([
+			`desktop/${PROJECT_ID}/latest-macos.json`,
+		]);
+		expect(
+			desktopUpdateManifestSchema.parse(JSON.parse(puts[0]?.text ?? ""))
+				.platforms,
+		).toEqual({ "darwin-aarch64": entry, "darwin-aarch64-app": entry });
 	});
 
 	// Installed apps accept only a newer version, so an older build would

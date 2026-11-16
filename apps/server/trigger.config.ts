@@ -3,8 +3,9 @@
  * `trigger.dev deploy` (trigger-deploy.yml) read it. It sets the retries,
  * installs Chromium, git, eas-cli, and pnpm, and uploads Sentry source maps.
  * It also copies the template archives, the base schema, the trusted
- * mobile template files of the `mobile-build` task, and the trusted desktop
- * shell of the `desktop-build` task into the worker image.
+ * mobile template files of the `mobile-build` task, the trusted desktop
+ * shell of the `desktop-build` task, and the security audit skill of the
+ * `security_scan` turn into the worker image.
  */
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
@@ -117,7 +118,9 @@ export default defineConfig({
 			// the `mobile-build` task; it never uses the user copies.
 			// The desktop-shell glob takes every file of `src-tauri/` except the
 			// `target/` and `gen/` output of a local build. The `desktop-build`
-			// task puts these trusted files into the build input of the Windows CI.
+			// task puts these trusted files into the build input of the desktop CI.
+			// The desktop-shell-electron glob does the same for `shell/`, without
+			// the `node_modules/` and `release/` output of a local build.
 			additionalFiles({
 				files: [
 					"../../templates/*-*.tar.gz",
@@ -130,6 +133,10 @@ export default defineConfig({
 					"../../templates/mobile-app/eas.json",
 					"../../templates/mobile-app/native-modules.json",
 					"../../templates/desktop-shell/src-tauri/!(target|gen)/**",
+					"../../templates/desktop-shell-electron/shell/!(node_modules|release)/**",
+					// The vendored Cloudflare skill; a `security_scan` turn writes it
+					// into the sandbox. `builder-turn.deps.ts` reads it under `templates/`.
+					"../../templates/skills/security-audit/*",
 					// The Claude Code bridge fork; `readForkRunTurn` reads it under the
 					// working directory of the deployed worker.
 					"./src/modules/app-builder/application/harness/claude-code-bridge/persistent-run-turn.mjs",

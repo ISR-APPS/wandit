@@ -10,6 +10,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type {
 	AppLanguage,
 	ComposerMetadata,
+	DesktopEngine,
 	FileRef,
 	ListProjectsQuery,
 	PaginatedResult,
@@ -100,6 +101,9 @@ export type ProjectQueryRow = {
 	createdAt: Date;
 	// "v1_page" or "v2_app" (D11); the row carries it, never a derivation.
 	engine: ProjectEngine;
+	// Native shell of a desktop app. Null on other rows, and on an older
+	// desktop row, where it means "tauri".
+	desktopEngine: DesktopEngine | null;
 	// App template stack id, for example "web-app"; null on V1 rows.
 	framework: string | null;
 	hideWanditBadge: boolean;
@@ -290,6 +294,8 @@ export class ProjectsRepository {
 			model: string | null;
 			/** Device family the app targets, from the create body. */
 			targetPlatform: TargetPlatform;
+			/** Native shell of a desktop app: `projects.desktop_engine`. Null for a web or mobile app. */
+			desktopEngine: DesktopEngine | null;
 			/** Template archive prefix from `TEMPLATE_PROFILES`: "web-app" or "mobile-app". */
 			framework: string;
 			/** First line of `templates/<framework>/template_version`, for example "mobile-app@1.0.0". */
@@ -319,6 +325,7 @@ export class ProjectsRepository {
 					// defaults keep the V1 shape.
 					...(input.app
 						? {
+								desktopEngine: input.app.desktopEngine,
 								engine: "v2_app" as const,
 								framework: input.app.framework,
 								languages: [...input.app.languages],
@@ -480,6 +487,33 @@ export class ProjectsRepository {
 		return row ?? null;
 	}
 
+	// Writes the dashboard thumbnail URL of a live `v2_app` project. The
+	// `capture-project-thumbnail` task calls it after each committed turn.
+	// Answers false when no row changed: the project is gone or not V2.
+	async setPreviewImageUrl(
+		projectId: string,
+		previewImageUrl: string,
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(projects)
+			.set({
+				previewImageUrl,
+				// A background capture is not a user edit. The dashboard orders by
+				// `updatedAt`, so the column keeps its value.
+				updatedAt: sql`${projects.updatedAt}`,
+			})
+			.where(
+				and(
+					eq(projects.id, projectId),
+					eq(projects.engine, "v2_app"),
+					isNull(projects.deletedAt),
+				),
+			)
+			.returning({ id: projects.id });
+
+		return rows.length > 0;
+	}
+
 	// Shared SELECT builder used by list/get/update.
 	private firstMessagesSelect() {
 		// Get the first user message text for each project.
@@ -545,6 +579,7 @@ export class ProjectsRepository {
 			.select({
 				activeSlug: deploymentAgg.activeSlug,
 				createdAt: projects.createdAt,
+				desktopEngine: projects.desktopEngine,
 				engine: projects.engine,
 				framework: projects.framework,
 				hideWanditBadge: projects.hideWanditBadge,

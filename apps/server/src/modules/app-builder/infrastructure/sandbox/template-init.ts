@@ -6,13 +6,13 @@
  * after the repo restore of a new sandbox and before the dev server starts on
  * a resume. The idle sweep never calls it.
  * Reads the archive from the repo `templates/` folder that WANDIT-168 fills.
+ * A deploy ships only the current archive, so an older pin reads that one.
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gunzipSync } from "node:zlib";
 
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -23,7 +23,12 @@ import type {
 	SandboxHandle,
 	SandboxLogger,
 } from "../../domain/ports/sandbox-provider";
-import { TEMPLATE_PROFILES } from "./template-profiles";
+import { isRegularFile, tarEntries } from "../archive/tar-gz";
+import {
+	profileForFramework,
+	readFirstLine,
+	TEMPLATE_PROFILES,
+} from "./template-profiles";
 
 /** Nest token for the `TemplateInit` implementation. */
 export const TEMPLATE_INIT = Symbol.for("app-builder.template-init");
@@ -45,6 +50,7 @@ export interface TemplateInit {
 	/**
 	 * Writes the archive copy over each file of `OLD_TEMPLATE_FILES` that is
 	 * byte-equal to an old template version. Any other content stays.
+	 * An older pin reads the current archive, except for a `pinnedArchiveOnly` file.
 	 * Never throws: a failure only logs, and the next start tries again.
 	 */
 	replaceOldTemplateFiles(
@@ -98,9 +104,6 @@ const ARCHIVE_PATH = "/tmp/template.tar.gz";
  */
 const TEMPLATE_COMMIT_DATE = "2000-01-01T00:00:00Z";
 
-/** Size of one tar header and of one content block. */
-const TAR_BLOCK_BYTES = 512;
-
 /** One template file that an old project repo can bring back. */
 type OldTemplateFile = {
 	/** Path from the project root. The archive uses the same path. */
@@ -109,6 +112,8 @@ type OldTemplateFile = {
 	frameworks: readonly string[];
 	/** SHA-256 hex of each old version, from the git history of `templates/`. */
 	oldSha256: readonly string[];
+	/** True when the current copy needs files that an older pin lacks. Then only the archive of the pin can replace it. */
+	pinnedArchiveOnly: boolean;
 };
 
 /**
@@ -125,6 +130,8 @@ const OLD_TEMPLATE_FILES: readonly OldTemplateFile[] = [
 			// templates/web-app/vite.config.ts at commit 2426225b.
 			"d4c38320ad9d77e2cb31adf75926e2a08f23a81007c81c6e9267faae3735b776",
 		],
+		// The current config imports `vite-plugins/wandit-source.ts`. An old project lacks it.
+		pinnedArchiveOnly: true,
 	},
 	{
 		// A relative hook path fails open after `cd src` (WANDIT-180).
@@ -143,51 +150,10 @@ const OLD_TEMPLATE_FILES: readonly OldTemplateFile[] = [
 			// web-app and mobile-app at commit cca4e62c. It has no git restore, stash, or clean deny.
 			"92973d67fab5b79e9b8fa0f0a603acfb01571d295668c1509288c7ebb6d19732",
 		],
+		// Every template version ships the hook file that the current copy calls.
+		pinnedArchiveOnly: false,
 	},
 ];
-
-/** One entry of a ustar archive, read from its 512-byte header. */
-type TarEntry = {
-	/** Path in the archive with no leading "./", for example "src/app.tsx". */
-	path: string;
-	/** Octal mode text of the header, for example "000644". */
-	mode: string;
-	/** Type flag: "0" or "" is a regular file, "2" a symlink, "5" a folder. */
-	type: string;
-	/** Bytes after the header. Only a regular file holds project bytes. */
-	content: Uint8Array;
-	/** Target of a symlink. A regular file has an empty value. */
-	linkTarget: string;
-};
-
-/** The entries of a `.tar.gz` in archive order. */
-function* tarEntries(archive: Uint8Array): Generator<TarEntry> {
-	const tar = gunzipSync(archive);
-	let offset = 0;
-	// A zero block ends the archive; a truncated archive ends the loop too.
-	while (offset + TAR_BLOCK_BYTES <= tar.length) {
-		const header = tar.subarray(offset, offset + TAR_BLOCK_BYTES);
-		if (header.every((byte) => byte === 0)) {
-			break;
-		}
-		// Header fields of the ustar format: offsets and lengths in bytes.
-		const size = Number.parseInt(tarText(header, 124, 12) || "0", 8);
-		const contentStart = offset + TAR_BLOCK_BYTES;
-		yield {
-			content: tar.subarray(contentStart, contentStart + size),
-			linkTarget: tarText(header, 157, 100),
-			mode: tarText(header, 100, 8),
-			path: posix.join(tarText(header, 345, 155), tarText(header, 0, 100)),
-			type: tarText(header, 156, 1),
-		};
-		offset = contentStart + Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;
-	}
-}
-
-/** True for a regular file. A folder or a pax header holds no project file. */
-function isRegularFile(entry: TarEntry): boolean {
-	return entry.type === "0" || entry.type === "";
-}
 
 /**
  * SHA-256 hex of the regular files and symlinks in a `.tar.gz`, by path,
@@ -219,15 +185,6 @@ function archiveFileContent(
 	return null;
 }
 
-/** One NUL-padded text field of a tar header, trimmed. */
-function tarText(header: Uint8Array, start: number, length: number): string {
-	const field = header.subarray(start, start + length);
-	const end = field.indexOf(0);
-	return Buffer.from(end === -1 ? field : field.subarray(0, end))
-		.toString("utf8")
-		.trim();
-}
-
 function sha256Hex(content: Uint8Array | string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
@@ -248,9 +205,9 @@ export class ArchiveTemplateInit implements TemplateInit {
 		sandbox: SandboxHandle,
 		options: { framework: string; templateVersion: string },
 	): Promise<void> {
-		const bytes = await this.readArchive(options);
+		const archive = await this.readArchive(options);
 
-		await sandbox.writeFiles([{ content: bytes, path: ARCHIVE_PATH }]);
+		await sandbox.writeFiles([{ content: archive.bytes, path: ARCHIVE_PATH }]);
 		await this.mustRun(sandbox, "mkdir", ["-p", sandbox.workspaceDir]);
 		await this.mustRun(sandbox, "tar", [
 			"-xzf",
@@ -295,7 +252,7 @@ export class ArchiveTemplateInit implements TemplateInit {
 					"user.email=builder@wandit.dev",
 					"commit",
 					"-m",
-					`init: template ${options.templateVersion}`,
+					`init: template ${archive.templateVersion}`,
 				],
 				{
 					cwd: sandbox.workspaceDir,
@@ -312,7 +269,7 @@ export class ArchiveTemplateInit implements TemplateInit {
 		framework: string;
 		templateVersion: string;
 	}): Promise<string> {
-		return hashTemplateArchive(await this.readArchive(options));
+		return hashTemplateArchive((await this.readArchive(options)).bytes);
 	}
 
 	async replaceOldTemplateFiles(
@@ -331,17 +288,15 @@ export class ArchiveTemplateInit implements TemplateInit {
 				if (current === null || !file.oldSha256.includes(sha256Hex(current))) {
 					continue;
 				}
-				const replacement = archiveFileContent(
-					await this.readArchive(options),
-					file.path,
-				);
+				const archive = await this.readArchive(options, file.pinnedArchiveOnly);
+				const replacement = archiveFileContent(archive.bytes, file.path);
 				// An archive packed before the fix holds an old file too.
 				if (
 					replacement === null ||
 					file.oldSha256.includes(sha256Hex(replacement))
 				) {
 					throw new Error(
-						`Template ${options.templateVersion} has no current ${file.path}`,
+						`Template ${archive.templateVersion} has no current ${file.path}`,
 					);
 				}
 				await sandbox.writeFiles([{ content: replacement, path }]);
@@ -362,17 +317,61 @@ export class ArchiveTemplateInit implements TemplateInit {
 		}
 	}
 
-	/** The archive bytes; throws `TemplateArchiveMissingError` with the path. */
-	private async readArchive(options: {
+	/**
+	 * The archive bytes and the version they hold. A deploy ships only the
+	 * current archive, so a missing older archive falls back to the current
+	 * version, unless `pinnedOnly` is true. The repo restore then puts back the
+	 * project files. Throws `TemplateArchiveMissingError` when no archive exists.
+	 */
+	private async readArchive(
+		options: { framework: string; templateVersion: string },
+		pinnedOnly = false,
+	): Promise<{ bytes: Buffer; templateVersion: string }> {
+		const pinnedPath = this.archivePath(options);
+		try {
+			return {
+				bytes: await this.readArchiveFile(pinnedPath),
+				templateVersion: options.templateVersion,
+			};
+		} catch (error) {
+			// Line 1 of the version file is the version a new project gets.
+			const templateVersion = pinnedOnly
+				? null
+				: readFirstLine(
+						join(
+							this.templateDir,
+							profileForFramework(options.framework).versionFile,
+						),
+					);
+			// With no other version to try, the error names the pinned path.
+			if (
+				templateVersion === null ||
+				this.archivePath({ ...options, templateVersion }) === pinnedPath
+			) {
+				throw error;
+			}
+			const bytes = await this.readArchiveFile(
+				this.archivePath({ ...options, templateVersion }),
+			);
+			this.logger.info("sandbox.template-init.archive-fallback", {
+				currentVersion: templateVersion,
+				framework: options.framework,
+				pinnedVersion: options.templateVersion,
+			});
+			return { bytes, templateVersion };
+		}
+	}
+
+	private archivePath(options: {
 		framework: string;
 		templateVersion: string;
-	}): Promise<Buffer> {
+	}): string {
 		// "web-app@1.0.0" and "1.0.0" both map to `web-app-1.0.0.tar.gz`.
 		const version = options.templateVersion.split("@").pop();
-		const archivePath = join(
-			this.templateDir,
-			`${options.framework}-${version}.tar.gz`,
-		);
+		return join(this.templateDir, `${options.framework}-${version}.tar.gz`);
+	}
+
+	private readArchiveFile(archivePath: string): Promise<Buffer> {
 		return readFile(archivePath).catch((error: unknown) => {
 			throw new TemplateArchiveMissingError(archivePath, error);
 		});

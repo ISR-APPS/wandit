@@ -3,7 +3,8 @@
  * `commitTurn`, the mobile build, the GitHub sync, and the project delete
  * call `GitStore`. The sandbox-wake path calls `RepoRestorer` to push the repo back into a
  * fresh sandbox. WANDIT-171 implements both. The theme service reads one
- * committed file through `GitFileReader`.
+ * committed file through `GitFileReader`. The Code view service reads the
+ * committed tree and files through it, with no sandbox.
  */
 import type { SandboxHandle } from "./sandbox-provider";
 
@@ -54,15 +55,46 @@ export interface RepoRestorer {
 /** Nest token for the `GitFileReader` implementation. The module binds it to the `GitStore` class. */
 export const GIT_FILE_READER = Symbol.for("app-builder.git-file-reader");
 
-/** Reads one committed file without a sandbox. The theme GET route reads theme.json of a stopped sandbox. */
+/**
+ * The regular files of a `git archive` at one ref, by path from the repository root.
+ * "overCeiling" means the archive is over a byte ceiling of the reader, so it gives no files.
+ */
+export type GitArchiveFiles =
+	| { kind: "files"; files: Map<string, Uint8Array> }
+	| { kind: "overCeiling" };
+
+/**
+ * Reads committed code without a sandbox. The theme GET route reads theme.json of a stopped
+ * sandbox. The Code view routes read the tree and the files at the stored `main` head.
+ */
 export interface GitFileReader {
 	/**
 	 * The bytes of `path` at `ref`, a branch name or a commit sha. Null when the repository or the
-	 * file does not exist there. Throws on any other failure.
+	 * file does not exist there. With `maxBytes`, a larger file throws `GitFileTooLargeError`, and the
+	 * reader keeps at most `maxBytes` bytes plus one network chunk. Throws on any other failure.
 	 */
 	readFile(
 		projectId: string,
 		ref: string,
 		path: string,
+		maxBytes?: number,
 	): Promise<Uint8Array | null>;
+	/**
+	 * The file (blob) paths at `ref`, at most `limit` of them; folders, symlinks, and submodules are
+	 * not in the list. Null when the repository or the ref does not exist. Throws on any other failure.
+	 */
+	listFilePaths(
+		projectId: string,
+		ref: string,
+		limit: number,
+	): Promise<string[] | null>;
+	/**
+	 * The regular files of the archive at `ref`, without the paths that `excludeGlobs` match, for
+	 * example ".claude/**". Throws when the call fails.
+	 */
+	readArchiveFiles(
+		projectId: string,
+		ref: string,
+		excludeGlobs: string[],
+	): Promise<GitArchiveFiles>;
 }

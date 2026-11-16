@@ -15,6 +15,10 @@ import {
 	presentPlanHostToolInputSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
+import {
+	type TurnSecurityReportData,
+	turnSecurityReportDataPartSchema,
+} from "./security-scan";
 import { appCommitNumstatEntrySchema, commitShaSchema } from "./versions";
 
 /**
@@ -46,13 +50,15 @@ export type BuilderTurnStatus = z.infer<typeof builderTurnStatusSchema>;
 /**
  * How the agent works on a turn. `plan` is Plan Mode: the agent interviews
  * the user and presents a plan, and it cannot change files. `build` builds.
+ * `security_scan` runs the host checks and the Cloudflare skill audit, and it
+ * cannot change project files (see `security-scan.ts`).
  */
-export const builderTurnModes = ["plan", "build"] as const;
+export const builderTurnModes = ["plan", "build", "security_scan"] as const;
 
 /** Runtime validator for a builder turn mode. */
 export const builderTurnModeSchema = z.enum(builderTurnModes);
 
-/** `plan` or `build`; see `builderTurnModes`. */
+/** `plan`, `build`, or `security_scan`; see `builderTurnModes`. */
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
 /**
@@ -262,11 +268,15 @@ export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
 /**
  * Answer of `GET /api/v2/projects/:id/turns/active`. The builder page polls
  * it to show a turn or a commit of another client, such as a coding agent
- * over MCP or a teammate.
+ * over MCP or a teammate. `busyChatId` tells a conversation that another
+ * conversation uses the project.
  */
 export const activeTurnStateResponseSchema = z.object({
 	// The turn that holds the project slot: queued, running, or cancelling. Null when no turn runs.
 	activeTurnId: uuidSchema.nullable(),
+	// The conversation that holds the project, else null. It has an unfinished turn:
+	// queued, parked, running, cancelling, or one that waits for an answer or an approval.
+	busyChatId: uuidSchema.nullable(),
 	// `app_branches(main).head_sha`. Null before the first commit of the project.
 	headSha: commitShaSchema.nullable(),
 });
@@ -344,6 +354,10 @@ export const turnErrorDataSchema = z.object({
 	code: z.string(),
 	message: z.string(),
 	retryable: z.boolean(),
+	// The mode of the failed turn. The stored reply has no other place for it,
+	// and Retry sends a failed `security_scan` turn as a scan again.
+	// Absent on rows stored before it and on errors the relay makes.
+	mode: builderTurnModeSchema.optional(),
 });
 
 /** Inferred from `turnErrorDataSchema`; `retryable` tells the UI whether a resend can help. */
@@ -660,6 +674,55 @@ export const turnSummaryDataPartSchema = z.object({
 export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
 
 /**
+ * `data` of the `data-turn-context` part the task writes once, at the end
+ * of a turn that ended normally. A turn that pauses for the user writes none.
+ * Both counts come from Claude Code. The composer shows them as a context
+ * ring. The ring turns to its warning tone when `tokens` nears
+ * `compactAtTokens`. `ClaudeCodeHarness` parses the bridge value with it too.
+ */
+export const turnContextDataSchema = z.object({
+	// Tokens of the conversation that Claude Code sends on its next model call.
+	tokens: z.int().nonnegative(),
+	// Claude Code summarizes the conversation when `tokens` reaches this
+	// count: 300,000 on a 1M-window Claude model, 167,000 on other models.
+	compactAtTokens: z.int().positive(),
+});
+
+/** One `data-turn-context` part; id is `context-${turnId}`. */
+export const turnContextDataPartSchema = z.object({
+	type: z.literal("data-turn-context"),
+	id: z.string(),
+	data: turnContextDataSchema,
+});
+
+/** Inferred from `turnContextDataSchema`; the conversation size after one turn. */
+export type TurnContextData = z.infer<typeof turnContextDataSchema>;
+
+/**
+ * Name of the dynamic tool part that `HarnessAgent` (`@ai-sdk/harness`)
+ * writes when Claude Code compacts the conversation. The stored reply keeps
+ * the part, so the chat shows the compaction line after a reload too.
+ */
+export const HARNESS_COMPACTION_TOOL_NAME = "compaction";
+
+/**
+ * `output` of the compaction tool part. The vendor output also holds the
+ * summary text; the chat does not show it, so the parse drops it.
+ */
+export const harnessCompactionOutputSchema = z.object({
+	// `auto` when Claude Code reached its compaction point, `manual` for `/compact`.
+	trigger: z.enum(["auto", "manual"]),
+	// Conversation tokens before and after the summary. Claude Code can omit them.
+	tokensBefore: z.int().nonnegative().optional(),
+	tokensAfter: z.int().nonnegative().optional(),
+});
+
+/** Inferred from `harnessCompactionOutputSchema`; one compaction of the conversation. */
+export type HarnessCompactionOutput = z.infer<
+	typeof harnessCompactionOutputSchema
+>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
@@ -678,6 +741,8 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnThoughtDataPartSchema,
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
+	turnContextDataPartSchema,
+	turnSecurityReportDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -701,4 +766,6 @@ export type TurnDataParts = {
 	// The input type: live parts skip the zod parse, so `mode` can be absent
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;
+	"turn-context": TurnContextData;
+	"security-report": TurnSecurityReportData;
 };

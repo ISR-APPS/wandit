@@ -1,9 +1,12 @@
 /**
  * Builds the real `BuilderTurnDeps`: the repositories on a fresh pool, the
- * sandbox provider, the harness, the host tools, metering, and the Redis
- * clients. The `builder-turn` task imports this file lazily for one turn;
- * the harness host builds it once for all its turns. `close` ends every client.
+ * sandbox provider, the harness, the host tools, metering, the thumbnail
+ * scheduler, the security scan reads and writes, and the Redis clients. The `builder-turn` task imports this
+ * file lazily for one turn; the harness host builds it once for all its
+ * turns. `close` ends every client.
  */
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
@@ -16,11 +19,13 @@ import {
 } from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
 import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
+import { AdvisorsService } from "../modules/app-builder/application/services/advisors.service";
 import { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
 import type { BuilderHarness } from "../modules/app-builder/domain/ports/builder-harness";
+import type { SandboxFile } from "../modules/app-builder/domain/ports/sandbox-provider";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
 import { commitTurnUnlessClean } from "../modules/app-builder/infrastructure/git/commit-turn";
@@ -37,6 +42,7 @@ import { ProjectGithubLinksRepository } from "../modules/app-builder/infrastruct
 import { ProjectNetworkHostsRepository } from "../modules/app-builder/infrastructure/persistence/project-network-hosts.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import { SecurityScansRepository } from "../modules/app-builder/infrastructure/persistence/security-scans.repository";
 import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { LlmSpendCounters } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
@@ -49,6 +55,7 @@ import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/san
 import { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/supabase-rate-limiter";
 import { TriggerGithubSyncScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
+import { TriggerThumbnailCaptureScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-thumbnail-capture-scheduler";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
 import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
@@ -72,6 +79,35 @@ import { createTriggerMetering } from "./metering.runtime";
 const BUILDER_IMAGE_MODEL = "openai/gpt-image-2.5-flare";
 // GPT Image 2.5 Sunburst is the precise edit model, for a call with the user's photos.
 const BUILDER_IMAGE_EDIT_MODEL = "openai/gpt-image-2.5-sunburst";
+
+// The vendored Cloudflare skill of a security scan. trigger.config.ts copies
+// it into the worker image; the harness host reads the repo checkout.
+const SECURITY_AUDIT_SKILL_DIR = join(
+	TEMPLATE_ARCHIVE_DIR,
+	"skills",
+	"security-audit",
+);
+
+// Cache: the skill files never change while the process runs, and the harness
+// host serves many scans. A failed read clears it, so the next scan reads again.
+let securityAuditSkillFiles: Promise<SandboxFile[]> | null = null;
+
+/** The skill files, read once per process; each `path` is a file name in the folder. */
+function readSecurityAuditSkill(): Promise<SandboxFile[]> {
+	securityAuditSkillFiles ??= (async () => {
+		const names = await readdir(SECURITY_AUDIT_SKILL_DIR);
+		return Promise.all(
+			names.map(async (name) => ({
+				content: await readFile(join(SECURITY_AUDIT_SKILL_DIR, name)),
+				path: name,
+			})),
+		);
+	})().catch((error: unknown) => {
+		securityAuditSkillFiles = null;
+		throw error;
+	});
+	return securityAuditSkillFiles;
+}
 
 /**
  * The deps without the event writer, plus the close of every client they
@@ -156,6 +192,9 @@ export async function createBuilderTurnDeps(
 		const backends = new AppBackendsRepository(db);
 		const audit = new AuditEventsRepository(db);
 		const secretsRepo = new ProjectSecretsRepository(db);
+		const securityScans = new SecurityScansRepository(db);
+		// The process logger: the Trigger Sentry client drops `Sentry.logger` lines.
+		const thumbnails = new TriggerThumbnailCaptureScheduler(logger);
 		const supabase =
 			supabaseToken && supabaseOrganizationSlug && supabaseRateLimiter
 				? new SupabaseManagementClient({
@@ -250,6 +289,16 @@ export async function createBuilderTurnDeps(
 			resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 			sandboxSessions,
 			sandboxes,
+			securityScan: {
+				insert: (scan) => securityScans.insert(scan),
+				readAdvisors:
+					supabase === null
+						? null
+						: (backend) => new AdvisorsService(supabase).runSecurity(backend),
+				readSkillFiles: readSecurityAuditSkill,
+			},
+			scheduleThumbnail: (projectId, commitSha) =>
+				thumbnails.schedule(projectId, commitSha),
 			sessions: new BuilderSessionsRepository(db),
 			turns,
 			// The service already converts AI_USD_PER_CREDIT at build.

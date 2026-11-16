@@ -11,7 +11,10 @@ import { composerMetadataSchema } from "../v1/chats";
 import { projectSchema } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { projectEngineSchema } from "../v1/shared/project-engine";
-import { targetPlatformSchema } from "../v1/shared/target-platform";
+import {
+	desktopEngineSchema,
+	targetPlatformSchema,
+} from "../v1/shared/target-platform";
 import { builderMessageMaxLength, builderTurnModeSchema } from "./turns";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
@@ -25,6 +28,9 @@ export {
 // The target platform enum moved to the V1 shared folder (WANDIT-192): the
 // V1 `projectSchema` carries it now. This line keeps V2 imports working.
 export {
+	type DesktopEngine,
+	desktopEngineSchema,
+	desktopEngines,
 	type TargetPlatform,
 	targetPlatformSchema,
 	targetPlatforms,
@@ -42,6 +48,7 @@ export type AppLanguage = z.infer<typeof appLanguageSchema>;
 /**
  * Body of `POST /api/v2/projects`. Same admission rule as V1: a non-empty
  * prompt or at least one attachment, never both empty.
+ * `desktopEngine` is valid only with the target platform "desktop".
  */
 export const createAppProjectRequestSchema = z
 	.object({
@@ -49,6 +56,9 @@ export const createAppProjectRequestSchema = z
 		composer: composerMetadataSchema.optional(),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		targetPlatform: targetPlatformSchema.default("web"),
+		// Native shell of a desktop app. Absent on a desktop create: the server
+		// stores "tauri". The engine never changes after the create.
+		desktopEngine: desktopEngineSchema.optional(),
 		// 1 to 3 UI locales (D7). The agent reads them as a hint for the app language only.
 		languages: z.array(appLanguageSchema).min(1).max(3),
 		// The mode of the first turn: the Plan toggle of the prompt box. Absent: `build`.
@@ -63,6 +73,15 @@ export const createAppProjectRequestSchema = z
 		{
 			message: "prompt or at least one attachment is required",
 			path: ["prompt"],
+		},
+	)
+	// Only a desktop project has a native shell, so only it can select an engine.
+	.refine(
+		(body) =>
+			body.desktopEngine === undefined || body.targetPlatform === "desktop",
+		{
+			message: "desktopEngine is only valid for a desktop project",
+			path: ["desktopEngine"],
 		},
 	);
 
@@ -96,6 +115,9 @@ export type CreateAppProjectResponse = z.infer<
 export const appProjectSchema = projectSchema.extend({
 	engine: projectEngineSchema,
 	targetPlatform: targetPlatformSchema.nullable(),
+	// Native shell of a desktop app. Null on a non-desktop project. Null on an
+	// old desktop project means "tauri". The default keeps an older API answer valid.
+	desktopEngine: desktopEngineSchema.nullable().default(null),
 	// Template archive prefix: "web-app" or "mobile-app". The sandbox boots
 	// from `templates/<framework>-<semver>.tar.gz`.
 	framework: z.string().nullable(),

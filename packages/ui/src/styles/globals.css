@@ -62,6 +62,18 @@
 		0.5 0.13 155
 	); /* green text/links on light (mirrors --ember-text) */
 	--void: oklch(0.14 0.01 45); /* generated-page dark screen */
+	/* Depth of the V2 workspace controls. Each dark shade is the navy ink (--color-night), not black. The ember key adds an ember glow.
+	   The utilities are shadow-raised, shadow-well, shadow-key, and shadow-ember (see the theme block below). */
+	--depth-raised:
+		0 1px 1px rgb(11 16 51 / 0.05), 0 6px 14px -8px rgb(11 16 51 / 0.25);
+	--depth-well:
+		inset 0 1px 2px rgb(11 16 51 / 0.1), inset 0 0 0 1px rgb(11 16 51 / 0.02);
+	--depth-key:
+		inset 0 1px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(11 16 51 / 0.3),
+		0 6px 12px -6px rgb(11 16 51 / 0.5);
+	--depth-ember:
+		inset 0 1px 0 rgb(255 255 255 / 0.24), 0 1px 1px rgb(11 16 51 / 0.12),
+		0 8px 18px -8px rgb(209 96 34 / 0.7);
 }
 
 /* Dark layer — reserved for the generated-output world (and legacy toggle).
@@ -111,6 +123,15 @@
 	--success: oklch(0.75 0.14 155);
 	--success-text: oklch(0.75 0.14 155);
 	--void: oklch(0.14 0.01 45);
+	/* On the near-black desk a drop shadow is faint, so a top light draws the raised edge.
+	   The solid key is the spark pill in dark mode, so its drop is amber. */
+	--depth-raised:
+		inset 0 1px 0 rgb(255 255 255 / 0.06), 0 8px 16px -10px rgb(0 0 0 / 0.55);
+	--depth-well: inset 0 1px 2px rgb(0 0 0 / 0.45);
+	--depth-key:
+		inset 0 1px 0 rgb(255 255 255 / 0.35), 0 6px 14px -6px rgb(250 171 63 / 0.4);
+	--depth-ember:
+		inset 0 1px 0 rgb(255 255 255 / 0.3), 0 8px 18px -8px rgb(209 96 34 / 0.6);
 }
 
 /* DM Sans is the body face. The grotesk face (--font-grotesk, in the brand
@@ -217,6 +238,15 @@
 	/* Menus, popovers, and selects: a 1 px key edge and a soft navy drop under the white sheet. */
 	--shadow-menu:
 		0 1px 0 rgb(11 16 51 / 0.04), 0 20px 44px -18px rgb(11 16 51 / 0.32);
+	/* Depth of the V2 workspace controls. The values follow the theme (--depth-* in :root and .dark). */
+	/* A white control or card that lifts off its ground. The element keeps its own hairline border. */
+	--shadow-raised: var(--depth-raised);
+	/* A recessed track: the ground of a segmented control or of an address field. */
+	--shadow-well: var(--depth-well);
+	/* A solid night pill (a spark pill in dark mode): the active segment, the brand tile. */
+	--shadow-key: var(--depth-key);
+	/* The ember main action: Publish, Send, Save. A top light and an ember glow. */
+	--shadow-ember: var(--depth-ember);
 	/* Named motion (calm chrome; energy stays on the generated thing) */
 	--animate-caret: wd-caret 1s step-end infinite;
 	--animate-shimmer: wd-shimmer 1.6s linear infinite;

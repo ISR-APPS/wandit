@@ -79,7 +79,10 @@ import {
 import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder-turns.repository";
 import { ProjectGithubLinksRepository } from "../../infrastructure/persistence/project-github-links.repository";
 import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
-import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
+import {
+	installWorkspacePackages,
+	startSandboxWithoutTurn,
+} from "../../infrastructure/sandbox/sandbox-start";
 import { AuditEventsService } from "./audit-events.service";
 
 /**
@@ -90,11 +93,6 @@ import { AuditEventsService } from "./audit-events.service";
 const RESTORE_LOCK_TTL_MS = 2 * 60_000;
 /** 60 s, half the TTL: one missed refresh does not lose the lock. */
 const RESTORE_LOCK_REFRESH_MS = 60_000;
-/**
- * 120 s. A warm pnpm store installs in a few seconds. A cold store downloads
- * every package, and the HTTP answer waits for the install.
- */
-const INSTALL_TIMEOUT_MS = 120_000;
 /**
  * 120 s, like the restorer: only the one fetch of `github/main` uses the read
  * JWT. A short life limits a JWT that sandbox code reads from the git argv.
@@ -645,22 +643,10 @@ export class VersionsService {
 		sandbox: SandboxHandle,
 		step: "Restore" | "GitHub update",
 	): Promise<void> {
-		try {
-			const install = await sandbox.exec(
-				"pnpm",
-				["install", "--frozen-lockfile", "--prefer-offline"],
-				{ cwd: sandbox.workspaceDir, timeoutMs: INSTALL_TIMEOUT_MS },
-			);
-			if (install.exitCode !== 0) {
-				// pnpm prints its error to stdout, at the end. The last 500
-				// characters keep the cause and keep the log line short.
-				this.logger.warn(
-					`${step} install failed for ${sandbox.projectId} (exit ${install.exitCode}): ${`${install.stdout}${install.stderr}`.slice(-500)}`,
-				);
-			}
-		} catch (error) {
+		const failure = await installWorkspacePackages(sandbox);
+		if (failure !== null) {
 			this.logger.warn(
-				`${step} install failed for ${sandbox.projectId}: ${getErrorMessage(error)}`,
+				`${step} install failed for ${sandbox.projectId}: ${failure}`,
 			);
 		}
 	}

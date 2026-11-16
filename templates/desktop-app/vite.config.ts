@@ -1,6 +1,6 @@
 // Vite configuration of the desktop app frontend.
 // `pnpm run dev` serves the browser preview in the sandbox. `pnpm run build` writes the
-// static files of dist/, which the Tauri shell of the platform loads (templates/desktop-shell).
+// static files of dist/, which the native shell loads (templates/desktop-shell or templates/desktop-shell-electron).
 // WANDIT_PREVIEW_HOST opens the sandbox dev server to the preview iframe.
 import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";

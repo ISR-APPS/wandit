@@ -1,12 +1,12 @@
 /**
- * The one chat hook the app-builder page calls. Joins the chat id lookup
- * and the paged stored history with the live turn stream of
+ * The one chat hook the app-builder page calls. Joins the paged stored
+ * history of the open conversation with the live turn stream of
  * use-builder-chat.ts. Maps the messages to the card shapes the pane
  * renders. Turns a chat error into a dictionary sentence and a Reconnect
  * action, holds the Plan toggle, and puts the model pick on every send.
- * Calls the workspace chat id query, the history query of
- * app-builder.queries.ts, use-builder-chat.ts, builder-chat-transport.ts,
- * and turn-parts.ts.
+ * The page picks the open conversation; a new one switches the thread in
+ * place. Calls the history query of app-builder.queries.ts,
+ * use-builder-chat.ts, builder-chat-transport.ts, and turn-parts.ts.
  */
 
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -21,14 +21,20 @@ import type {
 import type { FileUIPart } from "ai";
 import { useEffect, useMemo, useState } from "react";
 
-import { useChatByProjectQuery } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { chatHistoryQuery } from "../api/app-builder.queries";
 import type { SendBuilderMessageInput } from "../api/app-builder.services";
 import type { BuilderMessage } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
-import { latestTurnModeOf, livePhaseOf, toBuilderMessages } from "./turn-parts";
+import type { OpenChat } from "./helpers";
+import {
+	type ContextUsage,
+	contextUsageOf,
+	latestTurnModeOf,
+	livePhaseOf,
+	toBuilderMessages,
+} from "./turn-parts";
 import {
 	type BuilderChatDeps,
 	type BuilderChatSend,
@@ -45,16 +51,15 @@ export type BuilderThreadState = {
 	estimate: TurnEstimate | null;
 	/**
 	 * The sentence for a refused send, or for a failed or lost turn stream.
-	 * A failed chat id lookup or history load also shows here. Null while
-	 * every request worked. Null when the last reply holds the error card of
-	 * this error.
+	 * A failed history load also shows here. Null while every request
+	 * worked. Null when the last reply holds the error card of this error.
 	 */
 	errorText: string | null;
 	/**
 	 * Sends one turn with this text, these uploaded files, and the elements
 	 * picked in the preview. A send with no `mode` uses the Plan toggle.
 	 * Resolves false when the API admitted no turn, also while a turn runs or
-	 * the chat id is unknown. The caller then puts the draft back.
+	 * no conversation is open. The caller then puts the draft back.
 	 */
 	send: (
 		input: SendBuilderMessageInput,
@@ -81,9 +86,9 @@ export type BuilderThreadState = {
 	 */
 	reconnect: (() => Promise<void>) | null;
 	/**
-	 * False until the chat id resolves and the stored history loads or fails
-	 * on this mount. A send before the history shows would put the reply
-	 * above it. Also false after the chat id lookup failed.
+	 * False until a conversation is open and its stored history loads or
+	 * fails. A send before the history shows would put the reply above it.
+	 * Also false after the load of the conversation list failed.
 	 */
 	isReady: boolean;
 	/**
@@ -102,9 +107,10 @@ export type BuilderThreadState = {
 	/** True when the last reply holds an error card. The preview then says that the app did not start. */
 	lastTurnFailed: boolean;
 	/**
-	 * True while the chat holds at most one user message. The first turn
-	 * creates the sandbox from the template. Null until the history loads or
-	 * fails on this mount. A failed load counts as a first turn.
+	 * True on the first turn of the project. The open conversation is then
+	 * the oldest one and holds at most one user message. That turn creates the
+	 * sandbox from the template. False at once for a newer conversation. Else
+	 * null until the history loads or fails. A failed load counts as a first turn.
 	 */
 	isFirstTurn: boolean | null;
 	/** True while the API has an older page of the stored chat. The pane then shows "Load earlier messages". */
@@ -116,6 +122,11 @@ export type BuilderThreadState = {
 	/** Mode of the newest turn the thread knows (latestTurnModeOf). The preview shows the planning note for `plan`. */
 	latestTurnMode: BuilderTurnMode;
 	/**
+	 * How full the model context is after the newest turn, from contextUsageOf.
+	 * Null until a turn writes a count: the composer then shows no context ring.
+	 */
+	contextUsage: ContextUsage | null;
+	/**
 	 * State of the Plan toggle: the user's pick, else true when the newest
 	 * turn was a Plan Mode turn. A send shows its own mode at once. The next
 	 * turn start clears the pick, so after "Build this plan" the toggle is off.
@@ -123,8 +134,12 @@ export type BuilderThreadState = {
 	isPlanMode: boolean;
 	/** Sets the Plan toggle until the next turn starts. */
 	setPlanMode: (isPlanMode: boolean) => void;
-	/** Chat id of the project, from the chat id lookup. Undefined while it loads or after it failed. The page reads the chat cost with it. */
-	chatId: string | undefined;
+	/**
+	 * Id of the conversation that holds the project, or null. It has a turn
+	 * that did not end. While it is not the open conversation, the API answers
+	 * a send with 409 BUILDER_OTHER_CHAT_BUSY. The pane then locks the composer.
+	 */
+	busyChatId: string | null;
 };
 
 // A shared empty list keeps the useMemo deps stable while the history
@@ -168,6 +183,9 @@ export function turnErrorKey(
 				return "appBuilder.chat.errors.tooManyTurns";
 			case "BUILDER_APPROVAL_PENDING":
 				return "appBuilder.chat.errors.approvalPending";
+			// The API refuses a send while another conversation holds the project.
+			case "BUILDER_OTHER_CHAT_BUSY":
+				return "errors.codes.BUILDER_OTHER_CHAT_BUSY";
 			case "V2_MODEL_DENIED":
 				return "appBuilder.chat.errors.modelDenied";
 			case "V2_MODEL_UNPRICED":
@@ -187,7 +205,7 @@ export function turnErrorKey(
 
 /**
  * The sentence the pane shows for the last chat error. Without a chat
- * error, it is the sentence of a failed chat id lookup or history load.
+ * error, it is the sentence of a failed history load.
  * It is the builder copy when one fits, else the shared API message.
  * Null while no request failed.
  */
@@ -205,22 +223,24 @@ function turnErrorText(
 }
 
 /**
- * Reads the chat of one project: its stored history hydrates the stream,
- * and every further send goes through the real turn routes. `model` is the
- * pick of the model menu. Every send carries it, also Retry, question
- * answers, and approval answers. Undefined sends none: the server default
- * runs. `deps` is the test seam of use-builder-chat.ts; production passes
- * nothing.
+ * Reads one conversation of a project: its stored history hydrates the
+ * stream, and every further send goes through the real turn routes.
+ * `openChat` is the open conversation, from `openChatOf` in the page. Null
+ * while the conversation list loads or after its load failed: nothing sends
+ * then. `model` is the pick of the model menu. Every send carries it, also
+ * Retry, question answers, and approval answers. Undefined sends none: the
+ * server default runs. `deps` is the test seam of use-builder-chat.ts;
+ * production passes nothing.
  */
 export function useBuilderThread(
 	projectId: string,
+	openChat: OpenChat | null,
 	model: string | undefined,
 	deps?: BuilderChatDeps,
 ): BuilderThreadState {
 	const { t } = useTranslation();
-	const byProjectQuery = useChatByProjectQuery(projectId);
-	const chatId = byProjectQuery.data?.chatId;
-	const historyQuery = useInfiniteQuery(chatHistoryQuery(projectId));
+	const chatId = openChat?.id;
+	const historyQuery = useInfiniteQuery(chatHistoryQuery(projectId, chatId));
 	const history = historyQuery.data;
 
 	// useChat holds only the newest page. A load of an older page then never
@@ -250,7 +270,8 @@ export function useBuilderThread(
 	// lack the bubble of the running turn. A load that fails on this mount
 	// also settles. `isFetchedAfterMount` ignores an error cached by an
 	// earlier mount, which refetches now. It stays true during a later
-	// refetch, so useChat does not resume a second time.
+	// refetch, so useChat does not resume a second time. TanStack counts it
+	// for each query, so a new conversation starts from false.
 	const isHistorySettled =
 		history !== undefined || historyQuery.isFetchedAfterMount;
 
@@ -275,17 +296,27 @@ export function useBuilderThread(
 		() => latestTurnModeOf([...olderHistoryMessages, ...chat.messages]),
 		[olderHistoryMessages, chat.messages],
 	);
-	// The user's pick of the Plan toggle, with its project; null follows the
-	// newest turn. A project switch in place keeps this hook, so the pick of
-	// another project reads as none.
+	const contextUsage = useMemo(
+		() => contextUsageOf([...olderHistoryMessages, ...chat.messages]),
+		[olderHistoryMessages, chat.messages],
+	);
+	// The user's pick of the Plan toggle, with its project and conversation;
+	// null follows the newest turn. A project or conversation switch in place
+	// keeps this hook, so the pick of another conversation reads as none.
 	const [storedPick, setStoredPick] = useState<{
 		projectId: string;
+		/** Id of the conversation of the pick; undefined while the conversation list loads. */
+		chatId: string | undefined;
 		isPlanMode: boolean;
 	} | null>(null);
 	const planModePick =
-		storedPick?.projectId === projectId ? storedPick.isPlanMode : null;
+		storedPick?.projectId === projectId && storedPick.chatId === chatId
+			? storedPick.isPlanMode
+			: null;
 	const setPlanModePick = (isPlanMode: boolean | null) =>
-		setStoredPick(isPlanMode === null ? null : { projectId, isPlanMode });
+		setStoredPick(
+			isPlanMode === null ? null : { projectId, chatId, isPlanMode },
+		);
 	// Id of the last turn whose `data-turn-created` frame arrived. A new id
 	// means a new turn started: the pick clears, and the toggle shows the
 	// mode of that turn. Message ids do not work here: a history reseed
@@ -320,8 +351,7 @@ export function useBuilderThread(
 	// The frame is already a card in the reply, so the row under the list
 	// stays empty. The row shows a send that the API refused before any
 	// stream, or a stream that the transport cannot reopen. It also shows a
-	// chat id lookup that never resolved (a V1 project id), and a failed
-	// history load.
+	// failed history load.
 	const lastMessage = messages.at(-1);
 	const replyHoldsError =
 		lastMessage?.role === "assistant" &&
@@ -354,7 +384,7 @@ export function useBuilderThread(
 			: turnErrorText(
 					chat.error,
 					chat.isSendRefused,
-					byProjectQuery.error ?? historyQuery.error ?? undefined,
+					historyQuery.error ?? undefined,
 					t,
 				),
 		send: ({ text, files, mode }, targets) =>
@@ -376,14 +406,19 @@ export function useBuilderThread(
 				? (chat.messages.at(-1)?.id ?? null)
 				: null,
 		lastTurnFailed: replyHoldsError,
+		// Product rule: only the oldest conversation can hold the first turn of
+		// the project. A newer conversation works on a sandbox that exists.
 		// LIMIT: a first turn that failed before the sandbox existed makes the
 		// next turn show the resume copy. Upgrade: a sandbox status from the API.
 		// An older page proves earlier turns, also when the newest page holds
 		// only approval answers, which show no user bubble.
-		isFirstTurn: isHistorySettled
-			? !historyQuery.hasNextPage &&
-				messages.filter((message) => message.role === "user").length <= 1
-			: null,
+		isFirstTurn:
+			openChat?.isOldest === false
+				? false
+				: isHistorySettled
+					? !historyQuery.hasNextPage &&
+						messages.filter((message) => message.role === "user").length <= 1
+					: null,
 		hasOlderMessages: historyQuery.hasNextPage,
 		isLoadingOlderMessages: historyQuery.isFetchingNextPage,
 		loadOlderMessages: () => {
@@ -391,8 +426,9 @@ export function useBuilderThread(
 			if (!historyQuery.isFetchingNextPage) void historyQuery.fetchNextPage();
 		},
 		latestTurnMode,
+		contextUsage,
 		isPlanMode,
 		setPlanMode: setPlanModePick,
-		chatId,
+		busyChatId: chat.busyChatId,
 	};
 }

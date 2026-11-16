@@ -18,7 +18,7 @@ describe("toCreateAppProjectBody", () => {
 			composer: undefined,
 			attachments: [attachment],
 			locale: "fr",
-			targetPlatform: "web",
+			appType: "web",
 			mode: "plan",
 		});
 
@@ -44,10 +44,32 @@ describe("toCreateAppProjectBody", () => {
 			composer: undefined,
 			attachments: [],
 			locale: "en",
-			targetPlatform: "web",
+			appType: "web",
 			mode: "build",
 		});
 
 		expect(body.attachments).toBeUndefined();
+	});
+
+	it.each([
+		["desktop", { targetPlatform: "desktop" }],
+		[
+			"desktop-electron",
+			{ targetPlatform: "desktop", desktopEngine: "electron" },
+		],
+	] as const)("sends the app type %j as %j", (appType, expected) => {
+		const body = toCreateAppProjectBody({
+			prompt: "A stock tool",
+			composer: undefined,
+			attachments: undefined,
+			locale: "en",
+			appType,
+			mode: "build",
+		});
+
+		expect({
+			targetPlatform: body.targetPlatform,
+			desktopEngine: body.desktopEngine,
+		}).toEqual(expected);
 	});
 });

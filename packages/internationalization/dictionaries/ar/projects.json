@@ -140,6 +140,10 @@
 			"desktop": {
 				"label": "تطبيق سطح مكتب",
 				"description": "لنظام Windows. تبقى البيانات على الحاسوب."
+			},
+			"desktop-electron": {
+				"label": "تطبيق سطح مكتب 2",
+				"description": "تجريبي. مبني بمحرك Electron."
 			}
 		},
 		"outputLabel": "المُخرَج",

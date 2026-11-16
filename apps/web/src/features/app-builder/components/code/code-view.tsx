@@ -1,16 +1,20 @@
 /**
  * Code view of the app builder: the file tree on the start side, the
- * read-only editor column next to it. Reads codeSnapshotQuery and
- * codeFileQuery, which read the running sandbox through the V2 API; the
+ * read-only editor column next to it. A Back bar shows in every state. It
+ * sits on top of the tree column. While the tree is closed, it sits above the
+ * editor column. A message state shows it above the message. Reads
+ * codeSnapshotQuery and codeFileQuery through the V2 API. The snapshot is the last saved version;
+ * only a project with no saved version reads the running sandbox. The
  * snapshot also fills the file cache, so most clicks need no request. An
  * asleep sandbox, a project without files, and a failed load each show a
  * message inside the view, never an error page. While a turn sets up the
  * sandbox, the view shows the loading layout with a status line and polls
- * until the files show.
- * Rendered by pages/app-builder-page.tsx. The page owns the selected path
- * in the URL and passes onSelectFile.
+ * until the files show. It polls only while it is on screen.
+ * Rendered by components/more/more-view.tsx as the code screen. The page owns
+ * the selected path in the URL; More view passes onSelectFile and onBack.
  */
 
+import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { FolderDashedIcon } from "@phosphor-icons/react/FolderDashed";
 import { MoonStarsIcon } from "@phosphor-icons/react/MoonStars";
@@ -20,10 +24,11 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
-import { useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -39,11 +44,11 @@ import {
 	CodeMessage,
 	CodeViewer,
 	type FileBody,
-	loadCodeEditor,
 	RetryButton,
 } from "./code-viewer";
 import { FileTree } from "./file-tree";
 
+/** Props of CodeView. more-view.tsx passes them; the page owns the path in `?file=`. */
 export type CodeViewProps = {
 	projectId: string;
 	/** Path from the URL, or undefined to open the default file of the snapshot. */
@@ -51,6 +56,10 @@ export type CodeViewProps = {
 	onSelectFile: (path: string) => void;
 	/** True while a builder turn runs, from useBuilderThread. Only a turn creates or wakes the sandbox. */
 	isTurnRunning: boolean;
+	/** Leaves the code screen for the last More panel. The Back bar calls it. */
+	onBack: () => void;
+	/** True while the code screen is on screen. The view stays mounted while hidden, so the poll waits for it. */
+	isActive: boolean;
 };
 
 /**
@@ -79,13 +88,15 @@ export function CodeView({
 	filePath,
 	onSelectFile,
 	isTurnRunning,
+	onBack,
+	isActive,
 }: CodeViewProps) {
 	const { t } = useTranslation();
 	const isMobile = useIsMobile();
 	const snapshot = useQuery({
 		...codeSnapshotQuery(projectId),
 		refetchInterval: (query) =>
-			codeSnapshotPollMs(query.state.data, isTurnRunning),
+			codeSnapshotPollMs(query.state.data, isTurnRunning, isActive),
 	});
 	// The click shows the file at once. The URL follows when the router
 	// commits; a new URL path (back, forward, a link) wins again.
@@ -99,29 +110,20 @@ export function CodeView({
 	const [treeChoice, setTreeChoice] = useState<boolean | null>(null);
 	const isTreeOpen = treeChoice ?? !isMobile;
 
-	// The CodeMirror chunk downloads while the tree and the first file load.
-	useEffect(() => {
-		loadCodeEditor().catch(() => {
-			// A failed early download only loses the head start: the lazy
-			// editor fails the same way, and its error boundary in
-			// code-viewer.tsx shows the message and reports it.
-		});
-	}, []);
-
-	if (snapshot.isPending) {
-		return <CodeViewSkeleton />;
-	}
+	if (snapshot.isPending) return <CodeViewSkeleton onBack={onBack} />;
 	// A failed refetch keeps the last good data; only a first load that
 	// failed has no data.
 	if (snapshot.data === undefined) {
 		return (
-			<CodeMessage
-				icon={WarningCircleIcon}
-				title={t("appBuilder.code.loadFailed")}
-				text={t("appBuilder.code.loadFailedHint")}
-			>
-				<RetryButton onRetry={() => void snapshot.refetch()} />
-			</CodeMessage>
+			<StateWithBack onBack={onBack}>
+				<CodeMessage
+					icon={WarningCircleIcon}
+					title={t("appBuilder.code.loadFailed")}
+					text={t("appBuilder.code.loadFailedHint")}
+				>
+					<RetryButton onRetry={() => void snapshot.refetch()} />
+				</CodeMessage>
+			</StateWithBack>
 		);
 	}
 	// The server never wakes a sandbox for a read. The next turn wakes it;
@@ -129,27 +131,36 @@ export function CodeView({
 	if (snapshot.data === null) {
 		// A running turn creates or wakes the sandbox, so the files are on their way.
 		if (isTurnRunning) {
-			return <CodeViewSkeleton status={t("appBuilder.code.settingUp")} />;
+			return (
+				<CodeViewSkeleton
+					onBack={onBack}
+					status={t("appBuilder.code.settingUp")}
+				/>
+			);
 		}
 		// A refetch, for example the one at a turn end, can still find a running sandbox.
-		if (snapshot.isFetching) return <CodeViewSkeleton />;
+		if (snapshot.isFetching) return <CodeViewSkeleton onBack={onBack} />;
 		return (
-			<CodeMessage
-				icon={MoonStarsIcon}
-				title={t("appBuilder.code.asleepTitle")}
-				text={t("appBuilder.code.asleep")}
-			/>
+			<StateWithBack onBack={onBack}>
+				<CodeMessage
+					icon={MoonStarsIcon}
+					title={t("appBuilder.code.asleepTitle")}
+					text={t("appBuilder.code.asleep")}
+				/>
+			</StateWithBack>
 		);
 	}
 	const selectedPath = pickedPath ?? snapshot.data.defaultFilePath;
 	// The default path is null only when the tree holds no file.
 	if (selectedPath === null) {
 		return (
-			<CodeMessage
-				icon={FolderDashedIcon}
-				title={t("appBuilder.code.noFilesTitle")}
-				text={t("appBuilder.code.noFiles")}
-			/>
+			<StateWithBack onBack={onBack}>
+				<CodeMessage
+					icon={FolderDashedIcon}
+					title={t("appBuilder.code.noFilesTitle")}
+					text={t("appBuilder.code.noFiles")}
+				/>
+			</StateWithBack>
 		);
 	}
 
@@ -170,6 +181,8 @@ export function CodeView({
 					isMobile ? "w-full" : "w-64",
 				)}
 			>
+				{/* A closed tree hides this column, so Back moves above the editor. */}
+				{isTreeOpen ? <BackBar onBack={onBack} /> : null}
 				<FileTree
 					nodes={snapshot.data.tree}
 					selectedPath={selectedPath}
@@ -178,10 +191,11 @@ export function CodeView({
 			</div>
 			<div
 				className={cn(
-					"min-w-0 flex-1",
+					"min-w-0 flex-1 flex-col",
 					isMobile && isTreeOpen ? "hidden" : "flex",
 				)}
 			>
+				{isTreeOpen ? null : <BackBar onBack={onBack} />}
 				<OpenFile
 					projectId={projectId}
 					path={selectedPath}
@@ -190,6 +204,56 @@ export function CodeView({
 					onToggleTree={() => setTreeChoice(!isTreeOpen)}
 				/>
 			</div>
+		</div>
+	);
+}
+
+/**
+ * The Back bar: the way back to the More panels. It is a CODE_BAR_CLASS bar,
+ * so on top of the tree column it lines up with the editor header. The pill
+ * has the left arrow of the Database table back button (cloud/database-panel.tsx).
+ */
+function BackBar({
+	onBack,
+	className,
+}: {
+	onBack: () => void;
+	/** Extra classes of the bar, for example `md:hidden` in the skeleton. */
+	className?: string;
+}) {
+	const { t } = useTranslation();
+	return (
+		<div className={cn(CODE_BAR_CLASS, "px-2", className)}>
+			<Button
+				variant="ghost"
+				size="sm"
+				onClick={onBack}
+				className="font-grotesk font-medium text-night/70 hover:bg-night/[0.06] hover:text-night dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground"
+			>
+				{/* In RTL the More nav sits on the right, so the arrow mirrors. */}
+				<ArrowLeftIcon aria-hidden weight="bold" className="rtl:-scale-x-100" />
+				{t("appBuilder.code.back")}
+			</Button>
+		</div>
+	);
+}
+
+/**
+ * A message state (failed, asleep, no files) under a Back bar, so the user
+ * can always leave the code screen.
+ */
+function StateWithBack({
+	onBack,
+	children,
+}: {
+	onBack: () => void;
+	/** The CodeMessage of the state. */
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex h-full min-h-0 flex-col">
+			<BackBar onBack={onBack} />
+			<div className="flex min-h-0 flex-1 flex-col">{children}</div>
 		</div>
 	);
 }
@@ -247,17 +311,21 @@ function OpenFile({
 
 /**
  * The first-load layout: tree bars, a header bar, and code line bars. A
- * `status` line takes the place of the header bar.
+ * `status` line takes the place of the header bar. The Back bar sits where
+ * the loaded layout puts it, so the columns do not move when the files arrive.
  */
 function CodeViewSkeleton({
+	onBack,
 	status,
 }: {
+	onBack: () => void;
 	/** Why the files are not here yet, for example a sandbox that a turn sets up. Undefined on a plain first load. */
 	status?: string;
 }) {
 	return (
 		<div aria-busy="true" className="flex h-full min-h-0">
 			<div className={cn(TREE_COLUMN_CLASS, "hidden w-64 md:flex")}>
+				<BackBar onBack={onBack} />
 				<div className={cn(CODE_BAR_CLASS, "px-4")}>
 					<Skeleton className={cn("h-3 w-16", CODE_SKELETON_CLASS)} />
 				</div>
@@ -276,6 +344,8 @@ function CodeViewSkeleton({
 				</div>
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
+				{/* Below md the skeleton has no tree column, like a closed tree. */}
+				<BackBar onBack={onBack} className="md:hidden" />
 				<div className={cn(CODE_BAR_CLASS, "px-4")}>
 					{status === undefined ? (
 						<Skeleton className={cn("h-3 w-[30%]", CODE_SKELETON_CLASS)} />

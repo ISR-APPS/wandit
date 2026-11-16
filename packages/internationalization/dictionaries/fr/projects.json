@@ -140,6 +140,10 @@
 			"desktop": {
 				"label": "App de bureau",
 				"description": "Pour Windows. Les données restent sur l'ordinateur."
+			},
+			"desktop-electron": {
+				"label": "App de bureau 2",
+				"description": "Expérimental. Créée avec le moteur Electron."
 			}
 		},
 		"outputLabel": "Sortie",

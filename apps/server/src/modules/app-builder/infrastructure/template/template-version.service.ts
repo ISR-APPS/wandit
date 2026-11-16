@@ -4,7 +4,6 @@
  * Line 1 of `templates/<framework>/template_version` is the version (D-D);
  * line 2 is the release date. The file paths come from `TEMPLATE_PROFILES`.
  */
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { TargetPlatform } from "@wandit/contracts";
@@ -12,7 +11,7 @@ import type { TargetPlatform } from "@wandit/contracts";
 import { DesktopTemplateUnavailableError } from "../../domain/errors/desktop-template-unavailable.error";
 import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
 import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
-import { TEMPLATE_PROFILES } from "../sandbox/template-profiles";
+import { readFirstLine, TEMPLATE_PROFILES } from "../sandbox/template-profiles";
 
 /**
  * The version file of each platform inside the `templates/` folder that
@@ -96,16 +95,5 @@ export class TemplateVersionService {
 				}
 				return this.desktopVersion;
 		}
-	}
-}
-
-/** The trimmed first line of the file, or null when it is missing or empty. */
-function readFirstLine(file: string): string | null {
-	try {
-		return readFileSync(file, "utf8").split("\n", 1)[0]?.trim() || null;
-	} catch {
-		// One answer for "no file" and "no version". The caller names the file,
-		// so the operator fixes the file.
-		return null;
 	}
 }

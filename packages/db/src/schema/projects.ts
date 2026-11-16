@@ -65,6 +65,12 @@ export const projectTargetPlatform = pgEnum("project_target_platform", [
 	"desktop",
 ]);
 
+/**
+ * Native shell of a desktop app project. Matches `desktopEngines` in
+ * @wandit/contracts. "electron" is the experimental engine.
+ */
+export const desktopEngine = pgEnum("desktop_engine", ["tauri", "electron"]);
+
 // Main workspace table.
 export const projects = pgTable(
 	"projects",
@@ -103,6 +109,10 @@ export const projects = pgTable(
 		engine: projectEngine("engine").notNull().default("v1_page"),
 		// Device family the app targets. Null on V1 page projects.
 		targetPlatform: projectTargetPlatform("target_platform"),
+		// Native shell of a desktop app. Null on a non-desktop project. Null on a
+		// desktop project means "tauri": rows older than this column. It never
+		// changes after the create.
+		desktopEngine: desktopEngine("desktop_engine"),
 		// What workspace members get on this project. A move to another
 		// workspace resets it to `can_edit`.
 		workspaceAccess: projectWorkspaceAccess("workspace_access")

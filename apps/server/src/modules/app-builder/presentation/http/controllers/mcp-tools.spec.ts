@@ -11,14 +11,17 @@ import {
 	mcpToolErrorSchema,
 } from "@wandit/contracts";
 import { afterAll, describe, expect, it } from "vitest";
-
+import type { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 // The real role rule of `ProjectAccessService.resolve`, so each case states facts, not a role.
 import {
 	type ProjectAccessFacts,
 	resolveProjectAccess,
 } from "../../../../projects";
 import type { TurnsService } from "../../../application/services/turns.service";
-import type { BuilderTurnRow } from "../../../infrastructure/persistence/builder-turns.repository";
+import type {
+	BuilderTurnRow,
+	BuilderTurnsRepository,
+} from "../../../infrastructure/persistence/builder-turns.repository";
 import type { RateLimitStore } from "../guards/redis-rate-limit.guard";
 import { type McpCallContext, McpTools } from "./mcp-tools";
 
@@ -126,7 +129,12 @@ function notReached(): Promise<never> {
 
 /** The fakes that one case replaces. The others reject or answer a fixed value. */
 type ToolFakes = {
+	chats?: Pick<
+		ChatsRepository,
+		"findAccessibleChatByProjectId" | "listProjectChats"
+	>;
 	turns?: Pick<TurnsService, "create" | "cancel" | "assertStreamAccess">;
+	turnRows?: Pick<BuilderTurnsRepository, "findBusyChatId" | "findCardParts">;
 	rateLimits?: RateLimitStore;
 };
 
@@ -144,7 +152,10 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 		{ findMembership: async () => null },
 		{ listForUser: notReached },
 		{ list: notReached, listShared: notReached },
-		{ findAccessibleChatByProjectId: notReached },
+		fakes.chats ?? {
+			findAccessibleChatByProjectId: notReached,
+			listProjectChats: notReached,
+		},
 		{ get: notReached },
 		{ file: notReached, snapshot: notReached },
 		{ list: async () => ({ items: [], nextCursor: null }) },
@@ -153,7 +164,7 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 			cancel: notReached,
 			create: notReached,
 		},
-		{ findCardParts: notReached },
+		fakes.turnRows ?? { findBusyChatId: notReached, findCardParts: notReached },
 		{ wake: async () => ({ status: "running" }) },
 		{
 			apply: async () => ({ headSha: "c".repeat(40) }),
@@ -475,5 +486,85 @@ describe("McpTools get_turn", () => {
 		// One read and no poll: a wait reads the row again every 2 s for up to 25 s.
 		expect(turnReads).toBe(1);
 		expect(heldSlots).toBe(5);
+	});
+});
+
+describe("send_prompt conversation", () => {
+	const OLDEST_CHAT_ID = "c0000000-0000-4000-8000-000000000001";
+	const NEWEST_CHAT_ID = "c0000000-0000-4000-8000-000000000002";
+	const BUSY_CHAT_ID = "c0000000-0000-4000-8000-000000000003";
+
+	// Product rule: one conversation at a time uses the project. The prompt must
+	// not go to the oldest conversation, which the API refuses while another holds it.
+	it.each([
+		{
+			holder: "another conversation",
+			busyChatId: BUSY_CHAT_ID,
+			expected: BUSY_CHAT_ID,
+		},
+		{ holder: "no conversation", busyChatId: null, expected: NEWEST_CHAT_ID },
+	])("sends to the right conversation when $holder holds the project", async ({
+		busyChatId,
+		expected,
+	}) => {
+		const sentChatIds: string[] = [];
+		const target = handlerFor(
+			toolsWith({
+				chats: {
+					findAccessibleChatByProjectId: async () => ({
+						id: OLDEST_CHAT_ID,
+						projectId: OWN_PROJECT_ID,
+						userId: CALL.userId,
+					}),
+					listProjectChats: async () => [
+						{
+							createdAt: new Date(1),
+							id: NEWEST_CHAT_ID,
+							lastMessageAt: new Date(2),
+							title: "Add a page",
+						},
+						{
+							createdAt: new Date(0),
+							id: OLDEST_CHAT_ID,
+							lastMessageAt: new Date(1),
+							title: "Build a shop",
+						},
+					],
+				},
+				turnRows: {
+					findBusyChatId: async () => busyChatId,
+					findCardParts: notReached,
+				},
+				turns: {
+					assertStreamAccess: notReached,
+					cancel: notReached,
+					create: async (_scope, _projectId, body) => {
+						sentChatIds.push(body.chatId);
+						return {
+							chatId: body.chatId,
+							runId: null,
+							status: "queued",
+							streamUrl: "",
+							turnId: TURN_ID,
+						};
+					},
+				},
+			}),
+		);
+
+		const outcome = await outcomeOf(
+			[...mcpScopes],
+			"send_prompt",
+			{
+				message: "Add a page",
+				projectId: OWN_PROJECT_ID,
+				requestKey: REQUEST_KEY,
+			},
+			target,
+		);
+		await target.close();
+
+		expect(outcome).toBe("success");
+		expect(sentChatIds).toEqual([expected]);
 	});
 });

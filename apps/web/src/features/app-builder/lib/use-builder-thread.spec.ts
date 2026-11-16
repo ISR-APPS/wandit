@@ -12,9 +12,9 @@ import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { chatKeys } from "@/features/workspace";
 import { ApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "../api/app-builder.queries";
+import type { OpenChat } from "./helpers";
 import type { BuilderChatDeps } from "./use-builder-chat";
 import {
 	canReconnectAfter,
@@ -53,16 +53,6 @@ const failedTurnFrames = [
 	},
 	{ type: "error", errorText: "Something went wrong on our side." },
 ];
-
-// A V1 project id gets a 400 from the chat id lookup.
-const lookupError = new ApiClientError({
-	code: "CHAT_LOOKUP_FAILED",
-	message: "The chat lookup failed.",
-	path: `/api/v1/chats/by-project/${PROJECT_ID}`,
-	requestId: "req-lookup",
-	statusCode: 400,
-	timestamp: "2026-09-17T00:00:00.000Z",
-});
 
 const loadError = new ApiClientError({
 	code: "CHAT_LOAD_FAILED",
@@ -140,7 +130,7 @@ function createDeps(
 	);
 	// The poll route: no turn and no commit of another client.
 	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
-		async () => ({ activeTurnId: null, headSha: null }),
+		async () => ({ activeTurnId: null, busyChatId: null, headSha: null }),
 	);
 
 	return {
@@ -203,7 +193,8 @@ const FAILED_TURN_HISTORY: InfiniteData<ChatHistoryPage, string | null> = {
 function renderThread(
 	deps: BuilderChatDeps,
 	options: {
-		byProjectError?: ApiClientError;
+		/** The open conversation. The oldest conversation of the project, with CHAT_ID, when left out. */
+		openChat?: OpenChat;
 		messagesError?: ApiClientError;
 		/** The stored history the history query answers. EMPTY_HISTORY when left out. */
 		history?: InfiniteData<ChatHistoryPage, string | null>;
@@ -220,47 +211,36 @@ function renderThread(
 				queries: { staleTime: Number.POSITIVE_INFINITY, retry: false },
 			},
 		});
-	if (options.byProjectError) {
-		// A failed by-project lookup: a V1 project id gets a 400.
-		failQueryDuringMount(
-			queryClient,
-			chatKeys.byProject(PROJECT_ID),
-			options.byProjectError,
-		);
-	} else {
-		// The seeded answer feeds the chat id query, so it never fetches.
-		queryClient.setQueryData(chatKeys.byProject(PROJECT_ID), {
-			chatId: CHAT_ID,
-			projectId: PROJECT_ID,
-		});
-	}
-	// The history query does not wait for the chat id, so every case seeds or
-	// fails it, and the real API is never called.
+	const openChat = options.openChat ?? { id: CHAT_ID, isOldest: true };
+	// Every case seeds or fails the history query, so the real API is never called.
 	if (options.messagesError) {
 		failQueryDuringMount(
 			queryClient,
-			appBuilderKeys.chatHistory(PROJECT_ID),
+			appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 			options.messagesError,
 		);
 	} else if (!options.historyPending) {
 		queryClient.setQueryData(
-			appBuilderKeys.chatHistory(PROJECT_ID),
+			appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 			options.history ?? EMPTY_HISTORY,
 		);
 	}
-	const view = renderHook(() => useBuilderThread(PROJECT_ID, undefined, deps), {
-		wrapper: ({ children }: { children: ReactNode }) =>
-			createElement(
-				QueryClientProvider,
-				{ client: queryClient },
-				createElement(I18nProvider, {
-					locale: "en",
-					dictionary: fallbackDictionary,
-					setLocale: () => {},
-					children,
-				}),
-			),
-	});
+	const view = renderHook(
+		() => useBuilderThread(PROJECT_ID, openChat, undefined, deps),
+		{
+			wrapper: ({ children }: { children: ReactNode }) =>
+				createElement(
+					QueryClientProvider,
+					{ client: queryClient },
+					createElement(I18nProvider, {
+						locale: "en",
+						dictionary: fallbackDictionary,
+						setLocale: () => {},
+						children,
+					}),
+				),
+		},
+	);
 	return { ...view, queryClient };
 }
 
@@ -301,6 +281,14 @@ describe("turnErrorKey and canReconnectAfter", () => {
 			error: turnRouteError(429, "RATE_LIMITED"),
 			isSendRefused: true,
 			key: null,
+			canReconnect: false,
+		},
+		// Product rule: one conversation at a time uses the project.
+		{
+			failure: "a send while another conversation holds the project",
+			error: turnRouteError(409, "BUILDER_OTHER_CHAT_BUSY"),
+			isSendRefused: true,
+			key: "errors.codes.BUILDER_OTHER_CHAT_BUSY",
 			canReconnect: false,
 		},
 		{
@@ -364,35 +352,67 @@ describe("useBuilderThread", () => {
 		);
 	});
 
-	it.each([
-		{
-			failure: "chat id lookup",
-			options: { byProjectError: lookupError },
-			isReady: false,
-			// The history loads without the chat id, so the empty history settles.
-			isFirstTurn: true,
-		},
-		// A failed load settles the history, so the composer and the boot screen do not hang.
-		{
-			failure: "history load",
-			options: { messagesError: loadError },
-			isReady: true,
-			isFirstTurn: true,
-		},
-	])("shows the generic sentence when the $failure fails (ready: $isReady, first turn: $isFirstTurn)", async ({
-		options,
-		isReady,
-		isFirstTurn,
-	}) => {
-		const { result } = renderThread(createDeps().deps, options);
+	// A failed load settles the history, so the composer and the boot screen do not hang.
+	it("shows the generic sentence when the history load fails, and counts as ready and as a first turn", async () => {
+		const { result } = renderThread(createDeps().deps, {
+			messagesError: loadError,
+		});
 
 		await waitFor(() =>
 			expect(result.current.errorText).toBe(
 				"Something went wrong. Please try again.",
 			),
 		);
-		expect(result.current.isReady).toBe(isReady);
-		expect(result.current.isFirstTurn).toBe(isFirstTurn);
+		expect(result.current.isReady).toBe(true);
+		expect(result.current.isFirstTurn).toBe(true);
+	});
+
+	// A newer conversation works on the sandbox that the first conversation
+	// made. The first-build lines and the create scene must not show for it.
+	it("does not count the first turn of a newer conversation as the first turn of the project", async () => {
+		const { result } = renderThread(createDeps().deps, {
+			openChat: { id: CHAT_ID, isOldest: false },
+		});
+
+		await waitFor(() => expect(result.current.isReady).toBe(true));
+		expect(result.current.isFirstTurn).toBe(false);
+	});
+
+	// Product rule: one conversation at a time uses the project. The mount
+	// resume and the poll both see the turn of the other conversation.
+	it("does not replay the active turn of another conversation, and reports that conversation as busy", async () => {
+		const otherChatId = crypto.randomUUID();
+		const fake = createDeps();
+		const otherTurnFrames = [
+			{ ...createdFrame, data: { ...createdFrame.data, chatId: otherChatId } },
+			{ type: "text-start", id: "t1" },
+			{ type: "text-delta", id: "t1", delta: "reply of the other one" },
+		];
+		let getCount = 0;
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			// Each GET of the active stream answers the turn of the other conversation.
+			fetch: async (input, init) => {
+				if (init?.method === "POST") return fake.deps.fetch(input, init);
+				getCount += 1;
+				return turnStream(otherTurnFrames);
+			},
+			getActiveTurnState: async () => ({
+				activeTurnId: TURN_ID,
+				busyChatId: otherChatId,
+				headSha: null,
+			}),
+		};
+		const { result } = renderThread(deps);
+
+		await waitFor(() => expect(getCount).toBe(1));
+		await waitFor(() => expect(result.current.busyChatId).toBe(otherChatId));
+		// The wait lets a replay show, and lets a follow GET go out, if a rule
+		// took the turn for a turn of this conversation.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+		expect(getCount).toBe(1);
+		expect(result.current.messages).toEqual([]);
+		expect(result.current.isSending).toBe(false);
 	});
 
 	it("keeps the row empty when the reply holds the error card", async () => {
@@ -598,16 +618,19 @@ describe("useBuilderThread", () => {
 		});
 		const olderId = crypto.randomUUID();
 		act(() => {
-			queryClient.setQueryData(appBuilderKeys.chatHistory(PROJECT_ID), {
-				pages: [
-					{
-						items: [storedRow(crypto.randomUUID(), 2, "user")],
-						nextCursor: "2",
-					},
-					{ items: [storedRow(olderId, 1, "assistant")], nextCursor: null },
-				],
-				pageParams: [null, "2"],
-			});
+			queryClient.setQueryData(
+				appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
+				{
+					pages: [
+						{
+							items: [storedRow(crypto.randomUUID(), 2, "user")],
+							nextCursor: "2",
+						},
+						{ items: [storedRow(olderId, 1, "assistant")], nextCursor: null },
+					],
+					pageParams: [null, "2"],
+				},
+			);
 		});
 
 		await waitFor(() =>
@@ -654,7 +677,7 @@ describe("useBuilderThread", () => {
 
 			act(() => {
 				queryClient.setQueryData(
-					appBuilderKeys.chatHistory(PROJECT_ID),
+					appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 					EMPTY_HISTORY,
 				);
 			});
@@ -688,7 +711,7 @@ describe("useBuilderThread", () => {
 			onlineManager.setOnline(false);
 			act(() => {
 				void queryClient.refetchQueries({
-					queryKey: appBuilderKeys.chatHistory(PROJECT_ID),
+					queryKey: appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 				});
 			});
 			await waitFor(() => expect(result.current.errorText).toBeNull());
@@ -697,7 +720,7 @@ describe("useBuilderThread", () => {
 
 			act(() => {
 				queryClient.setQueryData(
-					appBuilderKeys.chatHistory(PROJECT_ID),
+					appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 					EMPTY_HISTORY,
 				);
 			});

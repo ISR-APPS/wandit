@@ -1,8 +1,10 @@
 /**
  * Desktop-build runtime (docs/v2/desktop-apps.md sections 9 to 11): builds
  * the files of one desktop app for one platform (the Windows setup exe, or
- * the macOS disk image and update archive) and moves its `desktop_builds`
- * row to a terminal status. `desktop-build.task.ts` calls `runDesktopBuild`;
+ * the macOS disk image and, for the Tauri engine, the update archive) and
+ * moves its `desktop_builds` row to a terminal status. The engine of the
+ * project (Tauri or Electron) selects the shell, the workflow, and the
+ * signature. `desktop-build.task.ts` calls `runDesktopBuild`;
  * the spec runs it on fakes. It calls the sandbox, the migration gate, the
  * secret scanner, the theme font bundle, R2, the GitHub runner, the macOS
  * archive check, the updater signature, and the credit hold of build-credit-hold.ts.
@@ -28,6 +30,7 @@ import {
 	DESKTOP_MIGRATIONS_MAX_COUNT,
 	DESKTOP_MIGRATIONS_MAX_TOTAL_BYTES,
 	type DesktopBuildErrorCode,
+	type DesktopEngine,
 	type DesktopGateFinding,
 } from "@wandit/contracts";
 import type { AppThemeFile } from "@wandit/contracts/v2/app-theme";
@@ -63,6 +66,7 @@ import type {
 } from "../modules/app-builder/domain/ports/sandbox-provider";
 import { SecretScanGate } from "../modules/app-builder/domain/publish-gate/secret-scanner";
 import {
+	DESKTOP_SHELL_LAYOUTS,
 	DesktopBuildInputError,
 	type DesktopBuildInputFile,
 	writeDesktopBuildInput,
@@ -74,7 +78,9 @@ import {
 } from "../modules/app-builder/infrastructure/desktop/theme-fonts";
 import {
 	decryptDesktopUpdaterKey,
+	signElectronUpdate,
 	signUpdaterArtifact,
+	verifyElectronUpdateSignature,
 	verifyUpdaterSignature,
 } from "../modules/app-builder/infrastructure/desktop/updater-signature";
 import type { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
@@ -201,8 +207,11 @@ export type DesktopBuildDeps = {
 	updatesUrl: (key: string) => string | null;
 	/** `APP_SECRETS_ENCRYPTION_KEY`. Null on a worker without it: the run fails `unconfigured`. */
 	appSecretsEncryptionKey: string | null;
-	/** The trusted `src-tauri` folder: `resolve(TEMPLATE_ARCHIVE_DIR, "desktop-shell/src-tauri")`. */
-	shellDir: string;
+	/**
+	 * The trusted shell folder of each engine under `TEMPLATE_ARCHIVE_DIR`:
+	 * `desktop-shell/src-tauri` and `desktop-shell-electron/shell`.
+	 */
+	shellDirs: Record<DesktopEngine, string>;
 	/** `globalThis.fetch` in production. It reads the staged files and fetches the theme fonts. */
 	fetch: typeof fetch;
 	/** `GENERATION_BILLING_MODE === "off"`: the API made no hold. An existing hold still settles or refunds. */
@@ -286,8 +295,14 @@ export async function runDesktopBuild(
 		});
 		return SKIPPED;
 	}
-	const { app } = found;
-	const logFields = { buildId, platform: found.build.platform, projectId };
+	const { app, engine } = found;
+	const shellDir = deps.shellDirs[engine];
+	const logFields = {
+		buildId,
+		engine,
+		platform: found.build.platform,
+		projectId,
+	};
 	// The claim fails when the API canceled the row or another run claimed it.
 	const build = await deps.builds.transition(buildId, {
 		to: "preparing",
@@ -509,12 +524,14 @@ export async function runDesktopBuild(
 		);
 		// The deployed worker gets the shell through `additionalFiles` of
 		// trigger.config.ts. A missing file means an image without it.
-		const hasShell = await access(join(deps.shellDir, "tauri.conf.json")).then(
+		const hasShell = await access(
+			join(shellDir, DESKTOP_SHELL_LAYOUTS[engine].markerFile),
+		).then(
 			() => true,
 			() => false,
 		);
-		// tauri-plugin-updater refuses an http endpoint, and every installed app
-		// keeps the endpoint for good.
+		// The updater of each engine refuses an http endpoint, and every
+		// installed app keeps the endpoint for good.
 		if (
 			runner === null ||
 			storage === null ||
@@ -560,6 +577,7 @@ export async function runDesktopBuild(
 		let archive: Buffer;
 		try {
 			archive = await writeDesktopBuildInput({
+				engine,
 				config: {
 					identifier: desktopIdentifier(projectId),
 					mainBinaryName: app.binaryName,
@@ -582,7 +600,7 @@ export async function runDesktopBuild(
 					content: new TextEncoder().encode(migration.sql),
 					path: migration.fileName,
 				})),
-				shellDir: deps.shellDir,
+				shellDir,
 			});
 		} catch (error) {
 			if (error instanceof DesktopBuildInputError) {
@@ -600,9 +618,10 @@ export async function runDesktopBuild(
 			buildId,
 			build.platform === "macos" ? "dmg" : "exe",
 		);
-		// macOS only: the update archive. Windows installs its setup exe.
+		// Tauri macOS only: the update archive. Windows installs its setup exe,
+		// and an Electron Mac app installs from the disk image.
 		const stagingUpdateKey =
-			build.platform === "macos"
+			build.platform === "macos" && engine === "tauri"
 				? desktopStagingKey(projectId, buildId, "app.tar.gz")
 				: null;
 		temporaryKeys.push(
@@ -630,15 +649,27 @@ export async function runDesktopBuild(
 			outputUrl,
 		};
 		let dispatchInput: DesktopBuildDispatchInput;
-		if (stagingUpdateKey === null) {
-			dispatchInput = { ...dispatchBase, platform: "windows" };
-		} else {
+		if (stagingUpdateKey !== null) {
 			const updateUrl = await storage.presignPut(
 				stagingUpdateKey,
 				PRESIGNED_URL_TTL_SECONDS,
 			);
 			credentials.push(updateUrl);
-			dispatchInput = { ...dispatchBase, platform: "macos", updateUrl };
+			dispatchInput = {
+				...dispatchBase,
+				engine: "tauri",
+				platform: "macos",
+				updateUrl,
+			};
+		} else if (build.platform === "macos") {
+			// No update key on macOS means the Electron engine (see `stagingUpdateKey`).
+			dispatchInput = {
+				...dispatchBase,
+				engine: "electron",
+				platform: "macos",
+			};
+		} else {
+			dispatchInput = { ...dispatchBase, engine, platform: "windows" };
 		}
 		try {
 			ciRunId = (await runner.dispatch(dispatchInput)).runId;
@@ -738,9 +769,9 @@ export async function runDesktopBuild(
 			installerKey: string;
 			installerSha256: string;
 			installerBytes: number;
-			/** macOS only: the re-packed `.app.tar.gz` that the updater installs. */
+			/** Tauri macOS only: the re-packed `.app.tar.gz` that the updater installs. */
 			updateArchiveKey: string | null;
-			/** Signature of the update file: the setup exe, or the update archive. */
+			/** Signature of the update file: the installer, or the Tauri macOS update archive. */
 			updaterSignature: string;
 		};
 		// The temp folder starts after the last wait: a Trigger checkpoint may
@@ -757,15 +788,21 @@ export async function runDesktopBuild(
 				return await downloadStagedFile(deps.fetch, url, filePath, kind);
 			};
 			if (stagingUpdateKey === null) {
-				const installerFileName = `${app.binaryName}-${build.version}-setup.exe`;
+				// The installer is also the update file: the setup exe, or the disk
+				// image of an Electron macOS build.
+				const isDiskImage = build.platform === "macos";
+				const installerFileName = isDiskImage
+					? `${app.binaryName}-${build.version}.dmg`
+					: `${app.binaryName}-${build.version}-setup.exe`;
 				const installerPath = join(workDir, installerFileName);
 				const installer = await downloadStaged(
 					stagingKey,
 					installerPath,
-					"windows_installer",
+					isDiskImage ? "disk_image" : "windows_installer",
 				);
 				const signature = await signUpdateFile(deps, {
 					app,
+					engine,
 					fileName: installerFileName,
 					filePath: installerPath,
 					secretsKey: deps.appSecretsEncryptionKey,
@@ -812,6 +849,7 @@ export async function runDesktopBuild(
 				await writeFile(archivePath, repacked.gzipBytes, { flag: "wx" });
 				const signature = await signUpdateFile(deps, {
 					app,
+					engine: "tauri",
 					fileName: archiveFileName,
 					filePath: archivePath,
 					secretsKey: deps.appSecretsEncryptionKey,
@@ -1421,14 +1459,17 @@ async function downloadStagedFile(
 }
 
 /**
- * Decrypts the updater key of the app, signs one update file (section 10),
- * and verifies the signature. A miss throws `signing_failed`.
+ * Decrypts the updater key of the app, signs one update file (section 10)
+ * in the format of the engine, and verifies the signature. A miss throws
+ * `signing_failed`.
  */
 async function signUpdateFile(
 	deps: Pick<DesktopBuildDeps, "now">,
 	input: {
 		app: DesktopAppRow;
-		/** The file name in the trusted comment, for example `stock-1.0.3.app.tar.gz`. */
+		/** `tauri` signs in the minisign form, `electron` in the `wandit-ed25519-v1` form. */
+		engine: DesktopEngine;
+		/** The file name in the minisign trusted comment, for example `stock-1.0.3.app.tar.gz`. */
 		fileName: string;
 		filePath: string;
 		/** `APP_SECRETS_ENCRYPTION_KEY` of the worker. */
@@ -1438,18 +1479,26 @@ async function signUpdateFile(
 ): Promise<string> {
 	let signature: string;
 	try {
-		signature = await signUpdaterArtifact({
-			fileName: input.fileName,
-			filePath: input.filePath,
-			keyId: input.app.updaterKeyId,
-			privateKeyPkcs8: decryptDesktopUpdaterKey(
-				parseSecretKeyRing(input.secretsKey),
-				input.app,
-			),
-			// Unix seconds, as minisign writes the timestamp.
-			timestamp: Math.floor(deps.now() / 1000),
-			version: input.version,
-		});
+		const privateKeyPkcs8 = decryptDesktopUpdaterKey(
+			parseSecretKeyRing(input.secretsKey),
+			input.app,
+		);
+		signature =
+			input.engine === "electron"
+				? await signElectronUpdate({
+						filePath: input.filePath,
+						privateKeyPkcs8,
+						version: input.version,
+					})
+				: await signUpdaterArtifact({
+						fileName: input.fileName,
+						filePath: input.filePath,
+						keyId: input.app.updaterKeyId,
+						privateKeyPkcs8,
+						// Unix seconds, as minisign writes the timestamp.
+						timestamp: Math.floor(deps.now() / 1000),
+						version: input.version,
+					});
 	} catch (error) {
 		throw new DesktopBuildFailure(
 			"signing_failed",
@@ -1458,12 +1507,16 @@ async function signUpdateFile(
 	}
 	// Security: an installed app refuses an update whose signature fails.
 	// So a signature that does not verify never reaches R2.
-	const isValid = await verifyUpdaterSignature({
+	const check = {
 		filePath: input.filePath,
 		publicKey: input.app.updaterPublicKey,
 		signature,
 		version: input.version,
-	});
+	};
+	const isValid =
+		input.engine === "electron"
+			? await verifyElectronUpdateSignature(check)
+			: await verifyUpdaterSignature(check);
 	if (!isValid) {
 		throw new DesktopBuildFailure(
 			"signing_failed",

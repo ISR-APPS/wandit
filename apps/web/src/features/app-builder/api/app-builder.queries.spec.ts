@@ -36,14 +36,15 @@ function getAnswers(body: CodeSnapshotResponse): typeof apiClient.get {
 
 describe("codeSnapshotPollMs", () => {
 	it("polls every 3 s while a turn runs and no sandbox answered", () => {
-		expect(codeSnapshotPollMs(null, true)).toBe(3_000);
+		expect(codeSnapshotPollMs(null, true, true)).toBe(3_000);
 	});
 
-	it("does not poll with files, with no running turn, or before the first answer", () => {
+	it("does not poll with files, with no running turn, before the first answer, or while hidden", () => {
 		const snapshot = { branch: "main", defaultFilePath: null, tree: [] };
-		expect(codeSnapshotPollMs(snapshot, true)).toBe(false);
-		expect(codeSnapshotPollMs(null, false)).toBe(false);
-		expect(codeSnapshotPollMs(undefined, true)).toBe(false);
+		expect(codeSnapshotPollMs(snapshot, true, true)).toBe(false);
+		expect(codeSnapshotPollMs(null, false, true)).toBe(false);
+		expect(codeSnapshotPollMs(undefined, true, true)).toBe(false);
+		expect(codeSnapshotPollMs(null, true, false)).toBe(false);
 	});
 });
 

@@ -125,4 +125,34 @@ describe("BuilderHostToolRegistry.build", () => {
 			present_plan: "not-applicable",
 		});
 	});
+
+	it.each([
+		{
+			framework: "web-app",
+			templateVersion: "web-app@1.1.0",
+			tools: ["get_advisors", "run_sql"],
+		},
+		{
+			framework: "desktop-app",
+			templateVersion: "desktop-app@1.0.0",
+			tools: [],
+		},
+	])("gives a $framework security scan only the backend reads", async ({
+		framework,
+		templateVersion,
+		tools,
+	}) => {
+		const { fixture, registry } = await setup();
+
+		const toolSet = await registry.build({
+			...fixture.context,
+			framework,
+			mode: "security_scan",
+			templateVersion,
+		});
+
+		// No write, no approval card, and no question: the scan only reads.
+		expect(Object.keys(toolSet.tools).sort()).toEqual(tools);
+		expect(Object.keys(toolSet.toolApproval).sort()).toEqual(tools);
+	});
 });

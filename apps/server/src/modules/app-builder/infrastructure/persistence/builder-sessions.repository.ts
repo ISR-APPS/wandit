@@ -6,7 +6,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type { HarnessResumeEnvelope } from "@wandit/contracts";
-import { eq, stripNulCharacters } from "@wandit/db";
+import { and, eq, ne, stripNulCharacters } from "@wandit/db";
 import { builderSessions } from "@wandit/db/schema/builder-sessions";
 
 import {
@@ -114,5 +114,29 @@ export class BuilderSessionsRepository {
 			.returning();
 
 		return row ?? null;
+	}
+
+	/**
+	 * Drops the harness state of every chat of a project except `chatId`.
+	 * The `builder-turn` task calls it after it creates a new sandbox: the
+	 * Claude Code transcripts of all chats were on the old disk. Each other
+	 * chat then starts cold, not on a resume that fails.
+	 */
+	async clearResumeStateOfOtherChats(
+		projectId: string,
+		chatId: string,
+	): Promise<void> {
+		await this.db
+			.update(builderSessions)
+			.set({
+				providerSessionId: null,
+				resumeState: null,
+			})
+			.where(
+				and(
+					eq(builderSessions.projectId, projectId),
+					ne(builderSessions.chatId, chatId),
+				),
+			);
 	}
 }

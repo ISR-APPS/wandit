@@ -1,10 +1,16 @@
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 
 import { importSPKI, jwtVerify } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { GitFileTooLargeError } from "../../domain/errors/git-file-too-large.error";
 import type { V2EnvSource } from "../env/v2-env";
 import { CodeStorageGitStore, GitStoreError } from "./code-storage.git-store";
 
@@ -33,9 +39,15 @@ type RecordedRequest = {
 
 type Answer = {
 	status: number;
-	body: Record<string, string | number>;
+	/** A record goes out as problem JSON; bytes go out as they are. */
+	body: Record<string, string | number> | Uint8Array;
 	/** Raw `Retry-After` header value the answer carries, when set. */
 	retryAfter?: string;
+	/**
+	 * Sends `sentBytes` body bytes and never ends the body. With
+	 * `declaredBytes`, the answer carries that Content-Length; else it is chunked.
+	 */
+	holdOpen?: { declaredBytes?: number; sentBytes: number };
 };
 
 let server: Server;
@@ -59,18 +71,33 @@ async function startServer(): Promise<void> {
 				authorization: request.headers.authorization ?? null,
 				body: Buffer.concat(chunks).toString("utf8"),
 			});
-			const answer = answers.shift() ?? {
+			const answer: Answer = answers.shift() ?? {
 				status: 200,
 				body: { message: "ok" },
 			};
 			const headers: Record<string, string> = {
-				"content-type": "application/problem+json",
+				"content-type":
+					answer.body instanceof Uint8Array
+						? "application/octet-stream"
+						: "application/problem+json",
 			};
 			if (answer.retryAfter !== undefined) {
 				headers["retry-after"] = answer.retryAfter;
 			}
+			if (answer.holdOpen !== undefined) {
+				if (answer.holdOpen.declaredBytes !== undefined) {
+					headers["content-length"] = String(answer.holdOpen.declaredBytes);
+				}
+				response.writeHead(answer.status, headers);
+				response.write(Buffer.alloc(answer.holdOpen.sentBytes, "x"));
+				return;
+			}
 			response.writeHead(answer.status, headers);
-			response.end(JSON.stringify(answer.body));
+			response.end(
+				answer.body instanceof Uint8Array
+					? answer.body
+					: JSON.stringify(answer.body),
+			);
 		});
 	});
 	await new Promise<void>((resolve) => {
@@ -101,7 +128,61 @@ async function tokenClaims(authorization: string | null) {
 	return payload;
 }
 
+// A `git archive` tar.gz of a repository with a folder, a symlink, and a
+// long path. The path does not fit the ustar fields, so git writes a pax header.
+async function gitArchive(longPath: string): Promise<Uint8Array> {
+	const repo = await mkdtemp(join(tmpdir(), "code-storage-archive-"));
+	const git = (...args: string[]) =>
+		execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+	try {
+		git("init", "-q");
+		await writeFile(join(repo, "package.json"), "{}");
+		await mkdir(join(repo, "src"));
+		await writeFile(join(repo, "src/app.tsx"), "app");
+		await writeFile(join(repo, longPath), "long");
+		await symlink("app.tsx", join(repo, "src/link.tsx"));
+		git("add", "-A");
+		git(
+			"-c",
+			"user.name=spec",
+			"-c",
+			"user.email=spec@example.com",
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-q",
+			"-m",
+			"init",
+		);
+		return git("archive", "--format=tar.gz", "HEAD");
+	} finally {
+		await rm(repo, { force: true, recursive: true });
+	}
+}
+
+// One ustar entry: a 512-byte header, then the content padded to 512 bytes.
+// The reader does not check the checksum, so the header leaves it empty.
+// `sizeField` replaces the octal size text, to write a bad header.
+function tarEntry(path: string, content: string, sizeField?: string): Buffer {
+	const header = Buffer.alloc(512);
+	header.write(path, 0, "utf8");
+	header.write("0000644", 100, "utf8");
+	header.write(sizeField ?? Buffer.byteLength(content).toString(8), 124);
+	header.write("0", 156, "utf8");
+	header.write("ustar\u000000", 257, "utf8");
+	const body = Buffer.alloc(Math.ceil(Buffer.byteLength(content) / 512) * 512);
+	body.write(content, 0, "utf8");
+	return Buffer.concat([header, body]);
+}
+
+// A tar.gz of `entries`, closed by the two zero blocks of the format.
+function tarGzOf(...entries: Buffer[]): Uint8Array {
+	return gzipSync(Buffer.concat([...entries, Buffer.alloc(1024)]));
+}
+
 afterEach(async () => {
+	// A held answer keeps its connection open; close it so the server stops.
+	server.closeAllConnections();
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -295,6 +376,188 @@ describe("CodeStorageGitStore.readFile", () => {
 		expect(claims.repo).toBe("wandit/project-1");
 		expect(claims.scopes).toEqual(["git:read"]);
 		expect(claims.refs).toBeUndefined();
+	});
+});
+
+describe("CodeStorageGitStore Code view reads", () => {
+	it("lists only the blob paths at a ref, and answers null on a 404", async () => {
+		await startServer();
+		answers.push(
+			{
+				status: 200,
+				body: Buffer.from(
+					JSON.stringify({
+						entries: [
+							{ path: "src", type: "tree", mode: "040000" },
+							{ path: "src/app.tsx", type: "blob", mode: "100644" },
+							{ path: "src/link.tsx", type: "symlink", mode: "120000" },
+							{ path: "vendor/lib", type: "submodule", mode: "160000" },
+						],
+						has_more: false,
+						ref: "main",
+					}),
+				),
+			},
+			{ status: 404, body: { detail: "not found" } },
+		);
+		const store = makeStore();
+		const sha = "a".repeat(40);
+
+		const paths = await store.listFilePaths("project-1", sha, 5000);
+		const missing = await store.listFilePaths("project-1", sha, 5000);
+
+		expect(paths).toEqual(["src/app.tsx"]);
+		expect(missing).toBeNull();
+		expect(requests[0]?.path).toBe(`/api/v1/repos/files?limit=5000&ref=${sha}`);
+		const claims = await tokenClaims(requests[0]?.authorization ?? null);
+		expect(claims.scopes).toEqual(["git:read"]);
+	});
+
+	it.each([
+		["a larger Content-Length", { declaredBytes: 11, sentBytes: 1 }],
+		["a chunked body past the ceiling", { sentBytes: 11 }],
+	])("refuses a file with %s and never reads the rest of the body", async (_label, holdOpen) => {
+		await startServer();
+		// The body never ends: a read to the end would hang until the timeout.
+		answers.push({ status: 200, body: new Uint8Array(), holdOpen });
+		const store = makeStore();
+
+		await expect(
+			store.readFile("project-1", "a".repeat(40), "big.json", 10),
+		).rejects.toBeInstanceOf(GitFileTooLargeError);
+		expect(requests).toHaveLength(1);
+	});
+
+	it("reads the regular files of the archive and skips the entry after a pax header", async () => {
+		await startServer();
+		// 120 characters with no "/" do not fit the 100-byte ustar name field.
+		const longPath = `${"x".repeat(120)}.ts`;
+		answers.push({ status: 200, body: await gitArchive(longPath) });
+		const store = makeStore();
+
+		const archive = await store.readArchiveFiles("project-1", "a".repeat(40), [
+			".claude/**",
+		]);
+
+		if (archive.kind !== "files") {
+			throw new Error(`expected files, got ${archive.kind}`);
+		}
+		expect(
+			[...archive.files].map(([path, bytes]) => [
+				path,
+				new TextDecoder().decode(bytes),
+			]),
+		).toEqual([
+			["package.json", "{}"],
+			["src/app.tsx", "app"],
+		]);
+		expect(requests[0]?.method).toBe("POST");
+		expect(requests[0]?.path).toBe("/api/v1/repos/archive");
+		expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({
+			exclude_globs: [".claude/**"],
+			ref: "a".repeat(40),
+		});
+	});
+
+	it.each<{ ceiling: string; answer: Answer }>([
+		{
+			ceiling: "4 MB of gzip, before the body",
+			answer: {
+				status: 200,
+				body: new Uint8Array(),
+				holdOpen: { declaredBytes: 4 * 1024 * 1024 + 1, sentBytes: 1 },
+			},
+		},
+		{
+			// About 17 KB of gzip that unpacks to 17 MB: a gzip bomb.
+			ceiling: "16 MB of unpacked tar",
+			answer: { status: 200, body: gzipSync(Buffer.alloc(17 * 1024 * 1024)) },
+		},
+	])("answers overCeiling for an archive over $ceiling", async ({ answer }) => {
+		await startServer();
+		answers.push(answer);
+		const store = makeStore();
+
+		await expect(
+			store.readArchiveFiles("project-1", "a".repeat(40), []),
+		).resolves.toEqual({ kind: "overCeiling" });
+	});
+
+	it("reads the archive once with no retry, and still retries the file list", async () => {
+		await startServer();
+		const store = makeStore();
+		const sha = "a".repeat(40);
+
+		// The Code view tree waits for the archive, so a 503 must fail at once.
+		answers.push({ status: 503, body: { detail: "busy" } });
+		const failure = await store
+			.readArchiveFiles("project-1", sha, [])
+			.catch((error: unknown) => error);
+		expect(failure).toBeInstanceOf(GitStoreError);
+		expect(requests).toHaveLength(1);
+
+		answers.push(
+			{ status: 503, body: { detail: "busy" } },
+			{
+				status: 200,
+				body: Buffer.from(
+					JSON.stringify({
+						entries: [{ path: "a.ts", type: "blob", mode: "100644" }],
+						has_more: false,
+						ref: "main",
+					}),
+				),
+			},
+		);
+		await expect(store.listFilePaths("project-1", sha, 10)).resolves.toEqual([
+			"a.ts",
+		]);
+		expect(requests).toHaveLength(3);
+	});
+
+	// "-1000" is -512 in octal: the old reader never moved its offset.
+	it.each([
+		["a negative size", "-1000"],
+		["a size past the end of the tar", "10000"],
+	])("throws for a tar header with %s", async (_label, sizeField) => {
+		await startServer();
+		answers.push({
+			status: 200,
+			body: tarGzOf(tarEntry("a.ts", "", sizeField)),
+		});
+		const store = makeStore();
+
+		await expect(
+			store.readArchiveFiles("project-1", "a".repeat(40), []),
+		).rejects.toThrow("bad size");
+	});
+
+	it("keeps two paths that differ only by a trailing space apart", async () => {
+		await startServer();
+		answers.push({
+			status: 200,
+			body: tarGzOf(tarEntry("src/a.ts", "one"), tarEntry("src/a.ts ", "two")),
+		});
+		const store = makeStore();
+
+		const archive = await store.readArchiveFiles(
+			"project-1",
+			"a".repeat(40),
+			[],
+		);
+
+		if (archive.kind !== "files") {
+			throw new Error(`expected files, got ${archive.kind}`);
+		}
+		expect(
+			[...archive.files].map(([path, bytes]) => [
+				path,
+				new TextDecoder().decode(bytes),
+			]),
+		).toEqual([
+			["src/a.ts", "one"],
+			["src/a.ts ", "two"],
+		]);
 	});
 });
 

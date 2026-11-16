@@ -201,7 +201,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - A product that the public signs up for gets one short public page in the app theme, with no world.
 - A website, and the public pages of Both: load the `frontend-design` skill before every new page
   and every redesign. It gives the process and the quality bar: plan, check the plan against the brief,
-  build, then read your code against the brief and fix it. The sandbox has no browser: take no screenshots.
+  build, then read your code against the brief and fix it. Check each new page in the browser, as your session instructions say.
 - A design world gives the direction of the public pages: voice, motifs, layout, and photography.
   The host makes its palette and fonts into the theme. One world applies per app.
   On public pages, the world wins on layout, type sizes, and motifs, inside the rules above.

@@ -134,9 +134,11 @@ export function siteShotKey(
 	return `sites/${projectId}/shots/${attemptId}/p${pass}-${index}.jpg`;
 }
 
-// Dashboard card cover — the final build's hero screenshot. Versioned key
-// (immutable, cache-safe: a new build writes a NEW key, so no cache-buster
-// is needed). Deliberately NOT under sites/{id}/assets/ (Assets tab) nor
+// Dashboard card cover. V1: the final build's hero screenshot, keyed by the
+// page version. V2: the `capture-project-thumbnail` screenshot after a
+// committed turn, keyed by the commit sha. Versioned key (immutable,
+// cache-safe: a new capture writes a NEW key, so no cache-buster is needed).
+// Deliberately NOT under sites/{id}/assets/ (Assets tab) nor
 // sites/{id}/shots/ (chat-card strips).
 export function projectThumbnailKey(
 	projectId: string,
@@ -845,7 +847,8 @@ function isAwsNotFoundError(
 /**
  * R2 prefixes one `v2_app` project owns. Writers: the `commit-turn.ts`
  * patches under `git/`, the generate_image host tool of WANDIT-169 under
- * `sites/<id>/assets/`, the `publish-app` task (WANDIT-178) under
+ * `sites/<id>/assets/`, the `capture-project-thumbnail` task under
+ * `sites/<id>/thumbnails/`, the `publish-app` task (WANDIT-178) under
  * `published/<id>/builds/`, the desktop release under `desktop/<id>/`, and
  * the desktop build under `desktop-temp/<id>/`. Never the whole
  * `published/<id>/` prefix: the V1 page files of a migrated project live
@@ -855,6 +858,7 @@ export function v2ProjectPrefixes(projectId: string): string[] {
 	return [
 		`git/${projectId}/`,
 		`sites/${projectId}/assets/`,
+		`sites/${projectId}/thumbnails/`,
 		`published/${projectId}/builds/`,
 		`desktop/${projectId}/`,
 		`${DESKTOP_TEMP_PREFIX}/${projectId}/`,

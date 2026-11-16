@@ -116,6 +116,7 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 	// The answer of the poll route. A case sets a turn or a head of another client.
 	let activeTurnState: ActiveTurnStateResponse = {
 		activeTurnId: null,
+		busyChatId: null,
 		headSha: null,
 	};
 	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
@@ -690,7 +691,7 @@ describe("useBuilderChat", () => {
 			},
 		};
 		const queryClient = new QueryClient();
-		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID);
 		queryClient.setQueryData(historyKey, null);
 		const input = {
 			projectId: PROJECT_ID,
@@ -756,7 +757,7 @@ describe("useBuilderChat", () => {
 			},
 		};
 		const queryClient = new QueryClient();
-		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID);
 		queryClient.setQueryData(historyKey, null);
 		const { result } = renderBuilderChat(
 			{
@@ -857,7 +858,7 @@ describe("useBuilderChat", () => {
 		// The stored chat. The other client's send adds its user row.
 		const storedRows: ChatHistoryPage["items"] = [];
 		await queryClient.prefetchInfiniteQuery({
-			queryKey: appBuilderKeys.chatHistory(PROJECT_ID),
+			queryKey: appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID),
 			queryFn: async (): Promise<ChatHistoryPage> => ({
 				items: [...storedRows],
 				nextCursor: null,
@@ -886,7 +887,11 @@ describe("useBuilderChat", () => {
 			seq: 1,
 			createdAt: "2026-11-07T00:00:00.000Z",
 		});
-		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: null });
+		fake.setActiveTurnState({
+			activeTurnId: TURN_ID,
+			busyChatId: CHAT_ID,
+			headSha: null,
+		});
 		// The next poll tick. The history query has no observer here, so only the poll refetches.
 		await act(async () => {
 			await queryClient.refetchQueries({ type: "active" });
@@ -919,10 +924,14 @@ describe("useBuilderChat", () => {
 	// view, and the chat must load again, but not on the first poll answer.
 	it("refreshes the turn caches and the chat when another client moves the head", async () => {
 		const fake = createDeps();
-		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: null,
+			busyChatId: null,
+			headSha: "a".repeat(40),
+		});
 		const queryClient = new QueryClient();
 		const versionsKey = appBuilderKeys.versions(PROJECT_ID);
-		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID);
 		queryClient.setQueryData(versionsKey, null);
 		queryClient.setQueryData(historyKey, null);
 		const isStale = (key: QueryKey) =>
@@ -943,7 +952,11 @@ describe("useBuilderChat", () => {
 		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 		expect([isStale(versionsKey), isStale(historyKey)]).toEqual([false, false]);
 
-		fake.setActiveTurnState({ activeTurnId: null, headSha: "b".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: null,
+			busyChatId: null,
+			headSha: "b".repeat(40),
+		});
 		await act(async () => {
 			await queryClient.refetchQueries({ type: "active" });
 		});
@@ -976,7 +989,11 @@ describe("useBuilderChat", () => {
 			void result.current.send({ text: "hello" });
 		});
 		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
-		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: null });
+		fake.setActiveTurnState({
+			activeTurnId: TURN_ID,
+			busyChatId: CHAT_ID,
+			headSha: null,
+		});
 		const pollCount = fake.deps.getActiveTurnState.mock.calls.length;
 
 		fake.endPostStream();
@@ -1033,6 +1050,7 @@ describe("useBuilderChat", () => {
 
 		fake.setActiveTurnState({
 			activeTurnId: crypto.randomUUID(),
+			busyChatId: CHAT_ID,
 			headSha: null,
 		});
 		await act(async () => {
@@ -1047,9 +1065,13 @@ describe("useBuilderChat", () => {
 	// The history then hides the stopped reply, so a reseed would drop it.
 	it("keeps the chat history when the page's own Stop moves the head", async () => {
 		const fake = createDeps();
-		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: null,
+			busyChatId: null,
+			headSha: "a".repeat(40),
+		});
 		const queryClient = new QueryClient();
-		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID);
 		queryClient.setQueryData(historyKey, null);
 		const { result } = renderBuilderChat(
 			{
@@ -1069,7 +1091,11 @@ describe("useBuilderChat", () => {
 			void result.current.send({ text: "hello" });
 		});
 		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
-		fake.setActiveTurnState({ activeTurnId: TURN_ID, headSha: "b".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: TURN_ID,
+			busyChatId: CHAT_ID,
+			headSha: "b".repeat(40),
+		});
 		const pollCount = fake.deps.getActiveTurnState.mock.calls.length;
 
 		await act(() => result.current.cancel());
@@ -1087,7 +1113,11 @@ describe("useBuilderChat", () => {
 	// first. Only the head rule then loads the rows of that other turn.
 	it("reloads the chat after the page's own turn waited behind another turn", async () => {
 		const fake = createDeps();
-		fake.setActiveTurnState({ activeTurnId: null, headSha: "a".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: null,
+			busyChatId: null,
+			headSha: "a".repeat(40),
+		});
 		const deps: BuilderChatDeps = {
 			...fake.deps,
 			fetch: (input, init) =>
@@ -1115,7 +1145,7 @@ describe("useBuilderChat", () => {
 					: fake.deps.fetch(input, init),
 		};
 		const queryClient = new QueryClient();
-		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID, CHAT_ID);
 		queryClient.setQueryData(historyKey, null);
 		const { result } = renderBuilderChat(
 			{
@@ -1132,7 +1162,11 @@ describe("useBuilderChat", () => {
 		);
 		await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 		// The poll after the stream shows the head of the page's own commit.
-		fake.setActiveTurnState({ activeTurnId: null, headSha: "c".repeat(40) });
+		fake.setActiveTurnState({
+			activeTurnId: null,
+			busyChatId: null,
+			headSha: "c".repeat(40),
+		});
 
 		act(() => {
 			void result.current.send({ text: "hello" });

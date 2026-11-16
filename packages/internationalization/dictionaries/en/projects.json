@@ -140,6 +140,10 @@
 			"desktop": {
 				"label": "Desktop app",
 				"description": "For Windows. The data stays on the computer."
+			},
+			"desktop-electron": {
+				"label": "Desktop app 2",
+				"description": "Experimental. Built with the Electron engine."
 			}
 		},
 		"outputLabel": "Output",

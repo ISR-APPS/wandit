@@ -69,7 +69,7 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 | `list_workspaces` | projects:read | `WorkspacesService.listForUser` | The same list as `GET /v1/workspaces`, with the roles. |
 | `list_projects` | projects:read | `ProjectsService.list`, `ProjectsService.listShared` | V2 projects only: id, name, platform, updated at, builder link. A workspace id gives the web list of that workspace, with Restricted projects hidden. `shared` gives the projects shared directly with the user. |
 | `get_project` | projects:read | `AppProjectsService.get`, `PublishService.status` | Sandbox state, head sha, publish state, live URL, builder link `<web>/app/<id>`. No preview token. |
-| `list_files` | projects:read | `CodeService.snapshot` | Needs a running sandbox. Paged. |
+| `list_files` | projects:read | `CodeService.snapshot` | Reads the last committed version. A project with no commit needs a running sandbox. Paged. |
 | `read_file` | projects:read | `CodeService.file` | Same path guard. Paged by offset, so one answer fits the 25k-token output cap of Claude Code. |
 | `list_versions` | projects:read | `VersionsService.list` | Recent commits. |
 | `get_turn` | projects:read | `TurnsService` scoped read | Status, result, and pending cards. Optional bounded wait (at most 25 s). |
@@ -92,6 +92,7 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 
 - Calls `TurnsService.create`, so the credit hold, the cost cap, the 3-holds limit, and the turn lock apply. The MCP layer also runs the gates that the HTTP controller adds: the V2 gate, `project:update`, and the shared `turn-create` rate bucket.
 - `requestKey` (uuid from the client) becomes the turn request key `mcp:<clientId>:<userId>:<requestKey>`, so a retry returns the same turn and takes no new hold. A reused key with another prompt answers `REQUEST_KEY_REUSED`.
+- A project can have several conversations, and one at a time uses the project. The prompt goes to the conversation that holds the project. When no conversation holds it, the prompt goes to the conversation with the newest activity.
 - The agent can deny an approval card. It can never approve one: the user approves in the web app. Approval cards gate destructive migrations, SQL writes, and new network hosts.
 - No `model`, `targets`, `composer`, or `attachments` in v1.
 
@@ -109,5 +110,5 @@ File content in a project can carry text that steers the external agent. The ser
 - The guard checks the ban on every call, so a ban stops the agent at once. The ban also deletes the grants, so an unban does not bring them back.
 - The tables come from migration `0090_mcp-oauth-provider.sql`. Run `db:migrate` before an API with V2 on boots.
 - `V2_BUILDER_ENABLED` must stay false in the Trigger.dev production environment. The Trigger worker loads `@wandit/auth`, and the Railway production rule does not apply there.
-- Reads and writes need a running sandbox. The agent calls `wake_sandbox` first.
+- Writes need a running sandbox. Reads need one only for a project with no commit. The agent calls `wake_sandbox` first.
 - The `feat/github-sync` work (uncommitted in its own worktree) edits the same shared files: audit actions, routes, the commit-source enum, migration numbers, `commitTurn`. The second branch to merge rebases and renumbers its migration.

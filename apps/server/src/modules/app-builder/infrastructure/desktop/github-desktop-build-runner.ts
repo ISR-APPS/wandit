@@ -1,11 +1,12 @@
 /**
  * `DesktopBuildRunner` on the GitHub Actions REST API (docs/v2/desktop-apps.md
- * section 9). The `desktop-build` task dispatches and polls the `build.yml`
- * (Windows) or `build-macos.yml` (macOS) run in `DESKTOP_BUILD_REPO`;
+ * section 9). The `desktop-build` task dispatches and polls the run of one
+ * workflow of `WORKFLOW_FILES` in `DESKTOP_BUILD_REPO`;
  * `DesktopBuildsService.cancel` cancels it. Every answer passes a schema of
  * packages/contracts before use.
  */
 import {
+	type DesktopEngine,
 	type DesktopPlatform,
 	type GithubWorkflowRun,
 	githubDispatchResponseSchema,
@@ -22,11 +23,18 @@ import { DesktopBuildRunnerError } from "../../domain/ports/desktop-build-runner
 import type { V2EnvSource } from "../env/v2-env";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
-// The workflow file of each platform in tooling/desktop-builder, copied to the private repo.
+// The workflow file of each engine and platform in tooling/desktop-builder,
+// copied to the private repo.
 const WORKFLOW_FILES = {
-	macos: "build-macos.yml",
-	windows: "build.yml",
-} as const satisfies Record<DesktopPlatform, string>;
+	electron: {
+		macos: "build-electron-macos.yml",
+		windows: "build-electron.yml",
+	},
+	tauri: {
+		macos: "build-macos.yml",
+		windows: "build.yml",
+	},
+} as const satisfies Record<DesktopEngine, Record<DesktopPlatform, string>>;
 // The default branch of the private builder repo. Dispatch needs a ref,
 // and only this branch holds the trusted workflow.
 const WORKFLOW_REF = "main";
@@ -34,7 +42,7 @@ const WORKFLOW_REF = "main";
 const GITHUB_TIMEOUT_MS = 15_000;
 // A run id is a positive decimal integer. It goes into the URL path.
 const RUN_ID_PATTERN = /^[1-9]\d{0,19}$/;
-// The self-test step name in build.yml and build-macos.yml. A rename there must
+// The self-test step name in the 4 workflow files. A rename there must
 // change it here too, else a failed self-test reads as `ci_failed`.
 const SELF_TEST_STEP = "Self-test the installed app";
 
@@ -53,15 +61,15 @@ export class GithubDesktopBuildRunner implements DesktopBuildRunner {
 	constructor(private readonly config: GithubDesktopBuildRunnerConfig) {}
 
 	/**
-	 * POSTs a dispatch of the workflow of `input.platform` with
-	 * `return_run_details`, so GitHub answers the run id.
+	 * POSTs a dispatch of the workflow of `input.engine` and `input.platform`
+	 * with `return_run_details`, so GitHub answers the run id.
 	 */
 	async dispatch(
 		input: DesktopBuildDispatchInput,
 	): Promise<DesktopBuildDispatch> {
 		const response = await this.call(
 			"dispatch",
-			`/actions/workflows/${WORKFLOW_FILES[input.platform]}/dispatches`,
+			`/actions/workflows/${WORKFLOW_FILES[input.engine][input.platform]}/dispatches`,
 			{
 				body: JSON.stringify({
 					inputs: {
@@ -71,7 +79,7 @@ export class GithubDesktopBuildRunner implements DesktopBuildRunner {
 						output_url: input.outputUrl,
 						// GitHub refuses an input that the workflow does not declare,
 						// and only build-macos.yml declares `update_url`.
-						...(input.platform === "macos"
+						...(input.platform === "macos" && input.engine === "tauri"
 							? { update_url: input.updateUrl }
 							: {}),
 					},

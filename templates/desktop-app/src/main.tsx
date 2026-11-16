@@ -1,5 +1,5 @@
 /**
- * Entry of the app. index.html loads it, and `vite build` bundles it into dist/ for the Tauri shell.
+ * Entry of the app. index.html loads it, and `vite build` bundles it into dist/ for the native shell (Tauri or Electron).
  * It installs the dev preview bridge, then renders the providers and the router of src/router.tsx.
  */
 import "./styles/tokens.css";

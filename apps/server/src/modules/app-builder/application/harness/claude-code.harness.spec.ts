@@ -203,6 +203,7 @@ function setup(
 				streamResult ?? {
 					toUIMessageStream: () => (async function* () {})(),
 					totalUsage: Promise.resolve(usage()),
+					providerMetadata: Promise.resolve(undefined),
 				}
 			);
 		},
@@ -221,6 +222,7 @@ function setup(
 				streamResult ?? {
 					toUIMessageStream: () => (async function* () {})(),
 					totalUsage: Promise.resolve(usage()),
+					providerMetadata: Promise.resolve(undefined),
 				}
 			);
 		},
@@ -261,7 +263,6 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(captured.agentSettings?.permissionMode).toBe("allow-all");
 		// A dead bridge must not hold a turn for the adapter default of 120 s.
 		expect(captured.claudeSettings?.startupTimeoutMs).toBe(30_000);
-		expect(captured.agentSettings?.model).toBe("anthropic/claude-sonnet-5");
 		expect(captured.agentSettings?.instructions).toBe(
 			"Build the app in these languages only: ar, fr.",
 		);
@@ -278,6 +279,24 @@ describe("ClaudeCodeHarness.createSession", () => {
 		);
 		// HarnessAgent throws NoSuchToolError on a name the adapter does not
 		// know, so a wrong name would fail every plan turn.
+		const builtinNames = Object.keys(createClaudeCode().builtinTools);
+		for (const name of inactive) {
+			expect(builtinNames).toContain(name);
+		}
+	});
+
+	it("keeps write and bash but blocks edit and subagents in a security scan session", async () => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), mode: "security_scan" });
+
+		const inactive = captured.agentSettings?.inactiveTools ?? [];
+		expect(inactive).toEqual(
+			expect.arrayContaining(["askUserQuestions", "edit", "Agent"]),
+		);
+		// The skill writes its output in /tmp and runs its validator with node.
+		expect(inactive).not.toContain("write");
+		expect(inactive).not.toContain("bash");
 		const builtinNames = Object.keys(createClaudeCode().builtinTools);
 		for (const name of inactive) {
 			expect(builtinNames).toContain(name);
@@ -330,6 +349,28 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(captured.agentSettings?.inactiveTools?.includes("webSearch")).toBe(
 			blocksWebSearch,
 		);
+	});
+
+	// Claude Code compacts at 300,000 tokens only when it knows the 1M window.
+	// A 200K model with `[1m]` would wait past the size the API accepts.
+	it.each([
+		{
+			model: "anthropic/claude-opus-5.5",
+			claudeModel: "anthropic/claude-opus-5.5[1m]",
+		},
+		{
+			model: "anthropic/claude-haiku-4-5",
+			claudeModel: "anthropic/claude-haiku-4-5",
+		},
+	])("gives Claude Code the 1M window only on a 1M model ($model)", async ({
+		model,
+		claudeModel,
+	}) => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), model });
+
+		expect(captured.agentSettings?.model).toBe(claudeModel);
 	});
 
 	it("passes the chat id as the session id", async () => {
@@ -542,6 +583,31 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.continueFrom).toBeUndefined();
 	});
 
+	it("refuses a new bridge for a stored state that names no Claude conversation", async () => {
+		const { captured, harness } = setup();
+		execCalls.length = 0;
+
+		// Without the id, the adapter sends "continue", which can open the
+		// conversation of another chat in the same work directory.
+		await expect(
+			harness.resumeSession(
+				sessionInput(),
+				{
+					harness: "claude_code",
+					payload: JSON.stringify({
+						...RESUME_STATE,
+						data: { forkOnResume: false },
+					}),
+					pending: [],
+				},
+				{ bridgeDead: true, dropPausedTurn: false },
+			),
+		).rejects.toThrow(/names no Claude conversation/);
+		// The throw comes before the bridge kill and before a session start.
+		expect(execCalls).toHaveLength(0);
+		expect(captured.createCount).toBe(0);
+	});
+
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
 		const { harness } = setup();
 
@@ -556,13 +622,20 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 });
 
 describe("ClaudeCodeHarness.stream", () => {
-	it("maps chunks to part events and reports usage at the end", async () => {
+	it("maps chunks to part events and reports usage and the context count at the end", async () => {
 		const textChunk: UIMessageChunk = {
 			delta: "hello",
 			id: "t1",
 			type: "text-delta",
 		};
 		const streamResult: ClaudeCodeStreamResult = {
+			// The shape the bridge fork writes on its `finish` event.
+			providerMetadata: Promise.resolve({
+				"claude-code": {
+					context: { compactAtTokens: 300_000, tokens: 251_000 },
+					sessionId: "claude-1",
+				},
+			}),
 			toUIMessageStream: () =>
 				(async function* () {
 					yield textChunk;
@@ -601,6 +674,7 @@ describe("ClaudeCodeHarness.stream", () => {
 			{
 				cacheReadTokens: 7,
 				cacheWriteTokens: 3,
+				context: { compactAtTokens: 300_000, tokens: 251_000 },
 				inputTokens: 100,
 				outputTokens: 50,
 				type: "usage",
@@ -622,6 +696,7 @@ describe("ClaudeCodeHarness.stream", () => {
 					yield errorChunk;
 				})(),
 			totalUsage: Promise.resolve(usage()),
+			providerMetadata: Promise.resolve(undefined),
 		});
 		const session = await harness.createSession(sessionInput());
 
@@ -688,6 +763,7 @@ describe("ClaudeCodeHarness.stream", () => {
 					yield errorChunk;
 				})(),
 			totalUsage: Promise.resolve(usage()),
+			providerMetadata: Promise.resolve(undefined),
 		});
 		const session = await harness.createSession(sessionInput());
 

@@ -50,7 +50,8 @@ export function ShareButton({ projectId, projectName }: ShareButtonProps) {
 				variant="outline"
 				aria-label={t("sharing.share.button")}
 				onClick={() => setIsOpen(true)}
-				className="h-9 gap-2 rounded-full bg-transparent px-2.5 font-grotesk font-semibold sm:px-4"
+				// A raised white pill, one step under the ember Publish key next to it.
+				className="h-9 gap-2 rounded-full border-night/[0.09] bg-white px-2.5 font-grotesk font-semibold text-night shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px sm:px-4 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-foreground dark:hover:bg-white/[0.1] dark:hover:text-foreground"
 			>
 				{people.length > 0 ? (
 					// The stack needs room, so a phone shows only the icon.

@@ -1,8 +1,9 @@
 /**
  * Pure helpers of the Code view (WANDIT-271): the path rule, the file tree,
  * the file the view opens first, and the files the tree answer carries.
- * `CodeService` calls them with the `git ls-files` paths of the sandbox
- * worktree. `McpChangesService` calls the write rule `isWritableCodePath`.
+ * `CodeService` calls them with the blob paths of the stored commit. A
+ * project with no commit gives the `git ls-files` paths of its sandbox.
+ * `McpChangesService` calls the write rule `isWritableCodePath`.
  * This file does no I/O.
  */
 import type { CodeTreeNode } from "@wandit/contracts";

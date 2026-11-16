@@ -42,6 +42,7 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
+		desktopEngine: null,
 		engine: "v2_app",
 		framework: "web-app",
 		hideWanditBadge: false,
@@ -134,12 +135,19 @@ function setup() {
 		hasFileChanges: vi.fn(async () => false),
 	};
 	const chats = {
+		createProjectChat: vi.fn<ChatsRepository["createProjectChat"]>(),
 		findAccessibleChatById: vi.fn<ChatsRepository["findAccessibleChatById"]>(
+			async () => null,
+		),
+		findEmptyProjectChat: vi.fn<ChatsRepository["findEmptyProjectChat"]>(
 			async () => null,
 		),
 		insertUiMessagesIfAbsent: vi.fn<
 			ChatsRepository["insertUiMessagesIfAbsent"]
 		>(async () => undefined),
+		listProjectChats: vi.fn<ChatsRepository["listProjectChats"]>(
+			async () => [],
+		),
 	};
 	const proxyRequests = {
 		sumByChat: vi.fn<LlmProxyRequestsRepository["sumByChat"]>(),
@@ -204,6 +212,32 @@ describe("AppProjectsService.create", () => {
 				templateVersion: "mobile-app@1.0.0",
 			}),
 		);
+	});
+
+	// The engine never changes after the create, so the stored value decides
+	// the shell of every later build.
+	it.each([
+		{ body: { targetPlatform: "desktop" as const }, desktopEngine: "tauri" },
+		{
+			body: {
+				desktopEngine: "electron" as const,
+				targetPlatform: "desktop" as const,
+			},
+			desktopEngine: "electron",
+		},
+		{ body: { targetPlatform: "web" as const }, desktopEngine: null },
+	])("stores the desktop engine $desktopEngine for $body", async ({
+		body,
+		desktopEngine,
+	}) => {
+		const { projects, service } = setup();
+
+		await service.create(SCOPE, { ...BODY, ...body }, { countryCode: null });
+
+		expect(
+			projects.createWithChatAndFirstMessage.mock.calls[0]?.[0].app
+				?.desktopEngine,
+		).toBe(desktopEngine);
 	});
 
 	it("creates a web project when the body has no targetPlatform", async () => {
@@ -582,6 +616,27 @@ describe("AppProjectsService.chatCost", () => {
 			service.chatCost(SCOPE, "project-1", "chat-1"),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(proxyRequests.sumByChat).not.toHaveBeenCalled();
+	});
+});
+
+describe("AppProjectsService.createChat", () => {
+	// A second click on "new conversation" must not add a second empty row.
+	it("answers the empty chat of the project and inserts no row", async () => {
+		const { chats, service } = setup();
+		chats.findEmptyProjectChat.mockResolvedValue({
+			createdAt: new Date("2026-08-02T10:00:00.000Z"),
+			id: "chat-empty",
+		});
+
+		const result = await service.createChat(SCOPE, "project-1");
+
+		expect(result.chat).toEqual({
+			createdAt: "2026-08-02T10:00:00.000Z",
+			id: "chat-empty",
+			lastMessageAt: null,
+			title: null,
+		});
+		expect(chats.createProjectChat).not.toHaveBeenCalled();
 	});
 });
 

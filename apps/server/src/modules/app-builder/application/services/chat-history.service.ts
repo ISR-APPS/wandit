@@ -17,17 +17,28 @@ import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder
 @Injectable()
 export class ChatHistoryService {
 	constructor(
+		// The Pick types, not the classes: a spec passes fakes without a cast.
 		@Inject(ProjectsRepository)
-		private readonly projects: ProjectsRepository,
+		private readonly projects: Pick<
+			ProjectsRepository,
+			"findEngineByIdForScope"
+		>,
 		@Inject(ChatsRepository)
-		private readonly chats: ChatsRepository,
+		private readonly chats: Pick<
+			ChatsRepository,
+			| "findAccessibleChatById"
+			| "findAccessibleChatByProjectId"
+			| "listHistoryRows"
+		>,
 		@Inject(BuilderTurnsRepository)
-		private readonly turns: BuilderTurnsRepository,
+		private readonly turns: Pick<BuilderTurnsRepository, "findActiveForChat">,
 	) {}
 
 	/**
-	 * One page of the project chat, the newest page first. Answers 404 when
-	 * the project is not a `v2_app` row in the scope, or has no chat.
+	 * One page of one conversation, the newest page first. `query.chatId`
+	 * selects the conversation; absent reads the oldest one of the project.
+	 * Answers 404 when the project is not a `v2_app` row in the scope, has
+	 * no chat, or does not own `query.chatId`.
 	 */
 	async list(
 		scope: ProjectScope,
@@ -38,11 +49,13 @@ export class ChatHistoryService {
 		if (engine !== "v2_app") {
 			throw new NotFoundException();
 		}
-		const chat = await this.chats.findAccessibleChatByProjectId(
-			scope,
-			projectId,
-		);
-		if (!chat) {
+		// Security check, the same as `TurnsService.create`: a picked chat must
+		// be in scope and belong to this project. A foreign chat id answers 404.
+		const chat =
+			query.chatId === undefined
+				? await this.chats.findAccessibleChatByProjectId(scope, projectId)
+				: await this.chats.findAccessibleChatById(scope, query.chatId);
+		if (!chat || chat.projectId !== projectId) {
 			throw new NotFoundException();
 		}
 

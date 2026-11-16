@@ -1,10 +1,11 @@
 /**
  * The only data API of the app: SQL on the local SQLite database (docs/v2/desktop-apps.md, section 4).
  * The api/ files of the features call select, execute, and batch. No other file reads or writes data.
- * In the desktop app it calls the db_* commands of the Tauri shell with invoke.
+ * In the desktop app it calls the db_* commands of the native shell, which is Tauri or Electron.
+ * The Tauri shell answers invoke. The Electron shell answers the window.wanditDesktop bridge.
  * In the browser preview (`vite dev`) it loads preview-db.ts, a sql.js copy of the database.
  */
-import { type InvokeArgs, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
 /** One column value. The database has no BLOB support. */
@@ -71,11 +72,42 @@ const dbFailureSchema = z.object({
 	message: z.string(),
 });
 
-/** The data commands of the shell. Its capability file grants these three and app_info, nothing else. */
-type DbCommand = "db_select" | "db_execute" | "db_batch";
+/** The arguments of db_select and db_execute. `params` fill the `?` marks in order. */
+type StatementArgs = { sql: string; params: SqlParam[] };
 
-// The Tauri shell injects this global into its webview. The browser preview has none.
-const isDesktopShell = "__TAURI_INTERNALS__" in window;
+/** One call of a data command of the shell. The shell grants these three and app_info, nothing else. */
+type DbRequest =
+	| { command: "db_select" | "db_execute"; args: StatementArgs }
+	| { command: "db_batch"; args: { statements: StatementArgs[] } };
+
+/**
+ * The bridge of the Electron shell. Its preload script sets it with contextBridge.
+ * Each answer is the raw value before the zod parse, with the shape of the same Tauri command.
+ * A failed call rejects with an Error. Its message is the JSON text of { code, message }.
+ * The bridge also has appInfo. This file does not call it.
+ */
+type WanditDesktopBridge = {
+	dbSelect(args: StatementArgs): Promise<unknown>;
+	dbExecute(args: StatementArgs): Promise<unknown>;
+	dbBatch(args: { statements: StatementArgs[] }): Promise<unknown>;
+};
+
+declare global {
+	interface Window {
+		/** Present only in the Electron shell. */
+		wanditDesktop?: WanditDesktopBridge;
+	}
+}
+
+// Each shell injects its own global into the page. The browser preview has none.
+const isTauriShell = "__TAURI_INTERNALS__" in window;
+const isElectronShell = "wanditDesktop" in window;
+
+/**
+ * True in the installed app, in the Tauri shell or the Electron shell. False in the browser preview.
+ * root-layout.tsx reads it to load the local font stylesheet of the installer.
+ */
+export const isDesktopShell = isTauriShell || isElectronShell;
 
 let previewDb: Promise<typeof import("./preview-db")> | undefined;
 
@@ -110,7 +142,10 @@ export async function select<Row extends Record<string, SqlValue>>(
 ): Promise<Row[]> {
 	checkParams(params, "The statement");
 	const { columns, rows } = isDesktopShell
-		? await invokeCommand("db_select", { sql, params }, selectAnswerSchema)
+		? await invokeCommand(
+				{ command: "db_select", args: { sql, params } },
+				selectAnswerSchema,
+			)
 		: await (await loadPreviewDb()).dbSelect({ sql, params });
 	return rows.map((values) => {
 		// fromEntries defines own keys, so a column named __proto__ cannot change the prototype.
@@ -129,7 +164,10 @@ export async function execute(
 ): Promise<WriteResult> {
 	checkParams(params, "The statement");
 	if (isDesktopShell) {
-		return invokeCommand("db_execute", { sql, params }, writeResultSchema);
+		return invokeCommand(
+			{ command: "db_execute", args: { sql, params } },
+			writeResultSchema,
+		);
 	}
 	return (await loadPreviewDb()).dbExecute({ sql, params });
 }
@@ -145,8 +183,7 @@ export async function batch(statements: DbStatement[]): Promise<WriteResult[]> {
 	});
 	if (isDesktopShell) {
 		const answer = await invokeCommand(
-			"db_batch",
-			{ statements: filled },
+			{ command: "db_batch", args: { statements: filled } },
 			batchAnswerSchema,
 		);
 		return answer.results;
@@ -154,7 +191,7 @@ export async function batch(statements: DbStatement[]): Promise<WriteResult[]> {
 	return (await loadPreviewDb()).dbBatch(filled);
 }
 
-// invoke sends JSON, and JSON writes NaN and Infinity as null. So the check runs here, before the call.
+// The Tauri invoke sends JSON, and JSON writes NaN and Infinity as null. So the check runs here, before the call.
 function checkParams(params: SqlParam[], owner: string) {
 	params.forEach((param, index) => {
 		if (typeof param === "number" && !Number.isFinite(param)) {
@@ -168,13 +205,13 @@ function checkParams(params: SqlParam[], owner: string) {
 
 /** Calls one shell command and checks the shape of its answer. */
 async function invokeCommand<Schema extends z.ZodType>(
-	command: DbCommand,
-	args: InvokeArgs,
+	request: DbRequest,
 	answerSchema: Schema,
 ): Promise<z.output<Schema>> {
+	const { command } = request;
 	let answer: unknown;
 	try {
-		answer = await invoke(command, args);
+		answer = await sendToShell(request);
 	} catch (error: unknown) {
 		throw toCommandError(command, error);
 	}
@@ -187,16 +224,62 @@ async function invokeCommand<Schema extends z.ZodType>(
 	return parsed.data;
 }
 
+/** Sends one command to the shell of this app: the Electron bridge when it is present, else the Tauri invoke. */
+function sendToShell(request: DbRequest): Promise<unknown> {
+	const bridge = window.wanditDesktop;
+	if (!bridge) {
+		return invoke(request.command, request.args);
+	}
+	switch (request.command) {
+		case "db_select":
+			return bridge.dbSelect(request.args);
+		case "db_execute":
+			return bridge.dbExecute(request.args);
+		case "db_batch":
+			return bridge.dbBatch(request.args);
+	}
+}
+
 /**
  * The Rust commands reject with { code, message }, which becomes a DbError.
  * Tauri itself rejects with a text, for example when a capability refuses the command.
+ * The Electron bridge rejects with an Error (toElectronError).
+ * Every other rejection is a failure of the shell bridge, not of SQLite. It becomes a plain Error.
  */
-function toCommandError(command: DbCommand, error: unknown): Error {
-	const failure = dbFailureSchema.safeParse(error);
-	if (failure.success) {
-		return new DbError(failure.data.code, failure.data.message);
+function toCommandError(command: DbRequest["command"], error: unknown): Error {
+	if (isElectronShell) {
+		const electronFailure = toElectronError(error);
+		if (electronFailure) {
+			return electronFailure;
+		}
+	} else {
+		const failure = dbFailureSchema.safeParse(error);
+		if (failure.success) {
+			return new DbError(failure.data.code, failure.data.message);
+		}
 	}
 	return new Error(`The desktop command ${command} failed: ${String(error)}`, {
 		cause: error,
 	});
+}
+
+/**
+ * Electron IPC keeps only the message of a thrown error. So the shell writes { code, message } as JSON
+ * into the message. The answer is undefined when the message holds no such JSON.
+ */
+function toElectronError(error: unknown): DbError | undefined {
+	const text = error instanceof Error ? error.message : String(error);
+	// Electron can put "Error invoking remote method ..." before the message. The JSON starts at the first "{".
+	const jsonStart = text.indexOf("{");
+	let failureJson: unknown;
+	try {
+		failureJson = JSON.parse(jsonStart < 0 ? text : text.slice(jsonStart));
+	} catch {
+		// The text is not JSON, so it is not a database failure. The caller makes the plain Error.
+		return undefined;
+	}
+	const failure = dbFailureSchema.safeParse(failureJson);
+	return failure.success
+		? new DbError(failure.data.code, failure.data.message)
+		: undefined;
 }

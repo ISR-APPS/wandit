@@ -455,7 +455,13 @@ function DeleteZone({
 	const deleteProject = useDeleteProject();
 
 	return (
-		<section className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-destructive/25 bg-destructive/[0.03] p-5 dark:border-destructive/30 dark:bg-destructive/[0.06]">
+		// The white card face of the other sections, so the sand ground does not show through. The red border marks the danger.
+		<section
+			className={cn(
+				PANEL_CARD_CLASS,
+				"flex flex-wrap items-center justify-between gap-4 border-destructive/25 p-5 dark:border-destructive/30",
+			)}
+		>
 			<div className="min-w-0 max-w-md">
 				<h2 className="font-grotesk font-semibold text-[15px] text-destructive">
 					{t("appBuilder.settings.deleteTitle")}
