@@ -15,8 +15,10 @@ import type {
 	StarterTemplateNoteData,
 	TargetPlatform,
 	TurnDataParts,
+	TurnErrorData,
 	TurnPlanData,
 	TurnQuestionOption,
+	TurnSecurityReportData,
 	TurnSummaryData,
 	TurnTargetsData,
 } from "@wandit/contracts";
@@ -109,7 +111,8 @@ export type BuilderDiffLine = {
  * of a Plan Mode turn that waits for "Build this plan". `error` is a turn
  * failure. `stopped` marks a turn the user stopped. `receipt` is the
  * settled cost of a turn. `compaction` marks the point where Claude Code
- * summarized the older conversation; both views show it. `targets` sits in
+ * summarized the older conversation; both views show it. `security-report`
+ * ends a `security_scan` turn: the counts of its findings. `targets` sits in
  * a user message: the elements it picked in the preview. `starter-template`
  * is the note of a project that started from a starter template.
  */
@@ -185,8 +188,11 @@ export type BuilderDataParts = {
 	 * card shows the "Build this plan" button.
 	 */
 	plan: TurnPlanData & { isOpen: boolean };
-	/** The `data-turn-error` payload as the stream sends it. */
-	error: { code: string; message: string; retryable: boolean };
+	/**
+	 * The `data-turn-error` payload. `mode` is the mode of the failed turn,
+	 * from the payload or the live `data-turn-created` frame. Retry reads it.
+	 */
+	error: TurnErrorData;
 	/** The `data-turn-done` status of a turn the user stopped. */
 	stopped: { status: "canceled" };
 	receipt: {
@@ -203,6 +209,8 @@ export type BuilderDataParts = {
 	};
 	/** The parsed `output` of the harness `compaction` tool part: the trigger and the token counts. */
 	compaction: HarnessCompactionOutput;
+	/** The `data-security-report` payload as the stream sends it. The chat card shows it; the panel reads the full report. */
+	"security-report": TurnSecurityReportData;
 	targets: TurnTargetsData;
 	/** The `data-starter-template` payload: the catalog id, and `applied` or `failed`. The apply step stores it; no turn sends it. */
 	"starter-template": StarterTemplateNoteData;
@@ -224,7 +232,7 @@ export type TurnMessage = UIMessage<never, TurnDataParts>;
 /** One part of a real V2 message: text, file, reasoning, or a `data-*` card. */
 export type TurnMessagePart = TurnMessage["parts"][number];
 
-/** A folder or a file of the sandbox worktree, for the Code view tree. */
+/** A folder or a file of the project, for the Code view tree. */
 export type { CodeTreeNode } from "@wandit/contracts";
 
 /**

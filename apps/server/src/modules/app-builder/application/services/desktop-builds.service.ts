@@ -405,9 +405,13 @@ export class DesktopBuildsService {
 		const build = await this.requireBuild(projectId, buildId);
 		const installerKey = build.installerKey;
 		const signature = build.updaterSignature;
-		// The updater installs the setup exe on Windows and the re-packed archive on macOS.
+		// The updater installs the re-packed archive on a Tauri Mac app. Windows
+		// installs the setup exe, and an Electron Mac app installs from the disk
+		// image: those builds have no archive. A null engine is an older Tauri project.
 		const updateKey =
-			build.platform === "windows" ? installerKey : build.updateArchiveKey;
+			build.platform === "macos" && project.desktopEngine !== "electron"
+				? build.updateArchiveKey
+				: installerKey;
 		if (
 			build.status !== "ready" ||
 			installerKey === null ||
@@ -874,7 +878,7 @@ function currentBuildIdOf(
 function updateManifest(input: {
 	/** The platform of the build. Its manifest holds only its own keys. */
 	platform: DesktopPlatform;
-	/** Public URL of the update file: the setup exe on Windows, the `.app.tar.gz` on macOS. */
+	/** Public URL of the update file: the setup exe on Windows; on macOS the `.app.tar.gz` (Tauri) or the disk image (Electron). */
 	updateUrl: string;
 	notes: string | null;
 	releasedAt: Date;

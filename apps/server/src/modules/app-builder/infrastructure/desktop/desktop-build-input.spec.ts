@@ -95,6 +95,7 @@ describe("writeDesktopBuildInput", () => {
 	it("writes the shell without target/ and gen/, the config, dist/, and migrations/ in a fixed order", async () => {
 		const input = {
 			config: CONFIG,
+			engine: "tauri" as const,
 			dist: [
 				{
 					content: new TextEncoder().encode("<html></html>"),
@@ -149,6 +150,62 @@ describe("writeDesktopBuildInput", () => {
 		});
 	});
 
+	// build-electron.yml expects `shell/` and reads `shell/wandit.desktop.json`.
+	// A local `npm ci` or build leaves node_modules/ and release/ in the folder.
+	it("writes an Electron input under shell/ without node_modules/ and release/, with the same config JSON", async () => {
+		const shellDir = mkdtempSync(join(tmpdir(), "desktop-shell-spec-"));
+		tempDirs.push(shellDir);
+		mkdirSync(join(shellDir, "src"));
+		mkdirSync(join(shellDir, "node_modules", "electron"), { recursive: true });
+		mkdirSync(join(shellDir, "release"));
+		writeFileSync(join(shellDir, "package.json"), "{}\n");
+		writeFileSync(join(shellDir, "src", "main.cjs"), "'use strict';\n");
+		writeFileSync(join(shellDir, "node_modules", "electron", "index.js"), "");
+		writeFileSync(join(shellDir, "release", "app-1.0.1.dmg"), "koly");
+		const dist = [
+			{
+				content: new TextEncoder().encode("<html></html>"),
+				path: "index.html",
+			},
+		];
+
+		const entries = readTarGz(
+			await writeDesktopBuildInput({
+				config: CONFIG,
+				dist,
+				engine: "electron",
+				migrations: [],
+				shellDir,
+			}),
+		);
+		const tauriEntries = readTarGz(
+			await writeDesktopBuildInput({
+				config: CONFIG,
+				dist,
+				engine: "tauri",
+				migrations: [],
+				shellDir: shellFolder(),
+			}),
+		);
+
+		expect(entries.map((entry) => entry.path)).toEqual([
+			"dist/index.html",
+			"migrations/",
+			"shell/package.json",
+			"shell/src/main.cjs",
+			"shell/wandit.desktop.json",
+		]);
+		expect(
+			entries
+				.find((entry) => entry.path === "shell/wandit.desktop.json")
+				?.content.toString("utf8"),
+		).toBe(
+			tauriEntries
+				.find((entry) => entry.path === "src-tauri/tauri.desktop.json")
+				?.content.toString("utf8"),
+		);
+	});
+
 	it.each([
 		["an absolute path", ["/etc/passwd"]],
 		["a parent segment", ["assets/../../escape.js"]],
@@ -166,6 +223,7 @@ describe("writeDesktopBuildInput", () => {
 			writeDesktopBuildInput({
 				config: CONFIG,
 				dist: paths.map((path) => ({ content: new Uint8Array([1]), path })),
+				engine: "tauri",
 				migrations: [],
 				shellDir: shellFolder(),
 			}),

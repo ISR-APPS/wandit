@@ -48,7 +48,8 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D34 | No Authenticode signature on desktop installers yet | default | 2026-11-04 |
 | D35 | Desktop rollback by rebuild, and 2 live builds per payer | changed | 2026-11-05 |
 | D36 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
-| D37 | Starter templates as an overlay on the web template | default | 2026-11-13 |
+| D37 | Electron as a second, experimental desktop engine | confirmed | 2026-11-12 |
+| D38 | Starter templates as an overlay on the web template | default | 2026-11-13 |
 
 ## D1. Sandbox vendor
 
@@ -413,6 +414,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: macOS needs notarization and a macOS runner. Linux has many package formats. A local file works offline and costs nothing per user, but it gives no sync and no login. Contract: `docs/v2/desktop-apps.md`.
 - Update 2026-11-05: D36 adds macOS. The systems are now Windows x64 and macOS on Apple silicon (D36). macOS apps ship with an ad-hoc signature first. Notarization comes later.
+- Update 2026-11-12: D37 adds Electron as a second, experimental shell. Tauri stays the shell of the app type "Desktop app".
 
 ## D31. Trust split of desktop builds
 
@@ -490,7 +492,19 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: The user opens the app one time with Open Anyway. The server checks, re-packs, and signs the update archive. `DESKTOP_MACOS_BUILDS_ENABLED` gates new builds. A fixed `icon.icns` keeps the product name out of the app. The job stops after 45 minutes. The warm-up runs each day. Later: notarization with rcodesign, after a choice of whose Developer ID signs.
 
-## D37. Starter templates as an overlay on the web template
+## D37. Electron as a second, experimental desktop engine
+
+- Question: Does Wandit also build desktop apps with Electron?
+- Options: Tauri only (D30). Electron only. Both, with the engine fixed at the create of a project.
+- Default: Tauri only (D30).
+- Final choice: both. The app type "Desktop app 2" creates a project with the Electron shell. "Desktop app" keeps Tauri. Electron is experimental.
+- Status: confirmed
+- Date: 2026-11-12
+- Decided by: Zack, 2026-11-12.
+- Issues that change: none filed yet.
+- Notes: Why: a Tauri app uses the WebView of the system (WebView2, WKWebView), and each one acts differently. A macOS app showed a white window. Electron ships one Chromium for both systems. Cost: size. A macOS disk image is about 119 MB (measured on a fixture app). Only the shell, the CI workflows, and the update signature change. `projects.desktop_engine` holds the engine and never changes. Contract: `docs/v2/desktop-apps.md` section 13. Open: which engine stays after the test.
+
+## D38. Starter templates as an overlay on the web template
 
 - Question: How does a project get the code of a starter template with no agent turn?
 - Options: A. One overlay archive per starter template. A host task applies it in the project sandbox and commits it with the source `starter`. B. One full archive and one sandbox snapshot per starter template. C. One code.storage repository per starter template, which the create forks.
@@ -504,7 +518,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 
 ## How to add an entry
 
-1. Take the next number. The next number is D38.
+1. Take the next number. The next number is D39.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

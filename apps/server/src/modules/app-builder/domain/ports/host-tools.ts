@@ -40,7 +40,10 @@ export type HostToolContext = {
 	/** Who acted and which pool pays; a paid host tool passes it to `reserve`. */
 	subject: MeteringSubject;
 	sandbox: SandboxHandle;
-	/** `spec.mode` of the turn. `plan` gets only the tools that ask the user. */
+	/**
+	 * `spec.mode` of the turn. `plan` gets only the tools that ask the user;
+	 * `security_scan` gets only the backend reads.
+	 */
 	mode: BuilderTurnMode;
 	/**
 	 * `projects.framework`, for example "web-app" or "desktop-app". A desktop

@@ -1,11 +1,12 @@
 /**
- * "Soon" state of a More panel that Wandit cannot set up yet: Analytics
- * and Security. The panel icon on the night tile, a title, a hint, and the
- * planned action as a disabled pill with a "Soon" chip.
- * Rendered by components/more/more-view.tsx inside PanelShell.
+ * "Soon" state of a More panel that Wandit cannot set up yet: Analytics.
+ * It shows an hourglass on the night tile, a title, and a hint. The
+ * planned action is a disabled pill with a "Soon" chip.
+ * Rendered by components/more/more-view.tsx inside PanelShell, which shows
+ * the icon of the panel in its header.
  */
 
-import type { Icon } from "@phosphor-icons/react";
+import { HourglassIcon } from "@phosphor-icons/react/Hourglass";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 
@@ -16,20 +17,20 @@ import {
 	PanelMessage,
 } from "./panel-shell";
 
+/** Props of EmptyPanel. more-view.tsx passes them for the Analytics and the Security panel. */
 export type EmptyPanelProps = {
-	/** Icon of the panel from MORE_PANEL_META, so each empty panel keeps its own sign. */
-	icon: Icon;
 	/** Translated label of the planned action, for example "Turn on analytics". */
 	ctaLabel: string;
 };
 
-export function EmptyPanel({ icon, ctaLabel }: EmptyPanelProps) {
+/** The hourglass is the "not yet" sign of the backend states in cloud/backend-state.tsx too. */
+export function EmptyPanel({ ctaLabel }: EmptyPanelProps) {
 	const { t } = useTranslation();
 
 	return (
 		<PanelMessage
 			tone="feature"
-			icon={icon}
+			icon={HourglassIcon}
 			title={t("appBuilder.empty.title")}
 			text={t("appBuilder.empty.description")}
 		>

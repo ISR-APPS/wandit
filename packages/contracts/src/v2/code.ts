@@ -1,9 +1,11 @@
 /**
  * Shared contract of the V2 Code view (WANDIT-271).
- * `GET /api/v2/projects/:id/code` answers the file tree of the running
- * project sandbox and the small files that the server reads with it.
- * `GET .../code/file?path=` answers one file. The server
- * `CodeService` builds both answers; the web Code view parses them.
+ * `GET /api/v2/projects/:id/code` answers the file tree of the last commit
+ * on `main`. It also holds the small files that the server reads. A project
+ * with no commit yet reads the running sandbox. `GET .../code/file?path=`
+ * answers one file. The server `CodeService` builds both answers; the web
+ * Code view parses them. A committed tree carries an ETag, and a request
+ * with that tag in If-None-Match gets 304 with no body.
  */
 import { z } from "zod";
 
@@ -14,8 +16,8 @@ import { z } from "zod";
 export const CODE_FILE_MAX_BYTES = 512 * 1024;
 
 /**
- * A folder or a file of the project worktree. `path` is relative to the
- * worktree root, for example `src/routes/index.tsx`. `name` is its last
+ * A folder or a file of the project code. `path` is relative to the
+ * repository root, for example `src/routes/index.tsx`. `name` is its last
  * segment. A folder lists its folders first, then its files, each sorted.
  */
 export type CodeTreeNode =
@@ -60,7 +62,7 @@ export type CodeFileResponse = z.infer<typeof codeFileResponseSchema>;
  * the Code view opens first; null only when the tree holds no file.
  */
 export const codeSnapshotResponseSchema = z.object({
-	/** The git branch of the sandbox worktree, from `git rev-parse`. */
+	/** "main" for a committed tree, else the branch of the sandbox worktree from `git rev-parse`. */
 	branch: z.string(),
 	defaultFilePath: z.string().nullable(),
 	tree: z.array(codeTreeNodeSchema),
@@ -81,7 +83,7 @@ export type CodeSnapshotResponse = z.infer<typeof codeSnapshotResponseSchema>;
  */
 export const codeFileQuerySchema = z.object({
 	/**
-	 * Path relative to the worktree root, as the tree gives it. The cap is
+	 * Path relative to the repository root, as the tree gives it. The cap is
 	 * the Linux PATH_MAX, 4096: a longer path cannot name a file.
 	 */
 	path: z.string().min(1).max(4_096),

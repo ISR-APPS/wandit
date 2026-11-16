@@ -24,9 +24,9 @@ The host machine runs the session and commits your work.
 
 ## The platform
 
-- The app is a desktop app for Windows and macOS. The host wraps this project in a Tauri shell and builds
-  the installer of each system.
-- The app runs in WebView2 (Chromium) on Windows and in WKWebView (Safari engine) on macOS.
+- The app is a desktop app for Windows and macOS. The host wraps this project in a native shell (Tauri or Electron)
+  and builds the installer of each system. You cannot see or select the shell. The rules below apply to both.
+- The app runs in a Chromium engine or, on macOS with the Tauri shell, in WKWebView (Safari engine).
   Use only web APIs that both support. Chromium-only APIs such as `showSaveFilePicker` do not exist on macOS.
 - One person uses the app on one computer, a Windows PC or a Mac, with a mouse or a trackpad and a keyboard.
   There is no touch screen.
@@ -56,10 +56,11 @@ The host machine runs the session and commits your work.
 
 - Do not switch framework, router, styling system, or data library.
 - Do not add a state library, an ORM, a second database, or a second i18n system.
-- Never create `src-tauri/`, a Tauri config, or a Rust file. The build ignores them.
-  The host owns the native shell.
-- Do not import `@tauri-apps/api` outside `src/lib/db.ts`. Do not add a `@tauri-apps/plugin-*` package.
-  The shell allows only the database commands.
+- Never create `src-tauri/`, a Tauri config, a Rust file, or an Electron main or preload file.
+  The build ignores them. The host owns the native shell.
+- Do not import `@tauri-apps/api` outside `src/lib/db.ts`. Do not add a `@tauri-apps/plugin-*` package
+  or the `electron` package. Never read `window.wanditDesktop` or `window.__TAURI_INTERNALS__`.
+  The shell allows only the database commands, and `src/lib/db.ts` is their only caller.
 - Do not add Supabase, Firebase, or another cloud SDK. Do not add an HTTP client or call `fetch`.
 - Do not edit `src/lib/db.ts` or `src/lib/preview-db.ts`. They follow the contract of the desktop shell.
 - The deny rules in `.claude/settings.json` block edits to `CLAUDE.md`, `CLAUDE.local.md`,
@@ -124,6 +125,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 
 - Every database call lives in `features/<feature>/api/`. A component imports only `DbError` and the types
   from `~/lib/db`. It never calls `select`, `execute`, or `batch`.
+- `isDesktopShell` is for `src/root-layout.tsx` only. Do not read it in a feature.
 - `db.ts` exports three functions:
   - `select<Row>(sql, params?)` answers the rows as objects. The keys are the column names of the result.
   - `execute(sql, params?)` runs one write. It answers `{ changes, lastInsertRowId }`.

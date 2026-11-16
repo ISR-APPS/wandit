@@ -12,7 +12,7 @@ import {
 } from "~/shared/ui/card";
 
 type DatabaseErrorScreenProps = {
-	/** The error of the open check: a DbError of the shell or the preview, or an Error of the Tauri bridge. */
+	/** The error of the open check: a DbError of the shell or the preview, or an Error of the shell bridge. */
 	error: Error;
 };
 

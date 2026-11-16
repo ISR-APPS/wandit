@@ -11,6 +11,7 @@ describe("appBuilderSearchSchema", () => {
 				device: "android",
 				viewport: "mobile",
 				file: "src/app.tsx",
+				chat: "0b0e7a52-6d2f-4c1c-9a57-3f1f4d1c2b6a",
 			}),
 		).toEqual({
 			view: "more",
@@ -18,6 +19,7 @@ describe("appBuilderSearchSchema", () => {
 			device: "android",
 			viewport: "mobile",
 			file: "src/app.tsx",
+			chat: "0b0e7a52-6d2f-4c1c-9a57-3f1f4d1c2b6a",
 		});
 	});
 
@@ -51,12 +53,14 @@ describe("appBuilderSearchSchema", () => {
 			device: "windows",
 			viewport: "",
 			file: "x".repeat(600),
+			chat: "not-a-uuid",
 		});
 		expect(result.view).toBeUndefined();
 		expect(result.panel).toBeUndefined();
 		expect(result.device).toBeUndefined();
 		expect(result.viewport).toBeUndefined();
 		expect(result.file).toBeUndefined();
+		expect(result.chat).toBeUndefined();
 	});
 
 	it("accepts an empty search", () => {

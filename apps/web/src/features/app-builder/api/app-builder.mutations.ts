@@ -1,13 +1,14 @@
 /**
  * Mutations of the app builder. Most call a service and write the result
  * into the query cache, so the panel that reads the query updates at once.
- * Called by the dashboard create flow, the Settings panel, the versions
- * popover, the Expo Go popover, and the asleep note of the preview.
+ * Called by the dashboard create flow, the builder page, the Settings panel,
+ * the versions popover, the Expo Go popover, and the asleep note of the preview.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
 	CreateAppProjectRequest,
+	ProjectChatListResponse,
 	UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
 	createAppProject,
+	createProjectChat,
 	getPhonePreviewLink,
 	restoreVersion,
 	updateCostCaps,
@@ -34,6 +36,34 @@ export function useCreateAppProject() {
 		mutationFn: (body: CreateAppProjectRequest) => createAppProject(body),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+		},
+	});
+}
+
+/**
+ * Creates an empty conversation in a project, or answers the empty one that
+ * exists. Puts it into the conversation list at once, so the page can open
+ * it, then loads the list again. A refusal shows the API message as a toast.
+ */
+export function useCreateProjectChat(projectId: string) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: () => createProjectChat(projectId),
+		onSuccess: ({ chat }) => {
+			queryClient.setQueryData<ProjectChatListResponse>(
+				appBuilderKeys.chats(projectId),
+				(list) =>
+					// The API can answer a conversation that the list already holds.
+					list === undefined || list.chats.some((row) => row.id === chat.id)
+						? list
+						: { chats: [chat, ...list.chats] },
+			);
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.chats(projectId),
+			});
+		},
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
 		},
 	});
 }

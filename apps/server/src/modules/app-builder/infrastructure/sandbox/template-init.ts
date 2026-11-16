@@ -13,7 +13,6 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gunzipSync } from "node:zlib";
 
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -24,6 +23,7 @@ import type {
 	SandboxHandle,
 	SandboxLogger,
 } from "../../domain/ports/sandbox-provider";
+import { isRegularFile, tarEntries } from "../archive/tar-gz";
 import {
 	profileForFramework,
 	readFirstLine,
@@ -104,9 +104,6 @@ const ARCHIVE_PATH = "/tmp/template.tar.gz";
  */
 const TEMPLATE_COMMIT_DATE = "2000-01-01T00:00:00Z";
 
-/** Size of one tar header and of one content block. */
-const TAR_BLOCK_BYTES = 512;
-
 /** One template file that an old project repo can bring back. */
 type OldTemplateFile = {
 	/** Path from the project root. The archive uses the same path. */
@@ -158,49 +155,6 @@ const OLD_TEMPLATE_FILES: readonly OldTemplateFile[] = [
 	},
 ];
 
-/** One entry of a ustar archive, read from its 512-byte header. */
-type TarEntry = {
-	/** Path in the archive with no leading "./", for example "src/app.tsx". */
-	path: string;
-	/** Octal mode text of the header, for example "000644". */
-	mode: string;
-	/** Type flag: "0" or "" is a regular file, "2" a symlink, "5" a folder. */
-	type: string;
-	/** Bytes after the header. Only a regular file holds project bytes. */
-	content: Uint8Array;
-	/** Target of a symlink. A regular file has an empty value. */
-	linkTarget: string;
-};
-
-/** The entries of a `.tar.gz` in archive order. */
-function* tarEntries(archive: Uint8Array): Generator<TarEntry> {
-	const tar = gunzipSync(archive);
-	let offset = 0;
-	// A zero block ends the archive; a truncated archive ends the loop too.
-	while (offset + TAR_BLOCK_BYTES <= tar.length) {
-		const header = tar.subarray(offset, offset + TAR_BLOCK_BYTES);
-		if (header.every((byte) => byte === 0)) {
-			break;
-		}
-		// Header fields of the ustar format: offsets and lengths in bytes.
-		const size = Number.parseInt(tarText(header, 124, 12) || "0", 8);
-		const contentStart = offset + TAR_BLOCK_BYTES;
-		yield {
-			content: tar.subarray(contentStart, contentStart + size),
-			linkTarget: tarText(header, 157, 100),
-			mode: tarText(header, 100, 8),
-			path: posix.join(tarText(header, 345, 155), tarText(header, 0, 100)),
-			type: tarText(header, 156, 1),
-		};
-		offset = contentStart + Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;
-	}
-}
-
-/** True for a regular file. A folder or a pax header holds no project file. */
-function isRegularFile(entry: TarEntry): boolean {
-	return entry.type === "0" || entry.type === "";
-}
-
 /**
  * SHA-256 hex of the regular files and symlinks in a `.tar.gz`, by path,
  * mode, and content. It ignores file times and entry order, which change
@@ -229,15 +183,6 @@ function archiveFileContent(
 		}
 	}
 	return null;
-}
-
-/** One NUL-padded text field of a tar header, trimmed. */
-function tarText(header: Uint8Array, start: number, length: number): string {
-	const field = header.subarray(start, start + length);
-	const end = field.indexOf(0);
-	return Buffer.from(end === -1 ? field : field.subarray(0, end))
-		.toString("utf8")
-		.trim();
 }
 
 function sha256Hex(content: Uint8Array | string): string {

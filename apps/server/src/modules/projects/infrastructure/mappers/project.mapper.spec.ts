@@ -11,6 +11,7 @@ function projectRow(
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-07-31T08:00:00.000Z"),
+		desktopEngine: null,
 		engine: "v1_page",
 		framework: null,
 		hideWanditBadge: false,

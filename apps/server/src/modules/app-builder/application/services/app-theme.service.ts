@@ -95,7 +95,7 @@ export class AppThemeService {
 		@Inject(GIT_STORE)
 		private readonly gitStore: GitStore,
 		@Inject(GIT_FILE_READER)
-		private readonly gitFiles: GitFileReader,
+		private readonly gitFiles: Pick<GitFileReader, "readFile">,
 		@Inject(VERSION_OBJECTS)
 		private readonly objects: Pick<VersionsObjectStore, "putPatch">,
 		@Inject(BuilderTurnsRepository)

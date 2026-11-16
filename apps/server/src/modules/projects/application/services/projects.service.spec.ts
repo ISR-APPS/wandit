@@ -499,6 +499,7 @@ function projectRow(overrides: { logoUrl: string | null }): ProjectQueryRow {
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
+		desktopEngine: null,
 		engine: "v1_page",
 		framework: null,
 		hideWanditBadge: false,

@@ -14,7 +14,10 @@ import type {
 	TurnMessagePart,
 } from "../api/dto";
 import {
-	contextFullPercentOf,
+	type ContextTone,
+	type ContextUsage,
+	contextToneOf,
+	contextUsageOf,
 	type LiveStatus,
 	latestTurnModeOf,
 	livePhaseOf,
@@ -1047,6 +1050,39 @@ describe("toBuilderMessages", () => {
 		).toEqual(["text", "data-error", "data-receipt"]);
 	});
 
+	// Retry reads this mode. Without it, a failed scan retries as a build turn with write tools.
+	it("gives a relay error with no mode the mode of the live created frame", () => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-turn-created",
+						id: "turn-created",
+						data: {
+							turnId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c01",
+							chatId: "9b1d6b24-3f0c-4c6f-9f1d-2f0d2a5a1c02",
+							runId: null,
+							status: "running",
+							streamUrl: "/api/v2/projects/p1/turns/active/stream",
+							mode: "security_scan",
+						},
+					},
+					{
+						type: "data-turn-error",
+						id: "turn-error",
+						data: { code: "STREAM_LOST", message: "Lost", retryable: true },
+					},
+				],
+			},
+		] satisfies TurnMessage[];
+		const error = toBuilderMessages(messages, IDLE)[0].parts.find(
+			(part) => part.type === "data-error",
+		);
+		expect(error?.data.mode).toBe("security_scan");
+	});
+
 	it("drops a reply that holds only the created frame, as after a cancel", () => {
 		const messages = [
 			{ id: "u1", role: "user", parts: [{ type: "text", text: "hello" }] },
@@ -1134,7 +1170,7 @@ describe("toBuilderMessages", () => {
 	});
 });
 
-describe("contextFullPercentOf", () => {
+describe("contextUsageOf", () => {
 	/** A stored reply with the context count of its turn on a 300,000 point. */
 	function contextReply(id: string, tokens: number): TurnMessage {
 		return {
@@ -1155,22 +1191,20 @@ describe("contextFullPercentOf", () => {
 		parts: [{ type: "text", text: "Add a cart" }],
 	};
 
-	// Zack's rule: on the 300,000 point the notice starts at 250,000.
-	it.each<{ name: string; messages: TurnMessage[]; expected: number | null }>([
+	it.each<{
+		name: string;
+		messages: TurnMessage[];
+		expected: ContextUsage | null;
+	}>([
 		{
-			name: "one token below the notice point",
+			name: "a count below the notice margin",
 			messages: [contextReply("a1", 249_999)],
-			expected: null,
-		},
-		{
-			name: "the notice point",
-			messages: [contextReply("a1", 250_000)],
-			expected: 83,
+			expected: { tokens: 249_999, compactAtTokens: 300_000, percent: 83 },
 		},
 		{
 			name: "a count above the compaction point",
 			messages: [contextReply("a1", 320_000)],
-			expected: 100,
+			expected: { tokens: 320_000, compactAtTokens: 300_000, percent: 100 },
 		},
 		{
 			name: "the smaller count of the turn after a compaction",
@@ -1179,7 +1213,7 @@ describe("contextFullPercentOf", () => {
 				userMessage,
 				contextReply("a2", 40_000),
 			],
-			expected: null,
+			expected: { tokens: 40_000, compactAtTokens: 300_000, percent: 13 },
 		},
 		{
 			name: "the reply before a failed reply with no count",
@@ -1188,7 +1222,7 @@ describe("contextFullPercentOf", () => {
 				userMessage,
 				{ id: "a2", role: "assistant", parts: [{ type: "text", text: "…" }] },
 			],
-			expected: 87,
+			expected: { tokens: 260_000, compactAtTokens: 300_000, percent: 87 },
 		},
 		{
 			name: "a failed reply that compacted",
@@ -1205,8 +1239,38 @@ describe("contextFullPercentOf", () => {
 			],
 			expected: null,
 		},
-	])("returns $expected for $name", ({ messages, expected }) => {
-		expect(contextFullPercentOf(messages)).toBe(expected);
+	])("reads $name", ({ messages, expected }) => {
+		expect(contextUsageOf(messages)).toEqual(expected);
+	});
+});
+
+describe("contextToneOf", () => {
+	// Zack's rule: on the 300,000 point the warning starts at 250,000.
+	it.each<{ name: string; tokens: number; percent: number; tone: ContextTone }>(
+		[
+			{
+				name: "one token below the margin",
+				tokens: 249_999,
+				percent: 83,
+				tone: "neutral",
+			},
+			{
+				name: "the start of the margin",
+				tokens: 250_000,
+				percent: 83,
+				tone: "warning",
+			},
+			{
+				name: "the compaction point",
+				tokens: 300_000,
+				percent: 100,
+				tone: "full",
+			},
+		],
+	)("is $tone at $name", ({ tokens, percent, tone }) => {
+		expect(contextToneOf({ tokens, compactAtTokens: 300_000, percent })).toBe(
+			tone,
+		);
 	});
 });
 

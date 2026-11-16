@@ -1,11 +1,11 @@
 /**
  * Port: the CI of desktop builds, one GitHub Actions workflow per
  * platform in the private repo `DESKTOP_BUILD_REPO` (docs/v2/desktop-apps.md
- * section 9). The `desktop-build` task dispatches and polls runs; the desktop
+ * section 9), for each shell engine. The `desktop-build` task dispatches and polls runs; the desktop
  * builds service cancels them. `infrastructure/desktop/github-desktop-build-runner.ts`
  * implements it. Specs pass a fake.
  */
-import type { GithubWorkflowRun } from "@wandit/contracts";
+import type { DesktopEngine, GithubWorkflowRun } from "@wandit/contracts";
 
 /** Nest token for the `DesktopBuildRunner` implementation. */
 export const DESKTOP_BUILD_RUNNER = Symbol.for(
@@ -22,19 +22,33 @@ type DesktopBuildDispatchBase = {
 	inputSha256: string;
 };
 
-/** The inputs of `build.yml` (windows) or `build-macos.yml` (macos). The URLs are credentials: never log them. */
+/**
+ * The inputs of one workflow. `engine` and `platform` select the file:
+ * `build.yml` and `build-macos.yml` (tauri), `build-electron.yml` and
+ * `build-electron-macos.yml` (electron). The URLs are credentials: never log them.
+ */
 export type DesktopBuildDispatchInput =
 	| (DesktopBuildDispatchBase & {
 			platform: "windows";
+			/** `projects.desktop_engine` of the build. Null there means `tauri`. */
+			engine: DesktopEngine;
 			/** Presigned PUT URL of the staged setup exe, valid 2 h. */
 			outputUrl: string;
 	  })
 	| (DesktopBuildDispatchBase & {
 			platform: "macos";
+			engine: "tauri";
 			/** Presigned PUT URL of the staged disk image, valid 2 h. */
 			outputUrl: string;
 			/** Presigned PUT URL of the staged `.app.tar.gz`, valid 2 h. */
 			updateUrl: string;
+	  })
+	| (DesktopBuildDispatchBase & {
+			platform: "macos";
+			/** An Electron app updates from the disk image, so the workflow has no `update_url` input. */
+			engine: "electron";
+			/** Presigned PUT URL of the staged disk image, valid 2 h. */
+			outputUrl: string;
 	  });
 
 /** The run that one dispatch started. */
@@ -69,8 +83,8 @@ export interface DesktopBuildRunner {
 	/** Reads the current state of one run. Throws `DesktopBuildRunnerError`. */
 	getRun(runId: string): Promise<GithubWorkflowRun>;
 	/**
-	 * True when the self-test step of `build.yml` or `build-macos.yml` failed
-	 * in this run. The task asks after a failed run only. Throws `DesktopBuildRunnerError`.
+	 * True when the self-test step of the workflow failed in this run. The 4
+	 * workflow files use the same step name. The task asks after a failed run only. Throws `DesktopBuildRunnerError`.
 	 */
 	hasFailedSelfTest(runId: string): Promise<boolean>;
 	/** Cancels one run. A run that already ended counts as done. */

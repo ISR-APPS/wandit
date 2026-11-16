@@ -1,9 +1,9 @@
 /**
  * Application service behind the Code view routes (WANDIT-271).
  * `CodeController` calls `snapshot` for the file tree with the small files,
- * and `file` for one file. Both read the running project sandbox through
- * `SandboxProvider.findRunning` and run git, bash, and coreutils in its
- * worktree.
+ * and `file` for one file. With a stored `main` head, both read that commit
+ * on code.storage through `GitFileReader`. A project with no commit yet reads
+ * the running sandbox through `SandboxProvider.findRunning`.
  */
 import { posix } from "node:path";
 
@@ -30,6 +30,12 @@ import {
 	pickDefaultFilePath,
 	pickPrefetchPaths,
 } from "../../domain/code-tree";
+import { GitFileTooLargeError } from "../../domain/errors/git-file-too-large.error";
+import {
+	GIT_FILE_READER,
+	type GitArchiveFiles,
+	type GitFileReader,
+} from "../../domain/ports/git-store";
 import {
 	SANDBOX_PROVIDER,
 	type SandboxProvider,
@@ -41,6 +47,7 @@ import { AppCommitsRepository } from "../../infrastructure/persistence/app-commi
 /**
  * Most paths that one git listing returns. The SDK holds the whole stdout
  * and stderr of a command in the API process, so a listing must stay small.
+ * It is also the largest page of the code.storage `/repos/files` listing.
  */
 // LIMIT: a worktree with more files shows the first 5000 paths git lists.
 // Upgrade: load the tree one folder at a time.
@@ -156,9 +163,33 @@ const COMMAND_TIMEOUT_MS = 10_000;
 const BINARY_SNIFF_BYTES = 8 * 1024;
 
 /**
+ * Format version of the snapshot ETag. One head sha gives the same answer
+ * until a deploy changes the tree rules or the prefetch ceilings. Bump it
+ * then, so a browser drops the answers of the old format.
+ */
+const SNAPSHOT_ETAG_VERSION = 1;
+
+/**
+ * Archive paths that code.storage leaves out. `pickPrefetchPaths` never
+ * picks `.claude/`, and it holds about 3.5 MB of agent skills.
+ */
+const ARCHIVE_EXCLUDE_GLOBS = [".claude/**"];
+
+/**
+ * Answer of `CodeService.snapshot`. `CodeController` sets the status and the
+ * cache headers from it. `etag` is null when the answer must not be cached.
+ */
+export type CodeSnapshotAnswer =
+	| { kind: "notModified"; etag: string }
+	| { kind: "snapshot"; snapshot: CodeSnapshotResponse; etag: string | null };
+
+// LIMIT: the Code view shows the last committed version. Files of a
+// running turn and uncommitted leftovers of a failed turn show after the
+// next commit. Upgrade: overlay the worktree of a running sandbox.
+/**
  * The file tree and file reads of the Code view. Reads never take the turn
- * lock: a read during a running turn can see a half-written file, and that
- * is fine for a viewer.
+ * lock. On the sandbox path, a read during a running turn can see a
+ * half-written file. That is fine for a viewer.
  */
 @Injectable()
 export class CodeService {
@@ -170,24 +201,133 @@ export class CodeService {
 		@Inject(AppCommitsRepository)
 		private readonly appCommits: Pick<
 			AppCommitsRepository,
-			"findScopedProject"
+			"findScopedProject" | "findBranch"
 		>,
 		@Inject(SANDBOX_PROVIDER)
 		private readonly sandboxes: Pick<SandboxProvider, "findRunning">,
+		@Inject(GIT_FILE_READER)
+		private readonly gitFiles: Pick<
+			GitFileReader,
+			"readFile" | "listFilePaths" | "readArchiveFiles"
+		>,
 	) {}
 
 	/**
-	 * The worktree tree: tracked and new files, without ignored files,
-	 * `.git`, and `.env*`. Ignored files include `node_modules`, `dist`,
-	 * and `.wrangler`, because the template `.gitignore` lists them.
-	 * `files` holds the small files of `pickPrefetchPaths`, so the web
-	 * shows them with no request.
+	 * The code tree without `.git` and `.env*`. `files` holds the small
+	 * files of `pickPrefetchPaths`, so the web shows them with no request.
+	 * With a stored `main` head, it reads that commit. `ifNoneMatch` is the
+	 * raw If-None-Match header. When it holds the ETag of the head, the
+	 * answer is "notModified" with no code.storage call. With no head, or
+	 * when code.storage lost the head, it reads the sandbox.
 	 */
 	async snapshot(
 		scope: ProjectScope,
 		projectId: string,
+		ifNoneMatch: string | undefined,
+	): Promise<CodeSnapshotAnswer> {
+		await this.requireV2App(scope, projectId);
+		const headSha =
+			(await this.appCommits.findBranch(projectId))?.headSha ?? null;
+		if (headSha !== null) {
+			const etag = snapshotEtag(headSha);
+			// Content at a sha never changes, so the copy of the browser is current.
+			if (ifNoneMatch !== undefined && etagMatches(ifNoneMatch, etag)) {
+				return { etag, kind: "notModified" };
+			}
+			const committed = await this.committedSnapshot(projectId, headSha);
+			if (committed !== null) {
+				return {
+					// A failed archive read can pass on the next request, so that answer
+					// is not cached. An archive over a ceiling stays over it at this sha.
+					etag: committed.prefetchFailed ? null : etag,
+					kind: "snapshot",
+					snapshot: committed.snapshot,
+				};
+			}
+		}
+		return {
+			etag: null,
+			kind: "snapshot",
+			snapshot: await this.sandboxSnapshot(projectId),
+		};
+	}
+
+	/**
+	 * The tree and the prefetched files at `headSha` on code.storage. Null
+	 * when code.storage has no repository or no such ref: the store lost
+	 * it, and the caller reads the sandbox. `prefetchFailed` is true when
+	 * the archive read threw and `files` is empty for that reason. An archive
+	 * over a ceiling also gives an empty `files`, but `prefetchFailed` stays false.
+	 */
+	private async committedSnapshot(
+		projectId: string,
+		headSha: string,
+	): Promise<{
+		snapshot: CodeSnapshotResponse;
+		prefetchFailed: boolean;
+	} | null> {
+		// LIMIT: a repository with more files shows the first 5000 paths of the
+		// listing. Upgrade: read the next pages, or load one folder at a time.
+		const [paths, archive] = await Promise.all([
+			this.gitFiles.listFilePaths(projectId, headSha, MAX_LISTED_PATHS),
+			this.archiveOrNone(projectId, headSha),
+		]);
+		if (paths === null) {
+			return null;
+		}
+		const tree = buildCodeTree(paths);
+		return {
+			prefetchFailed: archive === null,
+			snapshot: {
+				branch: "main",
+				defaultFilePath: pickDefaultFilePath(tree),
+				files:
+					archive?.kind === "files"
+						? pickArchiveFiles(pickPrefetchPaths(tree), archive.files)
+						: [],
+				tree,
+			},
+		};
+	}
+
+	// The archive is a speed-up only. A failed or too large archive must not
+	// fail the tree. The web then loads each file on a click. Null means
+	// the read threw. The store reads the archive once, with a 5 s time limit.
+	private async archiveOrNone(
+		projectId: string,
+		headSha: string,
+	): Promise<GitArchiveFiles | null> {
+		try {
+			const archive = await this.gitFiles.readArchiveFiles(
+				projectId,
+				headSha,
+				ARCHIVE_EXCLUDE_GLOBS,
+			);
+			if (archive.kind === "overCeiling") {
+				this.logger.warn(
+					`code.archive.over-ceiling project=${projectId} sha=${headSha}`,
+				);
+			}
+			return archive;
+		} catch (error: unknown) {
+			this.logger.warn(
+				`code.archive.failed project=${projectId} sha=${headSha}: ${getErrorMessage(error)}`,
+			);
+			return null;
+		}
+	}
+
+	/**
+	 * The worktree tree of the running sandbox: tracked and new files,
+	 * without ignored files, `.git`, and `.env*`. Ignored files include
+	 * `node_modules`, `dist`, and `.wrangler`, because the template
+	 * `.gitignore` lists them. Only a project with no stored head, or with a
+	 * head that code.storage lost, reads it.
+	 */
+	private async sandboxSnapshot(
+		projectId: string,
 	): Promise<CodeSnapshotResponse> {
-		const sandbox = await this.requireRunningSandbox(scope, projectId);
+		const sandbox = await this.requireRunningSandbox(projectId);
 		const [listed, deleted, head] = await Promise.all([
 			listGitPaths(sandbox, [
 				"ls-files",
@@ -214,19 +354,52 @@ export class CodeService {
 	}
 
 	/**
-	 * One worktree file. `path` is relative to the worktree root. Text comes
-	 * back as UTF-8; a binary file comes back with an empty `content`.
+	 * One code file. `path` is relative to the repository root. Text comes
+	 * back as UTF-8; a binary file comes back with an empty `content`. With
+	 * a stored `main` head, it reads that commit. When the commit has no such
+	 * file, it reads the running sandbox, or answers 404 when none runs.
+	 * With no head, it reads the running sandbox, or answers 409.
 	 */
 	async file(
 		scope: ProjectScope,
 		projectId: string,
 		path: string,
 	): Promise<CodeFileResponse> {
-		const sandbox = await this.requireRunningSandbox(scope, projectId);
+		await this.requireV2App(scope, projectId);
+		// Security: `.env*` and `.git` never leave the store or the sandbox.
+		// The check runs before any read.
 		if (!isReadableCodePath(path)) {
 			throw invalidPath();
 		}
+		const headSha =
+			(await this.appCommits.findBranch(projectId))?.headSha ?? null;
+		if (headSha === null) {
+			return this.sandboxFile(
+				await this.requireRunningSandbox(projectId),
+				path,
+			);
+		}
+		const committed = await this.committedFile(projectId, headSha, path);
+		if (committed !== null) {
+			return committed;
+		}
+		// When code.storage lost the repository, the tree comes from the
+		// sandbox, so its files must come from the sandbox too.
+		const sandbox = await this.sandboxes.findRunning(projectId);
+		if (sandbox === null) {
+			throw fileNotFound();
+		}
+		return this.sandboxFile(sandbox, path);
+	}
 
+	/**
+	 * One file of the worktree through `GUARDED_READ_SCRIPT`. `file` checks
+	 * `path` with `isReadableCodePath` before it calls this method.
+	 */
+	private async sandboxFile(
+		sandbox: SandboxReader,
+		path: string,
+	): Promise<CodeFileResponse> {
 		// One byte over the cap tells a file at the cap from a larger one.
 		const read = await sandbox.exec(
 			"bash",
@@ -262,6 +435,31 @@ export class CodeService {
 		return fileAnswer(path, bytes);
 	}
 
+	// One file at `headSha` on code.storage. The reader stops at the ceiling,
+	// so the API never holds a large committed asset. Null when code.storage
+	// has no repository, or no file at this path in the commit, or a folder.
+	private async committedFile(
+		projectId: string,
+		headSha: string,
+		path: string,
+	): Promise<CodeFileResponse | null> {
+		let bytes: Uint8Array | null;
+		try {
+			bytes = await this.gitFiles.readFile(
+				projectId,
+				headSha,
+				path,
+				CODE_FILE_MAX_BYTES,
+			);
+		} catch (error: unknown) {
+			if (error instanceof GitFileTooLargeError) {
+				throw fileTooLarge();
+			}
+			throw error;
+		}
+		return bytes === null ? null : fileAnswer(path, bytes);
+	}
+
 	// The files are a speed-up only: a failed read must not fail the tree,
 	// so the web then loads each file on a click.
 	private async prefetchOrNone(
@@ -280,18 +478,22 @@ export class CodeService {
 
 	// The project must be a scoped V2 app; a V1 project or another
 	// workspace's project answers 404, like `GET /api/v2/projects/:id`.
-	private async requireRunningSandbox(
+	private async requireV2App(
 		scope: ProjectScope,
 		projectId: string,
-	): Promise<SandboxReader> {
+	): Promise<void> {
 		const project = await this.appCommits.findScopedProject(scope, projectId);
 		if (project?.engine !== "v2_app") {
 			throw new NotFoundException();
 		}
+	}
+
+	// Only the sandbox fallback reads it. A stopped sandbox answers 409
+	// until a turn wakes it.
+	private async requireRunningSandbox(
+		projectId: string,
+	): Promise<SandboxReader> {
 		const sandbox = await this.sandboxes.findRunning(projectId);
-		// LIMIT: a stopped sandbox has no Code view; the route answers 409
-		// until a turn wakes it. Upgrade: read HEAD from the code.storage
-		// repository.
 		if (sandbox === null) {
 			throw new ConflictException({
 				code: "SANDBOX_NOT_RUNNING",
@@ -402,8 +604,49 @@ function isReadableRealPath(realWorktree: string, realPath: string): boolean {
 	);
 }
 
+/**
+ * The prefetched files of `paths` from the archive, in the order of `paths`.
+ * Like `PREFETCH_SCRIPT`, it skips a file over `PREFETCH_FILE_MAX_BYTES` or
+ * over the rest of `PREFETCH_BUDGET_BYTES`. Then it goes on with the next path.
+ */
+function pickArchiveFiles(
+	paths: string[],
+	archive: Map<string, Uint8Array>,
+): CodeFileResponse[] {
+	const files: CodeFileResponse[] = [];
+	let usedBytes = 0;
+	for (const path of paths) {
+		const bytes = archive.get(path);
+		if (
+			bytes === undefined ||
+			bytes.byteLength > PREFETCH_FILE_MAX_BYTES ||
+			usedBytes + bytes.byteLength > PREFETCH_BUDGET_BYTES
+		) {
+			continue;
+		}
+		usedBytes += bytes.byteLength;
+		files.push(fileAnswer(path, bytes));
+	}
+	return files;
+}
+
+/** The strong ETag of the snapshot at `headSha`. */
+function snapshotEtag(headSha: string): string {
+	return `"code-v${SNAPSHOT_ETAG_VERSION}-${headSha}"`;
+}
+
+/**
+ * True when the If-None-Match value holds `etag`. The value is a comma list,
+ * and a GET compares weakly, so a "W/" prefix still matches (RFC 9110 13.1.2).
+ */
+function etagMatches(ifNoneMatch: string, etag: string): boolean {
+	return ifNoneMatch
+		.split(",")
+		.some((tag) => tag.trim().replace(/^W\//, "") === etag);
+}
+
 /** The file answer for `bytes`: UTF-8 text, or an empty content when binary. */
-function fileAnswer(path: string, bytes: Buffer): CodeFileResponse {
+function fileAnswer(path: string, bytes: Uint8Array): CodeFileResponse {
 	const binary = bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0);
 	return {
 		binary,

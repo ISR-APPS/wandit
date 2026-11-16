@@ -12,7 +12,6 @@ import { useNavigate } from "@tanstack/react-router";
 import type {
 	BuilderTurnMode,
 	ComposerMetadata,
-	TargetPlatform,
 	UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { useCallback, useState } from "react";
@@ -21,6 +20,7 @@ import { promptStash } from "@/features/auth";
 import { creditsKeys } from "@/features/credits";
 import { isInsufficientCreditsApiError } from "@/features/projects";
 import { getApiErrorMessage } from "@/lib/api-client";
+import type { AppTypeChoice } from "@/lib/app-type-choice";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateAppProject } from "../api/app-builder.mutations";
 import { toCreateAppProjectBody } from "./create-app-project-body";
@@ -41,7 +41,7 @@ export type UseCreateAppProjectWithPromptResult = {
 };
 
 /**
- * `targetPlatform` is the app type chip pick of the prompt box. `mode` is
+ * `appType` is the app type menu pick of the prompt box. `mode` is
  * its Plan chip: the server starts the first turn with it, before the
  * navigation. The server checks the balance, and it answers 503 for
  * `mobile` when it has no mobile template. Both come back as errors here,
@@ -50,7 +50,7 @@ export type UseCreateAppProjectWithPromptResult = {
  * server default runs.
  */
 function useAppProjectCreateFlow(
-	targetPlatform: TargetPlatform,
+	appType: AppTypeChoice,
 	mode: BuilderTurnMode,
 	model?: string,
 ): UseCreateAppProjectWithPromptResult {
@@ -78,7 +78,7 @@ function useAppProjectCreateFlow(
 						composer,
 						attachments,
 						locale,
-						targetPlatform,
+						appType,
 						mode,
 						model,
 					}),
@@ -109,15 +109,7 @@ function useAppProjectCreateFlow(
 			// The server kept the project, so a second submit must not make a twin.
 			return true;
 		},
-		[
-			createAppProject,
-			locale,
-			mode,
-			model,
-			navigate,
-			queryClient,
-			targetPlatform,
-		],
+		[appType, createAppProject, locale, mode, model, navigate, queryClient],
 	);
 
 	return {

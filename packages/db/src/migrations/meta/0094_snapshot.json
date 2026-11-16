@@ -1,5 +1,5 @@
 {
-  "id": "96b271db-8a7e-4c5f-8922-f6a29370fc30",
+  "id": "1d4df75d-523d-4100-907a-1f719cac320b",
   "prevId": "8520617f-9b49-4891-9861-b6f7825dcfb3",
   "version": "7",
   "dialect": "postgresql",
@@ -17459,12 +17459,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "starter_template_id": {
-          "name": "starter_template_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "languages": {
           "name": "languages",
           "type": "text[]",
@@ -17948,6 +17942,146 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.security_scans": {
+      "name": "security_scans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "report": {
+          "name": "report",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "security_scans_projectId_createdAt_idx": {
+          "name": "security_scans_projectId_createdAt_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "security_scans_project_id_projects_id_fk": {
+          "name": "security_scans_project_id_projects_id_fk",
+          "tableFrom": "security_scans",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "security_scans_turn_id_builder_turns_id_fk": {
+          "name": "security_scans_turn_id_builder_turns_id_fk",
+          "tableFrom": "security_scans",
+          "tableTo": "builder_turns",
+          "columnsFrom": [
+            "turn_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "security_scans_user_id_user_id_fk": {
+          "name": "security_scans_user_id_user_id_fk",
+          "tableFrom": "security_scans",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "security_scans_organization_id_organization_id_fk": {
+          "name": "security_scans_organization_id_organization_id_fk",
+          "tableFrom": "security_scans",
+          "tableTo": "organization",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "security_scans_turn_id_unique": {
+          "name": "security_scans_turn_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "turn_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -18485,8 +18619,7 @@
         "merge",
         "theme",
         "github",
-        "mcp",
-        "starter"
+        "mcp"
       ]
     },
     "public.artifact_kind": {

@@ -26,7 +26,7 @@ export function ScopeList({
 }) {
 	const { t } = useTranslation();
 	return (
-		<ul className="flex flex-col gap-2 text-sm">
+		<ul className="flex flex-col gap-2 font-sans text-[14px] text-night/80 dark:text-foreground/80">
 			{scopes.map((scope) =>
 				scope.kind === "known" ? (
 					<li key={scope.scope} className="flex items-start gap-2">

@@ -113,7 +113,8 @@ export function PublishPopover({
 						{/* The open look keys on aria-expanded: the tooltip on this button overwrites data-state. */}
 						<Button
 							aria-label={t("appBuilder.publish.cta")}
-							className="group/publish h-9 gap-1.5 rounded-full font-grotesk font-semibold has-[>svg]:px-2.5 aria-expanded:bg-primary/90 sm:has-[>svg]:px-4"
+							// The one ember key of the bar: a top light and an ember glow. It goes one step down on a press.
+							className="group/publish h-9 gap-1.5 rounded-full font-grotesk font-semibold shadow-ember hover:bg-ember-deep active:translate-y-px has-[>svg]:px-2.5 aria-expanded:bg-ember-deep sm:has-[>svg]:px-4 dark:aria-expanded:bg-primary/90 dark:hover:bg-primary/90"
 						>
 							<RocketLaunchIcon aria-hidden weight="fill" className="size-4" />
 							<span className="hidden sm:inline">

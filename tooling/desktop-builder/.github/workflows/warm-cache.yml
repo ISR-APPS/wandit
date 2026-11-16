@@ -1,12 +1,14 @@
-# Saves the cargo caches that build.yml and build-macos.yml restore (docs/v2/desktop-apps.md, section 9).
-# It builds shell/ (written by sync-shell.mjs, with fixture files) on Windows and on macOS (2 jobs).
-# It saves one cargo cache for each system. A push to main, a manual start, and a daily schedule start it.
-# Only this workflow writes the cache, and it runs only trusted code of this repo.
+# Saves the caches that the 4 build workflows restore (docs/v2/desktop-apps.md, section 9).
+# 4 jobs. `warm` and `warm-macos` build shell/ and save the cargo caches of build.yml and
+# build-macos.yml. `warm-electron` and `warm-electron-macos` build shell-electron/ and save the
+# download caches of build-electron.yml and build-electron-macos.yml. sync-shell.mjs writes both
+# folders, with fixture files. A push to main, a manual start, and a daily schedule start it.
+# Only this workflow writes a cache, and it runs only trusted code of this repo.
 name: Desktop cache warm-up
 
 on:
   push:
-    # The default branch of the builder repo. A cache saved here is visible to build.yml and build-macos.yml runs.
+    # The default branch of the builder repo. A cache saved here is visible to every build workflow run.
     branches: [main]
   workflow_dispatch:
   # GitHub deletes a cache after 7 days without access, and build runs only restore.
@@ -175,4 +177,143 @@ jobs:
             ~/.cargo/git/db/
             ${{ env.TAURI_CLI_ROOT }}
             ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.lookup.outputs.cache-primary-key }}
+
+  warm-electron:
+    # The runner of build-electron.yml, so the cache holds the Windows downloads.
+    runs-on: windows-2022
+    # No user pays for this job. A run with no cache takes about 5 to 10 minutes (ESTIMATE).
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 3 values equal in build-electron.yml. The cache key and the cache paths use them.
+      # Node.js runs npm and electron-builder only. The app holds the Node.js of Electron.
+      NODE_VERSION: "24.22.2"
+      # npm reads its cache folder from this name.
+      npm_config_cache: 'C:\desktop-build\electron\npm'
+      # electron-builder puts its NSIS and resource tools here.
+      ELECTRON_BUILDER_CACHE: 'C:\desktop-build\electron\electron-builder'
+    steps:
+      # The Windows image sets core.autocrlf=true. package-lock.json must keep the LF bytes of
+      # the server input, or its hash differs from the cache key that build-electron.yml asks for.
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A cache entry never changes after its first save. When the key exists, the steps below skip.
+      - name: Look up the download cache
+        id: lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in build-electron.yml. The cache version is a hash of these paths.
+          # Line 2 is the default folder of @electron/get. It holds the Electron zip.
+          path: |
+            ${{ env.npm_config_cache }}
+            ~\AppData\Local\electron\Cache
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          # The same formula as build-electron.yml. hashFiles hashes the file content, not its path.
+          key: desktop-electron-v1-windows-x64-node-${{ env.NODE_VERSION }}-${{ hashFiles('shell-electron/shell/package-lock.json') }}
+          lookup-only: true
+
+      - name: Install Node.js
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # The action must not save a cache of its own: the last step saves the one cache.
+          package-manager-cache: false
+
+      # The commands of build-electron.yml, so the 3 folders hold every file that a build downloads.
+      # sync-shell.mjs writes the fixture config in shell/, and dist/ and migrations/ next to it.
+      - name: Build the fixture app
+        if: steps.lookup.outputs.cache-hit != 'true'
+        working-directory: shell-electron/shell
+        run: |
+          # npm and npx are scripts on Windows, so each call needs its own exit code check.
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) {
+            throw "npm ci ended with exit code $LASTEXITCODE."
+          }
+          npx --no-install electron-builder --win nsis --x64 --config electron-builder.config.cjs --publish never
+          if ($LASTEXITCODE -ne 0) {
+            throw "electron-builder ended with exit code $LASTEXITCODE."
+          }
+
+      - name: Save the download cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.npm_config_cache }}
+            ~\AppData\Local\electron\Cache
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: ${{ steps.lookup.outputs.cache-primary-key }}
+
+  warm-electron-macos:
+    # The runner of build-electron-macos.yml, so the cache holds the Apple silicon downloads.
+    runs-on: macos-15
+    # No user pays for this job. A run with no cache takes about 5 to 10 minutes (ESTIMATE).
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep these 3 values equal in build-electron-macos.yml. The cache key and the cache paths use them.
+      # Node.js runs npm and electron-builder only. The app holds the Node.js of Electron.
+      NODE_VERSION: "24.22.2"
+      # npm reads its cache folder from this name.
+      npm_config_cache: /Users/runner/desktop-build/electron/npm
+      # electron-builder puts its disk image tools here.
+      ELECTRON_BUILDER_CACHE: /Users/runner/desktop-build/electron/electron-builder
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A cache entry never changes after its first save. When the key exists, the steps below skip.
+      - name: Look up the download cache
+        id: lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Keep this list equal in build-electron-macos.yml. The cache version is a hash of these paths.
+          # Line 2 is the default folder of @electron/get. It holds the Electron zip.
+          path: |
+            ${{ env.npm_config_cache }}
+            ~/Library/Caches/electron
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          # The same formula as build-electron-macos.yml. hashFiles hashes the file content, not its path.
+          key: desktop-electron-v1-macos-arm64-node-${{ env.NODE_VERSION }}-${{ hashFiles('shell-electron/shell/package-lock.json') }}
+          lookup-only: true
+
+      - name: Install Node.js
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # The action must not save a cache of its own: the last step saves the one cache.
+          package-manager-cache: false
+
+      # The commands of build-electron-macos.yml, so the 3 folders hold every file that a build downloads.
+      # sync-shell.mjs writes the fixture config in shell/, and dist/ and migrations/ next to it.
+      - name: Build the fixture app
+        if: steps.lookup.outputs.cache-hit != 'true'
+        working-directory: shell-electron/shell
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci --ignore-scripts
+          npx --no-install electron-builder --mac dmg --arm64 --config electron-builder.config.cjs --publish never
+
+      - name: Save the download cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.npm_config_cache }}
+            ~/Library/Caches/electron
+            ${{ env.ELECTRON_BUILDER_CACHE }}
           key: ${{ steps.lookup.outputs.cache-primary-key }}

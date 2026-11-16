@@ -24,9 +24,11 @@ function setup() {
 			projectId: "project-1",
 			turnId: "turn-1",
 		})),
+		createChat: vi.fn<AppProjectsService["createChat"]>(),
 		createFromStarterTemplate:
 			vi.fn<AppProjectsService["createFromStarterTemplate"]>(),
 		get: vi.fn(),
+		listChats: vi.fn<AppProjectsService["listChats"]>(),
 	};
 	const controller = new AppProjectsController(appProjects);
 
