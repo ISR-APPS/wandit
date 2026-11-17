@@ -54,6 +54,27 @@ describe("priceUsdMicros", () => {
 		).toBe(4_200_000);
 	});
 
+	// Terra bills every token of a prompt above 272,000 tokens at the long rates.
+	// The prompt counts cached tokens too. $1/MTok is 1 micro per token.
+	it.each([
+		// 200,000 x $1 + 72,000 x $0.05 + 1,000 x $5.
+		{ cacheReadTokens: 72_000, expected: 208_600 },
+		// 200,000 x $2 + 72,001 x $0.10 + 1,000 x $7.50, rounded up.
+		{ cacheReadTokens: 72_001, expected: 414_701 },
+	])("prices a Terra prompt of 200,000 + $cacheReadTokens tokens", ({
+		cacheReadTokens,
+		expected,
+	}) => {
+		expect(
+			priceUsdMicros("openai/gpt-6.1-terra", {
+				inputTokens: 200_000,
+				outputTokens: 1_000,
+				cacheReadTokens,
+				cacheWriteTokens: 0,
+			}),
+		).toBe(expected);
+	});
+
 	it("rounds a partial million-token unit up to whole micros", () => {
 		// 1 sonnet input token = $2/MTok → 2 micros exactly.
 		expect(

@@ -170,30 +170,41 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 	},
 	{
 		// Gateway list prices read 2026-11-03, the same on OpenAI and Azure.
-		// LIMIT: above 272k prompt tokens, OpenAI bills 2x input, cache read, and
-		// cache write, and 1.5x output. Claude Code assumes a 200k window for
-		// this id, so most requests stay below.
-		// Upgrade: price each request from its prompt size.
+		// From 272,001 prompt tokens the gateway bills 2x input, cache read,
+		// and cache write, and 1.5x output (`*_tiers`, read 2026-11-17).
 		provider: "openai",
 		modelId: "openai/gpt-6.1-terra",
 		inputUsdPerMTok: 1,
 		outputUsdPerMTok: 5,
 		cacheReadUsdPerMTok: 0.05,
 		cacheWriteUsdPerMTok: 1.25,
+		longContext: {
+			aboveTokens: 272_000,
+			inputUsdPerMTok: 2,
+			outputUsdPerMTok: 7.5,
+			cacheReadUsdPerMTok: 0.1,
+			cacheWriteUsdPerMTok: 2.5,
+		},
 	},
 	{
 		// Gateway list prices read 2026-11-03: 2x the Terra rates. OpenAI is
 		// the only host. Its `/endpoints` row shows the Terra rates and a
 		// `priority` tier at $2 / $10, so this row uses the higher list rates.
-		// LIMIT: above 272k prompt tokens, OpenAI bills $4 / $15, and 2x cache
-		// read and cache write. Claude Code assumes a 200k window for this id.
-		// Upgrade: price each request from its prompt size.
+		// From 272,001 prompt tokens the gateway bills $4 / $15, and 2x cache
+		// read and cache write (`*_tiers`, read 2026-11-17).
 		provider: "openai",
 		modelId: "openai/gpt-6.1-terra-fast",
 		inputUsdPerMTok: 2,
 		outputUsdPerMTok: 10,
 		cacheReadUsdPerMTok: 0.1,
 		cacheWriteUsdPerMTok: 2.5,
+		longContext: {
+			aboveTokens: 272_000,
+			inputUsdPerMTok: 4,
+			outputUsdPerMTok: 15,
+			cacheReadUsdPerMTok: 0.2,
+			cacheWriteUsdPerMTok: 5,
+		},
 	},
 	{
 		// ESTIMATE: WANDIT-151 measures the real Haiku rate before billing on it.
@@ -222,8 +233,9 @@ export function llmModelPrice(modelId: string): LlmModelPrice | undefined {
 
 /**
  * Cost of one request in USD micros, integer math throughout. Rounds the
- * total up so a partial million-token unit never underbills. Returns null
- * when the model has no price row — the caller still writes the usage row.
+ * total up so a partial million-token unit never underbills. A prompt above
+ * `longContext.aboveTokens` bills every token at the long-context rates.
+ * Returns null when the model has no price row — the caller still writes the usage row.
  */
 export function priceUsdMicros(
 	modelId: string,
@@ -233,11 +245,19 @@ export function priceUsdMicros(
 	if (price === undefined) {
 		return null;
 	}
+	// The provider picks the rate from the whole prompt, cached tokens included.
+	const promptTokens =
+		usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+	const rates =
+		price.longContext !== undefined &&
+		promptTokens > price.longContext.aboveTokens
+			? price.longContext
+			: price;
 	const numerator =
-		BigInt(usage.inputTokens) * microsPerMTok(price.inputUsdPerMTok) +
-		BigInt(usage.outputTokens) * microsPerMTok(price.outputUsdPerMTok) +
-		BigInt(usage.cacheReadTokens) * microsPerMTok(price.cacheReadUsdPerMTok) +
-		BigInt(usage.cacheWriteTokens) * microsPerMTok(price.cacheWriteUsdPerMTok);
+		BigInt(usage.inputTokens) * microsPerMTok(rates.inputUsdPerMTok) +
+		BigInt(usage.outputTokens) * microsPerMTok(rates.outputUsdPerMTok) +
+		BigInt(usage.cacheReadTokens) * microsPerMTok(rates.cacheReadUsdPerMTok) +
+		BigInt(usage.cacheWriteTokens) * microsPerMTok(rates.cacheWriteUsdPerMTok);
 	// Ceiling division: any token fraction rounds up to a whole micro.
 	return Number((numerator + TOKENS_PER_MTOK - 1n) / TOKENS_PER_MTOK);
 }

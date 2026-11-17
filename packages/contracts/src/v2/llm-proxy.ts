@@ -102,6 +102,17 @@ export const llmModelPriceSchema = z.object({
 	cacheReadUsdPerMTok: z.number().nonnegative(),
 	// 1-hour cache-write rate; zero when the provider has no cache writes.
 	cacheWriteUsdPerMTok: z.number().nonnegative(),
+	// The rates of a request whose prompt (input, cache read, and cache write
+	// tokens) is above `aboveTokens`. Absent: one rate for every prompt size.
+	longContext: z
+		.object({
+			aboveTokens: z.int().positive(),
+			inputUsdPerMTok: z.number().nonnegative(),
+			outputUsdPerMTok: z.number().nonnegative(),
+			cacheReadUsdPerMTok: z.number().nonnegative(),
+			cacheWriteUsdPerMTok: z.number().nonnegative(),
+		})
+		.optional(),
 });
 
 /** TypeScript price-row type. */

@@ -21,10 +21,11 @@ PostHog flag `v2-builder`).
   Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
   Claude Code call, also helper and subagent calls, to it. The harness
   then turns off the experimental betas, tool search, and WebSearch.
-- Claude Code compacts the conversation by itself. On a 1M-window Claude
-  model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
-  and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
-  167,000. At each turn end the bridge fork reads Claude Code's own count.
+- Claude Code compacts the conversation by itself. On a 1M-window model,
+  Claude or not, it compacts at 450,000 tokens: the harness adds the `[1m]`
+  suffix and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Haiku 4.5 has a 200K
+  window and compacts at 167,000. The LLM proxy drops the 1M beta for a
+  model that is not Claude. At each turn end the bridge fork reads Claude Code's own count.
   The task writes it as the `data-turn-context` part. The composer shows it
   as a context ring; the warning tone starts 50,000 tokens before the
   compaction point.
@@ -1249,7 +1250,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@4"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@5"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.

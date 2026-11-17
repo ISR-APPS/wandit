@@ -572,6 +572,64 @@ describe("LlmProxyService", () => {
 		expect(generations[0]?.forwardedBody.toString("utf8")).toBe(sent[0]?.body);
 	});
 
+	// Claude Code sends the Claude 1M beta for every `[1m]` model id. Paper
+	// answered 400 to other betas that it does not know.
+	const claudeCodeBetas =
+		"claude-code-20250219, context-1m-2025-08-07,effort-2025-11-24";
+	it.each([
+		{
+			model: "paperinstruments/ultramarine-1-flash",
+			inboundBeta: claudeCodeBetas,
+			sentBeta: "claude-code-20250219,effort-2025-11-24",
+		},
+		{
+			model: "zai/glm-5.3",
+			inboundBeta: claudeCodeBetas,
+			sentBeta: "claude-code-20250219,effort-2025-11-24",
+		},
+		{
+			model: "anthropic/claude-sonnet-5",
+			inboundBeta: claudeCodeBetas,
+			sentBeta: claudeCodeBetas,
+		},
+		{
+			model: "zai/glm-5.3-flash",
+			inboundBeta: "context-1m-2025-08-07",
+			sentBeta: null,
+		},
+	])("drops the 1M beta only for a model that is not Claude ($model)", async ({
+		model,
+		inboundBeta,
+		sentBeta,
+	}) => {
+		const sent: Headers[] = [];
+		const upstreamFetch: typeof fetch = (_url, init) => {
+			sent.push(new Headers(init?.headers));
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			PAPERINSTRUMENTS_API_KEY: "paper-key",
+			// A plan may call only the deploy default model and Haiku.
+			V2_DEFAULT_MODEL: model,
+		};
+		const { service } = makeService(env, upstreamFetch);
+		const { input } = inbound(env, {
+			anthropicBeta: inboundBeta,
+			body: Buffer.from(JSON.stringify({ model, messages: [] }), "utf8"),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(sent[0]?.get("anthropic-beta")).toBe(sentBeta);
+	});
+
 	it("streams SSE chunks as they arrive and writes the usage row", async () => {
 		const upstream = await startUpstream((_req, res) => {
 			res.writeHead(200, { "content-type": "text/event-stream" });
