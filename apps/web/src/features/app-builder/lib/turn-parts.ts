@@ -120,7 +120,7 @@ const RUN_OUTPUT_MAX_CHARS = 2_048;
 
 /**
  * Tokens before the compaction point where the context ring starts its
- * warning tone. Zack's rule: on the 300,000 point it starts at 250,000.
+ * warning tone. Zack's rule: on the 450,000 point it starts at 400,000.
  */
 const CONTEXT_NOTICE_MARGIN_TOKENS = 50_000;
 

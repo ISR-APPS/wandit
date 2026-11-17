@@ -108,6 +108,9 @@ export interface LlmProxyReply {
 // version Claude Code sends, and the only one the proxy needs as fallback.
 const ANTHROPIC_VERSION_FALLBACK = "2023-06-01";
 
+// The beta that Claude Code sends for a model id with the `[1m]` suffix.
+const CLAUDE_1M_CONTEXT_BETA = "context-1m-2025-08-07";
+
 // Run-spend counters outlive the token by one hour. A tail call after a
 // long turn still lands on the same key.
 const RUN_SPEND_TTL_GRACE_SECONDS = 60 * 60;
@@ -457,7 +460,20 @@ export class LlmProxyService {
 			"x-wandit-run": input.wanditRun ?? claims.runId,
 		};
 		if (input.anthropicBeta !== undefined) {
-			headers["anthropic-beta"] = input.anthropicBeta;
+			// The harness adds `[1m]` to every 1M model, so Claude Code sends the
+			// Claude 1M beta also to Paper and to gateway models. Only Claude reads it,
+			// and Paper answered 400 to other betas that it does not know.
+			const betas =
+				upstream.provider === "anthropic"
+					? input.anthropicBeta
+					: input.anthropicBeta
+							.split(",")
+							.map((beta) => beta.trim())
+							.filter((beta) => beta !== CLAUDE_1M_CONTEXT_BETA)
+							.join(",");
+			if (betas !== "") {
+				headers["anthropic-beta"] = betas;
+			}
 		}
 		// Paper sends all requests of one session id to one replica, so more
 		// input bills at the cache-read rate (5 times cheaper). The sandbox
