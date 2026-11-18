@@ -25,11 +25,22 @@ const PREFETCH_MAX_PATHS = 300;
 /** 4096 bytes, the Linux PATH_MAX. A longer path cannot name a file. */
 const PREFETCH_MAX_PATH_BYTES = 4_096;
 
+// Folders that the Code view hides, at any depth. `.git` holds the repository internals.
+// `.claude` holds the agent settings, hooks, and skills: not app code.
+const HIDDEN_FOLDER_NAMES = new Set([".git", ".claude"]);
+
+// Agent instruction files that the Code view hides, at any depth. They are not app code.
+const HIDDEN_FILE_NAMES = new Set([
+	"CLAUDE.md",
+	"CLAUDE.local.md",
+	"AGENTS.md",
+]);
+
 /**
- * True when the Code view may list and read `path`, a path relative to the
- * worktree root. A `.env*` file holds env values, for example the backend
- * `.env` that the host writes. `.git` holds the repository internals. So both
- * stay hidden.
+ * True when the Code view and the MCP `list_files` and `read_file` tools may
+ * list and read `path`, a path relative to the worktree root. A `.env*` file
+ * holds env values, for example the backend `.env` that the host writes. So
+ * it stays hidden, with the folders and files of the sets above.
  */
 export function isReadableCodePath(path: string): boolean {
 	if (path.startsWith("/") || path.includes("\0")) {
@@ -43,10 +54,14 @@ export function isReadableCodePath(path: string): boolean {
 				segment === "" ||
 				segment === "." ||
 				segment === ".." ||
-				segment === ".git",
+				HIDDEN_FOLDER_NAMES.has(segment),
 		);
 	const fileName = path.slice(path.lastIndexOf("/") + 1);
-	return !hasBadSegment && !fileName.startsWith(".env");
+	return (
+		!hasBadSegment &&
+		!fileName.startsWith(".env") &&
+		!HIDDEN_FILE_NAMES.has(fileName)
+	);
 }
 
 // Folders that an `apply_changes` path must not enter, at any depth: git internals,
@@ -194,11 +209,7 @@ export function pickDefaultFilePath(tree: CodeTreeNode[]): string | null {
  */
 export function pickPrefetchPaths(tree: CodeTreeNode[]): string[] {
 	const picked = listFilePaths(tree).filter(
-		(path) =>
-			// `.claude/` holds the agent skills: about 140 Markdown files and
-			// 3.5 MB in the web-app template, not app code.
-			!path.startsWith(".claude/") &&
-			Buffer.byteLength(path) <= PREFETCH_MAX_PATH_BYTES,
+		(path) => Buffer.byteLength(path) <= PREFETCH_MAX_PATH_BYTES,
 	);
 	// The Code view opens the default file first, so the path cap and the
 	// byte budget must not drop it.

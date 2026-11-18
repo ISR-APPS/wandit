@@ -94,6 +94,11 @@ const HIDDEN_TOOL_NAMES = new Set([
 	"present_plan",
 ]);
 
+// Text that the sandbox guard `.claude/hooks/pre-tool-use.mjs` writes when it stops a call.
+// Claude Code shows it as a "PreToolUse hook error". The call did not run, and the
+// agent tries another way. So the row hides. The stored message keeps the text.
+const GUARD_ERROR_MARKERS = ["denied by wandit rules:", "wandit pre-tool-use:"];
+
 // Host tools report a failure as a normal output with a status. These
 // statuses mean that the call did not do its job.
 const FAILED_OUTPUT_STATUSES = new Set([
@@ -120,7 +125,7 @@ const RUN_OUTPUT_MAX_CHARS = 2_048;
 
 /**
  * Tokens before the compaction point where the context ring starts its
- * warning tone. Zack's rule: on the 300,000 point it starts at 250,000.
+ * warning tone. Zack's rule: on the 450,000 point it starts at 400,000.
  */
 const CONTEXT_NOTICE_MARGIN_TOKENS = 50_000;
 
@@ -461,11 +466,18 @@ function stepContentOf(
 
 /**
  * The step row of one tool part, or null when the part gets no row: a
- * hidden tool, or a call that waits for an approval.
+ * hidden tool, a call that the sandbox guard stopped, or a call that waits
+ * for an approval.
  */
 export function stepOf(part: ToolPart, isLive: boolean): Step | null {
 	const toolName = getToolName(part);
 	if (HIDDEN_TOOL_NAMES.has(toolName)) return null;
+	if (
+		part.state === "output-error" &&
+		GUARD_ERROR_MARKERS.some((marker) => part.errorText.includes(marker))
+	) {
+		return null;
+	}
 	const state = stepStateOf(part, isLive);
 	if (state === null) return null;
 	const kind = STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other";

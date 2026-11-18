@@ -171,11 +171,11 @@ const BINARY_SNIFF_BYTES = 8 * 1024;
  * until a deploy changes the tree rules or the prefetch ceilings. Bump it
  * then, so a browser drops the answers of the old format.
  */
-const SNAPSHOT_ETAG_VERSION = 1;
+const SNAPSHOT_ETAG_VERSION = 2;
 
 /**
- * Archive paths that code.storage leaves out. `pickPrefetchPaths` never
- * picks `.claude/`, and it holds about 3.5 MB of agent skills.
+ * Archive paths that code.storage leaves out. The tree hides `.claude/`,
+ * and it holds about 3.5 MB of agent skills.
  */
 const ARCHIVE_EXCLUDE_GLOBS = [".claude/**"];
 
@@ -234,7 +234,8 @@ export class CodeService {
 	) {}
 
 	/**
-	 * The code tree without `.git` and `.env*`. `files` holds the small
+	 * The code tree without the paths that `isReadableCodePath` hides:
+	 * `.git`, `.env*`, and the agent files. `files` holds the small
 	 * files of `pickPrefetchPaths`, so the web shows them with no request.
 	 * With a stored `main` head, it reads that commit. `ifNoneMatch` is the
 	 * raw If-None-Match header. When it holds the ETag of the head, the

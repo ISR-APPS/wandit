@@ -351,12 +351,16 @@ describe("ClaudeCodeHarness.createSession", () => {
 		);
 	});
 
-	// Claude Code compacts at 300,000 tokens only when it knows the 1M window.
+	// Claude Code compacts at 450,000 tokens only when it knows the 1M window.
 	// A 200K model with `[1m]` would wait past the size the API accepts.
 	it.each([
 		{
 			model: "anthropic/claude-opus-5.5",
 			claudeModel: "anthropic/claude-opus-5.5[1m]",
+		},
+		{
+			model: "zai/glm-5.3",
+			claudeModel: "zai/glm-5.3[1m]",
 		},
 		{
 			model: "anthropic/claude-haiku-4-5",

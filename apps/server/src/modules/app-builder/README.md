@@ -21,10 +21,11 @@ PostHog flag `v2-builder`).
   Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
   Claude Code call, also helper and subagent calls, to it. The harness
   then turns off the experimental betas, tool search, and WebSearch.
-- Claude Code compacts the conversation by itself. On a 1M-window Claude
-  model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
-  and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
-  167,000. At each turn end the bridge fork reads Claude Code's own count.
+- Claude Code compacts the conversation by itself. On a 1M-window model,
+  Claude or not, it compacts at 450,000 tokens: the harness adds the `[1m]`
+  suffix and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Haiku 4.5 has a 200K
+  window and compacts at 167,000. The LLM proxy drops the 1M beta for a
+  model that is not Claude. At each turn end the bridge fork reads Claude Code's own count.
   The task writes it as the `data-turn-context` part. The composer shows it
   as a context ring; the warning tone starts 50,000 tokens before the
   compaction point.
@@ -577,7 +578,9 @@ and the catch block refunds its hold.
   `git ls-files --cached --others --exclude-standard`, so ignored files
   never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
   never listed or read, also not through a symlink: the real path must stay
-  inside the worktree. A bad path answers 400 `CODE_PATH_INVALID`, a
+  inside the worktree. The agent files `.claude/`, `CLAUDE.md`,
+  `CLAUDE.local.md`, and `AGENTS.md` are hidden the same way, on both paths
+  and in the MCP `list_files` and `read_file` tools. A bad path answers 400 `CODE_PATH_INVALID`, a
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
@@ -591,7 +594,7 @@ and the catch block refunds its hold.
   with no request. On the sandbox path, one more command reads them with
   the tree. On the committed path, they come from the archive.
   `pickPrefetchPaths` picks the default file first, then `src/`, then the
-  rest, never `.claude/`, at most 300 paths. Both paths keep at most 64 KB
+  rest, at most 300 paths. Both paths keep at most 64 KB
   per file and 512 KB in total. The sandbox script uses the same path rule
   as a file read. A failed prefetch logs a warning and answers `files: []`.
   The tree answer never fails because of it. `code-scripts.linux.spec.ts`
@@ -1253,7 +1256,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@4"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@5"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
