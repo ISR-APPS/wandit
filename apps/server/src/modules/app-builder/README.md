@@ -574,7 +574,9 @@ and the catch block refunds its hold.
   `git ls-files --cached --others --exclude-standard`, so ignored files
   never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
   never listed or read, also not through a symlink: the real path must stay
-  inside the worktree. A bad path answers 400 `CODE_PATH_INVALID`, a
+  inside the worktree. The agent files `.claude/`, `CLAUDE.md`,
+  `CLAUDE.local.md`, and `AGENTS.md` are hidden the same way, on both paths
+  and in the MCP `list_files` and `read_file` tools. A bad path answers 400 `CODE_PATH_INVALID`, a
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
@@ -588,7 +590,7 @@ and the catch block refunds its hold.
   with no request. On the sandbox path, one more command reads them with
   the tree. On the committed path, they come from the archive.
   `pickPrefetchPaths` picks the default file first, then `src/`, then the
-  rest, never `.claude/`, at most 300 paths. Both paths keep at most 64 KB
+  rest, at most 300 paths. Both paths keep at most 64 KB
   per file and 512 KB in total. The sandbox script uses the same path rule
   as a file read. A failed prefetch logs a warning and answers `files: []`.
   The tree answer never fails because of it. `code-scripts.linux.spec.ts`
