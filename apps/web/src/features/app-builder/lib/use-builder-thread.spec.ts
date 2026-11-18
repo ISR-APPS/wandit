@@ -135,7 +135,13 @@ function createDeps(
 
 	return {
 		requests,
-		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+		deps: {
+			fetch: fetchImpl,
+			cancelTurn,
+			getActiveTurnState,
+			playTurnEndSoundWhenAway:
+				vi.fn<BuilderChatDeps["playTurnEndSoundWhenAway"]>(),
+		},
 	};
 }
 

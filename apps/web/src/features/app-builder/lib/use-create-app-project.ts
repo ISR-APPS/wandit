@@ -4,6 +4,7 @@
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
  * Stores the model pick for the new project, so its composer shows it.
+ * Starts the audio of the turn end sound at the create gesture (turn-end-sound.ts).
  * The Vercel production build gets a flow that never creates.
  */
 
@@ -25,6 +26,7 @@ import { useTranslation } from "@/lib/i18n";
 import { useCreateAppProject } from "../api/app-builder.mutations";
 import { toCreateAppProjectBody } from "./create-app-project-body";
 import { writeBuilderModel } from "./helpers";
+import { unlockTurnEndSound } from "./turn-end-sound";
 
 /** What the dashboard reads: the same four fields as the V1 hook result. */
 export type UseCreateAppProjectWithPromptResult = {
@@ -66,6 +68,9 @@ function useAppProjectCreateFlow(
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
 		) => {
+			// The server starts the first turn before the builder page opens. So the
+			// create click starts the audio of the turn end sound, as Safari needs.
+			unlockTurnEndSound();
 			// Claim the post-auth stash so a later dashboard visit cannot create
 			// a second project from the same landing-page draft.
 			promptStash.consume();

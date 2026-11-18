@@ -8,9 +8,11 @@
  * and the head. It then follows a turn of this conversation or a commit of
  * another client, such as a coding agent. A turn of another conversation
  * never replays here: the hook only reports that conversation as busy.
- * A 402 answer opens the credits dialog. Called by use-builder-thread.ts;
- * calls builder-chat-transport.ts, api/app-builder.queries.ts,
- * api/app-builder.services.ts, and the billing dispatch.
+ * A 402 answer opens the credits dialog. At the end frame of a turn it
+ * plays a chime when the user is away. Called by use-builder-thread.ts;
+ * calls builder-chat-transport.ts, turn-end-sound.ts,
+ * api/app-builder.queries.ts, api/app-builder.services.ts, and the billing
+ * dispatch.
  */
 
 import { useChat } from "@ai-sdk/react";
@@ -44,6 +46,7 @@ import {
 	createBuilderChatTransport,
 	hydrateTurnMessages,
 } from "./builder-chat-transport";
+import { playTurnEndSoundWhenAway, unlockTurnEndSound } from "./turn-end-sound";
 
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
@@ -71,11 +74,13 @@ export type BuilderChatSend = {
  * Injectable seams so specs pass fakes instead of mocking repo modules.
  * `fetch` reaches the SSE transport; `cancelTurn` is the POST cancel call;
  * `getActiveTurnState` is the poll of the running turn and the head.
+ * `playTurnEndSoundWhenAway` is the chime of a turn end; a spec counts its calls.
  */
 export type BuilderChatDeps = {
 	fetch: typeof globalThis.fetch;
 	cancelTurn: typeof cancelTurn;
 	getActiveTurnState: typeof getActiveTurnState;
+	playTurnEndSoundWhenAway: typeof playTurnEndSoundWhenAway;
 };
 
 // The one field of the done frame that the head rule reads. The frame
@@ -86,6 +91,7 @@ const defaultDeps: BuilderChatDeps = {
 	fetch: globalThis.fetch,
 	cancelTurn,
 	getActiveTurnState,
+	playTurnEndSoundWhenAway,
 };
 
 /** Live state and actions of one conversation, as the page consumes them. */
@@ -214,6 +220,9 @@ export function useBuilderChat(
 	// True when the created frame of the current stream had `queued: true`.
 	// That turn waited behind another turn, which can come from another client.
 	const isQueuedTurnRef = useRef(false);
+	// True from a created frame until the first end frame after it. So one turn
+	// plays the sound one time, also when a replay gives a second end frame.
+	const isTurnEndSoundArmedRef = useRef(false);
 	// Stops and sends that wait for the turn id. `data-turn-created` resolves
 	// them with the id; the end of the request resolves them with null.
 	const turnIdWaitersRef = useRef<((turnId: string | null) => void)[]>([]);
@@ -324,6 +333,7 @@ export function useBuilderChat(
 					queryKey: appBuilderKeys.chats(projectId),
 				});
 				isQueuedTurnRef.current = created.queued === true;
+				isTurnEndSoundArmedRef.current = true;
 				// A turn owns the chat now. A later error is a turn error, not the
 				// error of a refused send.
 				setRefusedSendChatId(null);
@@ -343,6 +353,21 @@ export function useBuilderChat(
 				if (outputCommitSha !== undefined && !isQueuedTurnRef.current) {
 					followStateOf(projectId, chatId).headSha = outputCommitSha;
 				}
+			}
+			// Product rule: a turn end plays a sound when the user is away from the page.
+			// Only the server writes these two frames, when the turn ended or paused.
+			// A Stop in this tab, a lost stream, and a refused send bring neither frame.
+			// A failed turn brings `data-turn-error`. The `error` chunk after it stops
+			// the read before the done frame.
+			// LIMIT: only an end frame that this tab streams plays the sound. A turn that ends while the stream is down, or in another conversation, is silent. Upgrade: the last ended turn in the poll answer.
+			// LIMIT: each tab decides alone, so two hidden tabs that stream one turn both play. Upgrade: a Web Lock with the turn id as its name.
+			// LIMIT: one flag serves all streams of this chat. When two turns stream at the same time, the second end is silent. Upgrade: a turn id in the end frames, then one flag for each turn id.
+			if (
+				(part.type === "data-turn-done" || part.type === "data-turn-error") &&
+				isTurnEndSoundArmedRef.current
+			) {
+				isTurnEndSoundArmedRef.current = false;
+				deps.playTurnEndSoundWhenAway();
 			}
 		},
 		// A 402 answer of the create POST opens the credits dialog. The
@@ -387,6 +412,17 @@ export function useBuilderChat(
 	useEffect(() => {
 		chatIdRef.current = chatId;
 	}, [chatId]);
+	// A browser starts audio only inside a user gesture, and Safari only on the same audio context.
+	// So the first click or key press on this page starts the context of the turn end sound.
+	// The capture phase runs before a handler that stops the event.
+	useEffect(() => {
+		window.addEventListener("click", unlockTurnEndSound, true);
+		window.addEventListener("keydown", unlockTurnEndSound, true);
+		return () => {
+			window.removeEventListener("click", unlockTurnEndSound, true);
+			window.removeEventListener("keydown", unlockTurnEndSound, true);
+		};
+	}, []);
 	// The newest history page, and the page of the last full reseed. A page
 	// that comes while the chat is not ready only merges. After a 204,
 	// `reconnect` compares the two and reseeds from the newest page.
