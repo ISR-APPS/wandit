@@ -20,7 +20,7 @@
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
- * strip, and a pull reloads the preview. It sends the scan and fix turns of
+ * strip, the Integrations panel shares the same pull, and a pull reloads the preview. It sends the scan and fix turns of
  * the Security panel, and the scan card of the chat opens that panel.
  * While the host applies a starter template, the preview shows the starter
  * note and no send starts. The chat loads again when that step ends.
@@ -548,6 +548,10 @@ export default function AppBuilderPage({
 					}
 					// An explicit build: with the Plan toggle on, a fix must not become a plan.
 					onAskSecurityFix={(text) => sendSecurityTurn(text, "build")}
+					githubUpdate={{
+						isUpdating: githubPull.isPending,
+						onUpdate: (expectedHeadSha) => githubPull.mutate(expectedHeadSha),
+					}}
 				/>
 			</div>
 			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}

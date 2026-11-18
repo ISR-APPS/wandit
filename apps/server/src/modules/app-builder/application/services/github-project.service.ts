@@ -1,5 +1,5 @@
 /**
- * The GitHub link of one V2 project: the status with the GitHub head check, the link
+ * The GitHub link of one V2 project: the status with the GitHub head check, the Re-check, the link
  * (create an empty repo and link it), the unlink, and the `push` webhook. `GithubController`
  * and `GithubWebhookController` call it; the Update (pull) lives in `VersionsService.pullFromGithub`.
  * It calls `GithubAppClient`,
@@ -56,8 +56,11 @@ const GITHUB_CHECK_INTERVAL_MS = 60_000;
 // With the webhook, GitHub reports each push. The status read then only finds
 // a lost delivery: GitHub does not send a failed delivery again.
 const GITHUB_CHECK_INTERVAL_WITH_WEBHOOK_MS = 10 * 60_000;
+// 10 s. The Re-check button cannot make the API call GitHub more than once
+// per 10 s per project. A click inside 10 s answers the current status.
+const GITHUB_RECHECK_INTERVAL_MS = 10_000;
 
-/** Status, link, unlink, and push webhook of the GitHub repo of a project. */
+/** Status, Re-check, link, unlink, and push webhook of the GitHub repo of a project. */
 @Injectable()
 export class GithubProjectService {
 	private readonly logger = new Logger(GithubProjectService.name);
@@ -105,6 +108,31 @@ export class GithubProjectService {
 		scope: ProjectScope,
 		projectId: string,
 	): Promise<ProjectGithubStatusResponse> {
+		// The web polls from each open tab. The claim lets one GitHub read through per interval.
+		const intervalMs = this.github.isWebhookConfigured()
+			? GITHUB_CHECK_INTERVAL_WITH_WEBHOOK_MS
+			: GITHUB_CHECK_INTERVAL_MS;
+		return this.statusWithCheck(scope, projectId, intervalMs);
+	}
+
+	/**
+	 * The Re-check button: the same answer as `status`, but it reads the GitHub head now,
+	 * unless a read ran less than `GITHUB_RECHECK_INTERVAL_MS` ago. It never answers "too soon".
+	 */
+	async recheck(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ProjectGithubStatusResponse> {
+		return this.statusWithCheck(scope, projectId, GITHUB_RECHECK_INTERVAL_MS);
+	}
+
+	// The status answer. With a link, it reads the GitHub head when no read ran in the
+	// last `intervalMs` ms, and schedules a sync when the heads differ.
+	private async statusWithCheck(
+		scope: ProjectScope,
+		projectId: string,
+		intervalMs: number,
+	): Promise<ProjectGithubStatusResponse> {
 		await this.requireV2Project(scope, projectId);
 		const [link, branch] = await Promise.all([
 			this.links.findByProject(projectId),
@@ -112,22 +140,24 @@ export class GithubProjectService {
 		]);
 		const headSha = branch?.headSha ?? null;
 		const appConfigured = this.github.isConfigured();
+		let answeredLink = link;
 		// The check only reads the GitHub head sha. The sync run checks the
 		// project access of the linker before it moves code.
 		if (link !== null && appConfigured) {
-			// The web polls from each open tab. The claim lets one GitHub read through per interval.
-			const intervalMs = this.github.isWebhookConfigured()
-				? GITHUB_CHECK_INTERVAL_WITH_WEBHOOK_MS
-				: GITHUB_CHECK_INTERVAL_MS;
-			const checkedBefore = new Date(Date.now() - intervalMs);
-			if (await this.links.claimGithubCheck(link.id, checkedBefore)) {
+			const checkedAt = await this.links.claimGithubCheck(
+				link.id,
+				new Date(Date.now() - intervalMs),
+			);
+			if (checkedAt !== null) {
 				await this.scheduleWhenHeadsDiffer(link, headSha);
+				// The row read above holds the time before the claim. "Checked" shows the claim time.
+				answeredLink = { ...link, githubCheckedAt: checkedAt };
 			}
 		}
 		return {
 			appConfigured,
 			headSha,
-			link: link === null ? null : toApiLink(link),
+			link: answeredLink === null ? null : toApiLink(answeredLink),
 		};
 	}
 
@@ -244,7 +274,9 @@ export class GithubProjectService {
 			appConfigured: true,
 			headSha: branch?.headSha ?? null,
 			link: toApiLink({
+				githubCheckedAt: null,
 				lastError: null,
+				lastSyncedAt: null,
 				lastSyncedSha: null,
 				mirroredSha: null,
 				remoteHeadSha: null,
@@ -412,7 +444,9 @@ function isRevokedUserToken(error: unknown): boolean {
 function toApiLink(
 	link: Pick<
 		ProjectGithubLinkRow,
+		| "githubCheckedAt"
 		| "lastError"
+		| "lastSyncedAt"
 		| "lastSyncedSha"
 		| "mirroredSha"
 		| "remoteHeadSha"
@@ -421,8 +455,10 @@ function toApiLink(
 	>,
 ): ProjectGithubLink {
 	return {
+		githubCheckedAt: link.githubCheckedAt?.toISOString() ?? null,
 		htmlUrl: `https://github.com/${link.repoOwner}/${link.repoName}`,
 		lastError: link.lastError,
+		lastSyncedAt: link.lastSyncedAt?.toISOString() ?? null,
 		lastSyncedSha: link.lastSyncedSha,
 		remoteHeadSha: link.remoteHeadSha,
 		repoName: link.repoName,

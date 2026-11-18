@@ -1,9 +1,10 @@
 /**
  * Application service behind the Code view routes (WANDIT-271).
  * `CodeController` calls `snapshot` for the file tree with the small files,
- * and `file` for one file. With a stored `main` head, both read that commit
- * on code.storage through `GitFileReader`. A project with no commit yet reads
- * the running sandbox through `SandboxProvider.findRunning`.
+ * `file` for one file, and `archive` for the Download button. With a stored
+ * `main` head, they read that commit on code.storage through `GitFileReader`.
+ * A project with no commit yet reads the running sandbox through
+ * `SandboxProvider.findRunning`. The Download reads only the stored head.
  */
 import { posix } from "node:path";
 
@@ -42,7 +43,10 @@ import {
 	type SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 import { mustRunGit } from "../../infrastructure/git/sandbox-git";
-import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
+import {
+	AppCommitsRepository,
+	type ScopedAppProject,
+} from "../../infrastructure/persistence/app-commits.repository";
 
 /**
  * Most paths that one git listing returns. The SDK holds the whole stdout
@@ -176,6 +180,23 @@ const SNAPSHOT_ETAG_VERSION = 1;
 const ARCHIVE_EXCLUDE_GLOBS = [".claude/**"];
 
 /**
+ * Archive paths that the Download leaves out. Security: `.env*` files never
+ * leave the store, at any depth, like `isReadableCodePath`. The two env globs
+ * cover a root file and a nested file, whatever the `**` rule of code.storage is.
+ */
+const DOWNLOAD_EXCLUDE_GLOBS = [...ARCHIVE_EXCLUDE_GLOBS, ".env*", "**/.env*"];
+
+/** File name and top folder of a Download when the project name has no ASCII letter or digit. */
+const DOWNLOAD_FALLBACK_NAME = "wandit-app";
+
+/** Answer of `CodeService.archive`: the tar.gz bytes and the attachment file name. */
+export type CodeArchiveDownload = {
+	/** "<project-slug>.tar.gz". The slug holds only `a-z`, `0-9`, and "-", so a header can quote it. */
+	fileName: string;
+	bytes: Uint8Array;
+};
+
+/**
  * Answer of `CodeService.snapshot`. `CodeController` sets the status and the
  * cache headers from it. `etag` is null when the answer must not be cached.
  */
@@ -208,7 +229,7 @@ export class CodeService {
 		@Inject(GIT_FILE_READER)
 		private readonly gitFiles: Pick<
 			GitFileReader,
-			"readFile" | "listFilePaths" | "readArchiveFiles"
+			"readFile" | "listFilePaths" | "readArchiveFiles" | "downloadArchive"
 		>,
 	) {}
 
@@ -250,6 +271,40 @@ export class CodeService {
 			kind: "snapshot",
 			snapshot: await this.sandboxSnapshot(projectId),
 		};
+	}
+
+	/**
+	 * The committed `main` code as one tar.gz, with the top folder "<project-slug>/".
+	 * It never reads the sandbox: the Download holds only saved versions.
+	 * 404 CODE_ARCHIVE_EMPTY with no stored head; 413 CODE_ARCHIVE_TOO_LARGE over the store ceiling.
+	 */
+	async archive(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<CodeArchiveDownload> {
+		const project = await this.requireV2App(scope, projectId);
+		const headSha =
+			(await this.appCommits.findBranch(projectId))?.headSha ?? null;
+		if (headSha === null) {
+			throw new NotFoundException({
+				code: "CODE_ARCHIVE_EMPTY",
+				message: "This project has no saved code yet",
+			});
+		}
+		const slug = downloadSlug(project.name);
+		const archive = await this.gitFiles.downloadArchive(
+			projectId,
+			headSha,
+			DOWNLOAD_EXCLUDE_GLOBS,
+			`${slug}/`,
+		);
+		if (archive.kind === "overCeiling") {
+			throw new PayloadTooLargeException({
+				code: "CODE_ARCHIVE_TOO_LARGE",
+				message: "The code is too large to download",
+			});
+		}
+		return { bytes: archive.bytes, fileName: `${slug}.tar.gz` };
 	}
 
 	/**
@@ -481,11 +536,12 @@ export class CodeService {
 	private async requireV2App(
 		scope: ProjectScope,
 		projectId: string,
-	): Promise<void> {
+	): Promise<ScopedAppProject> {
 		const project = await this.appCommits.findScopedProject(scope, projectId);
 		if (project?.engine !== "v2_app") {
 			throw new NotFoundException();
 		}
+		return project;
 	}
 
 	// Only the sandbox fallback reads it. A stopped sandbox answers 409
@@ -628,6 +684,25 @@ function pickArchiveFiles(
 		files.push(fileAnswer(path, bytes));
 	}
 	return files;
+}
+
+/**
+ * The project name in lowercase ASCII words joined by "-", at most 63 characters.
+ * A copy of `slugifyProjectName` in the sites module, with the Download fallback name.
+ */
+function downloadSlug(projectName: string): string {
+	const slug = projectName
+		// Split accented characters into a base and combining marks, then drop the marks (é → e).
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		// 63, the length limit of the copied rule. It keeps the file name short.
+		.slice(0, 63)
+		// The length cut can leave a "-" at the end.
+		.replace(/-+$/g, "");
+	return slug === "" ? DOWNLOAD_FALLBACK_NAME : slug;
 }
 
 /** The strong ETag of the snapshot at `headSha`. */

@@ -113,6 +113,8 @@
 		"GITHUB_NOTHING_TO_UPDATE": "GitHub n’a pas de nouvelles modifications pour ce projet.",
 		"GITHUB_UPDATE_CHANGED": "GitHub a encore changé. Relance la mise à jour.",
 		"GITHUB_MERGE_FAILED": "Wandit n’a pas pu fusionner les modifications de GitHub. Ton code n’a pas changé.",
-		"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau."
+		"GITHUB_LINK_OWNER_LEFT": "La personne qui a lié ce dépôt ne peut plus ouvrir ce projet. Délie-le, puis lie-le à nouveau.",
+		"CODE_ARCHIVE_EMPTY": "Ton app n’a pas encore de version enregistrée. Construis-la d’abord dans le chat.",
+		"CODE_ARCHIVE_TOO_LARGE": "Le code est trop volumineux pour être téléchargé. Lie un dépôt GitHub pour obtenir le code."
 	}
 }

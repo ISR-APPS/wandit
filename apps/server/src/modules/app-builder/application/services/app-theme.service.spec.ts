@@ -43,6 +43,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
+	name: "My app",
 	organizationId: null,
 	templateVersion: "web-app@1.1.0",
 	userId: "user-1",

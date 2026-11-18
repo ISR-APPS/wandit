@@ -70,6 +70,10 @@ export const apiErrorCodes = [
 	"CODE_PATH_INVALID",
 	"CODE_FILE_NOT_FOUND",
 	"CODE_FILE_TOO_LARGE",
+	// 404 of GET /api/v2/projects/:id/code/archive: the project has no saved version yet.
+	"CODE_ARCHIVE_EMPTY",
+	// 413 of GET /api/v2/projects/:id/code/archive: the tar.gz is over the API download ceiling.
+	"CODE_ARCHIVE_TOO_LARGE",
 	"BACKEND_NOT_READY",
 	"BACKEND_PAUSED",
 	"BACKEND_LIMIT_REACHED",

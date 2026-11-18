@@ -120,6 +120,7 @@ function renderView(
 				canSendTurn: false,
 				onRunSecurityScan: () => {},
 				onAskSecurityFix: () => {},
+				githubUpdate: { isUpdating: false, onUpdate: () => {} },
 			}),
 		};
 		return createElement(

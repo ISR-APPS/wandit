@@ -543,6 +543,10 @@ and the catch block refunds its hold.
   as `{ path, content, size, binary }`. Both sit behind
   `V2BuilderEnabledGuard`; read = any member, like `GET /:projectId`.
   The MCP tools `list_files` and `read_file` call the same service.
+- `GET .../code/archive` (viewer, 10 per user per minute) answers the stored `main`
+  head as `<project-slug>.tar.gz` with the top folder `<project-slug>/`, without
+  `.claude/**` and `.env*`. It never reads the sandbox. No head answers 404
+  `CODE_ARCHIVE_EMPTY`; more than 50 MB of gzip answers 413 `CODE_ARCHIVE_TOO_LARGE`.
 - Committed code first. When `app_branches` has a `main` head,
   `CodeService` reads that commit on code.storage through `GitFileReader`,
   with no sandbox call: a stopped sandbox still shows its code. The tree is

@@ -202,7 +202,12 @@
 		"tooLargeTitle": "الملف كبير جدًا",
 		"missingTitle": "الملف غير موجود",
 		"loadFailedHint": "انتظر لحظة، ثم حاول مرة أخرى.",
-		"reloadHint": "أعد تحميل الصفحة لتحاول مرة أخرى."
+		"reloadHint": "أعد تحميل الصفحة لتحاول مرة أخرى.",
+		"download": {
+			"title": "تنزيل الكود",
+			"hint": "ملف ‎.tar.gz‎ لآخر نسخة محفوظة. يفتح على macOS وWindows 11 وLinux.",
+			"button": "تنزيل"
+		}
 	},
 	"moreNavAriaLabel": "أقسام التطبيق",
 	"soon": "قريبًا",
@@ -432,12 +437,38 @@
 		"private": "مستودع خاص",
 		"privateHelp": "لا يراه إلا أنت والأشخاص الذين تضيفهم على GitHub.",
 		"create": "إنشاء المستودع",
-		"lastSynced": "آخر مزامنة: {sha}",
-		"neverSynced": "لم تتم المزامنة بعد.",
 		"unlink": "إلغاء ربط المستودع",
 		"unlinkConfirmTitle": "إلغاء ربط {repo}؟",
 		"unlinkConfirmBody": "يوقف Wandit المزامنة. يبقى المستودع وعمليات الإيداع فيه على GitHub.",
 		"cancel": "إلغاء",
+		"connection": {
+			"title": "ربط المستودع",
+			"repository": "المستودع",
+			"branch": "الفرع",
+			"branchInfo": "يزامن Wandit الفرع main فقط.",
+			"connected": "متصل",
+			"syncError": "خطأ في المزامنة",
+			"openOnGithub": "فتح على GitHub"
+		},
+		"sync": {
+			"recheck": "إعادة التحقق",
+			"inSyncTitle": "متزامن مع GitHub",
+			"inSyncText": "Wandit وGitHub على عملية الإيداع نفسها.",
+			"pushPendingTitle": "جارٍ إرسال التغييرات إلى GitHub",
+			"pushPendingText": "لدى Wandit تغييرات جديدة. ستصل إلى GitHub بعد لحظات.",
+			"firstSyncTitle": "المزامنة الأولى قيد التنفيذ",
+			"firstSyncText": "يرسل Wandit كود هذا المشروع إلى المستودع.",
+			"updateTitle": "في GitHub عمليات إيداع جديدة",
+			"updateText": "لا يحتوي هذا المشروع على عمليات الإيداع هذه بعد.",
+			"lastSynced": "آخر مزامنة {time}",
+			"checked": "تم التحقق {time}"
+		},
+		"clone": {
+			"title": "استنساخ المستودع",
+			"command": "أمر الاستنساخ",
+			"copy": "نسخ الأمر",
+			"copied": "تم النسخ"
+		},
 		"notes": {
 			"mainOnly": "يُزامَن الفرع main فقط، في الاتجاهين.",
 			"githubWins": "عندما يغيّر الطرفان الأسطر نفسها، تُعتمد نسخة GitHub.",
