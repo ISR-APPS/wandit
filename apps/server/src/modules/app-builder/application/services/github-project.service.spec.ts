@@ -20,6 +20,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
+	name: "My app",
 	organizationId: null,
 	templateVersion: "web-app@1.1.0",
 	userId: "user-1",
@@ -45,10 +46,12 @@ const INSTALLATIONS: GithubInstallation[] = [
 // A link of project p-1 that the worker never synced.
 const LINK: ProjectGithubLinkRow = {
 	createdAt: new Date("2026-11-01T10:00:00.000Z"),
+	githubCheckedAt: null,
 	githubUserId: OCTOCAT_ID,
 	id: "link-1",
 	installationId: 1,
 	lastError: null,
+	lastSyncedAt: null,
 	lastSyncedSha: null,
 	mirroredSha: null,
 	projectId: "p-1",
@@ -78,7 +81,9 @@ function fixture(link: ProjectGithubLinkRow | null = null) {
 		listUserInstallations: vi.fn(async () => INSTALLATIONS),
 	};
 	const links = {
-		claimGithubCheck: vi.fn(async () => true),
+		claimGithubCheck: vi.fn(
+			async (): Promise<Date | null> => new Date("2026-11-01T11:00:00.000Z"),
+		),
 		deleteByProject: async () => true,
 		findByProject: async () => link,
 		findProjectIdsByRepoId: async () => [],
@@ -183,8 +188,8 @@ describe("GithubProjectService.status", () => {
 	// Each open tab polls every 15 s. Only the request that wins the claim may
 	// call GitHub, else the polls use up the GitHub rate limit.
 	it.each([
-		{ claimed: true, githubReads: 1 },
-		{ claimed: false, githubReads: 0 },
+		{ claimed: new Date("2026-11-01T11:00:00.000Z"), githubReads: 1 },
+		{ claimed: null, githubReads: 0 },
 	])("reads the GitHub head $githubReads time(s) when the claim answers $claimed", async ({
 		claimed,
 		githubReads,
@@ -195,5 +200,48 @@ describe("GithubProjectService.status", () => {
 		await service.status(SCOPE, "p-1");
 
 		expect(github.branchHeadSha).toHaveBeenCalledTimes(githubReads);
+	});
+});
+
+describe("GithubProjectService.recheck", () => {
+	// The Re-check button must not let a user call GitHub more than once per 10 s.
+	// A click inside 10 s answers the stored status with no GitHub read and no error.
+	it("claims with a 10 s window and answers the stored status when the claim fails", async () => {
+		const now = new Date("2026-11-01T12:00:00.000Z");
+		vi.useFakeTimers({ now });
+		try {
+			const checkedAt = new Date("2026-11-01T11:59:55.000Z");
+			const { github, links, service } = fixture({
+				...LINK,
+				githubCheckedAt: checkedAt,
+			});
+			links.claimGithubCheck.mockResolvedValueOnce(null);
+
+			const answer = await service.recheck(SCOPE, "p-1");
+
+			expect(links.claimGithubCheck).toHaveBeenCalledWith(
+				"link-1",
+				new Date("2026-11-01T11:59:50.000Z"),
+			);
+			expect(github.branchHeadSha).not.toHaveBeenCalled();
+			expect(answer.link?.githubCheckedAt).toBe(checkedAt.toISOString());
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// "Checked 3 seconds ago" must show the new read, not the row value from before the claim.
+	it("answers the claim time after a GitHub read", async () => {
+		const claimedAt = new Date("2026-11-01T12:00:00.000Z");
+		const { github, links, service } = fixture({
+			...LINK,
+			githubCheckedAt: new Date("2026-11-01T10:00:00.000Z"),
+		});
+		links.claimGithubCheck.mockResolvedValueOnce(claimedAt);
+
+		const answer = await service.recheck(SCOPE, "p-1");
+
+		expect(github.branchHeadSha).toHaveBeenCalledTimes(1);
+		expect(answer.link?.githubCheckedAt).toBe(claimedAt.toISOString());
 	});
 });

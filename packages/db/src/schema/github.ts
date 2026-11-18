@@ -92,6 +92,8 @@ export const projectGithubLinks = pgTable(
 		githubUserId: bigint("github_user_id", { mode: "number" }).notNull(),
 		// GitHub head that the project last pushed or pulled.
 		lastSyncedSha: text("last_synced_sha"),
+		// When `last_synced_sha` last changed. The GitHub panel shows "Last synced 6 minutes ago".
+		lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
 		// GitHub head that the worker last saw.
 		remoteHeadSha: text("remote_head_sha"),
 		// GitHub head that the worker copied to the code.storage branch `github/main`.

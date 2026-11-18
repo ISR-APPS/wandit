@@ -20,6 +20,7 @@ import {
 } from "../../../projects/domain/project-scope";
 import { GitFileTooLargeError } from "../../domain/errors/git-file-too-large.error";
 import type {
+	GitArchiveDownload,
 	GitArchiveFiles,
 	GitFileReader,
 } from "../../domain/ports/git-store";
@@ -32,7 +33,11 @@ import {
 	FAKE_WORKSPACE_DIR,
 	FakeSandboxProvider,
 } from "../../infrastructure/sandbox/fake-sandbox.provider";
-import { CodeService, type CodeSnapshotAnswer } from "./code.service";
+import {
+	type CodeArchiveDownload,
+	CodeService,
+	type CodeSnapshotAnswer,
+} from "./code.service";
 
 const WORKTREE = FAKE_WORKSPACE_DIR;
 const SCOPE: ProjectScope = projectScopeFrom(undefined, "user-1");
@@ -40,6 +45,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
+	name: "My app",
 	organizationId: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
@@ -68,6 +74,8 @@ type StoredCode = {
 	archive?: GitArchiveFiles | Error;
 	/** The committed files that `readFile` answers, by path. */
 	files?: Record<string, string>;
+	/** The answer of `downloadArchive`; absent answers an empty archive. */
+	download?: GitArchiveDownload;
 };
 
 // A plain fake of code.storage. `calls` names each read, so a case can
@@ -76,8 +84,12 @@ function fakeGitFiles(stored: StoredCode) {
 	const calls: string[] = [];
 	const reader: Pick<
 		GitFileReader,
-		"readFile" | "listFilePaths" | "readArchiveFiles"
+		"readFile" | "listFilePaths" | "readArchiveFiles" | "downloadArchive"
 	> = {
+		downloadArchive: async (_projectId, ref, _excludeGlobs, prefix) => {
+			calls.push(`download ${ref} ${prefix}`);
+			return stored.download ?? { bytes: new Uint8Array(), kind: "archive" };
+		},
 		listFilePaths: async (_projectId, ref) => {
 			calls.push(`list ${ref}`);
 			return stored.paths === undefined ? [] : stored.paths;
@@ -201,9 +213,9 @@ function scriptListing(sandboxes: FakeSandboxProvider, paths: string[]): void {
 	sandboxes.respondTo("git", ok("main\n"));
 }
 
-async function failureOf<T extends CodeFileResponse | CodeSnapshotAnswer>(
-	promise: Promise<T>,
-): Promise<HttpException> {
+async function failureOf<
+	T extends CodeFileResponse | CodeSnapshotAnswer | CodeArchiveDownload,
+>(promise: Promise<T>): Promise<HttpException> {
 	const failure = await promise.then(
 		() => null,
 		(error: unknown) => error,
@@ -897,5 +909,56 @@ describe("CodeService on the stored main head", () => {
 			size: 3,
 		});
 		expect(git.calls).toEqual([`file ${HEAD_SHA} src/app.tsx`]);
+	});
+});
+
+describe("CodeService.archive", () => {
+	// The Download holds only saved versions, so a project with no commit never
+	// reads the sandbox. The web maps each code to its own text.
+	it.each([
+		{
+			code: "CODE_ARCHIVE_EMPTY",
+			headSha: null,
+			reads: [],
+			type: NotFoundException,
+		},
+		{
+			code: "CODE_ARCHIVE_TOO_LARGE",
+			headSha: HEAD_SHA,
+			reads: [`download ${HEAD_SHA} my-app/`],
+			type: PayloadTooLargeException,
+		},
+	])("answers $code", async ({ code, headSha, reads, type }) => {
+		const { git, sandboxes, service } = await setup({
+			headSha,
+			stored: { download: { kind: "overCeiling" } },
+		});
+
+		const failure = await failureOf(service.archive(SCOPE, "p-1"));
+
+		expect(failure).toBeInstanceOf(type);
+		expect(failure.getResponse()).toMatchObject({ code });
+		expect(git.calls).toEqual(reads);
+		expect(sandboxReads(sandboxes)).toEqual([]);
+	});
+
+	// The slug becomes the Content-Disposition file name and the top folder.
+	// A quote, CR, or LF in it would break the header.
+	it.each([
+		{ name: "Café à Alger", slug: "cafe-a-alger" },
+		{ name: 'a"b\r\nc', slug: "a-b-c" },
+		{ name: "☕☕", slug: "wandit-app" },
+	])("names the archive $slug for $name", async ({ name, slug }) => {
+		const bytes = new Uint8Array([1, 2, 3]);
+		const { git, service } = await setup({
+			headSha: HEAD_SHA,
+			project: { ...PROJECT, name },
+			stored: { download: { bytes, kind: "archive" } },
+		});
+
+		const archive = await service.archive(SCOPE, "p-1");
+
+		expect(archive).toEqual({ bytes, fileName: `${slug}.tar.gz` });
+		expect(git.calls).toEqual([`download ${HEAD_SHA} ${slug}/`]);
 	});
 });

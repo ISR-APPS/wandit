@@ -5,6 +5,7 @@
  * `GithubAppClient` and `GithubWebhookController` in the server read the second group.
  */
 import { z } from "zod";
+import { isoDateTimeSchema } from "../v1/shared/primitives";
 import { appCommitSchema, commitShaSchema } from "./versions";
 
 /** Query param that the OAuth callback adds to the return URL after a connect. Value "connected". */
@@ -144,6 +145,10 @@ export const projectGithubLinkSchema = z.object({
 	htmlUrl: z.url(),
 	/** GitHub head that the project last pushed or pulled; null before the first sync. */
 	lastSyncedSha: commitShaSchema.nullable(),
+	/** When `lastSyncedSha` last changed; null before the first sync. The panel shows "Last synced 6 minutes ago". */
+	lastSyncedAt: isoDateTimeSchema.nullable(),
+	/** When the API last read the GitHub head; null before the first read. The panel shows "Checked 43 seconds ago". */
+	githubCheckedAt: isoDateTimeSchema.nullable(),
 	/** GitHub head that the worker last saw; null before the first sync. */
 	remoteHeadSha: commitShaSchema.nullable(),
 	/** True when GitHub has commits that the project did not pull. The banner shows "Update". */

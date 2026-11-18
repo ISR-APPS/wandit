@@ -1,9 +1,9 @@
 /**
  * Mutations of the GitHub sync: start a GitHub connect or App install, create
- * and link a repo, unlink it, and pull the GitHub commits (Update). Each one
- * calls github.services.ts, refreshes the caches that its answer changes, and
- * shows a refusal as a toast. Called by components/more/integrations-panel.tsx
- * and pages/app-builder-page.tsx.
+ * and link a repo, unlink it, re-check the GitHub head, pull the GitHub commits
+ * (Update), and download the project code. Each one calls github.services.ts,
+ * refreshes the caches that its answer changes, and shows a refusal as a toast.
+ * Called by components/more/integrations-panel.tsx and pages/app-builder-page.tsx.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +19,9 @@ import { appBuilderKeys } from "./app-builder.queries";
 import { githubKeys } from "./github.queries";
 import {
 	createGithubRepository,
+	downloadProjectCode,
 	pullFromGithub,
+	recheckGithub,
 	startGithubAuthorize,
 	unlinkGithubRepository,
 } from "./github.services";
@@ -84,9 +86,41 @@ export function useUnlinkGithubRepository(projectId: string) {
 	});
 }
 
+/** The Re-check button: the API reads the GitHub head now. The answer is the new status, so the sync card updates at once. */
+export function useRecheckGithub(projectId: string) {
+	const queryClient = useQueryClient();
+	const key = githubKeys.status(projectId);
+	return useMutation({
+		mutationKey: [...key, "check"],
+		mutationFn: () => recheckGithub(projectId),
+		// A poll that started before the click can end after it. Its older answer must not replace the Re-check answer.
+		onMutate: () => queryClient.cancelQueries({ queryKey: key }),
+		onSuccess: (status) => {
+			queryClient.setQueryData(key, status);
+		},
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
+		},
+	});
+}
+
+/**
+ * The Download button: saves the committed `main` code as `fileName`. A
+ * 404 CODE_ARCHIVE_EMPTY or 413 CODE_ARCHIVE_TOO_LARGE shows its errors.json text.
+ */
+export function useDownloadProjectCode(projectId: string, fileName: string) {
+	return useMutation({
+		mutationKey: [...appBuilderKeys.code(projectId), "archive"],
+		mutationFn: () => downloadProjectCode(projectId, fileName),
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
+		},
+	});
+}
+
 /**
  * Merges the GitHub commits into the project: the Update button of the chat
- * banner. `mutate` takes the `headSha` of the last status answer; the API
+ * banner and of the Integrations panel. The page owns the one instance. `mutate` takes the `headSha` of the last status answer; the API
  * compares and swaps on it. `onUpdated` runs after a success; the page
  * reloads the preview with it.
  */
