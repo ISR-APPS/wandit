@@ -180,11 +180,22 @@ const SNAPSHOT_ETAG_VERSION = 2;
 const ARCHIVE_EXCLUDE_GLOBS = [".claude/**"];
 
 /**
- * Archive paths that the Download leaves out. Security: `.env*` files never
- * leave the store, at any depth, like `isReadableCodePath`. The two env globs
- * cover a root file and a nested file, whatever the `**` rule of code.storage is.
+ * Archive paths that the Download leaves out: the paths that `isReadableCodePath`
+ * hides. Security: `.env*` files never leave the store, at any depth. Each name
+ * has a root glob and a nested glob, whatever the `**` rule of code.storage is.
  */
-const DOWNLOAD_EXCLUDE_GLOBS = [...ARCHIVE_EXCLUDE_GLOBS, ".env*", "**/.env*"];
+const DOWNLOAD_EXCLUDE_GLOBS = [
+	...ARCHIVE_EXCLUDE_GLOBS,
+	"**/.claude/**",
+	".env*",
+	"**/.env*",
+	"CLAUDE.md",
+	"**/CLAUDE.md",
+	"CLAUDE.local.md",
+	"**/CLAUDE.local.md",
+	"AGENTS.md",
+	"**/AGENTS.md",
+];
 
 /** File name and top folder of a Download when the project name has no ASCII letter or digit. */
 const DOWNLOAD_FALLBACK_NAME = "wandit-app";
