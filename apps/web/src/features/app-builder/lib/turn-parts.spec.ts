@@ -355,6 +355,24 @@ describe("stepOf", () => {
 		expect(stepOf(part, false)?.state).toBe("skipped");
 	});
 
+	it.each([
+		"PreToolUse:Bash hook error: [node .claude/hooks/pre-tool-use.mjs]: denied by wandit rules: git config is not allowed",
+		"PreToolUse:Edit hook error: wandit pre-tool-use: internal error: boom",
+	])("gives no row to a call that the sandbox guard stopped: %s", (errorText) => {
+		const step = stepOf(
+			{
+				type: "dynamic-tool",
+				toolName: "bash",
+				toolCallId: "call-1",
+				state: "output-error",
+				input: { command: "git config user.name x" },
+				errorText,
+			},
+			false,
+		);
+		expect(step).toBeNull();
+	});
+
 	it("adds the error text of a failed call to the detail", () => {
 		const step = stepOf(
 			{
