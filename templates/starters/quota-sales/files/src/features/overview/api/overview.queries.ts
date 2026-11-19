@@ -1,16 +1,14 @@
-// Reads of the home: the KPI rows, the bookings per day, and the bookings by territory.
-// The loader of the home route prefetches them. OverviewPage reads them from the cache.
-// Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
+// Reads of the home: the bookings per day against the same days one year earlier, and the 4 stat figures.
+// The loader of the home route prefetches the default period. OverviewPage reads the chosen period with useQuery.
+// The queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	attainmentOf,
-	type BreakdownSlice,
-	buildDailySeries,
+	bookedByDay,
 	changeRatio,
-	type DailyPoint,
+	dayKeyOf,
 	getSampleTables,
-	type KpiItem,
-	MONEY_OPTIONS,
+	type PeriodDays,
 	quarterOfDay,
 	quarterProgressOf,
 	type SampleTables,
@@ -18,13 +16,46 @@ import {
 	teamTargetByQuarter,
 	todayDayNumber,
 } from "~/features/sales";
-import type { TranslationKey } from "~/shared/i18n";
 
-/** The figures of the band and the breakdown cover this many closed days. */
-export const KPI_WINDOW_DAYS = 30;
+/** The period of the home when it opens. */
+export const DEFAULT_DAYS: PeriodDays = 30;
 
-/** One KPI before translation. The home turns `labelKey` into the `label` of KpiItem with t(). */
-export type OverviewKpi = Omit<KpiItem, "label"> & { labelKey: TranslationKey };
+// 52 weeks back, so each bar compares with the same weekday one year earlier.
+const YEAR_SHIFT_DAYS = 364;
+
+/** One closed day of the chart. Amounts are whole units of CURRENCY, cancelled orders left out. */
+export type YearPoint = {
+	/** YYYY-MM-DD. */
+	day: string;
+	thisYear: number;
+	/** The booked amount of the same weekday 52 weeks earlier. */
+	lastYear: number;
+};
+
+/** The ids of the 4 stat cards, in the order of the 2 x 2 grid. Labels: `overview.stats.<id>`. */
+export type OverviewStatId =
+	| "bookings"
+	| "averageOrder"
+	| "orders"
+	| "attainment";
+
+/** One stat card of the home. */
+export type OverviewStat = {
+	id: OverviewStatId;
+	/** An amount in CURRENCY, a count, or a ratio (0.87 is 87 %) for "attainment". */
+	value: number;
+	/** The change against the earlier period. null when the earlier value is 0. */
+	change: number | null;
+	/** "points" for the attainment: the difference of two ratios. "ratio" for the others. */
+	changeKind: "ratio" | "points";
+};
+
+/** Everything that the chart card and the stat cards show for one period. */
+export type OverviewSummary = {
+	/** The `days` closed days that end yesterday, oldest first. */
+	points: YearPoint[];
+	stats: OverviewStat[];
+};
 
 // The booked amount and the order count of the days from `fromDay` up to `toDay` (excluded).
 function totalsBetween(
@@ -43,19 +74,26 @@ function totalsBetween(
 	return { booked, orders };
 }
 
-// The 4 KPIs of the home, the most important first.
-function buildOverviewKpis(tables: SampleTables): OverviewKpi[] {
+// The summary of the `days` closed days that end yesterday.
+function buildOverview(tables: SampleTables, days: number): OverviewSummary {
 	const today = tables.today;
-	const current = totalsBetween(tables, today - KPI_WINDOW_DAYS, today);
-	const previous = totalsBetween(
-		tables,
-		today - 2 * KPI_WINDOW_DAYS,
-		today - KPI_WINDOW_DAYS,
-	);
+	const booked = bookedByDay(tables.orders);
+	const points = Array.from({ length: days }, (_, index) => {
+		const day = today - days + index;
+		return {
+			day: dayKeyOf(day),
+			thisYear: booked.get(day) ?? 0,
+			lastYear: booked.get(day - YEAR_SHIFT_DAYS) ?? 0,
+		};
+	});
+
+	const current = totalsBetween(tables, today - days, today);
+	const previous = totalsBetween(tables, today - 2 * days, today - days);
 	const average = current.orders > 0 ? current.booked / current.orders : 0;
 	const previousAverage =
 		previous.orders > 0 ? previous.booked / previous.orders : 0;
-	// The attainment compares with the previous quarter after the same count of days.
+
+	// The attainment is quarter to date. It compares with the previous quarter after the same count of days.
 	const quarter = quarterOfDay(today);
 	const previousQuarter = shiftQuarter(quarter, -1);
 	const { elapsedDays } = quarterProgressOf(quarter, today);
@@ -72,103 +110,45 @@ function buildOverviewKpis(tables: SampleTables): OverviewKpi[] {
 		).booked,
 		teamTargets.get(previousQuarter.startDay) ?? 0,
 	);
-	return [
-		{
-			id: "bookings",
-			labelKey: "metrics.bookings",
-			value: current.booked,
-			// "$1.56M": a full amount of 7 digits pushes the pill under the value in a quarter-width card.
-			format: {
-				...MONEY_OPTIONS,
-				notation: "compact",
-				maximumFractionDigits: 2,
+
+	return {
+		points,
+		stats: [
+			{
+				id: "bookings",
+				value: current.booked,
+				change: changeRatio(current.booked, previous.booked),
+				changeKind: "ratio",
 			},
-			change: changeRatio(current.booked, previous.booked),
-			changeKind: "ratio",
-			goodWhen: "up",
-		},
-		{
-			id: "orders",
-			labelKey: "metrics.orders",
-			value: current.orders,
-			change: changeRatio(current.orders, previous.orders),
-			changeKind: "ratio",
-			goodWhen: "up",
-		},
-		{
-			id: "average-order",
-			labelKey: "metrics.averageOrder",
-			value: average,
-			format: MONEY_OPTIONS,
-			change: changeRatio(average, previousAverage),
-			changeKind: "ratio",
-			goodWhen: "up",
-		},
-		{
-			id: "attainment",
-			labelKey: "metrics.attainment",
-			value: attainment,
-			format: { style: "percent", maximumFractionDigits: 0 },
-			// A percent changes in points: 48 % against 48.9 % is -0.9 pts, not -1.8 %.
-			// No booking in the previous quarter means no earlier data, as changeRatio does.
-			change: previousAttainment === 0 ? null : attainment - previousAttainment,
-			changeKind: "points",
-			goodWhen: "up",
-		},
-	];
+			{
+				id: "averageOrder",
+				value: average,
+				change: changeRatio(average, previousAverage),
+				changeKind: "ratio",
+			},
+			{
+				id: "orders",
+				value: current.orders,
+				change: changeRatio(current.orders, previous.orders),
+				changeKind: "ratio",
+			},
+			{
+				id: "attainment",
+				value: attainment,
+				// No booking in the previous quarter means no earlier data, as changeRatio does.
+				change:
+					previousAttainment === 0 ? null : attainment - previousAttainment,
+				changeKind: "points",
+			},
+		],
+	};
 }
 
-/** The KPI rows of the home. The key has no period: the band always covers KPI_WINDOW_DAYS. */
-export function overviewKpisQueryOptions() {
+/** The chart points and the stat figures of the last `days` closed days. The key holds the period. */
+export function overviewQueryOptions(days: PeriodDays) {
 	return queryOptions({
-		queryKey: ["overview", "kpis"],
-		queryFn: async (): Promise<OverviewKpi[]> =>
-			buildOverviewKpis(getSampleTables(todayDayNumber())),
-	});
-}
-
-/** Booked amount per day for the last `days` closed days, with the same days one period earlier and the daily target. */
-export function dailyBookingsQueryOptions(days: number) {
-	return queryOptions({
-		queryKey: ["overview", "daily-bookings", days],
-		queryFn: async (): Promise<DailyPoint[]> => {
-			const tables = getSampleTables(todayDayNumber());
-			return buildDailySeries(
-				tables.orders,
-				tables.targets,
-				tables.today,
-				days,
-			);
-		},
-	});
-}
-
-/** Booked amount by territory in the last `days` closed days, largest first. The team has 5 territories, so no "other". */
-export function territoryBookingsQueryOptions(days: number) {
-	return queryOptions({
-		queryKey: ["overview", "territory-bookings", days],
-		queryFn: async (): Promise<BreakdownSlice[]> => {
-			const tables = getSampleTables(todayDayNumber());
-			const territoryOf = new Map(
-				tables.accounts.map((account) => [account.id, account.territoryId]),
-			);
-			const firstDay = tables.today - days;
-			const totals = new Map<string, number>();
-			for (const order of tables.orders) {
-				const territoryId = territoryOf.get(order.accountId);
-				if (order.day >= firstDay && !order.isCancelled && territoryId) {
-					totals.set(
-						territoryId,
-						(totals.get(territoryId) ?? 0) + order.amount,
-					);
-				}
-			}
-			return tables.territories
-				.map((territory) => ({
-					label: territory.name,
-					value: totals.get(territory.id) ?? 0,
-				}))
-				.sort((first, second) => second.value - first.value);
-		},
+		queryKey: ["overview", days],
+		queryFn: async (): Promise<OverviewSummary> =>
+			buildOverview(getSampleTables(todayDayNumber()), days),
 	});
 }

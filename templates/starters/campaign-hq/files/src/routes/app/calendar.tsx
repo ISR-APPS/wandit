@@ -9,7 +9,7 @@ import {
 	contentItemsQueryOptions,
 } from "~/features/calendar";
 
-/** /app/calendar: posts, ads, emails, and videos. `?month=`, `?channel=`, and `?campaign=` set the view. */
+/** /app/calendar: posts, ads, emails, and videos. `?view=`, `?month=`, `?week=`, `?channel=`, and `?campaign=` set the view. */
 export const Route = createFileRoute("/app/calendar")({
 	validateSearch: calendarSearchSchema,
 	loader: ({ context }) =>

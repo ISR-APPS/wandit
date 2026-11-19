@@ -1,5 +1,5 @@
 // The dialog that shows one order: its account, its rep, its status, and its lines with the total.
-// The orders page and the newest orders panel of the home open it from the order number.
+// The orders page opens it from the order number and from "View order" in the row menu.
 // It only shows data. The app has no order form yet (STARTER.md).
 
 import {

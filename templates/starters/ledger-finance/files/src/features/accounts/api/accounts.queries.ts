@@ -1,13 +1,11 @@
-// Reads of accounts: the list with the position of the business, one account with its entries, and its balance series.
+// Reads of accounts: the list with the position of the business, and one account with its entries.
 // The list and detail routes prefetch them in their loaders. The pages read them from the cache.
 // Each queryFn returns sample rows of ~/features/ledger. To make it real: replace the body with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
 import {
-	type DailyBalance,
 	listAccounts,
 	listDailyBalances,
 	listTransactions,
-	type PeriodDays,
 	toIsoDay,
 } from "~/features/ledger";
 import {
@@ -34,10 +32,14 @@ export type AccountsOverview = {
 /** What the detail page of one account shows. */
 export type AccountDetail = {
 	account: AccountSummary;
-	/** Every entry of the account in the last 90 days, newest first. */
+	/** Every entry of the account in the history, newest first. */
 	transactions: TransactionRow[];
 	/** The largest expense categories of the account in the last 30 days. */
 	topCategories: CategorySpend[];
+	/** Every other account, the main account first. */
+	otherAccounts: AccountSummary[];
+	/** The sum of every account that is not a card, in cents. The share of cash of a bank account divides by it. */
+	cashOnHandCents: number;
 };
 
 function readAccountSummaries(now: number): AccountSummary[] {
@@ -48,7 +50,7 @@ function readAccountSummaries(now: number): AccountSummary[] {
 	);
 }
 
-/** Every account with its balance, its 30-day flow, and its 90-day balance series. */
+/** Every account with its balance, its 30-day flow, and its daily balance series. */
 export function accountsQueryOptions() {
 	return queryOptions({
 		queryKey: ["accounts", "list"],
@@ -65,21 +67,23 @@ export function accountsQueryOptions() {
 	});
 }
 
-/** One account with its entries and its top categories. null when the id does not exist. */
+/** One account with its entries, its top categories, and the other accounts. null when the id does not exist. */
 export function accountQueryOptions(id: string) {
 	return queryOptions({
 		queryKey: ["accounts", "detail", id],
 		queryFn: async (): Promise<AccountDetail | null> => {
 			const now = Date.now();
+			const summaries = readAccountSummaries(now);
 			// The id comes from the URL. An unknown id is "not found", not an error.
-			const account = readAccountSummaries(now).find(
-				(candidate) => candidate.id === id,
-			);
+			const account = summaries.find((candidate) => candidate.id === id);
 			if (!account) {
 				return null;
 			}
 			const rows = listTransactions(now);
 			return {
+				otherAccounts: summaries.filter((candidate) => candidate.id !== id),
+				cashOnHandCents: buildPosition(summaries, toIsoDay(now))
+					.cashOnHandCents,
 				account,
 				transactions: toTransactionRows(
 					rows.filter((row) => row.accountId === account.id),
@@ -87,22 +91,6 @@ export function accountQueryOptions(id: string) {
 				),
 				topCategories: buildTopCategories(account.id, rows, toIsoDay(now)),
 			};
-		},
-	});
-}
-
-/**
- * The balance of one account for the balance chart, oldest first: `days` + 1 points.
- * The first point is the day before the period, so the last point minus the first one is the flow of the period.
- */
-export function accountBalanceQueryOptions(id: string, days: PeriodDays) {
-	return queryOptions({
-		queryKey: ["accounts", "balance", id, days],
-		queryFn: async (): Promise<DailyBalance[]> => {
-			const account = listAccounts().find((candidate) => candidate.id === id);
-			return account
-				? listDailyBalances(Date.now())[account.id].slice(-(days + 1))
-				: [];
 		},
 	});
 }

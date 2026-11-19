@@ -1,8 +1,8 @@
 // The stock badge of a product: in stock, low stock, or out of stock.
-// The product table, the restock card, and the product dialog render it.
+// The product table and the product dialog render it.
+import { STOCK_LEVEL_BADGE, type StockLevel } from "~/features/shop";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
-import { STOCK_LEVEL_BADGE, type StockLevel } from "../lib/stock";
 
 type StockLevelBadgeProps = {
 	/** The level of the product row, from stockLevelOf. */

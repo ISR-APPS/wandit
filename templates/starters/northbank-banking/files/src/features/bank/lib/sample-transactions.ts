@@ -23,9 +23,15 @@ import { createSeededRandom, pickOne, randomInt } from "./seeded-random";
 
 /**
  * Days of history, today included. The 90-day strip compares with the 90 days before, so it needs 180.
- * The oldest statement (5 months back) compares with its own previous month, so it needs up to 215.
+ * The oldest statement starts 7 months before the open month. Its opening balance needs up to 246 days.
  */
 export const HISTORY_DAYS = 250;
+
+/**
+ * Statements per account: the open month and the 7 closed months before it. Two rows of four tiles.
+ * The statements page and the "Open statement" link of an entry read it. HISTORY_DAYS must cover it.
+ */
+export const STATEMENT_MONTHS = 8;
 
 /** How the money moved. "transfer" moves money between two accounts of the customer. */
 export const TRANSACTION_METHODS = [

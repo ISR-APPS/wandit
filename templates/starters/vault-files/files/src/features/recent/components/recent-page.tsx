@@ -1,257 +1,317 @@
-// The Recent page behind login: the feed of uploads, new versions, shares, and deletes, grouped by day,
-// with action tabs, a person filter, and two rail lists for the last 7 days.
-// The /app/recent route renders it after its loader. The route also uses the skeleton and the error below.
+// The Recent page behind login, in the shape of the kit order list: a title row with "Export CSV", action tabs,
+// then a RecordTable with a filter field, Person and Category filters, a column menu, row checkboxes, and row menus.
+// The /app/recent route renders it after its loader. The rows are the feed of the last FEED_DAYS days.
+import {
+	DownloadSimpleIcon,
+	FileIcon,
+	LinkSimpleIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
 	ACTIVITY_ACTIONS,
-	type ActivityAction,
-	addLocalDays,
-	calendarDaysFromNow,
-	type FileKind,
-	fillCount,
-	pluralForm,
+	ACTIVITY_BADGE,
+	type ActivityItem,
+	CATEGORY_OF_KIND,
+	type CsvColumn,
+	copyToClipboard,
+	downloadCsv,
+	FILE_CATEGORIES,
+	FileNameCell,
+	fileUrl,
+	formatRelativeTime,
+	MemberAvatar,
+	toCsv,
 } from "~/features/workspace";
 import { useT } from "~/shared/i18n";
+import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { activityQueryOptions, FEED_DAYS } from "../api/activity.queries";
-import { groupByDay, rankBy } from "../lib/feed";
-import { ActivityEntry } from "./activity-entry";
-import { BusyFilesCard } from "./busy-files-card";
-import { TopMembersCard } from "./top-members-card";
 
-// The feed opens on 3 days, about 30 entries. "Show earlier days" adds 3 days, up to FEED_DAYS.
-const DAYS_STEP = 3;
-// The rail lists rank the last week, the same window as the figures of the home.
-const RANK_DAYS = 7;
-const RANK_LIMIT = 5;
+/** The tabs: every action, then one tab per action. */
+const RECENT_TABS = ["all", ...ACTIVITY_ACTIONS] as const;
+type RecentTab = (typeof RECENT_TABS)[number];
 
-/** The feed page. The person filter applies first; the tabs count what it leaves in the shown days. */
+// The page shows 10 rows per page, as the kit order list does.
+const PAGE_SIZE = 10;
+
+/** The page holds the tab and the two filters; RecordTable holds the search, the sort, and the selection. */
 export function RecentPage() {
 	const { t, locale } = useT();
 	const { data: items } = useSuspenseQuery(activityQueryOptions());
-	const [action, setAction] = useState<ActivityAction | "all">("all");
-	const [person, setPerson] = useState("all");
-	const [shownDays, setShownDays] = useState(DAYS_STEP);
-
+	const [tab, setTab] = useState<RecentTab>("all");
+	const [person, setPerson] = useState<string | null>(null);
+	const [category, setCategory] = useState<string | null>(null);
 	const now = Date.now();
 	const number = new Intl.NumberFormat(locale);
-	const dayFormat = new Intl.DateTimeFormat(locale, {
-		weekday: "long",
-		day: "numeric",
-		month: "long",
+	const dateTime = new Intl.DateTimeFormat(locale, {
+		dateStyle: "medium",
+		timeStyle: "short",
 	});
-	const shownStartMs = addLocalDays(now, -(shownDays - 1));
-	const people = [...new Set(items.map((item) => item.actorName))].sort(
-		(first, second) => first.localeCompare(second, locale),
-	);
-	const byPerson =
-		person === "all"
-			? items
-			: items.filter((item) => item.actorName === person);
-	const inWindow = byPerson.filter(
-		(item) => Date.parse(item.at) >= shownStartMs,
-	);
-	const rows =
-		action === "all"
-			? inWindow
-			: inWindow.filter((item) => item.action === action);
-	const days = groupByDay(rows, shownDays, now);
 
-	const rankStartMs = addLocalDays(now, -(RANK_DAYS - 1));
-	const topMembers = rankBy(
-		items,
-		rankStartMs,
-		(item) => ({ key: item.actorName, name: item.actorName }),
-		RANK_LIMIT,
+	const people = [...new Set(items.map((item) => item.actorName))].sort();
+	const rows = items.filter(
+		(item) =>
+			(tab === "all" || item.action === tab) &&
+			(person === null || item.actorName === person) &&
+			(category === null || CATEGORY_OF_KIND[item.fileKind] === category),
 	);
-	const kinds = new Map<string, FileKind>(
-		items.map((item) => [item.fileId, item.fileKind]),
-	);
-	const busyFiles = rankBy(
-		items.filter((item) => !item.isInTrash),
-		rankStartMs,
-		(item) => ({ key: item.fileId, name: item.fileName }),
-		RANK_LIMIT,
-	);
+	const countOf = (option: RecentTab) =>
+		option === "all"
+			? items.length
+			: items.filter((item) => item.action === option).length;
 
-	function dayLabel(day: string): string {
-		const distance = calendarDaysFromNow(`${day}T12:00:00`, now);
-		if (distance === 0) {
-			return t("recent.today");
-		}
-		if (distance === -1) {
-			return t("recent.yesterday");
-		}
-		return dayFormat.format(new Date(`${day}T12:00:00`));
-	}
+	const columns: RecordColumn<ActivityItem>[] = [
+		{
+			id: "file",
+			header: t("files.columns.name"),
+			sortValue: (row) => row.fileName,
+			cell: (row) => (
+				<FileNameCell
+					fileId={row.fileId}
+					name={row.fileName}
+					kind={row.fileKind}
+					path={row.path}
+					linked={!row.isInTrash}
+				/>
+			),
+		},
+		{
+			id: "action",
+			header: t("recent.columns.action"),
+			sortValue: (row) => row.action,
+			cell: (row) => (
+				<Badge variant={ACTIVITY_BADGE[row.action]}>
+					{t(`activity.titles.${row.action}`)}
+				</Badge>
+			),
+		},
+		{
+			id: "person",
+			header: t("recent.columns.person"),
+			sortValue: (row) => row.actorName,
+			hideable: true,
+			cell: (row) => (
+				<span className="flex items-center gap-2 whitespace-nowrap">
+					<MemberAvatar name={row.actorName} />
+					{row.actorName}
+				</span>
+			),
+		},
+		{
+			id: "detail",
+			header: t("recent.columns.detail"),
+			hideable: true,
+			cell: (row) => (
+				<span
+					className="block max-w-56 truncate text-muted-foreground"
+					dir="auto"
+				>
+					{detailOf(row, t)}
+				</span>
+			),
+		},
+		{
+			id: "when",
+			header: t("recent.columns.when"),
+			sortValue: (row) => Date.parse(row.at),
+			cell: (row) => (
+				<span className="grid whitespace-nowrap">
+					<span className="tabular-nums">
+						{dateTime.format(new Date(row.at))}
+					</span>
+					<span className="text-muted-foreground text-xs">
+						{formatRelativeTime(row.at, now, locale)}
+					</span>
+				</span>
+			),
+		},
+	];
+
+	const csvColumns: CsvColumn<ActivityItem>[] = [
+		{ header: t("files.columns.name"), value: (row) => row.fileName },
+		{ header: t("files.location"), value: (row) => row.path.join(" / ") },
+		{
+			header: t("recent.columns.action"),
+			value: (row) => t(`activity.titles.${row.action}`),
+		},
+		{ header: t("recent.columns.person"), value: (row) => row.actorName },
+		{ header: t("recent.columns.detail"), value: (row) => detailOf(row, t) },
+		{ header: t("recent.columns.when"), value: (row) => row.at },
+	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("recent.title")}
-				description={t("recent.description")}
+				description={t("recent.description").replace(
+					"{count}",
+					number.format(FEED_DAYS),
+				)}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() => downloadCsv("recent.csv", toCsv(rows, csvColumns))}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
 			/>
-			<div className="grid @5xl/main:grid-cols-3 items-start gap-6">
-				<Card className="@5xl/main:col-span-2 min-w-0 gap-4">
-					<CardContent className="grid gap-4">
-						<div className="flex min-w-0 flex-wrap items-center gap-2">
-							<Tabs
-								value={action}
-								onValueChange={(value) =>
-									setAction(
-										ACTIVITY_ACTIONS.find((option) => option === value) ??
-											"all",
-									)
-								}
-								className="max-w-full"
-							>
-								{/* A phone keeps one row of 44 px tall tabs. The row scrolls sideways when it is wider than the card. */}
-								<TabsList className="max-sm:max-w-full max-sm:justify-start max-sm:overflow-x-auto max-sm:group-data-[orientation=horizontal]/tabs:h-auto max-sm:[scrollbar-width:none]">
-									<TabsTrigger value="all" className="max-sm:min-h-11">
-										{t("recent.all")}
-										<span className="text-muted-foreground tabular-nums">
-											{number.format(inWindow.length)}
-										</span>
-									</TabsTrigger>
-									{ACTIVITY_ACTIONS.map((option) => (
-										<TabsTrigger
-											key={option}
-											value={option}
-											className="max-sm:min-h-11"
-										>
-											{t(`activity.actions.${option}`)}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(
-													inWindow.filter((item) => item.action === option)
-														.length,
-												)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
-							<Select value={person} onValueChange={setPerson}>
-								<SelectTrigger
-									className="w-auto min-w-44"
-									aria-label={t("recent.personFilter")}
-								>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">{t("recent.everyone")}</SelectItem>
-									{people.map((name) => (
-										<SelectItem key={name} value={name}>
-											{name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						{days.length === 0 ? (
-							<p className="py-10 text-center text-muted-foreground text-sm">
-								{t("recent.noResults")}
-							</p>
-						) : (
-							<div className="grid gap-5">
-								{days.map((group) => (
-									<section
-										key={group.day}
-										aria-label={dayLabel(group.day)}
-										className="grid"
-									>
-										<h2 className="flex items-baseline justify-between gap-3 border-b pb-2 font-sans font-semibold text-sm">
-											{dayLabel(group.day)}
-											<span className="font-normal text-muted-foreground text-xs tabular-nums">
-												{fillCount(
-													t(
-														`recent.entryCount.${pluralForm(group.items.length, locale)}`,
-													),
-													group.items.length,
-													locale,
-												)}
-											</span>
-										</h2>
-										<ul className="divide-y">
-											{group.items.map((item) => (
-												<ActivityEntry key={item.id} item={item} />
-											))}
-										</ul>
-									</section>
-								))}
-							</div>
-						)}
-						{shownDays < FEED_DAYS ? (
-							<Button
-								type="button"
-								variant="outline"
-								className="justify-self-center"
-								onClick={() =>
-									setShownDays((count) =>
-										Math.min(count + DAYS_STEP, FEED_DAYS),
-									)
-								}
-							>
-								{t("recent.showEarlier")}
-							</Button>
-						) : (
-							<p className="text-center text-muted-foreground text-xs">
-								{fillCount(t("recent.feedLimit"), FEED_DAYS, locale)}
-							</p>
-						)}
-					</CardContent>
-				</Card>
-				{/* Below 64rem the rail comes first, two cards side by side, so the feed does not push it out of view. */}
-				{/* From 64rem the rail is a column that stays in view while the feed scrolls. The plain header does not stick. */}
-				<div className="@5xl/main:sticky @5xl/main:top-4 @5xl/main:order-none order-first grid min-w-0 @5xl/main:grid-cols-1 @xl/main:grid-cols-2 gap-6">
-					<TopMembersCard title={t("recent.topMembers")} rows={topMembers} />
-					<BusyFilesCard
-						title={t("recent.busyFiles")}
-						rows={busyFiles}
-						kindOf={(fileId) => kinds.get(fileId) ?? "document"}
-					/>
-				</div>
-			</div>
+			{/* On a phone the tab list wraps to a second row, so every tab and its count stays in view.
+			    A wrapped row cannot use the percent height of a trigger, so the phone trigger gets a fixed height. */}
+			<Tabs
+				className="min-w-0"
+				value={tab}
+				onValueChange={(value) =>
+					setTab(RECENT_TABS.find((option) => option === value) ?? "all")
+				}
+			>
+				<TabsList className="max-w-full justify-start max-sm:flex-wrap max-sm:group-data-[orientation=horizontal]/tabs:h-auto">
+					{RECENT_TABS.map((option) => (
+						<TabsTrigger key={option} value={option} className="max-sm:h-8">
+							{option === "all"
+								? t("recent.all")
+								: t(`activity.actions.${option}`)}
+							<span className="text-muted-foreground tabular-nums">
+								{number.format(countOf(option))}
+							</span>
+						</TabsTrigger>
+					))}
+				</TabsList>
+			</Tabs>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) => `${row.fileName} ${row.path.join(" ")}`}
+				searchPlaceholder={t("recent.searchPlaceholder")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("recent.columns.person")}
+							options={people.map((name) => ({ value: name, label: name }))}
+							value={person}
+							onValueChange={setPerson}
+						/>
+						<RecordFilter
+							label={t("files.typeFilter")}
+							options={FILE_CATEGORIES.map((option) => ({
+								value: option,
+								label: t(`fileCategories.${option}`),
+							}))}
+							value={category}
+							onValueChange={setCategory}
+						/>
+					</>
+				}
+				rowMenu={(row) => <ActivityRowMenu item={row} />}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv("recent-selected.csv", toCsv(selected, csvColumns))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("recent.noResults")}
+			/>
 		</div>
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+type ActivityRowMenuProps = {
+	item: ActivityItem;
+};
 
-/** Placeholder while the loader runs. The route sets it as pendingComponent. */
+// The row menu: a live file opens its page or copies its link; a trashed file opens the Trash page.
+function ActivityRowMenu({ item }: ActivityRowMenuProps) {
+	const { t } = useT();
+	if (item.isInTrash) {
+		return (
+			<DropdownMenuItem asChild>
+				<Link to="/app/trash">
+					<TrashIcon />
+					{t("recent.openTrash")}
+				</Link>
+			</DropdownMenuItem>
+		);
+	}
+	return (
+		<>
+			<DropdownMenuItem asChild>
+				<Link to="/app/files/$fileId" params={{ fileId: item.fileId }}>
+					<FileIcon />
+					{t("files.open")}
+				</Link>
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				onSelect={() =>
+					copyToClipboard(fileUrl(item.fileId), {
+						done: t("table.copied"),
+						failed: t("table.copyFailed"),
+					})
+				}
+			>
+				<LinkSimpleIcon />
+				{t("files.copyLink")}
+			</DropdownMenuItem>
+		</>
+	);
+}
+
+// The detail cell: the version of an upload, or the people of a share. A delete has none.
+function detailOf(item: ActivityItem, t: ReturnType<typeof useT>["t"]): string {
+	if (item.versionNumber !== null) {
+		return t("recent.versionDetail").replace(
+			"{version}",
+			String(item.versionNumber),
+		);
+	}
+	if (item.action === "shared") {
+		return item.recipientNames.length > 0
+			? item.recipientNames.join(", ")
+			: t("shares.anyoneWithLink");
+	}
+	return "";
+}
+
+// Fixed keys of the placeholder rows, because they never reorder.
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+
+/** Placeholder while the loader runs: the title row, the tabs, the toolbar, and ten rows. */
 export function RecentPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-32" />
-				<Skeleton className="h-4 w-72" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-40" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<div className="grid @5xl/main:grid-cols-3 items-start gap-6">
-				<Card className="@5xl/main:col-span-2">
-					<CardContent className="grid gap-3">
-						<Skeleton className="h-9 w-full sm:max-w-lg" />
-						{SKELETON_ROWS.map((key) => (
-							<Skeleton key={key} className="h-12 w-full" />
-						))}
-					</CardContent>
-				</Card>
-				<div className="@5xl/main:order-none order-first grid @5xl/main:grid-cols-1 @xl/main:grid-cols-2 gap-6">
-					<Skeleton className="h-64" />
-					<Skeleton className="h-56" />
-				</div>
+			<Skeleton className="h-9 w-96 max-w-full" />
+			<Skeleton className="h-9 w-full max-w-sm" />
+			<div className="grid gap-2 rounded-md border p-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-12 w-full" />
+				))}
 			</div>
 		</div>
 	);

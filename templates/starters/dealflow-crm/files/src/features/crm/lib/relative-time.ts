@@ -54,7 +54,7 @@ export function formatRelativeTime(
 
 /**
  * The time since `timestamp` (ISO) as a short age: "6d" for calendar days, "5h" inside the first day.
- * The board slips show it as the age of a deal in its stage.
+ * The board cards show it as the age of a deal in its stage.
  */
 export function formatAge(
 	timestamp: string,

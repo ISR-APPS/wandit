@@ -97,7 +97,8 @@ export const CHANNELS: readonly ChannelProfile[] = [
 		engagementRate: 0.034,
 		baselineImpressions: 3_100,
 		dailyGrowth: 0.0009,
-		formats: ["video"],
+		// The long-video network also takes short vertical clips. The team cuts them from each episode.
+		formats: ["video", "reel"],
 		postingHours: [10, 16],
 		connectedDaysAgo: 540,
 	},

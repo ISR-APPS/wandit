@@ -1,78 +1,101 @@
-// The newest purchase orders that hold this item, with their status and the quantity of the line.
-// The item page renders it in its rail. Each order number opens the order panel of the order list.
-// The order link covers its whole row, for a 44 px touch target.
+// The order table of the item page: every purchase order line of the item, with sort and pages.
+// ItemDetailPage renders it in its Orders tab. Each number opens the order panel of the order list.
 import { Link } from "@tanstack/react-router";
-import {
-	formatRelativeDay,
-	isOpenOrderStatus,
-	OrderStatusBadge,
-	type StockUnit,
-	unitWord,
-} from "~/features/stock";
+import { OrderStatusBadge } from "~/features/stock";
 import { useT } from "~/shared/i18n";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import { type RecordColumn, RecordTable } from "~/shared/ui/record-table";
 import type { ItemOrder } from "../api/items.queries";
 
+// Ten rows per page, as the kit tables show.
+const PAGE_SIZE = 10;
+
 type ItemOrdersCardProps = {
-	/** Newest first, at most 6. */
+	/** Every order line of the item, newest order first. */
 	orders: ItemOrder[];
-	/** The unit of the item, for the quantity words. */
-	unit: StockUnit;
 };
 
-/** One row per order: number and status, then the units and the expected day or the delivery date. */
-export function ItemOrdersCard({ orders, unit }: ItemOrdersCardProps) {
+/** The row id is the order id: an order holds an item on one line only. */
+export function ItemOrdersCard({ orders }: ItemOrdersCardProps) {
 	const { t, locale } = useT();
 	const number = new Intl.NumberFormat(locale);
-	const now = Date.now();
-	const receivedDay = new Intl.DateTimeFormat(locale, {
-		day: "numeric",
-		month: "short",
-	});
-	const formatEventDay = (timestamp: string) =>
-		receivedDay.format(new Date(timestamp));
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const rows = orders.map((order) => ({ ...order, id: order.orderId }));
+	const columns: RecordColumn<(typeof rows)[number]>[] = [
+		{
+			id: "number",
+			header: t("purchaseOrders.order"),
+			sortValue: (order) => order.number,
+			cell: (order) => (
+				<Link
+					to="/app/purchase-orders"
+					search={{ po: order.orderId }}
+					className="font-medium tabular-nums hover:underline"
+				>
+					{order.number}
+				</Link>
+			),
+		},
+		{
+			id: "status",
+			header: t("purchaseOrders.status"),
+			cell: (order) => (
+				<OrderStatusBadge status={order.status} lateDays={order.lateDays} />
+			),
+		},
+		{
+			id: "expected",
+			header: t("purchaseOrders.expected"),
+			sortValue: (order) => order.expectedOn,
+			cell: (order) => (
+				<span className="whitespace-nowrap">
+					{date.format(new Date(order.expectedOn))}
+				</span>
+			),
+		},
+		{
+			id: "ordered",
+			header: t("itemDetail.ordered"),
+			align: "end",
+			sortValue: (order) => order.quantityOrdered,
+			cell: (order) => number.format(order.quantityOrdered),
+		},
+		{
+			id: "received",
+			header: t("purchaseOrders.received"),
+			align: "end",
+			sortValue: (order) => order.quantityReceived,
+			cell: (order) => number.format(order.quantityReceived),
+		},
+	];
+
 	return (
-		<Card className="gap-4">
+		<Card className="min-w-0">
 			<CardHeader>
-				<CardTitle>{t("itemDetail.orders")}</CardTitle>
+				<CardTitle>{t("itemDetail.ordersTitle")}</CardTitle>
+				<CardDescription>{t("itemDetail.ordersDescription")}</CardDescription>
 			</CardHeader>
 			<CardContent>
-				{orders.length === 0 ? (
-					<p className="text-muted-foreground text-sm">
-						{t("itemDetail.noOrders")}
-					</p>
-				) : (
-					<ul className="grid divide-y">
-						{orders.map((order) => (
-							<li
-								key={order.orderId}
-								className="relative grid gap-1 py-2.5 first:pt-0 last:pb-0"
-							>
-								<div className="flex flex-wrap items-center justify-between gap-2">
-									<Link
-										to="/app/purchase-orders"
-										search={{ po: order.orderId }}
-										className="font-medium font-numeric text-sm after:absolute after:inset-0 hover:underline"
-									>
-										{order.number}
-									</Link>
-									<OrderStatusBadge
-										status={order.status}
-										lateDays={order.lateDays}
-									/>
-								</div>
-								<p className="text-muted-foreground text-xs tabular-nums">
-									{`${number.format(order.quantityReceived)} / ${number.format(order.quantityOrdered)} ${unitWord(order.quantityOrdered, unit, t, locale)}`}
-									{isOpenOrderStatus(order.status)
-										? ` · ${t("itemDetail.expected")} ${formatRelativeDay(order.expectedOn, now, locale)}`
-										: order.status === "received" && order.lastReceivedAt
-											? ` · ${t("itemDetail.received")} ${formatEventDay(order.lastReceivedAt)}`
-											: null}
-								</p>
-							</li>
-						))}
-					</ul>
-				)}
+				<RecordTable
+					rows={rows}
+					columns={columns}
+					rowMenu={(order) => (
+						<DropdownMenuItem asChild>
+							<Link to="/app/purchase-orders" search={{ po: order.orderId }}>
+								{t("purchaseOrders.openOrder")}
+							</Link>
+						</DropdownMenuItem>
+					)}
+					pageSize={PAGE_SIZE}
+					noResults={t("itemDetail.noOrders")}
+				/>
 			</CardContent>
 		</Card>
 	);

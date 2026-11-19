@@ -1,18 +1,21 @@
 // The project list behind login. The /app layout checks the session first.
-// The loader fills the list cache. Thin: the page and its states live in the projects feature.
+// The loader fills the project list and the members. Thin: the page and its states live in the projects feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	ProjectsPage,
 	ProjectsPageError,
 	ProjectsPageSkeleton,
 	projectsQueryOptions,
-	projectsSearchSchema,
 } from "~/features/projects";
+import { membersQueryOptions } from "~/features/tracker";
 
-/** /app/projects: every project of the team. `?status=` opens the tab of one status. */
+/** /app/projects: one card per project of the team. */
 export const Route = createFileRoute("/app/projects/")({
-	validateSearch: projectsSearchSchema,
-	loader: ({ context }) => context.queryClient.query(projectsQueryOptions()),
+	loader: ({ context }) =>
+		Promise.all([
+			context.queryClient.query(projectsQueryOptions()),
+			context.queryClient.query(membersQueryOptions()),
+		]),
 	pendingComponent: ProjectsPageSkeleton,
 	errorComponent: ProjectsPageError,
 	component: ProjectsPage,

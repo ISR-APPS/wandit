@@ -1,6 +1,6 @@
 // The totals of the past business days: checks, covers, and sales per day, for the last 90 days.
 // It stands in for a SQL read function that groups the `orders` table by day.
-// The floor heat calendar and the "same day last week" figures read it. Today comes from the orders, not from here.
+// The sales chart of the home and the "same day last week" figures read it. Today comes from the orders, not from here.
 // Each past day scales the whole planned day of sample-orders.ts by its weekday, a trend, and some noise.
 import { businessDay } from "./sample-orders";
 import { createSeededRandom } from "./seeded-random";
@@ -19,7 +19,7 @@ export type DailyTotals = {
 /** Totals of one day with no date: today so far, or the whole planned day that the history scales from. */
 export type TodayTotals = Omit<DailyTotals, "day">;
 
-// 90 days feed the longest period of the heat calendar.
+// 90 days feed the longest period of the sales chart.
 const HISTORY_DAYS = 90;
 const HISTORY_SEED = 4417;
 

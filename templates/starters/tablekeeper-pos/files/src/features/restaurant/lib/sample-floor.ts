@@ -2,7 +2,7 @@
 // It stands in for the `tables` and `servers` tables. sample-orders.ts derives the seatings and the bookings.
 // The floor queries and the order screen read the tables through ~/features/restaurant.
 
-/** The zones of the floor, in the order of the floor plan. Each zone gets its own wall on the home. */
+/** The zones of the floor, in the order of the floor plan. The orders list filters by zone. */
 export const ZONES = ["dining", "terrace", "bar"] as const;
 
 /** One zone. Its label is the message key `zones.<zone>`. */

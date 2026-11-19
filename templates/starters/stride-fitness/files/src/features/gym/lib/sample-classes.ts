@@ -43,7 +43,7 @@ export type ClassType = {
 	/** Spots of one session: bikes, rowers, or floor places. */
 	capacity: number;
 	/** The room of the class. Data, not a UI text. */
-	studio: string;
+	studio: Studio;
 	/** Id of the coach in COACHES. */
 	coachId: string;
 	/** Share of the spots that members book at a usual hour, from 0 to 1. Demand above 1 fills a waitlist. */
@@ -133,6 +133,9 @@ export const STUDIOS = [
 	"Studio Two",
 	"Mat Room",
 ] as const;
+
+/** One room of the gym. */
+export type Studio = (typeof STUDIOS)[number];
 
 /** One weekly session of the timetable. */
 export type TimetableSlot = {

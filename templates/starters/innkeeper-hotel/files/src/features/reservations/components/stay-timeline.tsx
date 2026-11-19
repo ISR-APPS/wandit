@@ -1,9 +1,9 @@
 // The timeline of one reservation: a dot and a line per step, from the booking to the departure.
-// ReservationDetailPage renders it in the rail. A step in the future has an empty dot and muted text.
-import { fillMessage, moneyFormat } from "~/features/hotel";
+// ReservationDetailPage renders it in the Timeline tab. A step in the future has an empty dot and muted text.
+import { moneyFormat } from "~/features/hotel";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
-import type { TimelineStep } from "../lib/stay-timeline";
+import { stepLabel, type TimelineStep } from "../lib/stay-timeline";
 
 type StayTimelineProps = {
 	/** The steps of the reservation, oldest first. */
@@ -47,14 +47,7 @@ export function StayTimeline({ steps }: StayTimelineProps) {
 							step.isDone ? "font-medium" : "text-muted-foreground",
 						)}
 					>
-						{fillMessage(
-							t(
-								step.isDone
-									? `timeline.${step.kind}`
-									: `timeline.planned.${plannedKey(step.kind)}`,
-							),
-							{ amount: step.amount === null ? "" : money.format(step.amount) },
-						)}
+						{stepLabel(step, t, money)}
 					</span>
 					<span className="text-muted-foreground text-xs tabular-nums">
 						{dateTime.format(new Date(step.at))}
@@ -63,13 +56,4 @@ export function StayTimeline({ steps }: StayTimelineProps) {
 			))}
 		</ol>
 	);
-}
-
-/** The message of a step that is not done yet. Only four kinds can be in the future. */
-function plannedKey(
-	kind: TimelineStep["kind"],
-): "depositDue" | "reminder" | "arrival" | "departure" {
-	return kind === "depositDue" || kind === "reminder" || kind === "arrival"
-		? kind
-		: "departure";
 }

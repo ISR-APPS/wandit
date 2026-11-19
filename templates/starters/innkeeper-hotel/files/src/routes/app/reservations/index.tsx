@@ -1,5 +1,5 @@
 // The reservations page behind login. The /app layout checks the session first.
-// The loader fills the list and the rooms of the calendar. Thin: the page and its states live in the reservations feature.
+// The loader fills the list and the rooms of the schedule. Thin: the page and its states live in the reservations feature.
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import {
@@ -10,12 +10,12 @@ import {
 	roomsQueryOptions,
 } from "~/features/reservations";
 
-// `view` comes from the URL. A value that is not a view shows the list.
+// `view` comes from the URL. A value that is not a view shows the schedule.
 const reservationsSearchSchema = z.object({
-	view: z.enum(["calendar"]).optional().catch(undefined),
+	view: z.enum(["list"]).optional().catch(undefined),
 });
 
-/** /app/reservations. `?view=calendar` shows the stays as bars per room and day. */
+/** /app/reservations: the room schedule of one week. `?view=list` shows the list of every reservation. */
 export const Route = createFileRoute("/app/reservations/")({
 	validateSearch: reservationsSearchSchema,
 	loader: ({ context }) =>
@@ -25,10 +25,5 @@ export const Route = createFileRoute("/app/reservations/")({
 		]),
 	pendingComponent: ReservationsPageSkeleton,
 	errorComponent: ReservationsPageError,
-	component: ReservationsRoute,
+	component: ReservationsPage,
 });
-
-function ReservationsRoute() {
-	const { view } = Route.useSearch();
-	return <ReservationsPage view={view ?? "list"} />;
-}

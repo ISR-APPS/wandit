@@ -27,7 +27,7 @@ export type Project = ProjectRow & {
 };
 
 /** One project with the records that only its own page shows. */
-type ProjectDetail = Project & {
+export type ProjectDetail = Project & {
 	/** The checkpoints, the earliest due first. */
 	milestones: MilestoneRow[];
 	/** The members of the project, the lead first. */

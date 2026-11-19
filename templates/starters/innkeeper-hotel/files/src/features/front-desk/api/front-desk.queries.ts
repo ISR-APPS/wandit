@@ -1,68 +1,92 @@
-// Reads of the home page: the live room board, the 2 KPI figures, the check-ins per day, and the check-ins per channel.
-// The loader of the /app route prefetches them. FrontDeskPage reads them from the cache.
-// Each queryFn returns sample rows of ~/features/hotel. To make it real: replace the body with a Supabase call.
+// Reads of the front desk home: the summary of today, the occupancy of one week, and the revenue of one period.
+// The /app route prefetches the summary and the first choices in its loader. The cards read them with useSuspenseQuery.
+// A Select or a tab of a card puts its value into the query key, so a new choice reads new figures.
+// Each queryFn reads the sample tables of ~/features/hotel. To make it real: replace the body with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
 import {
+	listFolioCharges,
 	listGuests,
-	listHousekeepingTasks,
 	listReservations,
 	listRooms,
 } from "~/features/hotel";
-import { buildRoomBoard } from "../lib/room-board";
 import {
-	buildChannelBreakdown,
-	buildDailyCheckIns,
-	buildFrontDeskKpis,
-} from "../lib/series";
+	buildChannelSplits,
+	buildDeskEvents,
+	buildKpis,
+	buildMovements,
+	buildOccupancy,
+	buildReservationMix,
+	buildRevenue,
+	type OccupancyWeek,
+	type RevenueCharge,
+	type RevenuePeriod,
+} from "../lib/home-figures";
 
-/** 30 s. A room changes its status during the day: a check-in, a check-out, a clean room. */
-const LIVE_REFETCH_MS = 30_000;
+/** 60 s. Guests arrive and leave during the day, so the tiles and the table follow the clock. */
+const LIVE_REFETCH_MS = 60_000;
 
-/** The 18 rooms with their live status, in the order of the door numbers. It refetches every 30 s. */
-export function roomBoardQueryOptions() {
+/** The desk feed shows the newest events only. */
+const FEED_EVENTS = 4;
+
+/** The KPI tiles, the status donut, the desk feed, the channel split, and the movements of today and tomorrow. */
+export function frontDeskQueryOptions() {
 	return queryOptions({
-		queryKey: ["rooms", "board"],
+		queryKey: ["front-desk", "summary"],
 		queryFn: async () => {
 			const now = Date.now();
-			return buildRoomBoard(
-				listRooms(now),
-				listReservations(now),
-				listGuests(now),
-				listHousekeepingTasks(now),
+			const reservations = listReservations(now);
+			const rooms = listRooms(now);
+			const guests = listGuests(now);
+			return {
 				now,
-			);
+				kpis: buildKpis(reservations, rooms, now),
+				mix: buildReservationMix(reservations, now),
+				events: buildDeskEvents(reservations, guests, rooms, now).slice(
+					0,
+					FEED_EVENTS,
+				),
+				channels: buildChannelSplits(reservations, now),
+				movements: buildMovements(reservations, guests, rooms, now),
+			};
 		},
 		refetchInterval: LIVE_REFETCH_MS,
 	});
 }
 
-/** The KPI rows of the home: rooms sold tonight and check-ins done today. It refetches every 30 s. The key has no period. */
-export function frontDeskKpisQueryOptions() {
+/** The booked and available rooms of each night of one week: -1 is last week, 0 this week, 1 next week. */
+export function occupancyQueryOptions(week: OccupancyWeek) {
 	return queryOptions({
-		queryKey: ["front-desk", "kpis"],
+		queryKey: ["front-desk", "occupancy", week],
 		queryFn: async () => {
 			const now = Date.now();
-			return buildFrontDeskKpis(listRooms(now), listReservations(now), now);
-		},
-		refetchInterval: LIVE_REFETCH_MS,
-	});
-}
-
-/** Check-ins per day for the last `days` days, with the same days one period earlier. Feeds the heat calendar. */
-export function dailyCheckInsQueryOptions(days: number) {
-	return queryOptions({
-		queryKey: ["check-ins", "daily", days],
-		queryFn: async () => {
-			const now = Date.now();
-			return buildDailyCheckIns(listReservations(now), days, now);
+			return buildOccupancy(listReservations(now), listRooms(now), now, week);
 		},
 	});
 }
 
-/** Check-ins per booking channel for the last 14 days and today, the largest first. Feeds the breakdown of the check-ins panel. */
-export function checkInsByChannelQueryOptions() {
+/** The room and extras revenue of the last 7 days by day, or of the last 4 weeks by week. */
+export function revenueQueryOptions(period: RevenuePeriod) {
 	return queryOptions({
-		queryKey: ["check-ins", "by-channel"],
-		queryFn: async () => buildChannelBreakdown(listReservations(Date.now())),
+		queryKey: ["front-desk", "revenue", period],
+		queryFn: async () => {
+			const now = Date.now();
+			const charges: RevenueCharge[] = listReservations(now)
+				.filter(
+					(reservation) =>
+						reservation.status === "checked_in" ||
+						reservation.status === "checked_out",
+				)
+				.flatMap((reservation) =>
+					listFolioCharges(reservation.id, now).map((charge) => ({
+						kind: charge.kind,
+						postedOn: charge.postedOn,
+						amount: charge.amount,
+						quantity: charge.quantity,
+						checkIn: reservation.checkIn,
+						nights: reservation.nights,
+					})),
+				);
+			return buildRevenue(charges, now, period);
+		},
 	});
 }

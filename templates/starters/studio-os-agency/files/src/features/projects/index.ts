@@ -11,3 +11,4 @@ export {
 	ProjectsPageError,
 	ProjectsPageSkeleton,
 } from "./components/projects-page";
+export { projectCsvColumns } from "./lib/project-csv";

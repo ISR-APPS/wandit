@@ -1,5 +1,5 @@
 // The status tabs of a list: "All" with its count, then one tab per status with its count.
-// The queue of the home, the shipment list, the fleet board, and the driver list render it.
+// The shipment list renders it above its record table.
 // The caller counts the rows and keeps the active tab in its own state.
 import { useT } from "~/shared/i18n";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";

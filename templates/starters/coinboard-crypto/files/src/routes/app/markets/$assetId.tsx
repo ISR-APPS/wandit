@@ -1,5 +1,5 @@
 // The page of one asset. The /app layout checks the session first.
-// The loader fills the asset, its first price series, the position, and the transactions in parallel.
+// The loader fills the asset, the market list, its first price series, the position, and the transactions in parallel.
 // Thin: the page lives in the markets feature. A failed load shows the error state of the Markets list.
 import { createFileRoute } from "@tanstack/react-router";
 import { assetTransactionsQueryOptions } from "~/features/activity";
@@ -10,6 +10,7 @@ import {
 	AssetDetailPageSkeleton,
 	assetPricesQueryOptions,
 	assetQueryOptions,
+	assetsQueryOptions,
 	MarketsPageError,
 } from "~/features/markets";
 
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/app/markets/$assetId")({
 	loader: ({ context, params }) =>
 		Promise.all([
 			context.queryClient.query(assetQueryOptions(params.assetId)),
+			context.queryClient.query(assetsQueryOptions()),
 			context.queryClient.query(
 				assetPricesQueryOptions(params.assetId, DEFAULT_DAYS),
 			),
@@ -31,6 +33,6 @@ export const Route = createFileRoute("/app/markets/$assetId")({
 
 function AssetDetailRoute() {
 	const { assetId } = Route.useParams();
-	// The key gives each asset its own page state, so the period control starts again at 30 days.
+	// The key gives each asset its own page state, so the tab and the period control start again.
 	return <AssetDetailPage key={assetId} assetId={assetId} />;
 }

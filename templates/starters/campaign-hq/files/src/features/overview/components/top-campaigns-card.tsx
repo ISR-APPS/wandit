@@ -1,80 +1,108 @@
-// The "Biggest live campaigns" tile of the home: the 5 live campaigns with the most spend so far.
-// OverviewPage renders it under the two small figures. Each row opens the campaign page.
-import { useSuspenseQuery } from "@tanstack/react-query";
+// The "Top campaigns" card of the home: the 6 campaigns with the most conversions in the period.
+// OverviewPage renders it in the third row and passes the period data. Each name opens the campaign page.
+// Each row shows the client initials, the name, the change against the period before, and the conversions.
 import { Link } from "@tanstack/react-router";
-import { campaignsQueryOptions } from "~/features/campaigns";
-import { moneyFormat } from "~/features/marketing";
+import { fillMessage, initialsOf } from "~/features/marketing";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
+import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
+import { Button } from "~/shared/ui/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { Progress } from "~/shared/ui/progress";
-
-// The tile ranks the 5 largest rows, as the bento home asks.
-const RANKED_COUNT = 5;
+import { CaretRightIcon } from "~/shared/ui/icons";
+import type { Overview } from "../api/overview.queries";
 
 type TopCampaignsCardProps = {
-	/** The span classes of the bento slot. */
-	className?: string;
+	/** The data of the chosen period. */
+	overview: Overview;
+	/** The period in words, for example "Last 30 days". */
+	periodLabel: string;
 };
 
-/** Each share bar compares a campaign with the largest one of the list. */
-export function TopCampaignsCard({ className }: TopCampaignsCardProps) {
+/** A period with no conversion shows one sentence and the link to every campaign. */
+export function TopCampaignsCard({
+	overview,
+	periodLabel,
+}: TopCampaignsCardProps) {
 	const { t, locale } = useT();
-	const { data: campaigns } = useSuspenseQuery(campaignsQueryOptions());
-	const money = moneyFormat(locale, "compact");
 	const number = new Intl.NumberFormat(locale);
-	// LIMIT: ranks the rows of the list query in the browser, at most 1,000 campaigns. Upgrade: a SQL order and limit.
-	const ranked = campaigns
-		.filter((campaign) => campaign.status === "live")
-		.sort((first, second) => second.totals.spend - first.totals.spend)
-		.slice(0, RANKED_COUNT);
-	const largest = ranked[0]?.totals.spend ?? 0;
+	const percent = new Intl.NumberFormat(locale, {
+		style: "percent",
+		signDisplay: "exceptZero",
+		maximumFractionDigits: 1,
+	});
 
 	return (
-		<Card className={cn("gap-4", className)}>
+		<Card className="h-full">
 			<CardHeader>
-				<CardTitle>{t("overview.rankedTitle")}</CardTitle>
-				<CardDescription>{t("overview.rankedHint")}</CardDescription>
+				<CardTitle>{t("overview.topTitle")}</CardTitle>
+				<CardDescription>{periodLabel}</CardDescription>
+				<CardAction>
+					<Button variant="outline" size="sm" asChild>
+						<Link to="/app/campaigns">
+							{t("common.viewAll")}
+							<CaretRightIcon className="size-4 rtl:rotate-180" />
+						</Link>
+					</Button>
+				</CardAction>
 			</CardHeader>
 			<CardContent>
-				{ranked.length === 0 ? (
-					<p className="py-6 text-center text-muted-foreground text-sm">
-						{t("overview.rankedEmpty")}
+				{overview.topCampaigns.length === 0 ? (
+					<p className="text-muted-foreground text-sm">
+						{t("overview.topEmpty")}
 					</p>
 				) : (
-					<ol className="grid gap-1">
-						{ranked.map((campaign, index) => (
-							<li key={campaign.id}>
-								<Link
-									to="/app/campaigns/$campaignId"
-									params={{ campaignId: campaign.id }}
-									className="-mx-2 grid min-h-11 grid-cols-[1.25rem_1fr_auto] items-center gap-x-2 gap-y-1 rounded-control px-2 py-1.5 hover:bg-accent"
-								>
-									<span className="font-numeric text-muted-foreground text-sm tabular-nums">
-										{number.format(index + 1)}
-									</span>
-									<span className="truncate font-medium text-sm" dir="auto">
+					<ul className="grid gap-5">
+						{overview.topCampaigns.map((campaign) => (
+							<li key={campaign.id} className="flex items-center gap-4">
+								<Avatar className="size-10">
+									<AvatarFallback className="bg-muted text-sm">
+										{initialsOf(campaign.client)}
+									</AvatarFallback>
+								</Avatar>
+								<div className="grid min-w-0 gap-1">
+									<Link
+										to="/app/campaigns/$campaignId"
+										params={{ campaignId: campaign.id }}
+										className="font-medium text-sm leading-tight hover:underline"
+									>
 										{campaign.name}
-									</span>
-									<span className="text-sm tabular-nums">
-										{money.format(campaign.totals.spend)}
-									</span>
-									<Progress
-										value={campaign.totals.spend}
-										max={largest}
-										aria-label={campaign.name}
-										className="col-start-2 col-end-4 h-1.5"
-									/>
-								</Link>
+									</Link>
+									<p className="text-muted-foreground text-sm">
+										{campaign.change === null ? (
+											campaign.client
+										) : (
+											<>
+												<bdi
+													dir="ltr"
+													className={cn(
+														"tabular-nums",
+														campaign.change < 0
+															? "text-destructive"
+															: "text-success",
+													)}
+												>
+													{percent.format(campaign.change)}
+												</bdi>{" "}
+												{t("overview.fromPrevious")}
+											</>
+										)}
+									</p>
+								</div>
+								<p className="ms-auto shrink-0 font-medium tabular-nums">
+									{fillMessage(t("overview.conversionsShort"), {
+										count: number.format(campaign.conversions),
+									})}
+								</p>
 							</li>
 						))}
-					</ol>
+					</ul>
 				)}
 			</CardContent>
 		</Card>

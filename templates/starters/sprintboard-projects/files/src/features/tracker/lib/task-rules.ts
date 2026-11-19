@@ -1,5 +1,5 @@
-// The rules of the tracker that more than one page applies: when a task is late, and what counts as committed work.
-// The board, My tasks, the Team page, the project list, and the task dialog call them.
+// Tracker rules that more than one page applies: when a task is late or due, and its cycle time.
+// The board, the Team page, the project list, the task dialog, the alerts, the home, and the Tasks page call them.
 import type { TaskStatus } from "./codes";
 import { DAY_MS } from "./time";
 
@@ -7,6 +7,8 @@ import { DAY_MS } from "./time";
 type TaskTimes = {
 	status: TaskStatus;
 	dueAt: string | null;
+	/** The time the task was written, ISO 8601. A task does not exist before it. */
+	createdAt: string;
 	startedAt: string | null;
 	completedAt: string | null;
 };
@@ -25,13 +27,26 @@ export function isOverdue(task: TaskTimes, now: number): boolean {
 }
 
 /**
- * Committed work: the tasks that a person has picked up or will pick up next.
- * Backlog tasks are not committed, so they do not count against a capacity.
+ * A task is due in [start, end) when it is planned, its due time is in the window, and it is open at start.
+ * The "due this week" KPI, the Tasks filter, and the Reminders link use this one rule, so their counts agree.
+ * A task done before start is not due any more. A task done later was still due at start.
+ * A task written after start does not count, so a past window counts only the tasks that existed then.
  */
-export function isCommitted(status: TaskStatus): boolean {
-	return (
-		status === "todo" || status === "in-progress" || status === "in-review"
-	);
+export function isDueBetween(
+	task: TaskTimes,
+	start: number,
+	end: number,
+): boolean {
+	if (task.status === "backlog" || task.dueAt === null) {
+		return false;
+	}
+	const due = Date.parse(task.dueAt);
+	const isOpenAtStart =
+		task.completedAt === null
+			? task.status !== "done"
+			: Date.parse(task.completedAt) >= start;
+	const existsAtStart = Date.parse(task.createdAt) <= start;
+	return due >= start && due < end && isOpenAtStart && existsAtStart;
 }
 
 /** The time from start to done, in days with fractions. null for a task that is not done or never started. */

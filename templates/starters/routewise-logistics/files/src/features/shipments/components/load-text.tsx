@@ -1,5 +1,5 @@
 // The size of a load as one text: "6 pallets · 1,840 kg".
-// The home, the shipment list, the shipment page, and the side panels render it.
+// The shipment slips of the driver and vehicle panels render it.
 import { fillMessage, pluralForm, weightFormat } from "~/features/logistics";
 import { useT } from "~/shared/i18n";
 

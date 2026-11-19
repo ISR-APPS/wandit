@@ -1,7 +1,7 @@
 // The kitchen ticket preview: the lines of the order grouped by station, as the kitchen and the bar print them.
 // OrderEntryPage opens it from the ticket panel. It sends nothing: the starter has no orders table yet.
 // "Clear and start again" empties the cart, so the server can take the next order.
-import { fillMessage, type Station } from "~/features/restaurant";
+import { countLabel, fillMessage, type Station } from "~/features/restaurant";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import {
@@ -34,7 +34,7 @@ export function TicketPreviewDialog({
 	lines,
 	onStartNew,
 }: TicketPreviewDialogProps) {
-	const { t } = useT();
+	const { t, locale } = useT();
 	const groups = STATIONS.map((station) => ({
 		station,
 		lines: lines.filter((line) => line.item.station === station),
@@ -59,8 +59,11 @@ export function TicketPreviewDialog({
 							<h3 className="text-muted-foreground text-xs">
 								{fillMessage(t("orderEntry.station"), {
 									station: t(`stations.${group.station}`),
-									count: String(
+									items: countLabel(
 										group.lines.reduce((sum, line) => sum + line.quantity, 0),
+										t("counts.items.one"),
+										t("counts.items.other"),
+										locale,
 									),
 								})}
 							</h3>

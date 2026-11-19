@@ -1,5 +1,5 @@
 // The detail of one task in a dialog. TaskDialogBody draws the content.
-// The board, the overview tables, My tasks, and the Team sheet open it. The parent holds the open task.
+// The project board and the Tasks page open it. The parent holds the open task.
 import { Dialog, DialogContent } from "~/shared/ui/dialog";
 import type { Task } from "../api/tasks.queries";
 import { TaskDialogBody } from "./task-dialog-body";

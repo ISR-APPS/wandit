@@ -1,4 +1,4 @@
-// The 120 members of the gym. This module stands in for a `members` table.
+// The 180 members of the gym. This module stands in for a `members` table.
 // sample-activity.ts books them into classes. The members, plans, and home pages read them through ~/features/gym.
 // Every date is "today minus N days", so the rows stay the same during one day. The names are fictional.
 import { addDays } from "./gym-time";
@@ -39,6 +39,11 @@ export type Member = {
 	favoriteClassIds: readonly [ClassTypeId, ClassTypeId];
 	/** A note of the front desk, or null. Data, not a UI text. */
 	note: string | null;
+	/**
+	 * Sample only: the local midnight from which an active member stops coming, or null.
+	 * It gives the "at risk" members of the home. A real table derives this from the check-ins.
+	 */
+	stopsComingFrom: number | null;
 };
 
 const FIRST_NAMES = [
@@ -255,8 +260,8 @@ const NOTES = [
 	"Signed up after the open day in September.",
 ] as const;
 
-/** Count of members. 120 rows give the list six pages. */
-const MEMBER_COUNT = 120;
+/** Count of members. 180 members fill most class spots of the 45 weekly sessions. */
+const MEMBER_COUNT = 180;
 // Fixed seed: the same members on every load.
 const MEMBERS_SEED = 1207;
 // Days before today when the newest members joined. Two weeks feed the "new members" figure and its comparison.
@@ -267,6 +272,8 @@ const FROZEN_NEW_MEMBER_INDEX = 4;
 const LAPSED_COUNT = 15;
 // Frozen members of the shuffle. With the new member above, 10 members are frozen.
 const FROZEN_COUNT = 9;
+// Active members who stopped coming 15 to 45 days ago. The home lists them as "at risk".
+const DRIFTING_COUNT = 7;
 // Weights of PLAN_IDS, in the same order: Unlimited is the most common plan.
 const PLAN_WEIGHTS = [34, 14, 22, 18, 12] as const;
 
@@ -290,7 +297,7 @@ function buildMembers(todayStart: number): Member[] {
 		const swap = randomInt(random, 0, index);
 		[order[index], order[swap]] = [order[swap] ?? 0, order[index] ?? 0];
 	}
-	const roleOf = new Map<number, "new" | "lapsed" | "frozen">();
+	const roleOf = new Map<number, "new" | "lapsed" | "frozen" | "drifting">();
 	order.forEach((memberIndex, position) => {
 		if (position < RECENT_JOIN_DAYS.length) {
 			roleOf.set(memberIndex, "new");
@@ -301,15 +308,23 @@ function buildMembers(todayStart: number): Member[] {
 			RECENT_JOIN_DAYS.length + LAPSED_COUNT + FROZEN_COUNT
 		) {
 			roleOf.set(memberIndex, "frozen");
+		} else if (
+			position <
+			RECENT_JOIN_DAYS.length + LAPSED_COUNT + FROZEN_COUNT + DRIFTING_COUNT
+		) {
+			roleOf.set(memberIndex, "drifting");
 		}
 	});
 
 	let newCount = 0;
 	let noteIndex = 0;
 	return Array.from({ length: MEMBER_COUNT }, (_, index) => {
-		const firstName = FIRST_NAMES[index] ?? "Alex";
-		// 37 and 60 share no factor, so the last names spread and every full name differs.
-		const lastName = LAST_NAMES[(index * 37) % LAST_NAMES.length] ?? "Moreau";
+		const firstName = FIRST_NAMES[index % FIRST_NAMES.length] ?? "Alex";
+		// 37 and 60 share no factor, so the last names spread. The second round of first names
+		// shifts the last name by 11, so every full name differs.
+		const round = Math.floor(index / FIRST_NAMES.length);
+		const lastName =
+			LAST_NAMES[(index * 37 + round * 11) % LAST_NAMES.length] ?? "Moreau";
 		const planId =
 			PLAN_IDS[pickWeightedIndexes(random, PLAN_WEIGHTS, 1)[0] ?? 0] ??
 			"unlimited";
@@ -336,6 +351,7 @@ function buildMembers(todayStart: number): Member[] {
 			],
 			// About one member in five has a note.
 			note: random() < 0.2 ? (NOTES[noteIndex++] ?? null) : null,
+			stopsComingFrom: null,
 		};
 		if (role === "new") {
 			const recentIndex = newCount++;
@@ -359,6 +375,9 @@ function buildMembers(todayStart: number): Member[] {
 				-(endedDaysAgo + randomInt(random, 60, 700)),
 			);
 			member.endedAt = addDays(todayStart, -endedDaysAgo);
+		} else if (role === "drifting") {
+			member.joinedAt = addDays(todayStart, -randomInt(random, 90, 700));
+			member.stopsComingFrom = addDays(todayStart, -randomInt(random, 15, 45));
 		} else if (role === "frozen") {
 			member.status = "frozen";
 			member.joinedAt = addDays(todayStart, -randomInt(random, 120, 800));

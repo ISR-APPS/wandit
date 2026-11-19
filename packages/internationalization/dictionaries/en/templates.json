@@ -57,6 +57,8 @@
 	"detail": {
 		"back": "All templates",
 		"use": "Use this template",
+		"livePreview": "Live preview",
+		"newTab": "(opens in a new tab)",
 		"appNote": "This is an app. Create an account in the preview to sign in and see it.",
 		"coverAlt": "Home screen of {name}",
 		"shotAlt": "{name}, screenshot {number}"

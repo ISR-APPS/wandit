@@ -1,44 +1,29 @@
-// Reads of the home: the four figures, the uploads per day by category, and the uploads by team.
-// The home route loader prefetches them. OverviewPage and its panels read them with useSuspenseQuery or useQuery.
+// Reads of the home: the storage per type, the quick folders, the newest uploads, and the transfer bars of one grouping.
+// The home route loader prefetches them. OverviewPage reads them with useSuspenseQuery.
 // Each queryFn reads the sample workspace now. A later turn replaces each body with one Supabase rpc call.
 import { queryOptions } from "@tanstack/react-query";
 import { readWorkspace } from "~/features/workspace";
 import {
-	buildOverviewKpis,
-	dailyUploadsByCategory,
-	type PeriodDays,
-	uploadsByTeam,
+	buildOverview,
+	type TransferPeriod,
+	transferBars,
 } from "../lib/series";
 
-/** The four figures of the band. The key has no period: each figure names its own window. */
-export function overviewKpisQueryOptions() {
+/** The type cards, the folder cards, the storage card, and the upload table. */
+export function overviewQueryOptions() {
 	return queryOptions({
-		queryKey: ["overview", "kpis"],
-		queryFn: async () => {
-			const now = Date.now();
-			return buildOverviewKpis(readWorkspace(now), now);
-		},
+		queryKey: ["overview"],
+		queryFn: async () => buildOverview(readWorkspace(Date.now())),
 	});
 }
 
-/** Uploads per day and category for the last `days` days. Feeds the stacked trend panel. */
-export function dailyUploadsQueryOptions(days: PeriodDays) {
+/** New files and new versions per bar of `period`. The grouping is part of the key, so each choice caches apart. */
+export function transferQueryOptions(period: TransferPeriod) {
 	return queryOptions({
-		queryKey: ["uploads", "daily", days],
+		queryKey: ["uploads", "transfer", period],
 		queryFn: async () => {
 			const now = Date.now();
-			return dailyUploadsByCategory(readWorkspace(now).uploads, days, now);
-		},
-	});
-}
-
-/** Uploads per team in the last `days` days, the largest first. Feeds the breakdown panel. */
-export function uploadsByTeamQueryOptions(days: PeriodDays) {
-	return queryOptions({
-		queryKey: ["uploads", "by-team", days],
-		queryFn: async () => {
-			const now = Date.now();
-			return uploadsByTeam(readWorkspace(now).uploads, days, now);
+			return transferBars(readWorkspace(now).uploads, period, now);
 		},
 	});
 }

@@ -1,5 +1,5 @@
-// Reads of the home: the KPI rows and the daily money in and out.
-// The loader of the home route prefetches them. OverviewPage and CashFlowStrip read them from the cache.
+// Reads of the home: the summary of one period and the expenses of the last 6 months.
+// The loader of the home route prefetches them. OverviewPage reads them; another period loads on demand.
 // Each queryFn returns figures of the sample ledger. To make it real: replace the body with a Supabase rpc call.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -9,31 +9,35 @@ import {
 	type PeriodDays,
 	toIsoDay,
 } from "~/features/ledger";
-import { buildDailyCashFlow, buildOverviewKpis } from "../lib/overview-kpis";
+import {
+	buildMonthlyExpenses,
+	buildOverviewSummary,
+} from "../lib/overview-summary";
 
-/** The KPI rows of the home: income, expenses, net, cash, and the card debt. The key has no period. */
-export function overviewKpisQueryOptions() {
+/** The KPI figures, the income sources, and the spending split of the last `days` days. */
+export function overviewQueryOptions(days: PeriodDays) {
 	return queryOptions({
-		queryKey: ["overview", "kpis"],
+		queryKey: ["overview", "summary", days],
 		queryFn: async () => {
 			const now = Date.now();
-			return buildOverviewKpis(
+			return buildOverviewSummary(
 				listTransactions(now),
 				listAccounts(),
 				listDailyBalances(now),
 				toIsoDay(now),
+				days,
 			);
 		},
 	});
 }
 
-/** Money in and money out per day for the last `days` days. Feeds the cash flow strip. Transfers do not count. */
-export function dailyCashFlowQueryOptions(days: PeriodDays) {
+/** The expenses of this month and the 5 months before. The key has no period: the chart shows calendar months. */
+export function monthlyExpensesQueryOptions() {
 	return queryOptions({
-		queryKey: ["cash-flow", "daily", days],
+		queryKey: ["overview", "monthly-expenses"],
 		queryFn: async () => {
 			const now = Date.now();
-			return buildDailyCashFlow(listTransactions(now), toIsoDay(now), days);
+			return buildMonthlyExpenses(listTransactions(now), toIsoDay(now));
 		},
 	});
 }

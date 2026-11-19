@@ -1,25 +1,22 @@
 // The home behind login: the overview of the agency. The /app layout checks the session first.
-// The loader fills the KPI figures, the leads per day of the first period, and the three lists of the home.
+// The loader fills the home summary and the lead, listing, and viewing rows that the cards list.
 // Thin: the page and its states live in the overview feature.
 import { createFileRoute } from "@tanstack/react-router";
 import { leadsQueryOptions } from "~/features/leads";
 import { listingsQueryOptions } from "~/features/listings";
 import {
-	DEFAULT_DAYS,
-	dailyLeadsQueryOptions,
+	homeSummaryQueryOptions,
 	OverviewPage,
 	OverviewPageError,
 	OverviewPageSkeleton,
-	overviewKpisQueryOptions,
 } from "~/features/overview";
 import { viewingsQueryOptions } from "~/features/viewings";
 
-/** /app: the trend of the new leads, the newest listings, and the rail of work that needs a person. */
+/** /app: the KPIs, the performance chart, the featured listing, the leads, the active listings, and the calendar. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(overviewKpisQueryOptions()),
-			context.queryClient.query(dailyLeadsQueryOptions(DEFAULT_DAYS)),
+			context.queryClient.query(homeSummaryQueryOptions()),
 			context.queryClient.query(leadsQueryOptions()),
 			context.queryClient.query(listingsQueryOptions()),
 			context.queryClient.query(viewingsQueryOptions()),

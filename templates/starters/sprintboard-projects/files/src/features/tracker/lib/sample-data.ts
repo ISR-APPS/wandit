@@ -22,6 +22,8 @@ export type MemberRow = {
 	role: string;
 	/** Story points that the person can carry in two weeks. The Team page compares the committed points with it. */
 	capacity: number;
+	/** Work email on the reserved example.com domain. The Team table shows it and copies it. */
+	email: string;
 };
 
 /** One project of the team. The times are ISO texts. */
@@ -79,6 +81,8 @@ export type TaskRow = {
 	completedAt: string | null;
 	/** The promised day, at 17:00. Many tasks have none. */
 	dueAt: string | null;
+	/** Minutes that the assignee logged on the task. 0 until work starts. The "Hours logged" KPI sums it. */
+	loggedMinutes: number;
 };
 
 /** Every sample table. Each list is in creation order; the query files sort and join them. */
@@ -89,13 +93,7 @@ export type SampleTables = {
 	tasks: TaskRow[];
 };
 
-/**
- * The member that stands for the signed-in user on "My tasks" and the Team page.
- * A real app uses the id of the auth user instead (STARTER.md).
- */
-export const CURRENT_MEMBER_ID = "member-10";
-
-const MEMBERS: MemberRow[] = [
+const MEMBERS: Omit<MemberRow, "email">[] = [
 	{
 		id: "member-01",
 		name: "Ines Okafor",
@@ -856,6 +854,11 @@ function buildSampleTables(now: number): SampleTables {
 					startedAt: hasStarted && !isPausedWork ? iso(startedAt) : null,
 					reviewAt: reviewAt <= stopAt && !isPausedWork ? iso(reviewAt) : null,
 					completedAt: completedAt <= stopAt ? iso(completedAt) : null,
+					// About 2.5 to 5 hours per story point. The spread comes from the creation minute, so no new random draw shifts the rows.
+					loggedMinutes:
+						hasStarted && !isPausedWork
+							? estimate * (150 + ((createdMinute * 37) % 150))
+							: 0,
 					// Work of a planned project and paused work have no promised day yet.
 					dueAt:
 						dueAt === null || seed.status === "planned" || isPausedWork
@@ -866,7 +869,12 @@ function buildSampleTables(now: number): SampleTables {
 		});
 	}
 
-	return { members: MEMBERS, projects, milestones, tasks };
+	// The email is "first.last" of the name on example.com, a domain that no real person uses.
+	const members: MemberRow[] = MEMBERS.map((member) => ({
+		...member,
+		email: `${member.name.toLocaleLowerCase("en").replace(/\s+/g, ".")}@example.com`,
+	}));
+	return { members, projects, milestones, tasks };
 }
 
 // Built on the first read, then kept for the page load. A reload on the same day builds the same rows.

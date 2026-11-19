@@ -18,6 +18,11 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs as parseNodeArgs } from "node:util";
 import {
+	DEMO_EMAIL,
+	demoSession,
+	demoSupabaseAnswer,
+} from "./demo-backend.mjs";
+import {
 	assertStarterId,
 	PNPM_COMMAND,
 	REPO_ROOT,
@@ -43,84 +48,23 @@ const PUBLISH_SIZE = { width: 1280, height: 800 };
 /** The catalog type allows cover.webp and shot-1.webp to shot-3.webp. */
 const MAX_PUBLISH_PATHS = 4;
 
-const NOW_ISO = new Date().toISOString();
-/** A fictional account. example.com is a reserved documentation domain. */
-const DEMO_USER = {
-	id: "00000000-0000-4000-8000-000000000001",
-	aud: "authenticated",
-	role: "authenticated",
-	email: "demo@example.com",
-	email_confirmed_at: NOW_ISO,
-	app_metadata: { provider: "email", providers: ["email"] },
-	user_metadata: {},
-	identities: [],
-	created_at: NOW_ISO,
-	updated_at: NOW_ISO,
-};
-/** One row of public.profiles, with the columns of supabase/migrations/0000_base.sql. */
-const DEMO_PROFILE = {
-	id: DEMO_USER.id,
-	full_name: "Demo User",
-	created_at: NOW_ISO,
-	updated_at: NOW_ISO,
-};
-
-/** A session that auth-js accepts from storage: it reads `access_token`, `refresh_token`, and `expires_at`. */
-function demoSession() {
-	// One day. auth-js refreshes a token only in its last 90 seconds, so no refresh call starts.
-	const expiresIn = 24 * 60 * 60;
-	const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
-	const encode = (value) =>
-		Buffer.from(JSON.stringify(value)).toString("base64url");
-	// The token has the form of a JWT. No server checks its signature here.
-	const accessToken = [
-		encode({ alg: "HS256", typ: "JWT" }),
-		encode({
-			sub: DEMO_USER.id,
-			aud: DEMO_USER.aud,
-			role: DEMO_USER.role,
-			email: DEMO_USER.email,
-			exp: expiresAt,
-		}),
-		"starter-shot",
-	].join(".");
-	return {
-		access_token: accessToken,
-		refresh_token: "starter-shot-refresh",
-		token_type: "bearer",
-		expires_in: expiresIn,
-		expires_at: expiresAt,
-		user: DEMO_USER,
-	};
-}
-
-/** The fixed answer to one request to the dummy Supabase host: `{ status, body }`. */
-function answerSupabase(request, session) {
+/** The fixed answer to one request to the dummy Supabase host: `{ status, body }` of demo-backend.mjs. */
+function answerSupabase(request) {
 	const { pathname } = new URL(request.url());
-	if (pathname === "/auth/v1/user") {
-		return { status: 200, body: DEMO_USER };
-	}
-	if (pathname === "/auth/v1/token") {
-		return { status: 200, body: session };
-	}
-	if (pathname.startsWith("/auth/v1/")) {
-		return { status: 200, body: {} };
-	}
-	if (pathname === "/rest/v1/profiles" && request.method() === "GET") {
-		// `.single()` asks for one object. All other reads get a list of rows.
-		const wantsObject = (request.headers().accept ?? "").includes(
-			"vnd.pgrst.object",
+	const answer = demoSupabaseAnswer({
+		method: request.method(),
+		pathname,
+		accept: request.headers().accept ?? "",
+		// The shot browser never fills a sign-in form. It starts with the stored demo session.
+		email: DEMO_EMAIL,
+	});
+	if (answer.status === 404) {
+		// A starter makes no other Supabase call. The author sees the line and removes the call.
+		console.warn(
+			`warning: no fixed answer for ${request.method()} ${pathname}. A starter must not call Supabase there.`,
 		);
-		return { status: 200, body: wantsObject ? DEMO_PROFILE : [DEMO_PROFILE] };
 	}
-	// A starter makes no other Supabase call. The author sees the line and removes the call.
-	console.warn(
-		`warning: no fixed answer for ${request.method()} ${pathname}. A starter must not call Supabase there.`,
-	);
-	return {
-		status: 404,
-		body: { message: `starter-shot has no answer for ${pathname}` },
-	};
+	return answer;
 }
 
 /**
@@ -334,13 +278,13 @@ async function openPage(browser, origin, path, viewport, session) {
 		[SESSION_STORAGE_KEY, JSON.stringify(session)],
 	);
 	await context.route(`${SUPABASE_URL}/**`, (route) => {
-		const { status, body } = answerSupabase(route.request(), session);
+		const { status, body } = answerSupabase(route.request());
 		return route.fulfill({
 			status,
 			contentType: "application/json",
 			// The page origin is localhost, so the browser needs the CORS header.
 			headers: { "access-control-allow-origin": "*" },
-			body: JSON.stringify(body),
+			body: body === null ? "" : JSON.stringify(body),
 		});
 	});
 	const page = await context.newPage();
@@ -520,7 +464,7 @@ await runScript(async () => {
 	let browser;
 	try {
 		browser = await launchBrowser();
-		const session = demoSession();
+		const session = demoSession(DEMO_EMAIL);
 		const topFiles = [];
 		for (const target of options.targets) {
 			topFiles.push(

@@ -1,5 +1,5 @@
 // The status of a task as a word in a colored badge: Backlog, To do, In progress, In review, Done.
-// The tables, the task dialog, and My tasks render it. The board shows the status as its column instead.
+// The recent tasks card, the task dialog, and the Team member sheet render it. The board shows the status as its column instead.
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import { TASK_STATUS_BADGE, type TaskStatus } from "../lib/codes";

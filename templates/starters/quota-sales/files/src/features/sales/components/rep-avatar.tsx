@@ -6,7 +6,7 @@ import { initialsOf } from "../lib/format";
 type RepAvatarProps = {
 	/** The full name of the rep. */
 	name: string;
-	/** A size class, for example "size-12". The default is the kit size-8. */
+	/** A size class, for example "size-12". The default is size-8, the size of a table row. */
 	className?: string;
 };
 

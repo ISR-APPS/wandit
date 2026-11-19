@@ -1,9 +1,10 @@
 /**
- * Pure helpers of the starter templates feature: the image URLs, the
- * categories in use, and the filter of the list page.
+ * Pure helpers of the starter templates feature: the image URLs, the live
+ * preview URL, the categories in use, and the filter of the list page.
  * Called by the card and the two pages. No React and no network.
  */
 
+import { STARTER_TEMPLATE_PREVIEW_SLUG_SUFFIX } from "@wandit/contracts";
 import { starterTemplateCategories } from "@wandit/contracts/v2/starter-templates";
 import type { Locale } from "@wandit/internationalization";
 
@@ -24,6 +25,18 @@ export function starterTemplateShotUrls(
 		(_, index) =>
 			`/starter-templates/${starterTemplate.id}/shot-${index + 1}.webp`,
 	);
+}
+
+/**
+ * URL of the live preview: one Worker per template on `<id>-template.wandit.app`.
+ * `templates/starters/scripts/deploy-previews.mjs` deploys it. Every environment links to these production hosts.
+ * An app opens on `/app`, so the visitor sees the sign-in page first and then the dashboard.
+ */
+export function starterTemplatePreviewUrl(
+	starterTemplate: Pick<StarterTemplate, "id" | "kind">,
+): string {
+	const path = starterTemplate.kind === "app" ? "/app" : "/";
+	return `https://${starterTemplate.id}${STARTER_TEMPLATE_PREVIEW_SLUG_SUFFIX}.wandit.app${path}`;
 }
 
 /** The categories that have one starter template or more, in the order of the contracts list. */

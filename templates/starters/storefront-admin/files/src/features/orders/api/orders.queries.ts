@@ -3,6 +3,7 @@
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
+	countsAsRevenue,
 	getSampleTables,
 	type OrderLineRow,
 	type OrderRow,
@@ -30,8 +31,11 @@ export type Order = {
 	lineCount: number;
 	/** The name of the product of the first line, for a one-line summary. */
 	firstProductName: string;
+	/** The categories of the lines, each one time, in the order of the lines. The first one picks the row tile. */
+	categories: ProductCategory[];
 	customerId: string;
 	customerName: string;
+	customerEmail: string;
 	/** The city and the region code of the delivery address, for example "Portland, OR". */
 	customerPlace: string;
 };
@@ -74,6 +78,8 @@ export type OrderDetail = Order & {
 		postalCode: string;
 		/** The count of every order of this customer, this one included. */
 		orderCount: number;
+		/** The sum of the orders of this customer that count as revenue, in the app currency. */
+		spent: number;
 	};
 	/** The other orders of the same customer, newest first, at most 5. */
 	otherOrders: Order[];
@@ -113,8 +119,17 @@ function withNames(rows: OrderRow[], tables: SampleTables): Order[] {
 				lineCount: orderLines.length,
 				firstProductName:
 					products.get(orderLines[0]?.productId ?? "")?.name ?? "",
+				categories: [
+					...new Set(
+						orderLines.flatMap((line) => {
+							const category = products.get(line.productId)?.category;
+							return category ? [category] : [];
+						}),
+					),
+				],
 				customerId: row.customerId,
 				customerName: customer?.name ?? "",
+				customerEmail: customer?.email ?? "",
 				customerPlace: customer ? `${customer.city}, ${customer.region}` : "",
 			};
 		})
@@ -204,6 +219,11 @@ export function orderQueryOptions(id: string) {
 					street: customer.street,
 					postalCode: customer.postalCode,
 					orderCount: customerOrders.length,
+					spent: customerOrders.reduce(
+						(sum, item) =>
+							sum + (countsAsRevenue(item.status) ? item.total : 0),
+						0,
+					),
 				},
 				otherOrders: customerOrders
 					.filter((item) => item.id !== id)

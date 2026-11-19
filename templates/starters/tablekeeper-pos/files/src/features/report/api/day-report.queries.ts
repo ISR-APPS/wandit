@@ -1,13 +1,14 @@
 // Read of the day report: the figures and the breakdowns of the business day so far.
-// The /app/report loader prefetches it. ReportPage and its panels read it.
+// The /app/report loader prefetches it. ReportPage and its cards read it.
 // The queryFn builds on the sample orders and history of ~/features/restaurant. A SQL read function can replace it.
 import { queryOptions } from "@tanstack/react-query";
-import { sameTimeLastWeek, totalsOfToday } from "~/features/floor";
 import {
 	LIVE_REFETCH_MS,
 	listDailyHistory,
 	listOrders,
 	plannedDayTotals,
+	sameTimeLastWeek,
+	totalsOfToday,
 } from "~/features/restaurant";
 import { buildDayReport } from "../lib/day-report";
 

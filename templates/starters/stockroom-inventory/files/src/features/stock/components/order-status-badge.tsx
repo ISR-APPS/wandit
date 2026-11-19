@@ -1,5 +1,5 @@
 // The badges of a purchase order: its status, and a red "late" badge when the expected day has passed.
-// The order list, the order panel, the item page, and the home rail render it.
+// The order list, the order panel, the item page, and the order table of the home render it.
 // The caller computes lateDays with lateDaysOf, so every page counts late days the same way.
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";

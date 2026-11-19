@@ -17,16 +17,16 @@
 		"shadow": "md",
 		"shadowStyle": "soft",
 		"content": "full",
-		"sidebarStyle": "classic",
+		"sidebarStyle": "inset",
 		"sidebarCollapse": "icons",
 		"sidebarStart": "open",
-		"sidebarTone": "brand",
+		"sidebarTone": "canvas",
 		"activeItem": "block",
-		"header": "bar",
+		"header": "blur",
 		"userMenu": "sidebar-footer",
 		"frame": "outlined",
-		"icons": "fill",
-		"navIcon": "plain"
+		"icons": "regular",
+		"navIcon": "soft"
 	},
 	"resolved": {
 		"light": {

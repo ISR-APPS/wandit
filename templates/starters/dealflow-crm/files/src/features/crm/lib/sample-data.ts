@@ -13,6 +13,7 @@ import {
 	OPEN_STAGES,
 } from "./deal-stage";
 import { DAY_MS, HOUR_MS, MINUTE_MS, startOfLocalDay } from "./relative-time";
+import type { TaskPriority } from "./task";
 
 /** One sales rep of the team. A rep owns deals, logs activities, and gets tasks. */
 export type RepRow = { id: string; name: string };
@@ -94,6 +95,8 @@ export type TaskRow = {
 	assigneeId: string;
 	title: string;
 	dueAt: string;
+	/** How urgent the task is for the deal. The follow-up lists show it as a badge. */
+	priority: TaskPriority;
 };
 
 /** Every sample table. Each list is in creation order; the query files sort and join them. */
@@ -704,13 +707,14 @@ type DealPlan = {
 
 // 34 open deals, then the won and the lost deals of three windows of 30 days.
 // The team wins about one closed deal in two. No deal changes stage today: its time could be in the future.
+// The won counts differ per window, so the average deal of the home also changes between periods.
 const DEAL_PLANS: DealPlan[] = [
 	{ stage: "lead", count: 11, minDays: 1, maxDays: 15 },
 	{ stage: "qualified", count: 9, minDays: 1, maxDays: 17 },
 	{ stage: "proposal", count: 8, minDays: 2, maxDays: 18 },
 	{ stage: "negotiation", count: 6, minDays: 1, maxDays: 15 },
 	{ stage: "won", count: 11, minDays: 1, maxDays: 28 },
-	{ stage: "won", count: 9, minDays: 31, maxDays: 58 },
+	{ stage: "won", count: 8, minDays: 31, maxDays: 58 },
 	{ stage: "won", count: 6, minDays: 61, maxDays: 88 },
 	{ stage: "lost", count: 10, minDays: 2, maxDays: 28 },
 	{ stage: "lost", count: 9, minDays: 31, maxDays: 58 },
@@ -1003,6 +1007,13 @@ function buildSampleTables(now: number): SampleTables {
 				index,
 			),
 			dueAt: iso(today + dueInDays * DAY_MS + between(9, 17) * HOUR_MS),
+			// A late or a large deal gets the urgent tasks. No random call here, so the other rows stay the same.
+			priority:
+				deal.stage === "negotiation" || deal.amount >= 50_000
+					? "high"
+					: deal.stage === "proposal" || deal.amount >= 20_000
+						? "medium"
+						: "low",
 		};
 	});
 

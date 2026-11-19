@@ -1,92 +1,101 @@
-// One task of the housekeeping board: the room, the kind of work, the attendant, and the time.
-// HousekeepingPage renders it in a column. A click opens the room panel of the home page.
-import { ClockIcon, LightningIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+// One card of the housekeeping board: the task, the room with its note, the attendant, the progress,
+// the priority, the start time, and the planned minutes. HousekeepingPage renders one per task in a column.
+// It follows the kanban card of the kit page anatomy (recipe 3.6).
+import { ClockIcon, HourglassIcon } from "@phosphor-icons/react";
 import { fillMessage, initialsOf } from "~/features/hotel";
 import { useT } from "~/shared/i18n";
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
 import { Badge } from "~/shared/ui/badge";
-import type { TaskRow } from "../lib/task-board";
+import { Card, CardContent } from "~/shared/ui/card";
+import { Progress } from "~/shared/ui/progress";
+import { Separator } from "~/shared/ui/separator";
+import {
+	PRIORITY_BADGE,
+	priorityOf,
+	progressOf,
+	type TaskRow,
+} from "../lib/task-board";
 
 type TaskCardProps = {
 	/** One task of today with its room and its attendant. */
 	task: TaskRow;
+	/** The current time in milliseconds since 1970. The progress of a task in work counts from it. */
+	now: number;
 };
 
-/** A link with a focus ring. A task with an arrival today shows the rush badge and the arrival time. */
-export function TaskCard({ task }: TaskCardProps) {
+/** A blocked task shows its reason as the text, and the "Blocked" badge beside the title. */
+export function TaskCard({ task, now }: TaskCardProps) {
 	const { t, locale } = useT();
 	const time = new Intl.DateTimeFormat(locale, { timeStyle: "short" });
+	const percent = new Intl.NumberFormat(locale, { style: "percent" });
 	const minutes = new Intl.NumberFormat(locale, {
 		style: "unit",
 		unit: "minute",
 		unitDisplay: "short",
 	});
-	const isOpen = task.status === "todo" || task.status === "in_progress";
+	const priority = priorityOf(task);
+	const progress = progressOf(task, now);
+	const roomLine = `${fillMessage(t("housekeeping.room"), { number: task.roomNumber })} · ${t(`roomTypes.${task.roomType}`)}`;
 
 	return (
-		<Link
-			to="/app"
-			search={{ room: Number(task.roomNumber) }}
-			className="grid gap-3 rounded-control border bg-background p-3 text-sm outline-none transition-colors hover:border-ring focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-		>
-			<div className="flex items-start justify-between gap-3">
-				<div className="flex min-w-0 items-center gap-3">
-					<span className="flex h-9 w-12 shrink-0 items-center justify-center rounded-control bg-muted font-numeric tabular-nums">
-						{task.roomNumber}
-					</span>
-					<div className="grid min-w-0">
-						<span className="truncate font-medium">
-							{t(`housekeeping.kinds.${task.kind}`)}
-						</span>
-						<span className="truncate text-muted-foreground text-xs">
-							{t(`roomTypes.${task.roomType}`)}
-						</span>
-					</div>
+		<Card className="gap-3 py-4">
+			<CardContent className="grid gap-3 px-4">
+				<div className="flex items-start justify-between gap-2">
+					<p className="font-display font-semibold leading-snug">
+						{t(`housekeeping.kinds.${task.kind}`)}
+					</p>
+					{task.status === "blocked" ? (
+						<Badge variant="destructive" className="shrink-0">
+							{t("housekeeping.blocked")}
+						</Badge>
+					) : null}
 				</div>
-				{task.status === "blocked" ? (
-					<Badge variant="destructive">
-						{t("housekeeping.statuses.blocked")}
-					</Badge>
-				) : task.dueAt && isOpen ? (
-					<Badge variant="warning">
-						<LightningIcon />
-						{t("housekeeping.rush")}
-					</Badge>
-				) : null}
-			</div>
-			{task.note ? (
-				<p className="text-muted-foreground text-xs" dir="auto">
-					{task.note}
+				<p className="line-clamp-2 text-muted-foreground text-sm" dir="auto">
+					{task.note ? `${roomLine}. ${task.note}` : roomLine}
 				</p>
-			) : null}
-			<div className="flex items-center justify-between gap-3 text-muted-foreground text-xs">
-				<span className="flex min-w-0 items-center gap-2">
-					<Avatar className="size-6">
-						<AvatarFallback className="text-xs">
-							{initialsOf(task.attendantName)}
-						</AvatarFallback>
-					</Avatar>
-					<span className="truncate">{task.attendantName}</span>
-				</span>
-				<span className="flex shrink-0 items-center gap-1 tabular-nums">
-					<ClockIcon className="size-3.5" />
-					{task.status === "done" && task.doneAt
-						? fillMessage(t("housekeeping.doneAt"), {
-								time: time.format(new Date(task.doneAt)),
-							})
-						: task.scheduledAt
-							? `${time.format(new Date(task.scheduledAt))} · ${minutes.format(task.durationMinutes)}`
-							: minutes.format(task.durationMinutes)}
-				</span>
-			</div>
-			{task.dueAt && isOpen ? (
-				<p className="border-t pt-2 text-xs tabular-nums">
-					{fillMessage(t("housekeeping.arrivalAt"), {
-						time: time.format(new Date(task.dueAt)),
-					})}
-				</p>
-			) : null}
-		</Link>
+				<div className="flex items-center justify-between gap-2">
+					<span className="flex min-w-0 items-center gap-2">
+						<Avatar className="size-7 ring-2 ring-card">
+							<AvatarFallback className="bg-muted text-xs">
+								{initialsOf(task.attendantName)}
+							</AvatarFallback>
+						</Avatar>
+						<span className="truncate text-muted-foreground text-xs">
+							{task.attendantName}
+						</span>
+					</span>
+					<span className="flex items-center gap-2">
+						<Progress
+							value={progress * 100}
+							className="h-1.5 w-16"
+							aria-label={t("housekeeping.progress")}
+						/>
+						<span className="text-muted-foreground text-xs tabular-nums">
+							{percent.format(progress)}
+						</span>
+					</span>
+				</div>
+				<Separator />
+				<div className="flex items-center justify-between gap-2">
+					<Badge variant="outline" className={PRIORITY_BADGE[priority]}>
+						{t(`housekeeping.priorities.${priority}`)}
+					</Badge>
+					<span className="flex items-center gap-3 text-muted-foreground text-xs tabular-nums">
+						{task.scheduledAt ? (
+							<span className="inline-flex items-center gap-1">
+								<ClockIcon className="size-3.5" />
+								<span className="sr-only">{t("housekeeping.start")}</span>
+								{time.format(new Date(task.scheduledAt))}
+							</span>
+						) : null}
+						<span className="inline-flex items-center gap-1">
+							<HourglassIcon className="size-3.5" />
+							<span className="sr-only">{t("housekeeping.duration")}</span>
+							{minutes.format(task.durationMinutes)}
+						</span>
+					</span>
+				</div>
+			</CardContent>
+		</Card>
 	);
 }

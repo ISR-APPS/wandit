@@ -1,7 +1,4 @@
-export {
-	practitionersQueryOptions,
-	visitsByTypeQueryOptions,
-} from "./api/practitioners.queries";
+export { practitionersQueryOptions } from "./api/practitioners.queries";
 export {
 	PractitionersPage,
 	PractitionersPageError,

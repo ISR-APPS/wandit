@@ -1,23 +1,13 @@
-// My tasks behind login. The /app layout checks the session first.
-// The loader fills the tasks, the members, and the projects. Thin: the page and its states live in the my-tasks feature.
+// The Tasks page behind login. The /app layout checks the session first.
+// The loader fills the task list cache. Thin: the page and its states live in the tasks feature.
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	MyTasksPage,
-	MyTasksPageError,
-	MyTasksPageSkeleton,
-} from "~/features/my-tasks";
-import { projectsQueryOptions } from "~/features/projects";
-import { membersQueryOptions, tasksQueryOptions } from "~/features/tracker";
+import { TasksPage, TasksPageError, TasksPageSkeleton } from "~/features/tasks";
+import { tasksQueryOptions } from "~/features/tracker";
 
-/** /app/tasks: the open and recently done tasks of the signed-in person. */
+/** /app/tasks: every task of every project, with filters and pages. */
 export const Route = createFileRoute("/app/tasks")({
-	loader: ({ context }) =>
-		Promise.all([
-			context.queryClient.query(tasksQueryOptions()),
-			context.queryClient.query(membersQueryOptions()),
-			context.queryClient.query(projectsQueryOptions()),
-		]),
-	pendingComponent: MyTasksPageSkeleton,
-	errorComponent: MyTasksPageError,
-	component: MyTasksPage,
+	loader: ({ context }) => context.queryClient.query(tasksQueryOptions()),
+	pendingComponent: TasksPageSkeleton,
+	errorComponent: TasksPageError,
+	component: TasksPage,
 });

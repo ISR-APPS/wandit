@@ -1,7 +1,7 @@
 export {
+	audienceGrowthQueryOptions,
 	audienceQueryOptions,
-	followerGainByChannelQueryOptions,
-	followerGrowthQueryOptions,
+	inboxQueryOptions,
 } from "./api/audience.queries";
 export {
 	AudiencePage,

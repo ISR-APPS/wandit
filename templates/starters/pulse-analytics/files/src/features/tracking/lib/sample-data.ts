@@ -14,6 +14,7 @@ import {
 	type Role,
 } from "./dimensions";
 import {
+	ACTIVATION_STEP,
 	EVENT_TYPES,
 	eventIndexOf,
 	FUNNEL_STEPS,
@@ -54,6 +55,8 @@ export type PersonRow = {
 	channel: Channel;
 	/** The sign-up time. */
 	joinedAt: string;
+	/** The time of the first completed task (ACTIVATION_STEP). null while the person is not activated. */
+	activatedAt: string | null;
 };
 
 /** The kinds of a milestone on the timeline of an account. */
@@ -392,6 +395,18 @@ function planPerson(
 	};
 }
 
+// The time of the activation step of a person. stepDays holds -1 for a step the person did not reach.
+function activationTime(
+	plan: PersonPlan,
+	isoAt: (daysAgo: number, minute: number) => string,
+): string | null {
+	const daysAgo = plan.stepDays[ACTIVATION_STEP] ?? -1;
+	// The task comes about one hour after the usual start of the person.
+	return daysAgo >= 1
+		? isoAt(daysAgo, Math.min(1435, plan.usualMinute + 60))
+		: null;
+}
+
 // How much of its normal use an account has on a day, from 0 to 1.
 function trendLoad(seed: AccountSeed, daysAgo: number): number {
 	if (seed.trend === "fading") {
@@ -554,6 +569,7 @@ function buildSampleTables(todayStart: number): SampleTables {
 				platform: PLATFORMS[plan.platformIndex] ?? "web",
 				channel: CHANNELS[plan.channelIndex] ?? "direct",
 				joinedAt: isoAt(plan.joinedDaysAgo, plan.usualMinute),
+				activatedAt: activationTime(plan, isoAt),
 			});
 
 			// Each person has an own generator, so the days of one person do not move the days of the next.
@@ -879,37 +895,6 @@ export function getSampleTables(): SampleTables {
 		cachedTables = buildSampleTables(todayStart);
 	}
 	return cachedTables;
-}
-
-/**
- * The newest `limit` events before `now` (milliseconds since 1970), newest first. No event is in the future.
- * Two rows in sequence never show two different people with the same first name: the list skips the second one.
- */
-export function latestEventsBefore(
-	tables: SampleTables,
-	now: number,
-	limit: number,
-): RecentEvent[] {
-	const firstNameOf = (personIndex: number) =>
-		tables.people[personIndex]?.name.split(" ")[0] ?? "";
-	const latest: RecentEvent[] = [];
-	for (const event of tables.recentEvents) {
-		if (event.at > now) {
-			continue;
-		}
-		if (latest.length === limit) {
-			break;
-		}
-		const previous = latest.at(-1);
-		const isNameTwin =
-			previous !== undefined &&
-			previous.personIndex !== event.personIndex &&
-			firstNameOf(previous.personIndex) === firstNameOf(event.personIndex);
-		if (!isNameTwin) {
-			latest.push(event);
-		}
-	}
-	return latest;
 }
 
 /**

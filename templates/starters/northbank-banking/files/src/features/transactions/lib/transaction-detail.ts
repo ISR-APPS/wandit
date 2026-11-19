@@ -1,6 +1,6 @@
 // Builds the detail of one entry: the entry, the other half of a transfer, the history with the same party,
-// and the steps of its status. transactionDetailQueryOptions calls it. It is pure: it reads only its inputs.
-import { directionOf, postDayOf, type Transaction } from "~/features/bank";
+// the other entries of the same day, and the steps of its status. transactionDetailQueryOptions calls it. It is pure: it reads only its inputs.
+import { postDayOf, type Transaction } from "~/features/bank";
 
 /** The steps of an entry. Its label is the message key `transactionDetail.steps.<id>`. */
 export type StatusStepId =
@@ -30,13 +30,19 @@ export type TransactionDetail = {
 	history: Transaction[];
 	/** The count of all other entries with the same party, also the ones the list leaves out. */
 	historyCount: number;
+	/** Up to SAME_DAY_ROWS other entries of the same account on the same day, in the order of the list. */
+	sameDay: Transaction[];
 	steps: StatusStep[];
 };
 
-// The detail page lists this many earlier entries. More would push the facts off the first screen.
-const HISTORY_ROWS = 8;
+// The history card lists this many earlier entries, as the history table of the kit profile page.
+const HISTORY_ROWS = 6;
 
-// The first step: a card authorizes, an ACH is sent or received, a check is deposited, the rest books at once.
+// The same-day card lists this many entries, so it keeps the height of the history card beside it.
+const SAME_DAY_ROWS = 5;
+
+// The first step: a card authorizes, a check is deposited, a payment or a transfer is sent or received.
+// Interest and a fee have no sender, so they book at once.
 function firstStepOf(transaction: Transaction): StatusStepId {
 	if (transaction.method === "card") {
 		return "authorized";
@@ -44,13 +50,14 @@ function firstStepOf(transaction: Transaction): StatusStepId {
 	if (transaction.method === "check") {
 		return "deposited";
 	}
-	if (transaction.method === "ach") {
-		return directionOf(transaction) === "in" ? "received" : "sent";
+	if (transaction.method === "interest" || transaction.method === "fee") {
+		return "booked";
 	}
-	return "booked";
+	// A transfer has no "in" direction, so the sign of the amount tells the side.
+	return transaction.amountCents > 0 ? "received" : "sent";
 }
 
-// The status steps, oldest first. An entry that books at once has one step.
+// The status steps, oldest first. Only interest and a fee have one step.
 function stepsOf(transaction: Transaction): StatusStep[] {
 	const first: StatusStep = {
 		id: firstStepOf(transaction),
@@ -60,7 +67,10 @@ function stepsOf(transaction: Transaction): StatusStep[] {
 	// postDayOf skips Saturday and Sunday. The entry status in the sample rows uses the same day.
 	const lastDay = postDayOf(transaction.method, transaction.day);
 	if (lastDay === transaction.day) {
-		return [first];
+		// A wire or a transfer books on the day it arrives: the second step has the same day.
+		return first.id === "booked"
+			? [first]
+			: [first, { id: "booked", day: lastDay, state: "done" }];
 	}
 	if (transaction.status === "returned") {
 		return [first, { id: "returned", day: lastDay, state: "failed" }];
@@ -95,6 +105,14 @@ export function buildTransactionDetail(
 		linked: rows.find((row) => row.id === transaction.linkedId) ?? null,
 		history: sameParty.slice(0, HISTORY_ROWS),
 		historyCount: sameParty.length,
+		sameDay: rows
+			.filter(
+				(row) =>
+					row.id !== id &&
+					row.day === transaction.day &&
+					row.accountId === transaction.accountId,
+			)
+			.slice(0, SAME_DAY_ROWS),
 		steps: stepsOf(transaction),
 	};
 }

@@ -1,25 +1,19 @@
-// The math of the statements pages: one statement per account and month, the account panels,
-// and the detail of one statement with its lines and its daily balance.
+// The math of the statements pages: one statement per account and month, and the detail of one statement
+// with its lines and the running balance.
 // statements.queries.ts calls these pure functions. Each closing equals opening + money in - money out.
 import {
 	ACCOUNTS,
-	type Account,
 	type AccountId,
 	addDays,
 	addMonths,
 	countsInBalance,
 	type DailyBalance,
-	type DailyPoint,
-	dayPartsOf,
 	daysBetween,
-	lastDays,
 	monthEndOf,
 	monthStartOf,
+	STATEMENT_MONTHS,
 	type Transaction,
 } from "~/features/bank";
-
-// Closed months with a final statement. The open month of today comes on top of them.
-const CLOSED_MONTHS = 5;
 
 /** "open" is the month of today, still in progress. "closed" is a final statement. */
 export type StatementStatus = "open" | "closed";
@@ -42,14 +36,6 @@ export type Statement = {
 	lineCount: number;
 };
 
-/** One account with its balance today and its change since the 1st of the month. */
-export type AccountSummary = {
-	account: Account;
-	balanceCents: number;
-	/** Cents with a sign: the balance today minus the balance at the end of the last month. */
-	monthChangeCents: number;
-};
-
 /** One line of a statement: the entry and the balance of the account right after it. */
 export type StatementLine = Transaction & { balanceAfterCents: number };
 
@@ -58,8 +44,6 @@ export type StatementDetail = {
 	statement: Statement;
 	/** The entries of the month, oldest first, each with the running balance. */
 	lines: StatementLine[];
-	/** The balance at the end of each day of the month, with the same day of the month before. */
-	points: DailyPoint[];
 };
 
 // The end-of-day balance of one account. A day before the history gives the opening balance.
@@ -135,7 +119,7 @@ export function buildStatements(
 ): Statement[] {
 	const thisMonth = monthStartOf(today);
 	const statements: Statement[] = [];
-	for (let offset = 0; offset <= CLOSED_MONTHS; offset += 1) {
+	for (let offset = 0; offset < STATEMENT_MONTHS; offset += 1) {
 		const month = addMonths(thisMonth, -offset);
 		for (const account of ACCOUNTS) {
 			statements.push(statementOf(rows, balances, account.id, month, today));
@@ -144,24 +128,7 @@ export function buildStatements(
 	return statements;
 }
 
-/** The three accounts with the balance of today and the change since the end of the last month. */
-export function buildAccountSummaries(
-	balances: DailyBalance[],
-	today: string,
-): AccountSummary[] {
-	const lastMonthEnd = addDays(monthStartOf(today), -1);
-	return ACCOUNTS.map((account) => {
-		const balanceCents = balanceOn(balances, account.id, today);
-		return {
-			account,
-			balanceCents,
-			monthChangeCents:
-				balanceCents - balanceOn(balances, account.id, lastMonthEnd),
-		};
-	});
-}
-
-/** The statement `id` with its lines and its daily balance, or null for an unknown id. */
+/** The statement `id` with its lines, or null for an unknown id. */
 export function buildStatementDetail(
 	rows: Transaction[],
 	balances: DailyBalance[],
@@ -180,20 +147,5 @@ export function buildStatementDetail(
 		running += row.amountCents;
 		return { ...row, balanceAfterCents: running };
 	});
-	const previousMonth = addMonths(month, -1);
-	const previousEnd = monthEndOf(previousMonth);
-	const points = lastDays(endDay, daysBetween(month, endDay) + 1).map((day) => {
-		// The same day of the month before. Day 31 of a 31-day month meets the last day of a 30-day month.
-		const sameDay = addDays(previousMonth, dayPartsOf(day).dayOfMonth - 1);
-		return {
-			day,
-			current: balanceOn(balances, accountId, day),
-			previous: balanceOn(
-				balances,
-				accountId,
-				sameDay > previousEnd ? previousEnd : sameDay,
-			),
-		};
-	});
-	return { statement, lines, points };
+	return { statement, lines };
 }

@@ -1,5 +1,5 @@
-// Time helpers of the practice: local days, day keys, relative times, and ages.
-// The sample tables build their dates with them. The pages format deadlines, ages, and entry days with them.
+// Time helpers of the practice: local days, day keys, and relative times.
+// The sample tables build their dates with them. The pages format deadlines and entry days with them.
 // Every function takes "now" as an argument, so a render reads the clock once.
 
 /** One hour in milliseconds. */
@@ -67,27 +67,4 @@ export function formatRelativeTime(
 	}
 	// The same calendar day: "in 5 hours" is more exact than "today".
 	return format.format(Math.round(differenceMs / HOUR_MS), "hour");
-}
-
-/**
- * The time since `timestamp` in a short form: "12d", or "5h" on the same calendar day.
- * Days are calendar days, so the board age agrees with the dates of the stage path.
- */
-export function formatAge(
-	timestamp: string,
-	now: number,
-	locale: string,
-): string {
-	const days = -calendarDaysUntil(timestamp, now);
-	const unit = days > 0 ? "day" : "hour";
-	const value =
-		days > 0
-			? days
-			: Math.floor(Math.max(0, now - Date.parse(timestamp)) / HOUR_MS);
-	return new Intl.NumberFormat(locale, {
-		style: "unit",
-		unit,
-		unitDisplay: "narrow",
-		maximumFractionDigits: 0,
-	}).format(value);
 }

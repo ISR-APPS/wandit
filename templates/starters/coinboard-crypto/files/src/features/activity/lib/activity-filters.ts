@@ -1,5 +1,5 @@
-// The period filter of the Activity page and the totals of the shown transactions.
-// ActivityPage filters its rows with them. ActivitySummary shows the totals.
+// The period filter of the Activity page: every transaction, or the transactions of the last 7, 30, or 90 days.
+// ActivityPage filters its rows with it before the Latest and Pending tabs split them.
 import {
 	DAY_MS,
 	PERIOD_DAYS,
@@ -27,32 +27,4 @@ export function filterByPeriod(
 	}
 	const start = startOfLocalDay(now) - period * DAY_MS;
 	return transactions.filter((row) => Date.parse(row.occurredAt) >= start);
-}
-
-/** The money totals of a list of transactions, in the app currency. */
-export type ActivityTotals = {
-	bought: number;
-	sold: number;
-	/** The market value of the staking rewards when they arrived. */
-	rewards: number;
-	fees: number;
-};
-
-/** Sums the confirmed rows only. A pending or a failed transaction moved no money yet. */
-export function sumActivity(transactions: Transaction[]): ActivityTotals {
-	const totals = { bought: 0, sold: 0, rewards: 0, fees: 0 };
-	for (const row of transactions) {
-		if (row.status !== "confirmed") {
-			continue;
-		}
-		totals.fees += row.fee;
-		if (row.type === "buy") {
-			totals.bought += row.amount;
-		} else if (row.type === "sell") {
-			totals.sold += row.amount;
-		} else if (row.type === "reward") {
-			totals.rewards += row.amount;
-		}
-	}
-	return totals;
 }

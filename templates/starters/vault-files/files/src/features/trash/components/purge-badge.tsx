@@ -1,13 +1,17 @@
 // The countdown badge of a file in the trash: "in 2 days" until Vault deletes it for good.
-// The trash table and the details dialog render it. The color gets stronger as the day comes closer.
-import { calendarDaysFromNow, formatRelativeTime } from "~/features/workspace";
+// The final delete column of the Trash table renders it. The color gets stronger as the day comes closer.
+import {
+	calendarDaysFromNow,
+	formatRelativeTime,
+	PURGE_SOON_DAYS,
+} from "~/features/workspace";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 
 // The last day is critical; three days or less is urgent; a week or less needs attention soon.
 const CRITICAL_DAYS = 1;
 const URGENT_DAYS = 3;
-const SOON_DAYS = 7;
+const SOON_DAYS = PURGE_SOON_DAYS;
 
 // A tinted red pill: the warning shape in the destructive color. Only the last day gets the solid red.
 const URGENT_TINT = "border-destructive/25 bg-destructive/12 text-destructive";

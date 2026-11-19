@@ -1,9 +1,8 @@
-// Reads of deals: the list, one deal with its contact and stage history, and the won amount per day.
-// The route loaders prefetch them. The pipeline board, the deal list, and the deal page read them from the cache.
+// Reads of deals: the list, and one deal with its contact and stage history.
+// The route loaders prefetch them. The home, the Deals page, and the deal page read them from the cache.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
-	buildDailySeries,
 	type DealSource,
 	type DealStage,
 	getSampleTables,
@@ -38,6 +37,10 @@ export type Deal = {
 	ownerName: string;
 	/** The newest logged activity of the deal. The stage change time when the deal has none. */
 	lastActivityAt: string;
+	/** Every logged call, email, meeting, and note of the deal. The board card shows it. */
+	activityCount: number;
+	/** The open follow-up tasks of the deal. The board card shows it. */
+	openTaskCount: number;
 };
 
 /** One deal with the records that only its own page shows. */
@@ -49,17 +52,26 @@ export type DealDetail = Deal & {
 	stageHistory: { stage: DealStage; changedAt: string }[];
 };
 
-// Adds the company, contact, owner, and last activity to deal rows. A database join does this later.
+// Adds the company, contact, owner, last activity, and the counts to deal rows. A database join does this later.
 function withNames(rows: SampleTables["deals"], tables: SampleTables): Deal[] {
 	const reps = new Map(tables.reps.map((rep) => [rep.id, rep]));
 	const contacts = new Map(tables.contacts.map((row) => [row.id, row]));
 	const companies = new Map(tables.companies.map((row) => [row.id, row]));
 	// The activity rows are in time order, so the last write per deal is its newest activity.
 	const lastActivity = new Map<string, string>();
+	const activityCount = new Map<string, number>();
 	for (const activity of tables.activities) {
 		if (activity.dealId) {
 			lastActivity.set(activity.dealId, activity.occurredAt);
+			activityCount.set(
+				activity.dealId,
+				(activityCount.get(activity.dealId) ?? 0) + 1,
+			);
 		}
+	}
+	const taskCount = new Map<string, number>();
+	for (const task of tables.tasks) {
+		taskCount.set(task.dealId, (taskCount.get(task.dealId) ?? 0) + 1);
 	}
 	return rows.map((row) => ({
 		id: row.id,
@@ -78,10 +90,12 @@ function withNames(rows: SampleTables["deals"], tables: SampleTables): Deal[] {
 		ownerId: row.ownerId,
 		ownerName: reps.get(row.ownerId)?.name ?? "",
 		lastActivityAt: lastActivity.get(row.id) ?? row.stageChangedAt,
+		activityCount: activityCount.get(row.id) ?? 0,
+		openTaskCount: taskCount.get(row.id) ?? 0,
 	}));
 }
 
-/** Every deal, the newest activity first. The board groups and sorts them by stage; the list page filters, sorts, and pages them. */
+/** Every deal, the newest activity first. The board groups them by stage; the tables filter, sort, and page them. */
 export function dealsQueryOptions() {
 	return queryOptions({
 		queryKey: ["deals", "list"],
@@ -140,22 +154,5 @@ export function dealQueryOptions(id: string) {
 					),
 			};
 		},
-	});
-}
-
-/** The won amount per day for the last `days` days, with the same days one period earlier. Feeds the board header. */
-export function wonPerDayQueryOptions(days: number) {
-	return queryOptions({
-		queryKey: ["deals", "won-daily", days],
-		queryFn: async () =>
-			buildDailySeries(
-				getSampleTables().deals.flatMap((deal) =>
-					deal.stage === "won" && deal.closedAt
-						? [{ occurredAt: deal.closedAt, value: deal.amount }]
-						: [],
-				),
-				days,
-				Date.now(),
-			),
 	});
 }

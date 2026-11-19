@@ -1,11 +1,7 @@
-// The open pipeline of the leads page: one bar per stage, and the answer figures of the last 30 days.
-// LeadsPage renders it. A click on a stage sets the status tab of the table to that stage.
-import {
-	ANSWER_TARGET_HOURS,
-	fillMessage,
-	formatDuration,
-	type LeadStatus,
-} from "~/features/agency";
+// The pipeline card of the leads page, in a stage-list layout: a stacked share bar,
+// then one row per stage with a dot, the count and the value, a bar, and the share.
+// LeadsPage renders it with the summary of the period. A row is a button that filters the table by its stage.
+import { fillMessage, type LeadStatus, moneyFormat } from "~/features/agency";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import {
@@ -15,124 +11,111 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import type { AnswerStats, PipelineStage } from "../lib/lead-stats";
+import { Progress } from "~/shared/ui/progress";
+import type { PipelineRow } from "../lib/lead-stats";
 
-/** The bar color of each open stage. It follows the badge color of the status. */
-const STAGE_BARS = {
-	new: "bg-warning",
+// The dot and the bar part of each row, from the chart series, in the order of the work.
+const STAGE_FILL = {
+	new: "bg-chart-1",
 	contacted: "bg-chart-2",
-	viewing: "bg-info",
-	offer: "bg-primary",
-} satisfies Record<PipelineStage["status"], string>;
+	viewing: "bg-chart-3",
+	offer: "bg-chart-4",
+	won: "bg-chart-5",
+} satisfies Record<PipelineRow["stage"], string>;
 
 type PipelineCardProps = {
-	/** The open stages with their counts, in the order of the work. They follow the source filter, like the tab counts. */
-	stages: PipelineStage[];
-	/** The answer figures of the last 30 days, for the leads of the source filter. */
-	stats: AnswerStats;
-	/** The status tab of the table, or undefined for the "All" tab. The bar of this stage is marked. */
+	/** The four open stages now, then the leads won in the period. */
+	rows: PipelineRow[];
+	/** The status filter of the table. Its row is marked. */
 	activeStatus: LeadStatus | undefined;
-	/** Called with a stage when the user picks its bar, and with undefined when the user picks it again. */
+	/** Gets a stage when the user picks its row, and undefined when the user picks the marked row again. */
 	onStatusChange: (status: LeadStatus | undefined) => void;
 };
 
-/** The longest bar is the stage with the most leads. The other bars have a length in proportion. */
+/** The share of a row is its part of the sum of the counts. Each row names its stage, so the color is never the only mark. */
 export function PipelineCard({
-	stages,
-	stats,
+	rows,
 	activeStatus,
 	onStatusChange,
 }: PipelineCardProps) {
 	const { t, locale } = useT();
 	const number = new Intl.NumberFormat(locale);
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		maximumFractionDigits: 0,
-	});
-	const openCount = stages.reduce((sum, stage) => sum + stage.count, 0);
-	const largest = Math.max(1, ...stages.map((stage) => stage.count));
-	const figures = [
-		{
-			id: "median",
-			label: t("leads.stats.medianAnswer"),
-			value:
-				stats.medianMinutes === null
-					? "–"
-					: formatDuration(stats.medianMinutes, locale),
-		},
-		{
-			id: "in-target",
-			label: fillMessage(t("leads.stats.inTarget"), {
-				hours: number.format(ANSWER_TARGET_HOURS),
-			}),
-			value:
-				stats.inTargetShare === null
-					? "–"
-					: percent.format(stats.inTargetShare),
-		},
-		{
-			id: "won",
-			label: t("leads.stats.won"),
-			value: number.format(stats.wonCount),
-		},
-	];
+	const money = moneyFormat(locale);
+	const percent = new Intl.NumberFormat(locale, { style: "percent" });
+	const totalCount = rows.reduce((sum, row) => sum + row.count, 0);
+	const shareOf = (count: number) =>
+		totalCount === 0 ? 0 : count / totalCount;
+	const nameOf = (row: PipelineRow) =>
+		row.stage === "won"
+			? t("leads.pipeline.wonInPeriod")
+			: t(`agency.leadStatuses.${row.stage}`);
+
 	return (
-		<Card>
+		<Card className="@2xl/main:col-span-2 @5xl/main:col-span-1">
 			<CardHeader>
-				<CardTitle>{t("leads.pipelineTitle")}</CardTitle>
-				<CardDescription>
-					{fillMessage(t("leads.pipelineDescription"), {
-						count: number.format(openCount),
-					})}
-				</CardDescription>
+				<CardTitle>{t("leads.pipeline.title")}</CardTitle>
+				<CardDescription>{t("leads.pipeline.description")}</CardDescription>
 			</CardHeader>
-			<CardContent className="flex flex-1 flex-col gap-5">
-				<ul className="-mx-2 grid flex-1 content-around gap-1">
-					{stages.map((stage) => (
-						<li key={stage.status}>
-							<button
-								type="button"
-								aria-pressed={activeStatus === stage.status}
-								// A stage with no lead has no tab in the table, so it has nothing to show.
-								disabled={stage.count === 0}
-								onClick={() =>
-									onStatusChange(
-										activeStatus === stage.status ? undefined : stage.status,
-									)
-								}
-								className="grid w-full grid-cols-[5.5rem_minmax(0,1fr)_2rem] items-center gap-3 rounded-md px-2 py-2 text-start outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60 aria-pressed:bg-muted max-sm:py-3"
-							>
-								<span className="text-sm">
-									{t(`agency.leadStatuses.${stage.status}`)}
-								</span>
-								<span className="h-3 overflow-hidden rounded-full bg-border/70">
+			<CardContent className="grid gap-6">
+				<div
+					aria-hidden="true"
+					className="flex h-4 w-full gap-0.5 overflow-hidden rounded-full bg-muted"
+				>
+					{rows.map((row) => (
+						<span
+							key={row.stage}
+							className={cn("h-full", STAGE_FILL[row.stage])}
+							style={{ width: `${shareOf(row.count) * 100}%` }}
+						/>
+					))}
+				</div>
+				<ul className="grid gap-1">
+					{rows.map((row) => {
+						const isActive = row.stage === activeStatus;
+						return (
+							<li key={row.stage}>
+								<button
+									type="button"
+									aria-pressed={isActive}
+									onClick={() =>
+										onStatusChange(isActive ? undefined : row.stage)
+									}
+									className={cn(
+										"flex w-full items-center gap-4 rounded-md p-2 text-start hover:bg-muted/50",
+										isActive && "bg-muted",
+									)}
+								>
 									<span
+										aria-hidden="true"
 										className={cn(
-											"block h-full rounded-full",
-											STAGE_BARS[stage.status],
+											"size-3 shrink-0 rounded-full",
+											STAGE_FILL[row.stage],
 										)}
-										// The bar length is a share of the largest stage, so it is a data value, not a spacing.
-										style={{ width: `${(stage.count / largest) * 100}%` }}
 									/>
-								</span>
-								<span className="text-end font-numeric text-lg tabular-nums leading-none">
-									{number.format(stage.count)}
-								</span>
-							</button>
-						</li>
-					))}
+									<span className="grid min-w-0 flex-1 gap-0.5">
+										<span className="truncate font-medium text-sm">
+											{nameOf(row)}
+										</span>
+										<span className="truncate text-muted-foreground text-xs tabular-nums">
+											{fillMessage(t("leads.pipeline.detail"), {
+												count: number.format(row.count),
+												amount: money.format(row.amount),
+											})}
+										</span>
+									</span>
+									<Progress
+										value={shareOf(row.count) * 100}
+										className="h-1.5 w-16"
+										aria-label={nameOf(row)}
+									/>
+									<span className="w-10 text-end text-muted-foreground text-xs tabular-nums">
+										{percent.format(shareOf(row.count))}
+									</span>
+								</button>
+							</li>
+						);
+					})}
 				</ul>
-				<dl className="mt-auto grid grid-cols-3 gap-4 border-t pt-5">
-					{/* A label can wrap on a phone. The cells share one height, so the values sit on one line at the bottom. */}
-					{figures.map((figure) => (
-						<div key={figure.id} className="grid grid-rows-[1fr_auto] gap-1">
-							<dt className="text-muted-foreground text-xs">{figure.label}</dt>
-							<dd className="font-numeric text-xl tabular-nums leading-none">
-								{figure.value}
-							</dd>
-						</div>
-					))}
-				</dl>
 			</CardContent>
 		</Card>
 	);

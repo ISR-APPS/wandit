@@ -1,9 +1,5 @@
+export { DEFAULT_DAYS, overviewQueryOptions } from "./api/overview.queries";
 export {
-	overviewKpisQueryOptions,
-	revenuePerDayQueryOptions,
-} from "./api/overview.queries";
-export {
-	DEFAULT_DAYS,
 	OverviewPage,
 	OverviewPageError,
 	OverviewPageSkeleton,

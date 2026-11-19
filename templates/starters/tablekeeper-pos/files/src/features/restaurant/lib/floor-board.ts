@@ -1,7 +1,7 @@
 // Builds the live floor: one entry per table with its status, its open check, its next booking, and a closed zone.
-// floorQueryOptions calls it. The floor wall, the table panel, and the table select of the order screen read it.
+// floorQueryOptions calls it. The stat cards of the home, the alerts, and the table select of the order screen read it.
 // It is a pure function of the sample rows and `now`, so a later SQL view can replace it with the same rules.
-// guestsAt counts the guests of some entries for the status line and the zone walls.
+// guestsAt counts the guests of some entries for the "tables in use" card of the home.
 import type { DiningTable, Reservation, Seating, Server } from "./sample-floor";
 import type { ClosedZone, Order, OrderStatus } from "./sample-orders";
 import type { TableStatus } from "./status";

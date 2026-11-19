@@ -190,7 +190,12 @@ function buildActivity(todayStart: number): GymActivity {
 		const dayKey = toDayKey(dayStart);
 		// "YYYY-MM" of the day: the month of a monthly class limit.
 		const monthKey = dayKey.slice(0, 7);
-		const training = members.filter((member) => isTrainingOn(member, dayStart));
+		// A drifting member still pays, but books and scans nothing from `stopsComingFrom` on.
+		const training = members.filter(
+			(member) =>
+				isTrainingOn(member, dayStart) &&
+				(member.stopsComingFrom === null || dayStart < member.stopsComingFrom),
+		);
 		// One class per member and day.
 		const bookedToday = new Set<string>();
 		// The gym grows: demand rises from 82 % half a year ago to 100 % today.

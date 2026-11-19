@@ -1,4 +1,7 @@
-export { venuesQueryOptions } from "./api/venues.queries";
+export {
+	venueKpisQueryOptions,
+	venuesQueryOptions,
+} from "./api/venues.queries";
 export {
 	VenuesPage,
 	VenuesPageError,

@@ -1,116 +1,104 @@
-// The home of the app: a mosaic of the portfolio value, the allocation, the market mood, the value trend,
-// two small figures, the largest holdings, and the newest activity. The /app route renders it after its loader.
-// The route also uses the skeleton and the error below. It follows the home "bento" of the app-dashboard skill.
+// The home of the app, in the kit crypto anatomy: a title row with an export, then two bands.
+// Band 1: the overview, the top holdings, and the trade form. A wide page shows the 3 cards in one row.
+// Like the kit at lg, a medium page shows the overview on its own row and the other two cards side by side.
+// Band 2 (1/3 + 2/3): the recent activity, and the balance of each account over time.
+// The /app route renders it after its loader. The route also uses the skeleton and the error below.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
 import { transactionsQueryOptions } from "~/features/activity";
 import { PageHeader } from "~/features/app-shell";
-import { positionsQueryOptions } from "~/features/holdings";
-import { DEFAULT_DAYS, fillMessage, type PeriodDays } from "~/features/ledger";
+import { positionCsvColumns, positionsQueryOptions } from "~/features/holdings";
+import { downloadCsv, fillMessage, toCsv } from "~/features/ledger";
 import { assetsQueryOptions } from "~/features/markets";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { portfolioSummaryQueryOptions } from "../api/portfolio.queries";
-import { buildAllocation } from "../lib/portfolio-value";
-import { AllocationTile } from "./allocation-tile";
-import { LatestActivityTile } from "./latest-activity-tile";
-import { MarketBreadthTile } from "./market-breadth-tile";
-import { PortfolioValueTile } from "./portfolio-value-tile";
-import { SmallFigure } from "./small-figure";
-import { TopHoldingsTile } from "./top-holdings-tile";
-import { ValueTrendTile } from "./value-trend-tile";
+import { BalanceSummaryCard } from "./balance-summary-card";
+import { OverviewCard } from "./overview-card";
+import { RecentActivityCard } from "./recent-activity-card";
+import { TopHoldingsCard } from "./top-holdings-card";
+import { TradeCard } from "./trade-card";
 
-// 2 columns under 56rem, 12 from 56rem. Row 1 mixes three kinds at three widths.
-// From 42rem the breakdown and the status sit side by side, so a tablet does not stack every tile.
-const BENTO_GRID =
-	"grid grid-cols-2 gap-4 @3xl/main:gap-6 @4xl/main:grid-cols-12";
-const TILE_SPANS = {
-	figureLarge: "col-span-2 @4xl/main:col-span-5",
-	breakdown: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-4",
-	status: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-3",
-	trend: "col-span-2 @4xl/main:col-span-8 @4xl/main:row-span-2",
-	figureSmall: "@4xl/main:col-span-2",
-	ranked: "col-span-2 @4xl/main:col-span-4",
-	activity: "col-span-2 @4xl/main:col-span-12",
-} as const;
+// One column under 42rem of page width. From 42rem (a 1024 px window), band 1 has 2 columns under a full-width overview.
+const TOP_BAND_GRID = "grid gap-4 @2xl/main:grid-cols-2 @4xl/main:grid-cols-3";
+const OVERVIEW_SPAN = "@2xl/main:col-span-2 @4xl/main:col-span-1";
+// From 56rem, band 1 has 3 equal cards and band 2 splits 1/3 and 2/3.
+const BAND_GRID = "grid gap-4 @4xl/main:grid-cols-3";
+const WIDE_SPAN = "@4xl/main:col-span-2";
 
-/** The home page. Only the trend tile changes with the period control. The large figure always shows 7 days. */
+/** The home page. Every card reads the caches that the /app loader filled. */
 export function PortfolioPage() {
 	const { t, locale } = useT();
 	const { data: summary } = useSuspenseQuery(portfolioSummaryQueryOptions());
 	const { data: positions } = useSuspenseQuery(positionsQueryOptions());
 	const { data: assets } = useSuspenseQuery(assetsQueryOptions());
 	const { data: transactions } = useSuspenseQuery(transactionsQueryOptions());
-	const [days, setDays] = useState<PeriodDays>(DEFAULT_DAYS);
-	const number = new Intl.NumberFormat(locale);
+	const today = new Intl.DateTimeFormat(locale, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	}).format(new Date());
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("portfolio.title")}
-				description={fillMessage(t("portfolio.description"), {
-					assets: number.format(summary.assetCount),
-					accounts: number.format(summary.accountCount),
-				})}
+				description={fillMessage(t("portfolio.description"), { today })}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() =>
+							downloadCsv(
+								"holdings.csv",
+								toCsv(positions, positionCsvColumns(t)),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
 			/>
-			<div className={BENTO_GRID}>
-				<PortfolioValueTile
-					summary={summary}
-					className={TILE_SPANS.figureLarge}
-				/>
-				<AllocationTile
-					parts={buildAllocation(positions)}
-					className={TILE_SPANS.breakdown}
-				/>
-				<MarketBreadthTile assets={assets} className={TILE_SPANS.status} />
-				<ValueTrendTile
-					days={days}
-					onDaysChange={setDays}
-					className={TILE_SPANS.trend}
-				/>
-				<SmallFigure
-					label={t("portfolio.dayChangeLabel")}
-					amount={summary.dayChange}
-					change={summary.dayChangeRatio}
-					comparison={t("portfolio.dayChangeComparison")}
-					className={TILE_SPANS.figureSmall}
-				/>
-				<SmallFigure
-					label={t("portfolio.profitLabel")}
-					amount={summary.profit}
-					change={summary.profitRatio}
-					comparison={t("portfolio.profitComparison")}
-					className={TILE_SPANS.figureSmall}
-				/>
-				<TopHoldingsTile positions={positions} className={TILE_SPANS.ranked} />
-				<LatestActivityTile
+			<div className={TOP_BAND_GRID}>
+				<div className={OVERVIEW_SPAN}>
+					<OverviewCard summary={summary} />
+				</div>
+				<TopHoldingsCard positions={positions} />
+				<TradeCard
+					assets={assets}
+					positions={positions}
 					transactions={transactions}
-					className={TILE_SPANS.activity}
 				/>
+			</div>
+			<div className={BAND_GRID}>
+				<RecentActivityCard transactions={transactions} />
+				<div className={WIDE_SPAN}>
+					<BalanceSummaryCard />
+				</div>
 			</div>
 		</div>
 	);
 }
 
-/** Placeholder while the home loader runs. It draws the mosaic with the same spans. */
+/** Placeholder while the home loader runs. It draws the two bands with the same spans. */
 export function PortfolioPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<div className="grid gap-2">
 				<Skeleton className="h-8 w-40" />
 				<Skeleton className="h-4 w-72 max-w-full" />
 			</div>
-			<div className={BENTO_GRID}>
-				<Skeleton className={`h-64 ${TILE_SPANS.figureLarge}`} />
-				<Skeleton className={`h-64 ${TILE_SPANS.breakdown}`} />
-				<Skeleton className={`h-64 ${TILE_SPANS.status}`} />
-				<Skeleton className={`@4xl/main:h-auto h-96 ${TILE_SPANS.trend}`} />
-				<Skeleton className={`h-28 ${TILE_SPANS.figureSmall}`} />
-				<Skeleton className={`h-28 ${TILE_SPANS.figureSmall}`} />
-				<Skeleton className={`h-80 ${TILE_SPANS.ranked}`} />
-				<Skeleton className={`h-80 ${TILE_SPANS.activity}`} />
+			<div className={TOP_BAND_GRID}>
+				<Skeleton className={`h-96 ${OVERVIEW_SPAN}`} />
+				<Skeleton className="h-96" />
+				<Skeleton className="h-96" />
+			</div>
+			<div className={BAND_GRID}>
+				<Skeleton className="h-144" />
+				<Skeleton className={`h-144 ${WIDE_SPAN}`} />
 			</div>
 		</div>
 	);

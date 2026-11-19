@@ -7,6 +7,9 @@ published HTML from R2. A V2 app pointer (`kind: "app"`) hands the request
 to the app's own Worker in the dispatch namespace (see "V2 apps" below).
 Full design + production checklist: `docs/features/edge-serving.md`.
 
+Exception: the hosts `<id>-template.wandit.app` never reach this Worker. Each one has its own
+starter template preview Worker with a more specific route (`templates/starters/README.md`, "Live previews").
+
 ## Configs
 
 - `wrangler.jsonc` — canonical; used by deploy and by the vitest pool.

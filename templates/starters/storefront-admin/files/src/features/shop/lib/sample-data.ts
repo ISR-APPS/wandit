@@ -96,7 +96,7 @@ type CatalogEntry = Omit<ProductRow, "id"> & { demand: number };
 
 const CATALOG: CatalogEntry[] = [
 	{
-		name: "Arbequina olive oil, 500 ml",
+		name: "Arbequina olive oil",
 		sku: "PAN-OIL-500",
 		category: "pantry",
 		price: 24,
@@ -105,7 +105,7 @@ const CATALOG: CatalogEntry[] = [
 		demand: 14,
 	},
 	{
-		name: "Wildflower honey, 340 g",
+		name: "Wildflower honey",
 		sku: "PAN-HON-340",
 		category: "pantry",
 		price: 14,
@@ -150,7 +150,7 @@ const CATALOG: CatalogEntry[] = [
 		demand: 6,
 	},
 	{
-		name: "Saffron threads, 1 g",
+		name: "Saffron threads",
 		sku: "PAN-SAF-001",
 		category: "pantry",
 		price: 18,

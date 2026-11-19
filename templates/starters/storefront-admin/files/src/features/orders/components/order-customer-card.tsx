@@ -1,112 +1,138 @@
-// The customer card of the order page: who ordered, how to write to them, and their other orders.
-// OrderDetailPage renders it in the side column. The name opens the customer panel of the customer page.
-import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+// The customer card of the order page, in the anatomy of the kit profile card: a large avatar, the name and a badge,
+// a strip of three figures, then a list of contact and delivery facts with icons.
+// OrderDetailPage renders it at the top of the side column. The name opens the customer panel of the customer page.
 import {
-	CustomerAvatar,
-	countsAsRevenue,
-	dateTimeFormat,
-	fillMessage,
-	moneyFormat,
-	OrderStatusBadge,
-} from "~/features/shop";
+	BarcodeIcon,
+	CreditCardIcon,
+	EnvelopeSimpleIcon,
+	MapPinIcon,
+	TruckIcon,
+} from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
+import { CustomerAvatar, moneyFormat } from "~/features/shop";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import { Badge } from "~/shared/ui/badge";
+import { Card, CardContent } from "~/shared/ui/card";
+import type { KitIcon } from "~/shared/ui/icons";
 import type { OrderDetail } from "../api/orders.queries";
-import { orderNumberOf } from "../lib/order-text";
 
 type OrderCustomerCardProps = {
-	/** The order of the page. The card reads its customer and the other orders of that customer. */
+	/** The order of the page. The card reads its customer, its address, its payment, and its delivery. */
 	order: OrderDetail;
 };
 
-/** The other orders link to their own pages, so the team can follow a customer from parcel to parcel. */
+/** Before the parcel leaves, the tracking row shows "No tracking number". */
 export function OrderCustomerCard({ order }: OrderCustomerCardProps) {
 	const { t, locale } = useT();
 	const number = new Intl.NumberFormat(locale);
-	const money = moneyFormat(locale);
-	const dateTime = dateTimeFormat(locale);
+	const money = moneyFormat(locale, "whole");
+	const { customer } = order;
+	const isFirstOrder = customer.orderCount === 1;
+	// A customer whose every order was cancelled or refunded spent nothing, so the average is 0.
+	const figures = [
+		{
+			id: "orders",
+			label: t("orders.figures.orders"),
+			value: number.format(customer.orderCount),
+		},
+		{
+			id: "spent",
+			label: t("orders.figures.spent"),
+			value: money.format(customer.spent),
+		},
+		{
+			id: "average",
+			label: t("orders.figures.average"),
+			value: money.format(
+				customer.orderCount === 0 ? 0 : customer.spent / customer.orderCount,
+			),
+		},
+	];
+	const facts: { id: string; icon: KitIcon; text: string; href?: string }[] = [
+		{
+			id: "email",
+			icon: EnvelopeSimpleIcon,
+			text: customer.email,
+			href: `mailto:${customer.email}`,
+		},
+		{
+			id: "address",
+			icon: MapPinIcon,
+			text: `${customer.street}, ${order.customerPlace} ${customer.postalCode}`,
+		},
+		{
+			id: "payment",
+			icon: CreditCardIcon,
+			text: t(`orders.payment.${order.paymentMethod}`),
+		},
+		{
+			id: "delivery",
+			icon: TruckIcon,
+			text: t(`orders.shippingLong.${order.shippingMethod}`),
+		},
+		{
+			id: "tracking",
+			icon: BarcodeIcon,
+			text: order.trackingNumber ?? t("orders.noTracking"),
+		},
+	];
 
 	return (
 		<Card>
-			<CardHeader>
-				<CardTitle>{t("orders.customer")}</CardTitle>
-			</CardHeader>
-			<CardContent className="grid gap-4">
-				<div className="flex items-center gap-3">
+			<CardContent className="grid gap-12">
+				<div className="flex flex-col items-center gap-4">
 					<CustomerAvatar
 						name={order.customerName}
-						className="size-10 text-sm"
+						className="size-20 text-2xl"
 					/>
-					<div className="grid min-w-0 justify-items-start">
-						<Link
-							to="/app/customers"
-							search={{ customer: order.customerId }}
-							className="relative font-medium hover:underline max-sm:before:absolute max-sm:before:-inset-3"
-							dir="auto"
-						>
-							{order.customerName}
-						</Link>
-						<span className="text-muted-foreground text-xs">
-							{fillMessage(
-								t(
-									order.customer.orderCount === 1
-										? "orders.customerFirstOrder"
-										: "orders.customerOrders",
-								),
-								{ count: number.format(order.customer.orderCount) },
-							)}
-						</span>
+					<div className="grid justify-items-center gap-1 text-center">
+						<p className="flex flex-wrap items-center justify-center gap-2 font-semibold text-xl">
+							<Link
+								to="/app/customers"
+								search={{ customer: order.customerId }}
+								className="hover:underline"
+								dir="auto"
+							>
+								{order.customerName}
+							</Link>
+							<Badge variant={isFirstOrder ? "info" : "outline"}>
+								{t(isFirstOrder ? "orders.firstOrder" : "orders.returning")}
+							</Badge>
+						</p>
+						<p className="text-muted-foreground text-sm">
+							{t("orders.customerRole")}
+						</p>
 					</div>
 				</div>
-				<a
-					href={`mailto:${order.customer.email}`}
-					className="flex min-h-11 items-center gap-2 text-sm hover:underline sm:min-h-0"
-				>
-					<EnvelopeSimpleIcon className="size-4 shrink-0 text-muted-foreground" />
-					<span className="truncate">{order.customer.email}</span>
-				</a>
-				{order.otherOrders.length > 0 ? (
-					<div className="grid gap-2 border-t pt-4">
-						<p className="label-text text-muted-foreground text-xs">
-							{t("orders.otherOrders")}
-						</p>
-						<ul className="grid">
-							{order.otherOrders.map((other) => (
-								<li
-									key={other.id}
-									className="flex min-h-11 items-center justify-between gap-2 text-sm"
-								>
-									<div className="grid justify-items-start">
-										<Link
-											to="/app/orders/$orderId"
-											params={{ orderId: other.id }}
-											className="relative font-medium tabular-nums hover:underline max-sm:before:absolute max-sm:before:-inset-3"
-										>
-											{orderNumberOf(other.id)}
-										</Link>
-										<span className="text-muted-foreground text-xs tabular-nums">
-											{dateTime.format(new Date(other.placedAt))}
-										</span>
-									</div>
-									<div className="flex items-center gap-2">
-										<span
-											className={cn(
-												"tabular-nums",
-												!countsAsRevenue(other.status) &&
-													"text-muted-foreground line-through",
-											)}
-										>
-											{money.format(other.total)}
-										</span>
-										<OrderStatusBadge status={other.status} />
-									</div>
-								</li>
-							))}
-						</ul>
-					</div>
-				) : null}
+				<dl className="grid grid-cols-3 divide-x rounded-md border bg-muted text-center rtl:divide-x-reverse">
+					{figures.map((figure) => (
+						<div key={figure.id} className="grid gap-0.5 py-3">
+							{/* The label comes first in the markup for screen readers, and second on the screen. */}
+							<dt className="order-2 text-muted-foreground text-sm">
+								{figure.label}
+							</dt>
+							<dd className="order-1 font-semibold text-lg tabular-nums">
+								{figure.value}
+							</dd>
+						</div>
+					))}
+				</dl>
+				<ul className="grid gap-4">
+					{facts.map((fact) => (
+						<li key={fact.id} className="flex items-center gap-3 text-sm">
+							<fact.icon className="size-4 shrink-0 text-muted-foreground" />
+							{fact.href ? (
+								<a href={fact.href} className="truncate hover:underline">
+									{fact.text}
+								</a>
+							) : (
+								<span className="min-w-0 break-words tabular-nums">
+									{fact.text}
+								</span>
+							)}
+						</li>
+					))}
+				</ul>
 			</CardContent>
 		</Card>
 	);

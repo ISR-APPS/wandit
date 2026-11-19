@@ -1,9 +1,10 @@
-// Reads of listings: the full list, and one listing with its leads, its viewings, and its history.
+// Reads of listings: the full list, the figures of the list page, and one listing with its leads, its viewings, and its history.
 // The list and detail routes prefetch them in their loaders. The pages read them with useSuspenseQuery.
 // Each queryFn returns sample rows of ~/features/agency. To make it real: replace the body with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	type Agent,
+	DAY_MS,
 	findAgent,
 	type LeadRow,
 	type ListingRow,
@@ -12,6 +13,10 @@ import {
 	readViewingRows,
 	type ViewingRow,
 } from "~/features/agency";
+import {
+	buildListingFigures,
+	FIGURES_COMPARE_DAYS,
+} from "../lib/listing-figures";
 import {
 	buildListingTimeline,
 	type TimelineStep,
@@ -37,6 +42,21 @@ export function listingsQueryOptions() {
 	return queryOptions({
 		queryKey: ["listings", "list"],
 		queryFn: async () => readListingRows(Date.now()),
+	});
+}
+
+/** The four figures of the list page, against 30 days earlier. The sample rows of that time hold only the facts true then. */
+export function listingFiguresQueryOptions() {
+	return queryOptions({
+		queryKey: ["listings", "figures"],
+		queryFn: async () => {
+			const now = Date.now();
+			return buildListingFigures(
+				readListingRows(now),
+				readListingRows(now - FIGURES_COMPARE_DAYS * DAY_MS),
+				now,
+			);
+		},
 	});
 }
 

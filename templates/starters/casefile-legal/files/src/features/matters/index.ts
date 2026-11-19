@@ -11,6 +11,7 @@ export {
 	MattersPageError,
 	MattersPageSkeleton,
 } from "./components/matters-page";
+export { matterCsvColumns } from "./lib/matter-csv";
 export {
 	buildMatterSummaries,
 	type MatterSummary,

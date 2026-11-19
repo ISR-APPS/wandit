@@ -1,178 +1,165 @@
-// The purchase order list behind login: the status and late tabs, the supplier filter, the table, and the order panel.
+// The purchase order list behind login, in the anatomy of the kit order list: the title row, the status tabs,
+// a toolbar (search, Supplier and Delivery filters, Columns), and a table with checkboxes, a row menu, and pages.
 // The /app/purchase-orders route renders it after its loader. The route also uses the skeleton and the error below.
-// The tab, the supplier, and the open order live in the URL (purchase-orders-search.ts).
+// The tab, the filters, and the open order panel live in the URL (purchase-orders-search.ts).
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { PageHeader } from "~/features/app-shell";
 import {
-	formatRelativeDay,
-	isOpenOrderStatus,
+	copyToClipboard,
+	downloadCsv,
+	fillMessage,
+	InitialsTile,
 	LoadError,
 	moneyFormat,
 	OrderStatusBadge,
 	PURCHASE_ORDER_STATUSES,
+	toCsv,
 } from "~/features/stock";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import {
 	type PurchaseOrder,
 	purchaseOrdersQueryOptions,
 } from "../api/purchase-orders.queries";
+import { orderCsvColumns } from "../lib/order-csv";
 import { PurchaseOrderSheet } from "./purchase-order-sheet";
 
-/** The list page. The supplier filter applies first, then the status tab; DataTable then searches, sorts, and pages. */
+// The tab value of "every status". No status is this word.
+const ALL_TAB = "all";
+// The Delivery filter values. The URL keeps them as late=true and late=false.
+const LATE = "late";
+const ON_TIME = "on-time";
+// Ten rows per page, as the kit order list shows.
+const PAGE_SIZE = 10;
+
+/** The list page. The URL filters apply first; RecordTable then searches, sorts, selects, and pages. */
 export function PurchaseOrdersPage() {
 	const { t, locale } = useT();
 	const { data: orders } = useSuspenseQuery(purchaseOrdersQueryOptions());
 	const search = useSearch({ from: "/app/purchase-orders" });
 	const navigate = useNavigate({ from: "/app/purchase-orders" });
-
 	const number = new Intl.NumberFormat(locale);
-	const percent = new Intl.NumberFormat(locale, { style: "percent" });
-	const money = moneyFormat(locale, true);
-	const date = new Intl.DateTimeFormat(locale, {
-		day: "numeric",
-		month: "short",
-	});
-	const now = Date.now();
+	const money = moneyFormat(locale);
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
 
-	// The supplier Select lists only suppliers with orders, by name.
+	// The Supplier filter lists only suppliers with orders, by name.
 	const suppliers = [
 		...new Map(orders.map((order) => [order.supplierId, order.supplierName])),
-	].sort((first, second) => first[1].localeCompare(second[1], locale));
-	const supplierId = suppliers.some(([id]) => id === search.supplier)
-		? search.supplier
-		: undefined;
-	const ofSupplier = supplierId
-		? orders.filter((order) => order.supplierId === supplierId)
-		: orders;
-	// A tab shows only for a status that has rows for the chosen supplier.
-	const tabs = PURCHASE_ORDER_STATUSES.map((status) => ({
-		status,
-		count: ofSupplier.filter((order) => order.status === status).length,
-	})).filter((tab) => tab.count > 0);
-	// The Late tab crosses the status tabs: a late order is "ordered" or "partly received".
-	const lateCount = ofSupplier.filter((order) => order.lateDays > 0).length;
-	const isLateTab = search.late === true && lateCount > 0;
-	const activeStatus =
-		!isLateTab && tabs.some((tab) => tab.status === search.status)
-			? search.status
-			: undefined;
-	const rows = isLateTab
-		? ofSupplier.filter((order) => order.lateDays > 0)
-		: activeStatus
-			? ofSupplier.filter((order) => order.status === activeStatus)
-			: ofSupplier;
-	const openOrders = orders.filter((order) => isOpenOrderStatus(order.status));
-	const openValue = openOrders.reduce(
-		(sum, order) =>
-			sum +
-			order.lines.reduce(
-				(lineSum, line) =>
-					lineSum +
-					(line.quantityOrdered - line.quantityReceived) * line.unitCost,
-				0,
-			),
-		0,
+	]
+		.map(([value, label]) => ({ value, label }))
+		.sort((first, second) => first.label.localeCompare(second.label, locale));
+	const rows = orders.filter(
+		(order) =>
+			(!search.status || order.status === search.status) &&
+			(!search.supplier || order.supplierId === search.supplier) &&
+			(search.late === undefined || order.lateDays > 0 === search.late),
 	);
 	const selectedOrder = orders.find((order) => order.id === search.po) ?? null;
 
-	// Expected and total come right after the order: a phone shows these three columns before the table scrolls.
-	// Status comes last: a phone shows it in the order cell, so the edge of the scroll never cuts a badge.
-	const columns: DataTableColumn<PurchaseOrder>[] = [
+	function exportRows(fileName: string, selected: PurchaseOrder[]) {
+		downloadCsv(fileName, toCsv(selected, orderCsvColumns(t, locale)));
+	}
+
+	const columns: RecordColumn<PurchaseOrder>[] = [
 		{
-			id: "order",
-			header: t("purchaseOrders.order"),
+			id: "number",
+			header: "#",
 			sortValue: (order) => order.number,
 			cell: (order) => (
-				// after:-inset-2 stretches the link over the cell padding, for a 44 px touch target.
-				<div className="relative grid justify-items-start gap-0.5">
-					<Link
-						from="/app/purchase-orders"
-						search={(previous) => ({ ...previous, po: order.id })}
-						className="font-medium font-numeric after:absolute after:-inset-2 hover:underline"
-					>
-						{order.number}
-					</Link>
-					<span className="text-muted-foreground text-xs" dir="auto">
+				<Link
+					from="/app/purchase-orders"
+					search={(previous) => ({ ...previous, po: order.id })}
+					className="text-muted-foreground tabular-nums hover:text-foreground hover:underline"
+				>
+					{order.number}
+				</Link>
+			),
+		},
+		{
+			id: "item",
+			header: t("purchaseOrders.item"),
+			cell: (order) => {
+				const first = order.lines[0];
+				const more = order.lines.length - 1;
+				return (
+					<span className="flex items-center gap-4">
+						<InitialsTile
+							name={first?.itemName ?? order.number}
+							className="size-12"
+						/>
+						<span className="grid min-w-0">
+							<span className="max-w-56 truncate" dir="auto">
+								{first?.itemName ?? ""}
+							</span>
+							{more > 0 ? (
+								<span className="text-muted-foreground text-xs">
+									{fillMessage(t("purchaseOrders.moreLines"), {
+										count: number.format(more),
+									})}
+								</span>
+							) : null}
+						</span>
+					</span>
+				);
+			},
+		},
+		{
+			id: "total",
+			header: t("purchaseOrders.total"),
+			hideable: true,
+			sortValue: (order) => order.total,
+			cell: (order) => (
+				<span className="tabular-nums">{money.format(order.total)}</span>
+			),
+		},
+		{
+			id: "supplier",
+			header: t("purchaseOrders.supplier"),
+			hideable: true,
+			sortValue: (order) => order.supplierName,
+			cell: (order) => (
+				<span className="grid gap-0.5">
+					<span className="font-semibold" dir="auto">
 						{order.supplierName}
 					</span>
-					{/* Under 32rem the Status column is past the scroll, so the status shows here. */}
-					<span className="@lg/main:hidden pt-1">
-						<OrderStatusBadge status={order.status} lateDays={order.lateDays} />
-					</span>
-				</div>
+					<span className="text-muted-foreground">{order.supplierEmail}</span>
+				</span>
 			),
 		},
 		{
 			id: "expected",
 			header: t("purchaseOrders.expected"),
-			sortValue: (order) => Date.parse(order.expectedOn),
-			cell: (order) =>
-				isOpenOrderStatus(order.status) ? (
-					<span
-						className={cn(order.lateDays > 0 && "font-medium text-destructive")}
-					>
-						{formatRelativeDay(order.expectedOn, now, locale)}
-					</span>
-				) : (
-					<span className="text-muted-foreground">
-						{date.format(new Date(order.expectedOn))}
-					</span>
-				),
-		},
-		{
-			id: "total",
-			header: t("purchaseOrders.total"),
-			align: "end",
-			sortValue: (order) => order.total,
+			hideable: true,
+			sortValue: (order) => order.expectedOn,
 			cell: (order) => (
-				<span
-					className={cn(
-						order.status === "cancelled" &&
-							"text-muted-foreground line-through",
-					)}
-				>
-					{money.format(order.total)}
+				<span className="whitespace-nowrap">
+					{date.format(new Date(order.expectedOn))}
 				</span>
 			),
 		},
 		{
-			id: "created",
-			header: t("purchaseOrders.created"),
-			sortValue: (order) => Date.parse(order.createdAt),
-			cell: (order) => date.format(new Date(order.createdAt)),
-		},
-		{
-			id: "lines",
-			header: t("purchaseOrders.linesCount"),
-			align: "end",
-			sortValue: (order) => order.lines.length,
-			cell: (order) => number.format(order.lines.length),
-		},
-		{
 			id: "received",
 			header: t("purchaseOrders.received"),
-			align: "end",
-			sortValue: (order) =>
-				order.unitsReceived / Math.max(1, order.unitsOrdered),
-			cell: (order) =>
-				order.status === "draft" || order.status === "cancelled" ? (
-					<span className="text-muted-foreground">{t("items.none")}</span>
-				) : (
-					percent.format(order.unitsReceived / Math.max(1, order.unitsOrdered))
-				),
+			hideable: true,
+			sortValue: (order) => order.unitsReceived / order.unitsOrdered,
+			cell: (order) => (
+				<span className="whitespace-nowrap tabular-nums">
+					{fillMessage(t("purchaseOrders.receivedOf"), {
+						received: number.format(order.unitsReceived),
+						ordered: number.format(order.unitsOrdered),
+					})}
+				</span>
+			),
 		},
 		{
 			id: "status",
@@ -185,102 +172,134 @@ export function PurchaseOrdersPage() {
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("purchaseOrders.title")}
-				description={`${number.format(openOrders.length)} ${t("purchaseOrders.openLabel")} · ${money.format(openValue)} ${t("purchaseOrders.onOrderLabel")}`}
+				actions={
+					<Button
+						type="button"
+						onClick={() => exportRows("purchase-orders.csv", rows)}
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
 			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(order) =>
-							`${order.number} ${order.supplierName} ${order.lines.map((line) => `${line.itemName} ${line.sku}`).join(" ")}`
-						}
-						noResults={t("purchaseOrders.noResults")}
-						toolbar={
-							<>
-								<Tabs
-									value={isLateTab ? "late" : (activeStatus ?? "all")}
-									onValueChange={(value) =>
-										navigate({
-											search: (previous) => ({
-												...previous,
-												late: value === "late" ? true : undefined,
-												status: PURCHASE_ORDER_STATUSES.find(
-													(status) => status === value,
-												),
-											}),
-											replace: true,
-										})
-									}
-									className="max-w-full"
-								>
-									{/* The tabs wrap to a second row on a phone, so no tab hides past the edge. */}
-									<TabsList className="flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
-										<TabsTrigger value="all" className="h-9 flex-none">
-											{t("purchaseOrders.all")}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(ofSupplier.length)}
-											</span>
-										</TabsTrigger>
-										{lateCount > 0 ? (
-											<TabsTrigger value="late" className="h-9 flex-none">
-												{t("purchaseOrders.late")}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(lateCount)}
-												</span>
-											</TabsTrigger>
-										) : null}
-										{tabs.map((tab) => (
-											<TabsTrigger
-												key={tab.status}
-												value={tab.status}
-												className="h-9 flex-none"
-											>
-												{t(`orderStatuses.${tab.status}`)}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(tab.count)}
-												</span>
-											</TabsTrigger>
-										))}
-									</TabsList>
-								</Tabs>
-								<Select
-									value={supplierId ?? "all"}
-									onValueChange={(value) =>
-										navigate({
-											search: (previous) => ({
-												...previous,
-												supplier: value === "all" ? undefined : value,
-											}),
-											replace: true,
-										})
-									}
-								>
-									<SelectTrigger
-										aria-label={t("purchaseOrders.supplier")}
-										className="w-full sm:w-56"
-									>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="all">
-											{t("purchaseOrders.allSuppliers")}
-										</SelectItem>
-										{suppliers.map(([id, name]) => (
-											<SelectItem key={id} value={id}>
-												{name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</>
-						}
-					/>
-				</CardContent>
-			</Card>
+			<Tabs
+				// min-w-0: without it, the grid column takes the full width of the tab row, and the scroll row never scrolls.
+				className="min-w-0"
+				value={search.status ?? ALL_TAB}
+				onValueChange={(value) =>
+					navigate({
+						search: (previous) => ({
+							...previous,
+							status: PURCHASE_ORDER_STATUSES.find(
+								(status) => status === value,
+							),
+						}),
+						replace: true,
+					})
+				}
+			>
+				{/* The six tabs scroll inside their row on a phone, so the page never scrolls sideways. */}
+				<div className="max-w-full overflow-x-auto">
+					<TabsList>
+						<TabsTrigger value={ALL_TAB}>{t("purchaseOrders.all")}</TabsTrigger>
+						{PURCHASE_ORDER_STATUSES.map((status) => (
+							<TabsTrigger key={status} value={status}>
+								{t(`orderStatuses.${status}`)}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</div>
+			</Tabs>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(order) =>
+					`${order.number} ${order.supplierName} ${order.lines.map((line) => line.itemName).join(" ")}`
+				}
+				searchPlaceholder={t("purchaseOrders.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("purchaseOrders.supplier")}
+							options={suppliers}
+							value={search.supplier ?? null}
+							onValueChange={(value) =>
+								navigate({
+									search: (previous) => ({
+										...previous,
+										supplier: value ?? undefined,
+									}),
+									replace: true,
+								})
+							}
+						/>
+						<RecordFilter
+							label={t("purchaseOrders.delivery")}
+							options={[
+								{ value: LATE, label: t("purchaseOrders.late") },
+								{ value: ON_TIME, label: t("purchaseOrders.onTime") },
+							]}
+							value={
+								search.late === undefined ? null : search.late ? LATE : ON_TIME
+							}
+							onValueChange={(value) =>
+								navigate({
+									search: (previous) => ({
+										...previous,
+										late: value === null ? undefined : value === LATE,
+									}),
+									replace: true,
+								})
+							}
+						/>
+					</>
+				}
+				rowMenu={(order) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link
+								from="/app/purchase-orders"
+								search={(previous) => ({ ...previous, po: order.id })}
+							>
+								{t("purchaseOrders.openOrder")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link to="/app/items" search={{ supplier: order.supplierId }}>
+								{t("purchaseOrders.supplierItems")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(order.number, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("purchaseOrders.copyNumber")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() => exportRows("purchase-orders-selected.csv", selected)}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("purchaseOrders.noResults")}
+			/>
 			<PurchaseOrderSheet
 				order={selectedOrder}
 				onClose={() =>
@@ -294,33 +313,22 @@ export function PurchaseOrdersPage() {
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
-
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the loader runs. The route sets it as pendingComponent. */
 export function PurchaseOrdersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-56" />
-				<Skeleton className="h-4 w-64" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-48" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<div className="flex flex-wrap gap-2">
-						<Skeleton className="h-9 w-full sm:max-w-xs" />
-						<Skeleton className="h-9 w-96 max-w-full" />
-					</div>
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full max-w-xl" />
+			<Skeleton className="h-9 w-full max-w-2xl" />
+			<Skeleton className="h-160" />
 		</div>
 	);
 }
 
-/** Error state of the order list when its loader fails. */
+/** Error state when the loader fails. */
 export function PurchaseOrdersPageError() {
 	const { t } = useT();
 	return <LoadError message={t("purchaseOrders.loadError")} />;

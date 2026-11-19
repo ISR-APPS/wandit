@@ -14,8 +14,8 @@ import {
 } from "~/features/crm";
 
 /**
- * The period of the first load of the trend, and the fixed period of the breakdown and of the log, in days.
- * The three cards count the same days, so their totals agree.
+ * The period of the first load of the Activities page, in days. The route loader prefetches it.
+ * The trend, the breakdown, and the log read the same period, so their totals agree.
  */
 export const ACTIVITY_DEFAULT_DAYS = 30 satisfies PeriodDays;
 

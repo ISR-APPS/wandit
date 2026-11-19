@@ -1,7 +1,6 @@
-// One calendar item as a small tinted button: the channel mark, the time, and the title.
-// The chip is a size container: under 10rem it hides the time, and under 6rem the mark too. The tint still shows the channel.
-// MonthGrid renders up to three chips per day, and the day dialog and the agenda list render one per item.
-// A click opens the item dialog of CalendarPage.
+// One calendar item as a small tinted button: the time, then the title, in the tint of its channel.
+// MonthGrid renders the "compact" chip in its cells. The day dialog and the agenda render the "row" chip, with the channel mark and the campaign.
+// A click opens the item dialog of CalendarPage. It follows the kit event chip: a past item has a line through its title.
 import { type Channel, ChannelMark } from "~/features/marketing";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
@@ -20,11 +19,11 @@ type ContentChipProps = {
 	item: ContentItem;
 	/** Opens the dialog of this item. */
 	onOpen: (itemId: string) => void;
-	/** "compact" fits a month cell: a smaller text, the title on up to two lines. "row" fits a list. */
+	/** "compact" fits a day cell: one line of text. "row" fits a list: a taller row with the channel mark and the campaign. */
 	size?: "compact" | "row";
 };
 
-/** A published item has muted text, so the work still to do stands out. */
+/** The screen reader text adds the status, because the line through the title is only visual. */
 export function ContentChip({
 	item,
 	onOpen,
@@ -35,31 +34,25 @@ export function ContentChip({
 		hour: "numeric",
 		minute: "2-digit",
 	}).format(new Date(item.scheduledAt));
-	const isPublished = item.status === "published";
+	// The query marks an item "published" once its time has passed, so the status tells a past item.
+	const isPast = item.status === "published";
 	return (
 		<button
 			type="button"
 			onClick={() => onOpen(item.id)}
 			className={cn(
-				"@container flex w-full min-w-0 items-center gap-1.5 rounded-sm text-start outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+				"flex w-full min-w-0 items-center gap-1 rounded-sm text-start outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
 				CHANNEL_TINT[item.channel],
 				size === "compact"
-					? "px-1.5 py-1 text-xs"
-					: "min-h-11 px-3 py-2 text-sm",
-				isPublished && "text-muted-foreground",
+					? "h-6 px-1 text-xs sm:px-2"
+					: "min-h-11 gap-2 px-3 py-2 text-sm",
 			)}
 		>
-			<ChannelMark channel={item.channel} className="@max-[6rem]:hidden" />
-			<span className="@[10rem]:inline hidden shrink-0 tabular-nums">
+			{size === "row" ? <ChannelMark channel={item.channel} /> : null}
+			<span className="shrink-0 tabular-nums opacity-70 max-sm:hidden">
 				{time}
 			</span>
-			{/* A month cell is narrow, so a compact title takes two lines and splits long words at a hyphen. */}
-			<span
-				className={cn(
-					"min-w-0 font-medium",
-					size === "compact" ? "line-clamp-2 hyphens-auto" : "truncate",
-				)}
-			>
+			<span className={cn("truncate font-medium", isPast && "line-through")}>
 				{item.title}
 			</span>
 			{size === "row" ? (

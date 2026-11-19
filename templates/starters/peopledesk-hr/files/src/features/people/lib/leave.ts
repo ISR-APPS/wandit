@@ -3,7 +3,6 @@
 // The query files of the employees, time-off, and overview pages call these pure functions.
 import type { Department, TimeOffType } from "./codes";
 import type { EmployeeRow, TimeOffRequestRow } from "./sample-data";
-import type { DayEvent } from "./series";
 import { dayKeyToMs, isWeekend, toDayKey } from "./time";
 
 /** The working days (Monday to Friday) from `startDate` to `endDate`, both YYYY-MM-DD and both included. */
@@ -21,7 +20,10 @@ export function workingDayKeys(startDate: string, endDate: string): string[] {
 }
 
 /** One person-day off: the day, the type, and the department of the person. The value is always 1. */
-export type AbsenceDay = DayEvent & {
+export type AbsenceDay = {
+	/** YYYY-MM-DD, a working day. */
+	day: string;
+	value: number;
 	category: TimeOffType;
 	department: Department;
 	employeeId: string;

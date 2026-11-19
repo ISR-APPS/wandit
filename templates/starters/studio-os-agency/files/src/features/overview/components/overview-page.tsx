@@ -1,45 +1,82 @@
-// The home behind login: the tabbed overview of the studio. Tabs: Overview, Projects, Team, Invoices.
+// The home behind login, on the anatomy of the kit project dashboard: the header with the period and the export,
+// the tabs Overview and Reports, four KPI cards, the hours chart and the team card, the reminders,
+// the approvals and the service donut, then the projects table.
 // The /app route renders it after its loader, and also uses the skeleton and the error below.
-// The tab and the period live in the URL (?tab=&days=). It reads the overview, projects, team, and invoice queries.
+// The tab and the period live in the URL (?tab=&days=). It reads the overview, projects, and invoice queries.
 import {
+	CaretDownIcon,
 	ClockIcon,
 	CoinsIcon,
-	FolderOpenIcon,
+	ExportIcon,
+	KanbanIcon,
 	ReceiptIcon,
-	UsersThreeIcon,
-	WarningDiamondIcon,
 } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { invoicesQueryOptions } from "~/features/invoices";
-import { projectsQueryOptions } from "~/features/projects";
-import { daysBetween, PageError, PeriodTabs } from "~/features/studio";
-import { teamLoadQueryOptions } from "~/features/team";
+import { PageHeader } from "~/features/app-shell";
+import { invoiceCsvColumns, invoicesQueryOptions } from "~/features/invoices";
+import { projectCsvColumns, projectsQueryOptions } from "~/features/projects";
+import {
+	downloadCsv,
+	fillMessage,
+	PageError,
+	PeriodSelect,
+	toCsv,
+} from "~/features/studio";
 import { useT } from "~/shared/i18n";
+import { Button } from "~/shared/ui/button";
 import { Card, CardContent, CardHeader } from "~/shared/ui/card";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "~/shared/ui/dropdown-menu";
+import type { KitIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { overviewQueryOptions } from "../api/overview.queries";
-import type { OverviewKpi, OverviewKpiId } from "../lib/overview-data";
-import { type OverviewTab, overviewTabSchema } from "../lib/overview-search";
-import { DueProjectsCard } from "./due-projects-card";
-import { EntityRow } from "./entity-row";
-import { FiguresCard } from "./figures-card";
-import { OpenInvoicesCard } from "./open-invoices-card";
-import { ServiceBreakdownCard } from "./service-breakdown-card";
-import { TeamUtilizationCard } from "./team-utilization-card";
-import { TrendCard } from "./trend-card";
+import type { OverviewKpiId } from "../lib/overview-data";
+import { overviewTabSchema } from "../lib/overview-search";
+import { ApprovalsCard } from "./approvals-card";
+import { HoursOverviewCard } from "./hours-overview-card";
+import { KpiCard } from "./kpi-card";
+import { ProjectBudgetsCard } from "./project-budgets-card";
+import { RecentProjectsCard } from "./recent-projects-card";
+import { RemindersCard } from "./reminders-card";
+import { ServiceHoursCard } from "./service-hours-card";
+import { TeamCard } from "./team-card";
 
 const route = getRouteApi("/app/");
 
-/** The figures card shows these three, in this order. The entity rows show the other three. */
-const FIGURE_IDS = [
-	"outstanding",
-	"utilization",
-	"projects-at-risk",
-] as const satisfies readonly OverviewKpiId[];
+/** The label, the delta context, and the icon of each KPI card. */
+const KPI_CARDS = {
+	"active-projects": {
+		label: "overview.kpis.activeProjects",
+		context: "overview.kpis.activeProjectsContext",
+		icon: KanbanIcon,
+	},
+	revenue: {
+		label: "overview.kpis.revenue",
+		context: "overview.kpis.revenueContext",
+		icon: CoinsIcon,
+	},
+	utilization: {
+		label: "overview.kpis.utilization",
+		context: "overview.kpis.utilizationContext",
+		icon: ClockIcon,
+	},
+	outstanding: {
+		label: "overview.kpis.outstanding",
+		context: "overview.kpis.outstandingContext",
+		icon: ReceiptIcon,
+	},
+} as const satisfies Record<
+	OverviewKpiId,
+	{ label: string; context: string; icon: KitIcon }
+>;
 
-/** The overview. Every tab shares one period; a change of tab or period writes the URL. */
+/** The home. Both tabs share one period; a change of tab or period writes the URL. */
 export function OverviewPage() {
 	const { t, locale } = useT();
 	const { tab, days } = route.useSearch();
@@ -47,251 +84,158 @@ export function OverviewPage() {
 	const { data: overview } = useSuspenseQuery(overviewQueryOptions(days));
 	const { data: projects } = useSuspenseQuery(projectsQueryOptions());
 	const { data: invoices } = useSuspenseQuery(invoicesQueryOptions());
-	const { data: team } = useSuspenseQuery(teamLoadQueryOptions(days));
-
-	const number = new Intl.NumberFormat(locale);
-	const kpi = (id: OverviewKpiId): OverviewKpi => {
-		const item = overview.kpis.find((row) => row.id === id);
-		if (!item) {
-			throw new Error(`Missing overview figure ${id}`);
-		}
-		return item;
-	};
-	const liveProjects = projects.filter((project) => project.isLive);
-	// Retainers have no due day, so they stay out of the "Due next" table.
-	const dueProjects = liveProjects
-		.flatMap((project) =>
-			project.dueDay === null ? [] : [{ project, dueDay: project.dueDay }],
-		)
-		.sort((first, second) => daysBetween(second.dueDay, first.dueDay))
-		.map((row) => row.project);
-	// Overdue money first, then the invoice that falls due soonest: the order of the payment chase.
-	const openInvoices = invoices
-		.filter(
-			(invoice) => invoice.status === "sent" || invoice.status === "overdue",
-		)
-		.sort(
-			(first, second) =>
-				Number(second.status === "overdue") -
-					Number(first.status === "overdue") ||
-				daysBetween(second.dueDay, first.dueDay),
-		);
-	const loadedTeam = [...team].sort(
-		(first, second) => second.utilization - first.utilization,
-	);
-	const tabs: { value: Exclude<OverviewTab, "overview">; count: number }[] = [
-		{ value: "projects", count: liveProjects.length },
-		{ value: "team", count: team.length },
-		{ value: "invoices", count: openInvoices.length },
-	];
-	const serviceSlices = overview.hoursByService.map((slice) => ({
-		label: t(`codes.services.${slice.service}`),
-		value: slice.value,
-	}));
-	const periodText = t("overview.period").replace(
-		"{days}",
-		number.format(days),
-	);
+	const periodLabel = fillMessage(t("period.last"), {
+		days: new Intl.NumberFormat(locale).format(days),
+	});
 
 	return (
-		<Tabs
-			value={tab}
-			onValueChange={(value) => {
-				const next = overviewTabSchema.safeParse(value);
-				if (next.success) {
-					void navigate({
-						search: (previous) => ({ ...previous, tab: next.data }),
-					});
-				}
-			}}
-			className="gap-6"
-		>
-			<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-				<div className="grid min-w-0 gap-1">
-					<h1 className="font-(--heading-weight) font-display text-3xl tracking-(--heading-tracking)">
-						{t("overview.title")}
-					</h1>
-					<p className="text-muted-foreground text-sm">{periodText}</p>
-				</div>
-				{/* 375 px: the strip scrolls sideways and never wraps. */}
-				<div className="max-w-full overflow-x-auto">
-					<TabsList className="max-md:group-data-[orientation=horizontal]/tabs:h-11">
-						<TabsTrigger value="overview" className="px-3">
-							{t("overview.tabs.overview")}
-						</TabsTrigger>
-						{tabs.map((item) => (
-							<TabsTrigger key={item.value} value={item.value} className="px-3">
-								{t(`overview.tabs.${item.value}`)}
-								{/* Opacity, not a muted color: the active tab can be a dark chip. */}
-								<span className="tabular-nums opacity-60">
-									{number.format(item.count)}
-								</span>
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</div>
-			</div>
-			<div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-				<p className="text-muted-foreground text-sm">
-					{t("overview.periodNote")}
-				</p>
-				<PeriodTabs
-					days={days}
-					onDaysChange={(next) =>
-						void navigate({
-							search: (previous) => ({ ...previous, days: next }),
-						})
-					}
-				/>
-			</div>
-
-			<TabsContent value="overview" className="grid @3xl/main:gap-6 gap-4">
-				<div className="grid gap-4">
-					<EntityRow
-						tab="projects"
-						name={t("overview.tabs.projects")}
-						icon={FolderOpenIcon}
-						item={kpi("deliverables")}
-						label={t("overview.figures.deliverables")}
-						hint={t("overview.weeklyTotal")}
-						points={overview.weeklyDeliverables}
-					/>
-					<EntityRow
-						tab="team"
-						name={t("overview.tabs.team")}
-						icon={UsersThreeIcon}
-						item={kpi("billable-hours")}
-						label={t("overview.figures.billableHours")}
-						hint={t("overview.weeklyTotal")}
-						points={overview.weeklyHours}
-					/>
-					<EntityRow
-						tab="invoices"
-						name={t("overview.tabs.invoices")}
-						icon={ReceiptIcon}
-						item={kpi("cash-collected")}
-						label={t("overview.figures.cashCollected")}
-						hint={t("overview.weeklyTotal")}
-						points={overview.weeklyCash}
-					/>
-				</div>
-				<div className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4">
-					<ServiceBreakdownCard
-						title={t("overview.hoursByService")}
-						slices={serviceSlices}
-					/>
-					<FiguresCard
-						title={t("overview.studioHealth")}
-						rows={FIGURE_IDS.map((id) => ({
-							item: kpi(id),
-							label: t(FIGURE_LABELS[id]),
-							icon: FIGURE_ICONS[id],
-							note:
-								id === "projects-at-risk"
-									? t("overview.figures.atRiskNote").replace(
-											"{count}",
-											number.format(liveProjects.length),
+		<div className="grid gap-4">
+			<PageHeader
+				title={t("overview.title")}
+				description={fillMessage(t("overview.period"), {
+					days: new Intl.NumberFormat(locale).format(days),
+				})}
+				actions={
+					<>
+						<PeriodSelect
+							days={days}
+							onDaysChange={(next) =>
+								navigate({
+									search: (previous) => ({ ...previous, days: next }),
+								})
+							}
+						/>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button variant="outline">
+									<ExportIcon />
+									<span className="hidden lg:inline">
+										{t("overview.export")}
+									</span>
+									<CaretDownIcon className="hidden size-3.5 lg:inline" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem
+									onSelect={() =>
+										downloadCsv(
+											"projects.csv",
+											toCsv(projects, projectCsvColumns(t)),
 										)
-									: undefined,
-						}))}
-					/>
-				</div>
-			</TabsContent>
-
-			<TabsContent
-				value="projects"
-				className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4"
+									}
+								>
+									{t("overview.exportProjects")}
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() =>
+										downloadCsv(
+											"invoices.csv",
+											toCsv(invoices, invoiceCsvColumns(t)),
+										)
+									}
+								>
+									{t("overview.exportInvoices")}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</>
+				}
+			/>
+			<Tabs
+				value={tab}
+				onValueChange={(value) => {
+					const next = overviewTabSchema.safeParse(value);
+					if (next.success) {
+						navigate({
+							search: (previous) => ({ ...previous, tab: next.data }),
+						});
+					}
+				}}
+				className="gap-4"
 			>
-				<TrendCard
-					title={t("overview.figures.deliverables")}
-					description={t("overview.runningTotalNote")}
-					points={overview.deliverables}
-				/>
-				<DueProjectsCard projects={dueProjects} />
-			</TabsContent>
-
-			<TabsContent
-				value="team"
-				className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4"
-			>
-				<TrendCard
-					title={t("overview.figures.billableHours")}
-					description={t("overview.runningTotalNote")}
-					points={overview.hours}
-					format={kpi("billable-hours").format}
-				/>
-				<TeamUtilizationCard members={loadedTeam} />
-			</TabsContent>
-
-			<TabsContent
-				value="invoices"
-				className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4"
-			>
-				<TrendCard
-					title={t("overview.figures.cashCollected")}
-					description={t("overview.runningTotalNote")}
-					points={overview.cash}
-					format={kpi("cash-collected").format}
-				/>
-				<OpenInvoicesCard invoices={openInvoices} />
-			</TabsContent>
-		</Tabs>
+				<TabsList>
+					<TabsTrigger value="overview">
+						{t("overview.tabs.overview")}
+					</TabsTrigger>
+					<TabsTrigger value="reports">
+						{t("overview.tabs.reports")}
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview" className="grid gap-4">
+					<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+						{overview.kpis.map((item) => {
+							const card = KPI_CARDS[item.id];
+							return (
+								<KpiCard
+									key={item.id}
+									label={t(card.label)}
+									value={new Intl.NumberFormat(locale, item.format).format(
+										item.value,
+									)}
+									item={item}
+									context={t(card.context)}
+									icon={card.icon}
+								/>
+							);
+						})}
+					</div>
+					<div className="grid @4xl/main:grid-cols-3 gap-4">
+						<div className="@4xl/main:col-span-2">
+							<HoursOverviewCard points={overview.hours} />
+						</div>
+						<TeamCard
+							headcount={overview.headcount}
+							busiest={overview.busiest}
+							highlights={overview.highlights}
+						/>
+					</div>
+					<div className="grid @4xl/main:grid-cols-2 @7xl/main:grid-cols-4 gap-4">
+						<RemindersCard reminders={overview.reminders} />
+						<ApprovalsCard months={overview.approvedByMonth} />
+						<ServiceHoursCard
+							slices={overview.hoursByService}
+							periodLabel={periodLabel}
+						/>
+					</div>
+					<RecentProjectsCard projects={projects} />
+				</TabsContent>
+				<TabsContent value="reports">
+					<ProjectBudgetsCard projects={projects} />
+				</TabsContent>
+			</Tabs>
+		</div>
 	);
 }
 
-/** The message key of each figure of the figures card. */
-const FIGURE_LABELS = {
-	outstanding: "overview.figures.outstanding",
-	utilization: "overview.figures.utilization",
-	"projects-at-risk": "overview.figures.projectsAtRisk",
-} as const;
+// Placeholder cards of the skeleton. Fixed keys, because the cards never reorder.
+const SKELETON_KPIS = ["projects", "revenue", "utilization", "outstanding"];
 
-/** The icon of each figure of the figures card: the thing it counts. */
-const FIGURE_ICONS = {
-	outstanding: CoinsIcon,
-	utilization: ClockIcon,
-	"projects-at-risk": WarningDiamondIcon,
-} as const;
-
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["projects", "team", "invoices"];
-
-/** Placeholder while the loader runs: the header, the tabs, three entity rows, and the bottom row. */
+/** Placeholder while the loader runs: the header, the tabs, the KPI row, the chart band, and the table. */
 export function OverviewPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<div className="flex flex-wrap items-end justify-between gap-4">
-				<div className="grid gap-2">
-					<Skeleton className="h-9 w-56" />
-					<Skeleton className="h-4 w-72" />
-				</div>
-				<Skeleton className="h-9 w-96 max-w-full" />
+				<Skeleton className="h-8 w-56" />
+				<Skeleton className="h-9 w-64 max-w-full" />
 			</div>
-			<div className="flex justify-end border-t pt-4">
-				<Skeleton className="h-9 w-40" />
+			<Skeleton className="h-9 w-48" />
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_KPIS.map((key) => (
+					<Skeleton key={key} className="h-36 rounded-surface" />
+				))}
 			</div>
-			{SKELETON_ROWS.map((key) => (
-				<Skeleton key={key} className="h-36 rounded-surface" />
-			))}
-			<div className="grid @4xl/main:grid-cols-2 grid-cols-1 gap-4">
-				<Card>
-					<CardHeader>
-						<Skeleton className="h-5 w-48" />
-					</CardHeader>
-					<CardContent className="grid gap-3">
-						<Skeleton className="h-4 w-full" />
-						<Skeleton className="h-32 w-full" />
-					</CardContent>
-				</Card>
-				<Card>
-					<CardHeader>
-						<Skeleton className="h-5 w-40" />
-					</CardHeader>
-					<CardContent>
-						<Skeleton className="h-40 w-full" />
-					</CardContent>
-				</Card>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<Skeleton className="@4xl/main:col-span-2 h-96 rounded-surface" />
+				<Skeleton className="h-96 rounded-surface" />
 			</div>
+			<Card>
+				<CardHeader>
+					<Skeleton className="h-5 w-40" />
+				</CardHeader>
+				<CardContent>
+					<Skeleton className="h-64 w-full" />
+				</CardContent>
+			</Card>
 		</div>
 	);
 }

@@ -1,30 +1,53 @@
-// The audience page behind login: three figures, the type tabs, the searchable table, and a side panel per audience.
+// The audience page behind login: the page header with the CSV export, then the segment table and a side panel per audience.
 // The /app/audiences route renders it after its loader. The route also uses the skeleton and the error below.
-// The type tab and the open panel live in the URL (`?type=`, `?audience=`), so the campaign page can link to one audience.
+// It follows the kit "users" page: a table with no card, three filter buttons, row checkboxes, and a row menu.
+// The type filter and the open panel live in the URL (`?type=`, `?audience=`), so the campaign page can link to one audience.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
-import { AUDIENCE_TYPES, ChangeLine, fillMessage } from "~/features/marketing";
-import { useT } from "~/shared/i18n";
+import {
+	AUDIENCE_TYPES,
+	type CsvColumn,
+	copyToClipboard,
+	DeltaBadge,
+	downloadCsv,
+	fillMessage,
+	initialsOf,
+	toCsv,
+} from "~/features/marketing";
+import { type TranslationKey, useT } from "~/shared/i18n";
+import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { type Audience, audiencesQueryOptions } from "../api/audiences.queries";
-import { AudienceFigures } from "./audience-figures";
 import { AudienceSheet } from "./audience-sheet";
 
 const routeApi = getRouteApi("/app/audiences");
 
-/** The list page. The type tab cuts the rows; then DataTable searches, sorts, and pages them. */
+/** The usage filter: segments in at least one live campaign, or segments that no campaign targets. */
+const USAGES = ["live", "unused"] as const;
+type Usage = (typeof USAGES)[number];
+
+// Rows per page of a list page, as in the kit users table.
+const PAGE_SIZE = 20;
+
+/** The filters cut the rows; then RecordTable searches, sorts, selects, and pages them. */
 export function AudiencesPage() {
 	const { t, locale } = useT();
 	const { data: audiences } = useSuspenseQuery(audiencesQueryOptions());
 	const { type, audience: audienceId } = routeApi.useSearch();
 	const navigate = routeApi.useNavigate();
+	const [client, setClient] = useState<string | null>(null);
+	const [usage, setUsage] = useState<Usage | null>(null);
 	// The id of the audience that the sheet showed last. The sheet keeps it while it slides out.
 	const [closingId, setClosingId] = useState<string | null>(null);
 
@@ -42,85 +65,97 @@ export function AudiencesPage() {
 	const sheetAudience =
 		openAudience ?? audiences.find((row) => row.id === closingId) ?? null;
 
-	// A tab shows only for a type that has rows.
-	const tabs = AUDIENCE_TYPES.map((value) => ({
-		value,
-		count: audiences.filter((row) => row.type === value).length,
-	})).filter((tab) => tab.count > 0);
-	const activeType =
-		type && tabs.some((tab) => tab.value === type) ? type : undefined;
-	const rows = activeType
-		? audiences.filter((row) => row.type === activeType)
-		: audiences;
+	function openPanel(id: string) {
+		navigate({
+			search: (previous) => ({ ...previous, audience: id }),
+			replace: true,
+		});
+	}
 
-	// A phone shows only the first column (see the table wrapper). Its cell then adds the size and the growth.
-	// The type tabs give the type there.
-	const columns: DataTableColumn<Audience>[] = [
+	const liveCount = (row: Audience) =>
+		row.campaigns.filter((campaign) => campaign.status === "live").length;
+	const clients = [...new Set(audiences.map((row) => row.client))]
+		.sort((first, second) => first.localeCompare(second, locale))
+		.map((name) => ({ value: name, label: name }));
+	const rows = audiences.filter(
+		(row) =>
+			(type === undefined || row.type === type) &&
+			(client === null || row.client === client) &&
+			(usage === null ||
+				(usage === "live" ? liveCount(row) > 0 : row.campaigns.length === 0)),
+	);
+
+	const csvColumns: CsvColumn<Audience>[] = [
+		{ header: t("audiences.code"), value: (row) => row.id },
+		{ header: t("audiences.audience"), value: (row) => row.name },
+		{ header: t("audiences.client"), value: (row) => row.client },
+		{
+			header: t("audiences.type"),
+			value: (row) => t(`audienceTypes.${row.type}`),
+		},
+		{ header: t("audiences.size"), value: (row) => String(row.size) },
+		{
+			header: t("audiences.engagement"),
+			value: (row) => row.engagementRate.toFixed(4),
+		},
+		{
+			header: t("audiences.growth"),
+			value: (row) => (row.growth === null ? "" : row.growth.toFixed(4)),
+		},
+		{
+			header: t("audiences.campaigns"),
+			value: (row) => String(row.campaigns.length),
+		},
+	];
+
+	const columns: RecordColumn<Audience>[] = [
 		{
 			id: "audience",
 			header: t("audiences.audience"),
 			sortValue: (row) => row.name,
 			cell: (row) => (
-				<div className="grid min-w-40 justify-items-start gap-0.5">
-					<button
-						type="button"
-						// The name opens the segment sheet. On a phone, the larger hit area gives a 44 px touch target.
-						className="relative rounded-sm text-start font-medium outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 max-sm:before:absolute max-sm:before:-inset-3"
-						dir="auto"
-						aria-label={fillMessage(t("audiences.open"), { name: row.name })}
-						onClick={() =>
-							navigate({
-								search: (previous) => ({ ...previous, audience: row.id }),
-								replace: true,
-							})
-						}
-					>
-						{row.name}
-					</button>
-					<span className="text-muted-foreground text-xs" dir="auto">
-						{row.client}
+				// The avatar, the name, and the client are one button. A finger hits it more easily than the name alone.
+				<button
+					type="button"
+					className="group flex items-center gap-3 rounded-control text-start outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+					aria-label={fillMessage(t("audiences.open"), { name: row.name })}
+					onClick={() => openPanel(row.id)}
+				>
+					<Avatar className="size-9">
+						<AvatarFallback className="text-xs">
+							{initialsOf(row.name)}
+						</AvatarFallback>
+					</Avatar>
+					<span className="grid justify-items-start">
+						<span className="font-medium group-hover:underline" dir="auto">
+							{row.name}
+						</span>
+						<span className="text-muted-foreground text-xs" dir="auto">
+							{row.client}
+						</span>
 					</span>
-					<span className="flex items-center gap-2 whitespace-nowrap text-xs tabular-nums md:hidden">
-						{compact.format(row.size)}
-						<ChangeLine
-							change={row.growth}
-							goodWhen="up"
-							srLabel={t("audiences.growthLabel")}
-							className="[&_svg]:size-3.5"
-						/>
-					</span>
-				</div>
+				</button>
 			),
 		},
 		{
 			id: "type",
 			header: t("audiences.type"),
+			hideable: true,
 			sortValue: (row) => AUDIENCE_TYPES.indexOf(row.type),
-			cell: (row) => (
-				<Badge variant="outline">{t(`audienceTypes.${row.type}`)}</Badge>
-			),
+			cell: (row) => t(`audienceTypes.${row.type}`),
 		},
-		// The 30-day change sits under the size, so the six facts of a segment fit a 1024 px screen.
 		{
 			id: "size",
 			header: t("audiences.size"),
+			hideable: true,
 			align: "end",
 			sortValue: (row) => row.size,
-			cell: (row) => (
-				<div className="grid justify-items-end whitespace-nowrap">
-					<span>{compact.format(row.size)}</span>
-					<ChangeLine
-						change={row.growth}
-						goodWhen="up"
-						srLabel={t("audiences.growthLabel")}
-						className="text-xs [&_svg]:size-3.5"
-					/>
-				</div>
-			),
+			cell: (row) => compact.format(row.size),
 		},
 		{
 			id: "engagement",
 			header: t("audiences.engagement"),
+			hideable: true,
 			align: "end",
 			sortValue: (row) => row.engagementRate,
 			cell: (row) => percent.format(row.engagementRate),
@@ -128,84 +163,142 @@ export function AudiencesPage() {
 		{
 			id: "campaigns",
 			header: t("audiences.campaigns"),
-			align: "end",
-			sortValue: (row) => row.campaigns.length,
-			cell: (row) => {
-				const live = row.campaigns.filter(
-					(campaign) => campaign.status === "live",
-				).length;
-				return row.campaigns.length === 0 ? (
-					<span className="text-muted-foreground">
-						{t("audiences.noCampaign")}
-					</span>
+			hideable: true,
+			sortValue: (row) => liveCount(row),
+			cell: (row) =>
+				row.campaigns.length === 0 ? (
+					<Badge variant="outline">{t("audiences.noCampaign")}</Badge>
 				) : (
-					<span className="whitespace-nowrap tabular-nums">
+					<Badge variant={liveCount(row) > 0 ? "success" : "secondary"}>
 						{fillMessage(t("audiences.liveCount"), {
-							live: number.format(live),
+							live: number.format(liveCount(row)),
 							total: number.format(row.campaigns.length),
 						})}
-					</span>
-				);
-			},
+					</Badge>
+				),
+		},
+		{
+			id: "growth",
+			header: t("audiences.growth"),
+			hideable: true,
+			align: "end",
+			// A segment with no size 30 days ago sorts as the slowest.
+			sortValue: (row) => row.growth ?? Number.NEGATIVE_INFINITY,
+			cell: (row) => (
+				<DeltaBadge
+					change={row.growth}
+					goodWhen="up"
+					srLabel={t("audiences.growthLabel")}
+				/>
+			),
 		},
 	];
 
+	const usageLabel: Record<Usage, TranslationKey> = {
+		live: "audiences.usageLive",
+		unused: "audiences.usageUnused",
+	};
+
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("audiences.title")}
-				description={t("audiences.description")}
-			/>
-			<AudienceFigures audiences={audiences} />
-			<Card>
-				{/* A phone hides every column after the first, so the table needs no sideways scroll. */}
-				<CardContent className="max-md:[&_:is(th,td):nth-child(n+2)]:hidden">
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(row) => `${row.name} ${row.client}`}
-						noResults={t("audiences.noResults")}
-						toolbar={
-							<Tabs
-								value={activeType ?? "all"}
-								onValueChange={(value) =>
-									navigate({
-										search: (previous) => ({
-											...previous,
-											type: AUDIENCE_TYPES.find((option) => option === value),
-										}),
-										replace: true,
-									})
-								}
-								className="max-w-full overflow-x-auto max-md:-mx-1 max-md:px-1"
-							>
-								{/* On a phone the tabs stay on one line and scroll sideways. Each tab is 44 px tall. */}
-								<TabsList className="max-md:w-max max-md:group-data-[orientation=horizontal]/tabs:h-auto">
-									<TabsTrigger value="all" className="max-md:min-h-11">
-										{t("audiences.all")}
-										{/* opacity, not a muted color: the count takes the color of the active chip too. */}
-										<span className="tabular-nums opacity-70">
-											{number.format(audiences.length)}
-										</span>
-									</TabsTrigger>
-									{tabs.map((tab) => (
-										<TabsTrigger
-											key={tab.value}
-											value={tab.value}
-											className="max-md:min-h-11"
-										>
-											{t(`audienceTypes.${tab.value}`)}
-											<span className="tabular-nums opacity-70">
-												{number.format(tab.count)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
+				description={fillMessage(t("audiences.description"), {
+					count: number.format(audiences.length),
+				})}
+				actions={
+					<Button
+						type="button"
+						onClick={() =>
+							downloadCsv("audiences.csv", toCsv(rows, csvColumns))
 						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
+			/>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) => `${row.name} ${row.client} ${row.definition}`}
+				searchPlaceholder={t("audiences.filter")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("audiences.type")}
+							options={AUDIENCE_TYPES.map((value) => ({
+								value,
+								label: t(`audienceTypes.${value}`),
+							}))}
+							value={type ?? null}
+							onValueChange={(value) =>
+								navigate({
+									search: (previous) => ({
+										...previous,
+										type: AUDIENCE_TYPES.find((option) => option === value),
+									}),
+									replace: true,
+								})
+							}
+						/>
+						<RecordFilter
+							label={t("audiences.client")}
+							options={clients}
+							value={client}
+							onValueChange={setClient}
+						/>
+						<RecordFilter
+							label={t("audiences.campaigns")}
+							options={USAGES.map((value) => ({
+								value,
+								label: t(usageLabel[value]),
+							}))}
+							value={usage}
+							onValueChange={(value) =>
+								setUsage(USAGES.find((option) => option === value) ?? null)
+							}
+						/>
+					</>
+				}
+				pageSize={PAGE_SIZE}
+				noResults={t("audiences.noResults")}
+				selectable
+				bulkActions={(selectedRows) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"audiences-selected.csv",
+								toCsv(selectedRows, csvColumns),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem onSelect={() => openPanel(row.id)}>
+							{t("audiences.openPanel")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.id, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("audiences.copyId")}
+						</DropdownMenuItem>
+					</>
+				)}
+			/>
 			<AudienceSheet
 				audience={sheetAudience}
 				open={openAudience !== null}
@@ -229,20 +322,18 @@ const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 /** Placeholder while the audience loader runs. The route sets it as pendingComponent. */
 export function AudiencesPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-4">
+				<div className="grid gap-2">
+					<Skeleton className="h-8 w-40" />
+					<Skeleton className="h-4 w-72" />
+				</div>
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Skeleton className="@xl/main:h-28 h-80 w-full" />
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full sm:max-w-sm" />
+			{SKELETON_ROWS.map((key) => (
+				<Skeleton key={key} className="h-12 w-full" />
+			))}
 		</div>
 	);
 }

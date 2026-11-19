@@ -1,6 +1,5 @@
 export {
-	channelPeriodQueryOptions,
-	channelQueryOptions,
+	channelDetailQueryOptions,
 	channelsQueryOptions,
 } from "./api/channels.queries";
 export {
