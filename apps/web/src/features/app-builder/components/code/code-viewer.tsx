@@ -79,8 +79,8 @@ export const CODE_BAR_CLASS =
 	"flex h-12 shrink-0 items-center border-night/[0.07] border-b dark:border-white/[0.07]";
 
 /**
- * The faint fill of a skeleton bar. The kit default is the beige accent,
- * which reads as a stain on the paper card.
+ * The look of a skeleton bar: a faint ink fill and round ends. The kit
+ * default is the solid accent fill, which is too strong on the white sheet.
  */
 export const CODE_SKELETON_CLASS =
 	"rounded-full bg-night/[0.06] dark:bg-white/[0.06]";
@@ -145,8 +145,8 @@ export function CodeMessage({
 }
 
 /**
- * The pill under a failed load. It loads the code again. It has the look of
- * the retry pill of the Cloud panels.
+ * The button under a failed load. It loads the code again. It has the look
+ * of the second action of the Cloud panels.
  */
 export function RetryButton({ onRetry }: { onRetry: () => void }) {
 	const { t } = useTranslation();
@@ -274,7 +274,7 @@ export function CodeViewer({
 					dir="ltr"
 					translate="no"
 					style={{ fontFamily: CODE_FONT_FAMILY }}
-					className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap text-[12.5px] text-night/45 tracking-normal rtl:justify-end dark:text-foreground/45"
+					className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap text-[12.5px] text-night/60 tracking-normal rtl:justify-end dark:text-foreground/60"
 				>
 					{segments.map((segment, index) => {
 						const isLast = index === segments.length - 1;
@@ -313,7 +313,7 @@ export function CodeViewer({
 					})}
 				</nav>
 				{currentText ? (
-					<bdi className="flex h-6 shrink-0 items-center rounded-full bg-night/[0.05] px-2.5 font-grotesk font-medium text-[11.5px] text-night/60 dark:bg-white/[0.06] dark:text-foreground/60">
+					<bdi className="flex h-6 shrink-0 items-center rounded-full bg-night/[0.05] px-2.5 font-grotesk font-medium text-night/60 text-xs dark:bg-white/[0.06] dark:text-foreground/60">
 						{codeLanguageFor(currentText.path)?.label ??
 							t("appBuilder.code.plainText")}
 					</bdi>
@@ -333,7 +333,7 @@ export function CodeViewer({
 			<div className="relative min-h-0 flex-1">
 				<FileBodyView body={body} onRetry={onRetry} />
 			</div>
-			<footer className="flex h-8 shrink-0 items-center gap-4 border-night/[0.07] border-t px-4 font-grotesk text-[11.5px] text-night/50 tabular-nums dark:border-white/[0.07] dark:text-foreground/50">
+			<footer className="flex h-8 shrink-0 items-center gap-4 border-night/[0.07] border-t px-4 font-grotesk text-night/60 text-xs tabular-nums dark:border-white/[0.07] dark:text-foreground/60">
 				<span className="flex min-w-0 items-center gap-1.5">
 					<span
 						aria-hidden="true"

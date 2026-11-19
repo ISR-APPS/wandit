@@ -22,9 +22,9 @@ import { formatNumber, useTranslation } from "@/lib/i18n";
 import { getModelLabel } from "@/lib/model-labels";
 import { formatUsdMicros } from "../../lib/helpers";
 
-// The muted 11 px look of the receipt line in chat-message.tsx.
+// The muted 12 px look of the receipt line in chat-message.tsx.
 const LINE_CLASS =
-	"flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45";
+	"flex items-center gap-1.5 font-grotesk text-[12px] text-night/45 tabular-nums dark:text-foreground/45";
 
 /** One line under the composer. With no model row it is plain text and opens nothing. */
 export function ChatCostLine({
@@ -73,7 +73,7 @@ export function ChatCostLine({
 				side="top"
 				className="w-auto min-w-56 max-w-[calc(100vw-24px)] p-3"
 			>
-				<p className="font-grotesk font-semibold text-popover-foreground/60 text-xs">
+				<p className="font-grotesk font-medium text-popover-foreground/60 text-xs">
 					{t("appBuilder.chat.cost.byModel")}
 				</p>
 				<ul className="mt-1.5 flex flex-col gap-1 font-grotesk text-[12px] tabular-nums">

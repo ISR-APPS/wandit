@@ -75,7 +75,7 @@ export type TrayBody =
 export type RequestTrayState = {
 	/** "media" for an image question, "question" for the others. */
 	badge: "question" | "media";
-	/** Mono micro-label that names what the agent needs, for example "Needs a detail". */
+	/** Short ember label in the tray head that names what the agent needs, for example "Needs a detail". */
 	label: string;
 	question: string;
 	/** Quiet line under the question, or null. */

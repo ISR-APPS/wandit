@@ -1,7 +1,7 @@
 /**
  * More view of the app builder: the section nav on the start side and the
  * open panel on the other side. The nav lies on the white stage sheet. The
- * panel lies on a sand ground, so its white cards lift off it.
+ * panel lies on the `sand` ground, a cool off-white, so its white cards read on it.
  * Every panel renders inside panel-shell.tsx, which draws its icon tile and
  * its title; a Cloud panel renders through cloud/cloud-panel-content.tsx.
  * The `code` panel is different. The code screen of code/code-view.tsx
@@ -245,8 +245,8 @@ export function MoreView({
 						onSelect={selectFromNav}
 					/>
 				</div>
-				{/* The sand ground of the panel. In dark mode the stage is already sand, so a black shade makes the ground one step deeper. */}
-				<div className="scroll-warm min-w-0 flex-1 overflow-y-auto bg-sand/70 px-4 py-6 sm:px-8 md:px-10 md:py-10 dark:bg-black/15">
+				{/* The `sand` ground of the panel, one step off the white stage. In dark mode the stage is already sand, so a black shade makes the ground one step deeper. */}
+				<div className="scroll-warm min-w-0 flex-1 overflow-y-auto bg-sand px-4 py-6 sm:px-8 md:px-10 md:py-10 dark:bg-black/15">
 					<PanelShell panel={shellPanel}>
 						{isCloudPanel(shellPanel) ? (
 							<CloudPanelContent

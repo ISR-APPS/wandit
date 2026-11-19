@@ -6,6 +6,14 @@
 
 Wandit is an AI website-builder wrapped in a warm, near-achromatic parchment world — cream surfaces, warm beige borders, one variable sans with tight tracking, and full-pill controls, borrowed straight from the Lovable school of quiet interface design. The single divergence, and the whole personality of the brand, is **ember**: a warm terracotta-orange that Lovable would keep locked inside a decorative hero, but Wandit lets loose on the primary action, selected states, focus rings, progress bars, and a soft prismatic horizon behind the header. The system runs in two layers: the _tool chrome_ is restrained, warm, and text-forward; the _generated page_ previewed inside it is allowed to go bold and dark, rendered in a monospace face with vivid ember gradients. Nothing shouts except the one thing you're meant to click.
 
+## Exception: the V2 workspace ("studio")
+
+The V2 workspace at `/app/$projectId` follows this document for the ember accent, the focus ring, and the corners. Its surfaces and its type are different: cool paper, white sheets, navy ink, short shadows, and the Geist face. The source of truth is `apps/web/src/features/app-builder/studio.css`. That file sets the surface and type tokens of this document again inside the scope `html[data-studio]`.
+
+- Do not add beige surfaces to the workspace.
+- Ember, the pills, and the corner scale are the same as in the rest of the app.
+- A class constant that also renders on other pages uses the `studio:` variant for its workspace look.
+
 ## Tokens — Colors
 
 Colors are authored in **oklch** — that is what gives every neutral its consistent warm (yellow-leaning) undertone and keeps the ember in the same tonal family as the surfaces. Hex approximations are provided for portability, but oklch is canonical.

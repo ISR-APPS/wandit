@@ -116,7 +116,7 @@ export function SecurityPanel({
 				</div>
 				<div className="flex flex-wrap items-center gap-3">
 					<Button
-						className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+						className={PANEL_PRIMARY_BUTTON_CLASS}
 						disabled={!canSendTurn}
 						onClick={onRunScan}
 					>
@@ -313,7 +313,10 @@ function FindingCard({
 			{finding.location !== null ? (
 				<p className="text-[12.5px] text-night/60 dark:text-foreground/60">
 					{/* A file path or a package name reads left to right, also in Arabic. */}
-					<code dir="ltr" className="break-all font-mono">
+					<code
+						dir="ltr"
+						className="break-all rounded-[6px] bg-night/[0.05] box-decoration-clone px-1.5 py-px font-mono dark:bg-white/[0.07]"
+					>
 						{finding.location}
 					</code>
 				</p>
@@ -355,7 +358,7 @@ function FindingCard({
 						href={link}
 						target="_blank"
 						rel="noopener noreferrer"
-						className="inline-flex items-center gap-1.5 font-grotesk font-medium text-[13px] text-ember-text hover:underline"
+						className="inline-flex items-center gap-1.5 font-grotesk font-medium text-[13px] text-ember-text underline-offset-4 hover:underline"
 					>
 						{t("appBuilder.security.learnMore")}
 						<ArrowSquareOutIcon aria-hidden weight="bold" />

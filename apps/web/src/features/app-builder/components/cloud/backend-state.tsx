@@ -38,8 +38,8 @@ import {
 } from "../more/panel-shell";
 import { RowsGridSkeleton } from "./rows-grid";
 
-/** The ember pill of a backend block: the one action that moves the backend forward. */
-const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5");
+/** The main action of a backend block: the one action that moves the backend forward. The kit Button gives the 36 px height. */
+const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "px-5");
 
 /** Props of BackendState. `children` is a panel that reads the database of the app. */
 export type BackendStateProps = {
@@ -316,7 +316,7 @@ function BackendLimitReached({
 			<p className="font-sans text-[14px] text-night/75 leading-relaxed dark:text-foreground/75">
 				{text}
 			</p>
-			<Button asChild className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-9 px-4")}>
+			<Button asChild className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-8 px-4")}>
 				<Link to="/billing">{t("workspace.cloud.backend.limit.seePlans")}</Link>
 			</Button>
 		</div>

@@ -210,7 +210,7 @@ export function CodeView({
 
 /**
  * The Back bar: the way back to the More panels. It is a CODE_BAR_CLASS bar,
- * so on top of the tree column it lines up with the editor header. The pill
+ * so on top of the tree column it lines up with the editor header. The button
  * has the left arrow of the Database table back button (cloud/database-panel.tsx).
  */
 function BackBar({
@@ -228,7 +228,7 @@ function BackBar({
 				variant="ghost"
 				size="sm"
 				onClick={onBack}
-				className="font-grotesk font-medium text-night/70 hover:bg-night/[0.06] hover:text-night dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground"
+				className="font-grotesk font-medium text-[13px] text-night/70 hover:bg-night/[0.06] hover:text-night dark:text-foreground/70 dark:hover:bg-white/[0.08] dark:hover:text-foreground"
 			>
 				{/* In RTL the More nav sits on the right, so the arrow mirrors. */}
 				<ArrowLeftIcon aria-hidden weight="bold" className="rtl:-scale-x-100" />

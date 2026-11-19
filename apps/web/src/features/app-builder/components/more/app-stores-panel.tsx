@@ -98,7 +98,7 @@ export function AppStoresPanel({ projectId }: AppStoresPanelProps) {
 										download
 										target="_blank"
 										rel="noopener noreferrer"
-										className="inline-flex shrink-0 items-center gap-1.5 font-grotesk font-medium text-[13px] text-ember-text hover:underline"
+										className="inline-flex shrink-0 items-center gap-1.5 font-grotesk font-medium text-[13px] text-ember-text underline-offset-4 hover:underline"
 									>
 										<DownloadSimpleIcon
 											aria-hidden
@@ -141,7 +141,7 @@ function StoreCard({
 			<div className="flex items-center gap-3 px-5 py-4">
 				<span
 					aria-hidden
-					className="grid size-9 shrink-0 place-items-center rounded-full bg-night text-paper dark:bg-white/[0.1] dark:text-foreground"
+					className="grid size-9 shrink-0 place-items-center rounded-full bg-night/[0.06] text-night dark:bg-white/[0.08] dark:text-foreground"
 				>
 					<StoreIcon weight="duotone" className="size-[18px]" />
 				</span>

@@ -24,6 +24,8 @@
  * the Security panel, and the scan card of the chat opens that panel.
  * While the host applies a starter template, the preview shows the starter
  * note and no send starts. The chat loads again when that step ends.
+ * The page imports studio.css and sets `data-studio` on <html> while it is
+ * mounted. That scope gives the workspace its own surfaces, type, and shadows.
  */
 
 import {
@@ -43,7 +45,7 @@ import { Sheet, SheetContent, SheetTitle } from "@wandit/ui/components/sheet";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { hasProjectRole } from "@/features/project-sharing";
@@ -90,19 +92,20 @@ import { useBuilderModelPick } from "../lib/use-builder-model-pick";
 import { useBuilderThread } from "../lib/use-builder-thread";
 import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
 import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
+import "../studio.css";
 
-// The desk: warm sand with a soft spark glow over the project controls. The
-// glow sits at the start side, so it moves to the right in RTL. In dark mode
-// the glow is ember on the warm near-black page color. The variables keep one
-// gradient for every theme and direction.
+// The desk: cool paper with one faint spark glow over the project controls.
+// The glow sits at the start side, so it moves to the right in RTL. In dark
+// mode the glow is ember. The variables keep one gradient for every theme
+// and direction.
 const DESK_CLASS =
-	"[--desk-bottom:#f3eee6] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.2)] [--desk-top:#f8f2e8] bg-[radial-gradient(900px_380px_at_var(--desk-glow-x)_-14%,var(--desk-glow),transparent_70%),linear-gradient(180deg,var(--desk-top),var(--desk-bottom))] rtl:[--desk-glow-x:92%] dark:[--desk-bottom:var(--background)] dark:[--desk-glow:rgb(209_96_34/0.14)] dark:[--desk-top:var(--background)]";
+	"bg-background bg-[radial-gradient(720px_300px_at_var(--desk-glow-x)_-12%,var(--desk-glow),transparent_70%)] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.14)] rtl:[--desk-glow-x:92%] dark:[--desk-glow:rgb(209_96_34/0.14)]";
 
-// The stage is a white sheet with a navy hairline on the desk. Three navy
-// shadows lift it: a contact line, a near shade, and a wide soft drop. In
-// dark mode it is one step lighter than the desk.
+// The stage is a white sheet with a navy hairline on the desk. Two short navy
+// shadows lift it: a contact line and one soft drop. In dark mode it is one
+// step lighter than the desk and has no shadow.
 const STAGE_CARD_CLASS =
-	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.07),0_28px_56px_-30px_rgb(11_16_51/0.42)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
+	"rounded-[1.5rem] border border-night/[0.07] bg-white shadow-[0_1px_2px_rgb(11_16_51/0.04),0_16px_40px_-24px_rgb(11_16_51/0.22)] dark:border-white/[0.08] dark:bg-sand dark:shadow-none";
 
 export type AppBuilderPageProps = {
 	projectId: string;
@@ -117,6 +120,15 @@ export default function AppBuilderPage({
 }: AppBuilderPageProps) {
 	const { t } = useTranslation();
 	const navigate = useNavigate({ from: "/app/$projectId" });
+	// studio.css reads this attribute. It sits on <html> because Radix portals menus and dialogs to <body>.
+	// A layout effect sets it before the first paint, so the app look never shows for a frame.
+	useLayoutEffect(() => {
+		const root = document.documentElement;
+		root.dataset.studio = "";
+		return () => {
+			delete root.dataset.studio;
+		};
+	}, []);
 	// The route loader filled the project query, so it does not suspend on first paint.
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	// The hold of the next turn. A failed read hides the estimate; it never blocks a send.
