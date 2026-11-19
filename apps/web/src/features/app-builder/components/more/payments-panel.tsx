@@ -45,10 +45,10 @@ export function PaymentsPanel() {
 					</span>
 					<PanelChip tone="ember">{t("appBuilder.soon")}</PanelChip>
 				</div>
-				<h2 className="mt-5 font-grotesk font-semibold text-[22px] text-night tracking-[-0.02em] dark:text-foreground">
+				<h2 className="mt-5 font-grotesk font-semibold text-[17px] text-night tracking-[-0.01em] dark:text-foreground">
 					{t("appBuilder.payments.title")}
 				</h2>
-				<p className="mt-1.5 max-w-md font-sans text-[15px] text-night/60 leading-relaxed dark:text-foreground/60">
+				<p className="mt-1.5 max-w-md font-sans text-[14px] text-night/60 leading-relaxed dark:text-foreground/60">
 					{t("appBuilder.payments.body")}
 				</p>
 				<ul className="mt-6 grid w-full grid-cols-1 gap-2.5 sm:grid-cols-3">

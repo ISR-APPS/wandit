@@ -141,7 +141,7 @@ export function AiPanel({ projectId, isActive }: AiPanelProps) {
 							<dt className="font-sans text-[12px] text-night/55 dark:text-foreground/55">
 								{item.label}
 							</dt>
-							<dd className="mt-0.5 font-grotesk font-semibold text-[18px] text-night tabular-nums dark:text-foreground">
+							<dd className="mt-0.5 font-grotesk font-medium text-[18px] text-night tabular-nums dark:text-foreground">
 								{item.value}
 							</dd>
 						</div>

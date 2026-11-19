@@ -1,7 +1,7 @@
 /**
  * The Share button of the V2 builder top bar, with the avatars of the people
  * who have a direct grant. A click opens share-dialog.tsx. Rendered by
- * WorkBar in app-builder/components/shell/top-bar.tsx before the Publish pill.
+ * WorkBar in app-builder/components/shell/top-bar.tsx before the Publish button.
  * Reads projectSharingQuery for the avatars. Hidden while sharing is off.
  */
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
@@ -50,8 +50,8 @@ export function ShareButton({ projectId, projectName }: ShareButtonProps) {
 				variant="outline"
 				aria-label={t("sharing.share.button")}
 				onClick={() => setIsOpen(true)}
-				// A raised white pill, one step under the ember Publish key next to it.
-				className="h-9 gap-2 rounded-full border-night/[0.09] bg-white px-2.5 font-grotesk font-semibold text-night shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px sm:px-4 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-foreground dark:hover:bg-white/[0.1] dark:hover:text-foreground"
+				// A flat white pill with a hairline, one step under the ember Publish key next to it.
+				className="h-8 gap-2 rounded-full border-night/[0.12] bg-white px-2.5 font-grotesk font-medium text-[13px] text-night hover:bg-night/[0.04] hover:text-night active:translate-y-px sm:px-4 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground"
 			>
 				{people.length > 0 ? (
 					// The stack needs room, so a phone shows only the icon.

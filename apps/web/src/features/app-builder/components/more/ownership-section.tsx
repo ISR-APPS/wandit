@@ -130,7 +130,7 @@ function TransferCard({ project, access }: OwnershipSectionProps) {
 		return (
 			<OwnershipCard title={title} hint={hint}>
 				{error === null ? (
-					<Skeleton className="h-10 rounded-full" />
+					<Skeleton className="h-9 rounded-full" />
 				) : (
 					<p className="font-sans text-[13px] text-destructive">
 						{getApiErrorMessage(error)}
@@ -185,7 +185,7 @@ function TransferCard({ project, access }: OwnershipSectionProps) {
 				<AlertDialog>
 					<AlertDialogTrigger asChild>
 						<Button
-							className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+							className={PANEL_PRIMARY_BUTTON_CLASS}
 							disabled={picked === undefined || transfer.isPending}
 						>
 							{t("sharing.settings.transferSubmit")}
@@ -314,7 +314,7 @@ function MoveCard({ project, access }: OwnershipSectionProps) {
 					<AlertDialog>
 						<AlertDialogTrigger asChild>
 							<Button
-								className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+								className={PANEL_PRIMARY_BUTTON_CLASS}
 								disabled={destination === undefined || move.isPending}
 							>
 								{t("sharing.settings.moveSubmit")}

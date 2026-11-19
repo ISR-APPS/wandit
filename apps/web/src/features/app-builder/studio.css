@@ -1,0 +1,78 @@
+/*
+ * The surfaces of the V2 workspace (`/app/$projectId`): cool paper, white sheets, navy ink, and the Geist face.
+ * The orange, the focus ring, and the corners are those of the dashboard: this file does not set them.
+ * pages/app-builder-page.tsx imports this file and sets `data-studio` on <html> while it is mounted.
+ * The scope is <html>, because Radix portals the menus, popovers, and dialogs to <body>.
+ * Most rules set a variable of packages/ui/src/styles/globals.css again.
+ */
+
+html[data-studio] {
+	/* Surfaces. The desk is cool paper. A stage, a card, and a menu are white sheets on it. */
+	--background: #f4f5f9;
+	--foreground: #0b1033;
+	--card: #ffffff;
+	--card-foreground: #0b1033;
+	--popover: #ffffff;
+	--popover-foreground: #0b1033;
+	--secondary: #eceef5;
+	--secondary-foreground: #0b1033;
+	--muted: #eceef5;
+	/* 6:1 on the white sheet and 5.5:1 on the desk. */
+	--muted-foreground: #5b6080;
+	--accent: #eceef5;
+	--accent-foreground: #0b1033;
+	--border: #e2e4ee;
+	--input: #d5d8e6;
+	/* A darker red than the app. Small red text on its own tint keeps 4.9:1. */
+	--destructive: oklch(0.54 0.19 25);
+	--sand: #f9fafc;
+	--stone: #cdd0dd;
+	--ink-soft: #2a2f52;
+	--color-paper: #ffffff;
+
+	/* One family for the chrome. Geist Mono stays for code and data. */
+	--font-sans: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-grotesk: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	/* Geist is tighter than DM Sans, so it needs less negative tracking than the -0.025em of the app. */
+	letter-spacing: -0.011em;
+
+	/* Depth. The shadows are short and crisp: a control lifts 1 px, not 6 px. The ember key keeps the glow of the app. */
+	--depth-raised:
+		0 1px 2px rgb(11 16 51 / 0.06), 0 2px 6px -2px rgb(11 16 51 / 0.08);
+	--depth-key:
+		inset 0 1px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(11 16 51 / 0.3);
+}
+
+/* index.css sets the grotesk face on every English and French element. So a value on <html> alone does not reach them. */
+html[data-studio] :is(:lang(en), :lang(fr)) {
+	--font-grotesk: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The night studio: a deep navy desk. The main action keeps the dark ember of the app.
+   The second selector covers a `.dark` island in a light workspace, for example the preview boot screen. */
+html[data-studio].dark,
+html[data-studio] .dark {
+	--background: #080a1a;
+	--foreground: #eceef8;
+	--card: #10142a;
+	--card-foreground: #eceef8;
+	--popover: #161b36;
+	--popover-foreground: #eceef8;
+	--secondary: #181d3a;
+	--secondary-foreground: #dfe2f2;
+	--muted: #151a34;
+	--muted-foreground: #a0a5c0;
+	--accent: #1c2242;
+	--accent-foreground: #eceef8;
+	--border: rgb(255 255 255 / 0.09);
+	--input: rgb(255 255 255 / 0.14);
+	/* The dark red of the app. Without this line the light value above wins: `html[data-studio]` is stronger than `.dark`. */
+	--destructive: oklch(0.7 0.19 25);
+	--sand: #10142a;
+	--stone: #3a4066;
+	--ink-soft: #d5d8ea;
+	--depth-raised:
+		inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.4);
+	--depth-key: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 1px 2px rgb(0 0 0 / 0.4);
+}

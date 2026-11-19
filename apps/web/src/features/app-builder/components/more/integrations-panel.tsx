@@ -146,7 +146,7 @@ export function IntegrationsPanel({
 				<div className="flex items-center gap-3.5">
 					<span
 						aria-hidden
-						className="grid size-9 shrink-0 place-items-center rounded-full bg-night text-paper dark:bg-white/[0.08] dark:text-foreground"
+						className="grid size-9 shrink-0 place-items-center rounded-full bg-night/[0.06] text-night dark:bg-white/[0.08] dark:text-foreground"
 					>
 						<GithubLogoIcon weight="fill" className="size-[18px]" />
 					</span>
@@ -175,7 +175,7 @@ export function IntegrationsPanel({
 							{getApiErrorMessage(account.error)}
 						</p>
 					) : (
-						<Skeleton className="mt-5 h-10 rounded-full" />
+						<Skeleton className="mt-5 h-9 rounded-full" />
 					)
 				) : account.data.connected ? (
 					<CreateRepositoryForm project={project} account={account.data} />
@@ -249,7 +249,7 @@ function ConnectRow() {
 		>
 			<p className={PANEL_HINT_CLASS}>{t("appBuilder.github.connectHint")}</p>
 			<Button
-				className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+				className={PANEL_PRIMARY_BUTTON_CLASS}
 				disabled={isLeaving}
 				onClick={() => leave("authorize")}
 			>
@@ -347,11 +347,7 @@ function CreateRepositoryForm({
 								<SelectTrigger
 									id={ownerId}
 									dir="ltr"
-									className={cn(
-										PANEL_SECONDARY_BUTTON_CLASS,
-										// A field, not a button: no lift and no press.
-										"w-full rounded-full px-4 shadow-none active:translate-y-0 data-[size=default]:h-10",
-									)}
+									className={cn(PANEL_INPUT_CLASS, "w-full")}
 								>
 									<SelectValue />
 								</SelectTrigger>
@@ -410,7 +406,7 @@ function CreateRepositoryForm({
 						</label>
 						<Button
 							type="submit"
-							className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+							className={PANEL_PRIMARY_BUTTON_CLASS}
 							disabled={!isNameValid || create.isPending}
 						>
 							{t("appBuilder.github.create")}

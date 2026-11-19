@@ -83,7 +83,7 @@ export function DomainsPanel({ projectId, access }: DomainsPanelProps) {
 							"truncate text-night dark:text-foreground",
 							live
 								? "font-medium font-mono text-[13.5px]"
-								: "font-grotesk font-semibold text-[14px]",
+								: "font-grotesk font-medium text-[14px]",
 						)}
 						dir={live ? "ltr" : undefined}
 					>
@@ -115,7 +115,7 @@ export function DomainsPanel({ projectId, access }: DomainsPanelProps) {
 			)}
 			{isProjectWorkspaceActive ? (
 				<DomainsSection
-					// The white raised face of the other panel cards. The kit card is flat parchment, which fades into the sand ground.
+					// The face of the other panel cards: the same corner and the same hairline.
 					className={PANEL_CARD_CLASS}
 					projectId={projectId}
 					isPublished={live !== null}

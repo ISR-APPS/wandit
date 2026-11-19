@@ -1,5 +1,5 @@
 /**
- * SQL console of the Database panel: a monospace editor card with a Run
+ * SQL console of the Database panel: a monospace editor field with a Run
  * button in its footer. rows-grid.tsx shows the result. A write statement
  * opens a confirm dialog before it posts. Rendered by database-panel.tsx.
  * Posts through useRunSql. `classifySql` sorts the statements, as on the
@@ -32,15 +32,12 @@ import { isApiClientError } from "@/lib/api-client";
 import { formatNumber, useTranslation } from "@/lib/i18n";
 import { useRunSql } from "../../api/cloud.mutations";
 import type { runSql } from "../../api/cloud.services";
-import {
-	PANEL_CARD_CLASS,
-	PANEL_PRIMARY_BUTTON_CLASS,
-} from "../more/panel-shell";
+import { PANEL_PRIMARY_BUTTON_CLASS } from "../more/panel-shell";
 import { RowsGrid } from "./rows-grid";
 
 /** Note line under the console: the row count and the row-limit note. */
 const SQL_NOTE_CLASS =
-	"px-1 font-grotesk text-[13px] text-night/55 tabular-nums dark:text-foreground/55";
+	"px-1 font-grotesk text-night/55 text-xs tabular-nums dark:text-foreground/55";
 
 /** Props of SqlEditor. `postSql` is the one test seam; the database panel passes only the project. */
 export type SqlEditorProps = {
@@ -88,13 +85,8 @@ export function SqlEditor({ projectId, postSql }: SqlEditorProps) {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-4">
-			{/* The editor and its footer are one card. Its ring lights up while the editor has focus. */}
-			<div
-				className={cn(
-					PANEL_CARD_CLASS,
-					"overflow-hidden transition-shadow focus-within:border-primary/40 focus-within:ring-[3px] focus-within:ring-primary/15",
-				)}
-			>
+			{/* The editor and its footer are one flat field. Its border and its ring turn ember while the editor has focus. */}
+			<div className="overflow-hidden rounded-[20px] border border-night/[0.12] bg-white transition-shadow focus-within:border-primary/40 focus-within:ring-[3px] focus-within:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.04]">
 				<Textarea
 					dir="ltr"
 					aria-label={t("workspace.cloud.database.sql.label")}
@@ -102,15 +94,15 @@ export function SqlEditor({ projectId, postSql }: SqlEditorProps) {
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
 					spellCheck={false}
-					className="min-h-40 resize-y rounded-none border-0 bg-transparent px-4 py-3.5 font-mono text-[13px] leading-relaxed shadow-none placeholder:text-night/35 focus-visible:ring-0 md:text-[13px] dark:bg-transparent dark:placeholder:text-foreground/35"
+					className="min-h-40 resize-y rounded-none border-0 bg-transparent px-4 py-3.5 font-mono text-[13px] leading-relaxed shadow-none placeholder:text-night/40 focus-visible:ring-0 md:text-[13px] dark:bg-transparent dark:placeholder:text-foreground/40"
 				/>
-				<div className="flex min-h-12 items-center justify-between gap-3 border-night/[0.07] border-t py-1.5 ps-4 pe-1.5 dark:border-white/[0.07]">
+				<div className="flex min-h-11 items-center justify-between gap-3 border-night/[0.07] border-t py-1.5 ps-4 pe-1.5 dark:border-white/[0.07]">
 					<p className="font-sans text-[13px] text-night/50 leading-snug dark:text-foreground/50">
 						{run.isIdle ? t("workspace.cloud.database.sql.hint") : null}
 					</p>
 					<Button
-						// The card clips 6 px under the button, so the ember glow is off here.
-						className={cn(PANEL_PRIMARY_BUTTON_CLASS, "shadow-none")}
+						// 32 px: the footer is a bar inside the field. The field clips 6 px under the button, so the ember glow is off.
+						className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-8 shadow-none")}
 						onClick={runDraft}
 						disabled={run.isPending || draft.trim() === ""}
 					>

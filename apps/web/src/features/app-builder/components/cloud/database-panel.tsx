@@ -354,7 +354,7 @@ function TableRows({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
-			<div className="flex min-h-10 items-center gap-2">
+			<div className="flex min-h-8 items-center gap-2">
 				<Button
 					variant="outline"
 					size="sm"
@@ -374,7 +374,7 @@ function TableRows({
 				</span>
 				<span
 					dir="ltr"
-					className="truncate font-mono font-semibold text-[13px] text-night dark:text-foreground"
+					className="truncate font-medium font-mono text-[13px] text-night dark:text-foreground"
 				>
 					{table.name}
 				</span>
