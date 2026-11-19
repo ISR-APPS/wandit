@@ -129,6 +129,7 @@ export const manualSubscriptionPaymentKind = pgEnum(
 	["initial", "renewal"],
 );
 
+/** One row (`id = 1`) of admin switches and amounts. `version` is the optimistic lock of the admin PATCH. */
 export const productSettings = pgTable(
 	"product_settings",
 	{
@@ -168,6 +169,22 @@ export const productSettings = pgTable(
 		// V2 app builder kill switch. The V2 guard reads it together with the
 		// PostHog flag per user.
 		v2BuilderEnabled: boolean("v2_builder_enabled").notNull().default(false),
+		// User referral program kill switch. Off: no claim, no summary, and the sweep pays nothing.
+		userReferralsEnabled: boolean("user_referrals_enabled")
+			.notNull()
+			.default(false),
+		// UNIT: centi-credits (1000 cc = 10 credits). The bonus of the invited friend.
+		userReferralFriendCredits: integer("user_referral_friend_credits")
+			.notNull()
+			.default(1000),
+		// UNIT: centi-credits. The reward of the referrer when the friend builds.
+		userReferralActivationCredits: integer("user_referral_activation_credits")
+			.notNull()
+			.default(1000),
+		// UNIT: centi-credits (10000 cc = 100 credits). The reward of the referrer when the friend pays.
+		userReferralPaidCredits: integer("user_referral_paid_credits")
+			.notNull()
+			.default(10_000),
 		manualGraceDays: integer("manual_grace_days").notNull().default(0),
 		// Hundredths of a DZD per 1 USD (27000 = 270.00 DZD/USD).
 		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull().default(27_000),
@@ -193,6 +210,19 @@ export const productSettings = pgTable(
 		check(
 			"product_settings_dzd_per_usd_rate_range_ck",
 			sql`${table.dzdPerUsdRate} > 0 AND ${table.dzdPerUsdRate} <= 1000000`,
+		),
+		// 1 to 10000 whole credits, in centi-credits. Zero is not a legal amount.
+		check(
+			"product_settings_user_referral_friend_credits_range_ck",
+			sql`${table.userReferralFriendCredits} > 0 AND ${table.userReferralFriendCredits} <= 1000000`,
+		),
+		check(
+			"product_settings_user_referral_activation_credits_range_ck",
+			sql`${table.userReferralActivationCredits} > 0 AND ${table.userReferralActivationCredits} <= 1000000`,
+		),
+		check(
+			"product_settings_user_referral_paid_credits_range_ck",
+			sql`${table.userReferralPaidCredits} > 0 AND ${table.userReferralPaidCredits} <= 1000000`,
 		),
 	],
 );

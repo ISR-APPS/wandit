@@ -194,7 +194,12 @@
 		"tooLargeTitle": "File too large",
 		"missingTitle": "File not found",
 		"loadFailedHint": "Wait a moment, then try again.",
-		"reloadHint": "Reload the page to try again."
+		"reloadHint": "Reload the page to try again.",
+		"download": {
+			"title": "Download code",
+			"hint": "A .tar.gz file of the latest saved version. It opens on macOS, Windows 11, and Linux.",
+			"button": "Download"
+		}
 	},
 	"moreNavAriaLabel": "App sections",
 	"soon": "Soon",
@@ -412,12 +417,38 @@
 		"private": "Private repository",
 		"privateHelp": "Only you and the people you add on GitHub can see it.",
 		"create": "Create repository",
-		"lastSynced": "Last sync: {sha}",
-		"neverSynced": "Not synced yet.",
 		"unlink": "Unlink repository",
 		"unlinkConfirmTitle": "Unlink {repo}?",
 		"unlinkConfirmBody": "Wandit stops the sync. The repository and its commits stay on GitHub.",
 		"cancel": "Cancel",
+		"connection": {
+			"title": "Repository connection",
+			"repository": "Repository",
+			"branch": "Branch",
+			"branchInfo": "Wandit syncs the main branch only.",
+			"connected": "Connected",
+			"syncError": "Sync error",
+			"openOnGithub": "Open on GitHub"
+		},
+		"sync": {
+			"recheck": "Re-check",
+			"inSyncTitle": "In sync with GitHub",
+			"inSyncText": "Wandit and GitHub are on the same commit.",
+			"pushPendingTitle": "Sending changes to GitHub",
+			"pushPendingText": "Wandit has new changes. They reach GitHub in a moment.",
+			"firstSyncTitle": "First sync in progress",
+			"firstSyncText": "Wandit sends the code of this project to the repository.",
+			"updateTitle": "GitHub has new commits",
+			"updateText": "This project does not have these commits yet.",
+			"lastSynced": "Last synced {time}",
+			"checked": "Checked {time}"
+		},
+		"clone": {
+			"title": "Clone repository",
+			"command": "Clone command",
+			"copy": "Copy the command",
+			"copied": "Copied"
+		},
 		"notes": {
 			"mainOnly": "Only the main branch syncs, in both directions.",
 			"githubWins": "When both sides change the same lines, the GitHub version wins.",
@@ -553,6 +584,17 @@
 		"showMore": "Show more",
 		"showLess": "Show less",
 		"showImage": "Show image {number} in full",
+		"sources": {
+			"one": "{count} source",
+			"other": "{count} sources"
+		},
+		"followUps": "Follow-ups",
+		"openLink": {
+			"title": "Open this link?",
+			"body": "The page opens in a new tab. Check the address first.",
+			"confirm": "Open link",
+			"cancel": "Cancel"
+		},
 		"placeholder": "Ask Wandit…",
 		"attach": "Attach a file",
 		"estimate": {

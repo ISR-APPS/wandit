@@ -35,6 +35,10 @@
 		"expire": "Credits expired",
 		"revoke": "Credits reversed"
 	},
+	"ledgerReasons": {
+		"user_referral_friend_bonus": "Invite bonus",
+		"user_referral_reward": "Referral reward"
+	},
 	"activityOperations": {
 		"chat": "AI message",
 		"page_build": "Page build",
@@ -51,6 +55,7 @@
 		"app_ai_gateway": "App AI call",
 		"desktop_build": "Desktop app build",
 		"theme_design": "Theme design",
+		"web_search": "Web search",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {

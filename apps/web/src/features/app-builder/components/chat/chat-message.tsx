@@ -1,5 +1,5 @@
 /**
- * One message of the builder thread. A user message is a cream bubble at
+ * One message of the builder thread. A user message is a soft ink bubble at
  * the end side; a long one folds, with a Show more button. Its files sit
  * above it, and the chips of its preview picks sit above the files. An
  * assistant message starts with the Wandit byline.
@@ -12,7 +12,10 @@
  * the error with Retry, the stopped line, and the receipt. The receipt shows
  * the cache counts only outside production. The developer view (local dev
  * only) renders every part in stream order, with the thinking text. A footer
- * ends a reply: the Copy action when it has a final answer, then the receipt. Rendered by
+ * ends a reply: the Copy action when it has a final answer, the web sources
+ * button, then the receipt. In the answer, a link to a source site shows as
+ * a chip (message-sources.tsx). The last finished reply can end with its
+ * follow-up ideas (follow-up-list.tsx). Rendered by
  * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
@@ -40,12 +43,19 @@ import type {
 	BuilderDataParts,
 	BuilderMessage,
 	BuilderMessagePart,
+	BuilderSource,
 } from "../../api/dto";
 import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
+import { FollowUpList } from "./follow-up-list";
 import { MessageActions } from "./message-actions";
-import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
+import { CARD_SECONDARY_BUTTON_CLASS } from "./message-card";
+import {
+	MessageSourcesContext,
+	SOURCE_LINK_COMPONENTS,
+	SourcesButton,
+} from "./message-sources";
 import { PlanCard } from "./plan-card";
 import { QuestionReceipt } from "./question-receipt";
 import { SecurityReportCard } from "./security-report-card";
@@ -65,9 +75,9 @@ const showsCacheTokens =
 // About 24 lines in the bubble. A shorter message shows in full, as before.
 const USER_TEXT_FOLD_MIN_LENGTH = 1_200;
 
-// Full cream, not a tint: a lighter cream fades into the sand desk.
+// A soft ink tint with no border and no shadow. The small end corner points at the sender side.
 const USER_BUBBLE_CLASS =
-	"max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground";
+	"max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-night/[0.06] px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.08] dark:text-foreground";
 
 /** The text bubble of a user message. A text over `USER_TEXT_FOLD_MIN_LENGTH` chars folds to 12 lines. */
 function UserTextBubble({ text }: { text: string }) {
@@ -87,7 +97,7 @@ function UserTextBubble({ text }: { text: string }) {
 				type="button"
 				aria-expanded={isExpanded}
 				onClick={() => setIsExpanded((current) => !current)}
-				className="mt-1 rounded-sm font-grotesk font-semibold text-[13px] text-night/60 underline-offset-2 outline-none transition-colors hover:text-night hover:underline focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/60 dark:hover:text-foreground"
+				className="mt-1 rounded-sm font-grotesk font-medium text-[13px] text-night/60 underline-offset-2 outline-none transition-colors hover:text-night hover:underline focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/60 dark:hover:text-foreground"
 			>
 				{t(
 					isExpanded ? "appBuilder.chat.showLess" : "appBuilder.chat.showMore",
@@ -116,6 +126,11 @@ export type ChatMessageViewProps = {
 	onRetry?: () => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
 	onOpenSecrets?: () => void;
+	/**
+	 * Sends one follow-up idea as the next user message. Set only on the last
+	 * reply when it ended and the user can send; absent hides the ideas.
+	 */
+	onSendFollowUp?: (text: string) => void;
 };
 
 /** One thread message: the user bubble, or the byline and the parts of a reply, in the production or the developer view. */
@@ -129,6 +144,7 @@ export function ChatMessageView({
 	trayQuestionKey,
 	onRetry,
 	onOpenSecrets,
+	onSendFollowUp,
 }: ChatMessageViewProps) {
 	if (message.role === "user") {
 		const text = textOf(message.parts);
@@ -166,6 +182,12 @@ export function ChatMessageView({
 	const finalText = textOf(message.parts);
 	// The receipt leaves the stream order: it closes the reply in the footer, next to Copy.
 	const receipt = message.parts.find((part) => part.type === "data-receipt");
+	const sources =
+		message.parts.find((part) => part.type === "data-sources")?.data.sources ??
+		[];
+	const followUps = message.parts.find(
+		(part) => part.type === "data-follow-ups",
+	)?.data.followUps;
 	const partView = (part: BuilderMessagePart, key: string) => (
 		<MessagePartView
 			key={key}
@@ -175,6 +197,7 @@ export function ChatMessageView({
 			onOpenSecurityReport={onOpenSecurityReport}
 			trayQuestionKey={trayQuestionKey}
 			onRetry={onRetry}
+			sources={sources}
 		/>
 	);
 
@@ -236,14 +259,20 @@ export function ChatMessageView({
 					})}
 				</>
 			)}
-			{finalText.trim() !== "" || receipt !== undefined ? (
+			{finalText.trim() !== "" ||
+			sources.length > 0 ||
+			receipt !== undefined ? (
 				// min-h-7 is the height of the Copy button, so a footer with only the receipt keeps the same line.
 				<div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
 					{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
+					{sources.length > 0 ? <SourcesButton sources={sources} /> : null}
 					{receipt !== undefined ? (
 						<ReceiptLine receipt={receipt.data} />
 					) : null}
 				</div>
+			) : null}
+			{followUps !== undefined && onSendFollowUp !== undefined ? (
+				<FollowUpList followUps={followUps} onSend={onSendFollowUp} />
 			) : null}
 		</div>
 	);
@@ -251,9 +280,9 @@ export function ChatMessageView({
 
 /**
  * The production pill that opens the details panel, for example "Worked
- * for 1 min · 6 files changed ›". A raised white pill, so it reads as the
- * one thing to click in a reply. Null when the reply has no step, no note,
- * no thought, and no summary.
+ * for 1 min · 6 files changed ›". A white pill with a hairline, so it
+ * reads as the one thing to click in a reply. Null when the reply has no
+ * step, no note, no thought, and no summary.
  */
 function SummaryLine({
 	message,
@@ -265,7 +294,7 @@ function SummaryLine({
 		<button
 			type="button"
 			onClick={() => onOpenActivity(message.id)}
-			className="group flex h-9 max-w-full items-center gap-2 self-start rounded-full border border-night/[0.08] bg-white ps-1.5 pe-3 text-start font-grotesk font-medium text-[13px] text-night/80 shadow-raised outline-none transition-[color,border-color] duration-150 hover:border-night/[0.16] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 active:translate-y-px dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-foreground/80 dark:hover:border-white/[0.16] dark:hover:text-foreground"
+			className="group flex h-8 max-w-full items-center gap-2 self-start rounded-full border border-night/[0.08] bg-white ps-1 pe-2.5 text-start font-grotesk font-medium text-[13px] text-night/80 outline-none transition-[color,border-color] duration-150 hover:border-night/[0.16] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 active:translate-y-px dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-foreground/80 dark:hover:border-white/[0.16] dark:hover:text-foreground"
 		>
 			<span
 				aria-hidden
@@ -329,8 +358,9 @@ function ImageStrip({
 /**
  * One part of an assistant message outside the feed rows. Both views use
  * it; the production view never passes a note or a summary. The receipt
- * shows in the reply footer (ReceiptLine), so it renders nothing here. A
- * part type this switch does not know also renders nothing.
+ * and the sources show in the reply footer, and the follow-ups under it, so
+ * they render nothing here. A part type this switch does not know also
+ * renders nothing. A link to a source site in a text renders as a chip.
  */
 function MessagePartView({
 	part,
@@ -339,6 +369,7 @@ function MessagePartView({
 	onOpenSecurityReport,
 	trayQuestionKey,
 	onRetry,
+	sources,
 }: Pick<
 	ChatMessageViewProps,
 	| "onDecideApproval"
@@ -348,15 +379,25 @@ function MessagePartView({
 	| "onRetry"
 > & {
 	part: BuilderMessagePart;
+	/** The `data-sources` pages of the reply; empty when it made no web search. */
+	sources: BuilderSource[];
 }) {
 	const { t, locale } = useTranslation();
 	switch (part.type) {
 		case "text":
 		case "data-note":
 			return (
-				<Streamdown dir="auto" className={PROSE_CLASS}>
-					{part.type === "text" ? part.text : part.data.text}
-				</Streamdown>
+				<MessageSourcesContext.Provider value={sources}>
+					<Streamdown
+						dir="auto"
+						className={PROSE_CLASS}
+						// Without sources, Streamdown keeps its own link. With sources, the override
+						// adds the chips and keeps the open-link confirm on every link.
+						components={sources.length > 0 ? SOURCE_LINK_COMPONENTS : undefined}
+					>
+						{part.type === "text" ? part.text : part.data.text}
+					</Streamdown>
+				</MessageSourcesContext.Provider>
 			);
 		case "data-summary":
 			return (
@@ -437,7 +478,7 @@ function MessagePartView({
 								variant="outline"
 								size="sm"
 								onClick={onRetry}
-								className={cn("mt-2", CARD_SECONDARY_PILL_CLASS)}
+								className={cn("mt-2", CARD_SECONDARY_BUTTON_CLASS)}
 							>
 								{/* The arrow turns back against the reading direction, so it mirrors in RTL. */}
 								<ArrowCounterClockwiseIcon
@@ -538,7 +579,7 @@ function ReceiptLine({
 }) {
 	const { t, locale } = useTranslation();
 	return (
-		<p className="flex min-w-0 items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">
+		<p className="flex min-w-0 items-center gap-1.5 font-grotesk text-[12px] text-night/45 tabular-nums dark:text-foreground/45">
 			<LightningIcon
 				weight="fill"
 				className="size-3 shrink-0 text-spark"
@@ -577,7 +618,7 @@ export function AssistantByline() {
 			<span className="grid size-6 shrink-0 place-items-center rounded-[8px] bg-night shadow-key dark:shadow-none dark:ring-1 dark:ring-white/10">
 				<Spark className="size-3.5 text-spark" />
 			</span>
-			<span className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
+			<span className="font-grotesk font-medium text-[13px] text-night dark:text-foreground">
 				Wandit
 			</span>
 		</div>
@@ -605,7 +646,7 @@ const PROSE_CLASS = cn(
 	// Inline code is a chip. The clone keeps the chip ends on each line of a wrapped value.
 	"[&_[data-streamdown=inline-code]]:rounded-md [&_[data-streamdown=inline-code]]:bg-night/[0.06] [&_[data-streamdown=inline-code]]:box-decoration-clone [&_[data-streamdown=inline-code]]:px-1.5 [&_[data-streamdown=inline-code]]:py-0.5 [&_[data-streamdown=inline-code]]:font-mono [&_[data-streamdown=inline-code]]:text-[0.85em] [&_[data-streamdown=inline-code]]:text-night [&_[data-streamdown=inline-code]]:[overflow-wrap:anywhere] dark:[&_[data-streamdown=inline-code]]:bg-white/[0.08] dark:[&_[data-streamdown=inline-code]]:text-foreground",
 	"[&_[data-streamdown=link]:hover]:decoration-ember [&_[data-streamdown=link]]:font-medium [&_[data-streamdown=link]]:text-ember-text [&_[data-streamdown=link]]:decoration-ember/30 [&_[data-streamdown=link]]:underline-offset-2",
-	// Code blocks and tables sit in a white hairline card, like the message cards on the sand desk.
+	// Code blocks and tables sit in a white hairline card, like the message cards on the desk.
 	"[&_[data-streamdown=code-block]]:my-0 [&_[data-streamdown=code-block]]:rounded-[16px] [&_[data-streamdown=code-block]]:border-night/[0.08] [&_[data-streamdown=code-block]]:bg-white dark:[&_[data-streamdown=code-block]]:border-white/[0.08] dark:[&_[data-streamdown=code-block]]:bg-white/[0.04]",
 	"[&_[data-streamdown=table-wrapper]]:my-0 [&_[data-streamdown=table-wrapper]]:rounded-[16px] [&_[data-streamdown=table-wrapper]]:border-night/[0.08] [&_[data-streamdown=table-wrapper]]:bg-white dark:[&_[data-streamdown=table-wrapper]]:border-white/[0.08] dark:[&_[data-streamdown=table-wrapper]]:bg-white/[0.04]",
 	// The outer card is the one frame: the code body, the table box, and the table lose their own border and fill.

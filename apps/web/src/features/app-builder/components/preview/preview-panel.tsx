@@ -37,9 +37,10 @@ import { PreviewBootScreen } from "./preview-boot-screen";
 const PREVIEW_IFRAME_SANDBOX =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-modals";
 
-// The amber pill of the device card in device-panel.tsx. It reads on the night ground in both themes.
+// The button of the error overlay: Retry, or the link to a new tab. It has the look of the amber button of the device card in device-panel.tsx.
+// The overlay is night in both themes, so the button is amber with navy text. The kit gives the corner.
 const ALERT_BUTTON_CLASS =
-	"bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90";
+	"bg-spark px-4 font-grotesk font-medium text-[13px] text-night shadow-key hover:bg-spark/90 active:translate-y-px";
 
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {

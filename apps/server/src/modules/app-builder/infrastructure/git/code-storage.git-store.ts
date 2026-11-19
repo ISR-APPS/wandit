@@ -6,13 +6,15 @@
  * `mobile-build` task gets a "read" credential here to fetch one commit,
  * and the `github-sync` task gets the "push-github-mirror" credential.
  * The theme service reads one committed file through `readFile`. The Code
- * view service reads the committed tree, the archive, and one file here.
+ * view service reads the committed tree, the archive, one file, and the
+ * Download archive here.
  */
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { codeStorageFileListResponseSchema } from "@wandit/contracts";
 
 import { GitFileTooLargeError } from "../../domain/errors/git-file-too-large.error";
 import type {
+	GitArchiveDownload,
 	GitArchiveFiles,
 	GitCredentialAccess,
 	GitFileReader,
@@ -66,6 +68,12 @@ const REPO_WRITE_TOKEN_TTL_SECONDS = 300;
 // One read token serves every retry: 4 attempts of up to 30 s and 3 waits
 // of up to 60 s fit in 300 s. The token never leaves the API process.
 const FILE_READ_TOKEN_TTL_SECONDS = 300;
+// The download read token: 2 attempts of up to 60 s and 1 wait of up to
+// 60 s fit in 240 s.
+const DOWNLOAD_TOKEN_TTL_SECONDS = 240;
+// 2 attempts for a download. The worst case (60 s + 60 s wait + 60 s) stays
+// under the 5 min cut of the web client, so the user gets the error.
+const DOWNLOAD_MAX_ATTEMPTS = 2;
 // At most 4 attempts per call: one try plus three retries.
 const MAX_ATTEMPTS = 4;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
@@ -84,6 +92,13 @@ const ARCHIVE_MAX_TAR_BYTES = 16 * 1024 * 1024;
 // 5 s for the one archive attempt. A template archive takes about 0.2 s.
 // The Code view tree waits for the archive, so a slow archive must not hold it.
 const ARCHIVE_TIMEOUT_MS = 5_000;
+// 50 MB of gzip for the Download button. A template archive is about 0.2 MB,
+// so the ceiling leaves room for many committed images.
+// LIMIT: the API holds the whole archive in memory before it answers.
+// Upgrade: stream the body to the reply.
+const DOWNLOAD_MAX_GZIP_BYTES = 50 * 1024 * 1024;
+// 60 s for one download attempt, body included. 50 MB at 1 MB/s takes 50 s.
+const DOWNLOAD_TIMEOUT_MS = 60_000;
 // 8 MB of `/repos/files` JSON. 5000 entries with paths of 500 characters
 // are about 5 MB. The cap stops a bad answer from filling the API memory.
 const FILE_LIST_MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -319,11 +334,51 @@ export class CodeStorageGitStore implements GitStore, GitFileReader {
 		return regularArchiveFiles(response.body);
 	}
 
-	// One read token serves every retry of one call; see `FILE_READ_TOKEN_TTL_SECONDS`.
-	private readToken(projectId: string): Promise<string> {
+	/**
+	 * `POST /repos/archive` with a `git:read` JWT: the raw tar.gz at `ref`,
+	 * with `prefix` before each path. Over `DOWNLOAD_MAX_GZIP_BYTES`, it
+	 * answers "overCeiling" and stops the read. A 429, a 5xx, a timeout, or a
+	 * network error gets one retry. Any other failure throws `GitStoreError`.
+	 */
+	async downloadArchive(
+		projectId: string,
+		ref: string,
+		excludeGlobs: string[],
+		prefix: string,
+	): Promise<GitArchiveDownload> {
+		const token = await this.readToken(projectId, DOWNLOAD_TOKEN_TTL_SECONDS);
+		const response = await this.request("POST", "/repos/archive", token, {
+			answersBytes: true,
+			body: JSON.stringify({
+				archive: { prefix },
+				exclude_globs: excludeGlobs,
+				ref,
+			}),
+			maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+			maxBodyBytes: DOWNLOAD_MAX_GZIP_BYTES,
+			timeoutMs: DOWNLOAD_TIMEOUT_MS,
+		});
+		if (response.body === "overCeiling") {
+			return { kind: "overCeiling" };
+		}
+		if (!response.ok || response.body === null) {
+			throw new GitStoreError(
+				`code.storage archive download failed (${response.status})`,
+				response.status,
+				response.detail,
+			);
+		}
+		return { bytes: response.body, kind: "archive" };
+	}
+
+	// One read token serves every retry of one call. `ttlSeconds` covers the retries of that call.
+	private readToken(
+		projectId: string,
+		ttlSeconds = FILE_READ_TOKEN_TTL_SECONDS,
+	): Promise<string> {
 		return this.mint(["git:read"], {
 			repoName: codeStorageRepoName(projectId),
-			ttlSeconds: FILE_READ_TOKEN_TTL_SECONDS,
+			ttlSeconds,
 		});
 	}
 

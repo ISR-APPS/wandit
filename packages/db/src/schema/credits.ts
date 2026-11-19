@@ -60,6 +60,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"desktop_build",
 	// One AI theme design of the builder Thème sheet, billed from the model tokens.
 	"theme_design",
+	// One Exa web search of a V2 builder turn, at a fixed price, under the turn hold.
+	"web_search",
 	"topup_adjust",
 ]);
 

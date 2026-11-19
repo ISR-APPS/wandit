@@ -196,21 +196,38 @@ export class CreditsRepository {
 			from ${creditLedger}
 			where ${creditLedger.userId} = ${userId}
 				and ${creditLedger.organizationId} is null
-				and (
-					${creditLedger.kind} = 'consume'
-					or (
-						${creditLedger.kind} = 'grant'
-						and (
-							${creditLedger.idempotencyKey} like 'settle-refund:%'
-							or ${creditLedger.idempotencyKey} like 'reconcile-refund:%'
-							or ${creditLedger.idempotencyKey} like 'refund:%'
-						)
-					)
-				)
+				and ${this.netConsumptionRowPredicate()}
 		`);
 		const row = result.rows[0] as { total?: unknown } | undefined;
 
 		return Number(row?.total ?? 0);
+	}
+
+	/**
+	 * Settled net consumption of the personal pools of `userIds`, in integer centi-credits.
+	 * A user with an in-flight hold on the personal pool is absent, and so is a user with no consumption.
+	 * The user referral sweep calls it through CreditsService to find the friends that built.
+	 */
+	async settledNetConsumedCentiCreditsByUser(
+		userIds: string[],
+	): Promise<Map<string, number>> {
+		const consumedByUser = new Map<string, number>();
+
+		// An empty id list makes an empty IN list. No user means no query.
+		if (userIds.length === 0) {
+			return consumedByUser;
+		}
+
+		const rows = await this.buildSettledNetConsumedQuery(userIds);
+
+		for (const row of rows) {
+			// The personal filter keeps only rows with a user id. The column type stays nullable.
+			if (row.userId !== null) {
+				consumedByUser.set(row.userId, row.total);
+			}
+		}
+
+		return consumedByUser;
 	}
 
 	/**
@@ -827,17 +844,67 @@ export class CreditsRepository {
 	// the actor in user_id.
 	private usageEventOwnerPredicate(owner: CreditOwner) {
 		return owner.type === "user"
-			? and(
-					isNull(aiUsageEvents.organizationId),
-					or(
-						and(
-							eq(aiUsageEvents.userId, owner.userId),
-							isNull(aiUsageEvents.payerUserId),
-						),
-						eq(aiUsageEvents.payerUserId, owner.userId),
-					),
-				)
+			? this.personalUsageEventPredicate(owner.userId)
 			: eq(aiUsageEvents.organizationId, owner.organizationId);
+	}
+
+	// The personal branch of usageEventOwnerPredicate. `payerUserId` is one user id,
+	// or the `credit_ledger.user_id` column when a batch query correlates each ledger row.
+	private personalUsageEventPredicate(
+		payerUserId: string | typeof creditLedger.userId,
+	) {
+		return and(
+			isNull(aiUsageEvents.organizationId),
+			or(
+				and(
+					eq(aiUsageEvents.userId, payerUserId),
+					isNull(aiUsageEvents.payerUserId),
+				),
+				eq(aiUsageEvents.payerUserId, payerUserId),
+			),
+		);
+	}
+
+	// The ledger rows that make net consumption. They are each consume row, and each grant
+	// that gives a reserve back (settle, reconcile, failure refund). See netConsumedCentiCredits.
+	private netConsumptionRowPredicate() {
+		return sql`(
+			${creditLedger.kind} = 'consume'
+			or (
+				${creditLedger.kind} = 'grant'
+				and (
+					${creditLedger.idempotencyKey} like 'settle-refund:%'
+					or ${creditLedger.idempotencyKey} like 'reconcile-refund:%'
+					or ${creditLedger.idempotencyKey} like 'refund:%'
+				)
+			)
+		)`;
+	}
+
+	// Kept as a builder so specs can assert the compiled SQL.
+	private buildSettledNetConsumedQuery(userIds: string[]) {
+		return this.db
+			.select({
+				total: sql<number>`coalesce(-sum(${creditLedger.delta}), 0)::int`,
+				userId: creditLedger.userId,
+			})
+			.from(creditLedger)
+			.where(
+				and(
+					inArray(creditLedger.userId, userIds),
+					// Personal pools only: an org row keeps the acting member in user_id.
+					isNull(creditLedger.organizationId),
+					this.netConsumptionRowPredicate(),
+					// A reserve is a consume row before the turn ends. A user with an open hold
+					// is left out, so a turn that fails later never counts as credits used.
+					sql`not exists (
+						select 1 from ${aiUsageEvents}
+						where ${this.inflightUsageEventPredicate()}
+							and ${this.personalUsageEventPredicate(creditLedger.userId)}
+					)`,
+				),
+			)
+			.groupBy(creditLedger.userId);
 	}
 
 	// An event whose reserve debit is still the only ledger movement. A

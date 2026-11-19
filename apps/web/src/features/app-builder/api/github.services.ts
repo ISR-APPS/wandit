@@ -1,12 +1,14 @@
 /**
  * Data layer of the GitHub sync of a V2 project: the GitHub account of the
- * user, the link of one project, and the Update pull. Each function calls one
- * route of `appBuilderRoutes` through `@/lib/api-client` and parses the answer
- * with its schema from `packages/contracts/src/v2/github.ts`.
- * Called by github.queries.ts and github.mutations.ts.
+ * user, the link of one project, the Re-check, the Update pull, and the code
+ * download. Each function calls one route of `appBuilderRoutes` through
+ * `@/lib/api-client`. It parses a JSON answer with its schema from
+ * `packages/contracts/src/v2/github.ts`. Called by github.queries.ts and github.mutations.ts.
  */
 
 import {
+	type ApiErrorResponse,
+	apiErrorResponseSchema,
 	appBuilderRoutes,
 	type CreateGithubRepositoryBody,
 	type GithubAccountResponse,
@@ -21,6 +23,8 @@ import {
 	projectGithubStatusResponseSchema,
 } from "@wandit/contracts";
 
+import type { AxiosResponseHeaders } from "axios";
+
 import { apiClient } from "@/lib/api-client";
 
 /**
@@ -29,6 +33,18 @@ import { apiClient } from "@/lib/api-client";
  * while the API still works, and the preview then does not reload.
  */
 const GITHUB_PULL_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * 5 min for the archive download. The shared 60 s cut can stop a large
+ * archive on a slow connection before the last byte arrives.
+ */
+const CODE_ARCHIVE_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * 40 s, the delay of FileSaver.js. Some browsers read the object URL after
+ * the click returns, so an immediate revoke can cancel the download.
+ */
+const OBJECT_URL_REVOKE_DELAY_MS = 40_000;
 
 /**
  * `GET /api/v2/github/account`: the GitHub login of the user and the App
@@ -62,6 +78,20 @@ export async function getProjectGithubStatus(
 	projectId: string,
 ): Promise<ProjectGithubStatusResponse> {
 	const data = await apiClient.get<unknown>(appBuilderRoutes.github(projectId));
+	return projectGithubStatusResponseSchema.parse(data);
+}
+
+/**
+ * `POST /api/v2/projects/:id/github/check`: the Re-check button. The API reads
+ * the GitHub head now and answers the new status. Within 10 s of the last read,
+ * it skips the read and answers the current status.
+ */
+export async function recheckGithub(
+	projectId: string,
+): Promise<ProjectGithubStatusResponse> {
+	const data = await apiClient.post<unknown>(
+		appBuilderRoutes.githubCheck(projectId),
+	);
 	return projectGithubStatusResponseSchema.parse(data);
 }
 
@@ -101,4 +131,65 @@ export async function pullFromGithub(
 		{ timeout: GITHUB_PULL_TIMEOUT_MS },
 	);
 	return githubPullResponseSchema.parse(data);
+}
+
+/**
+ * Axios response transform of the archive download. The request reads raw
+ * bytes, so an API error envelope arrives as bytes too. This function decodes
+ * that envelope, so BaseService keeps its code, for example CODE_ARCHIVE_EMPTY.
+ * A good answer and a body that is not an envelope keep their bytes.
+ */
+export function decodeCodeArchiveError(
+	body: ArrayBuffer,
+	_headers: AxiosResponseHeaders,
+	status: number | undefined,
+): ArrayBuffer | ApiErrorResponse {
+	// A 2xx answer is the archive itself. Without a status, nothing tells an error, so the bytes stay.
+	if (status === undefined || (status >= 200 && status < 300)) {
+		return body;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(new TextDecoder().decode(body));
+	} catch {
+		// A body that is not JSON, for example a proxy error page, keeps its bytes.
+		// BaseService then shows the generic text for its HTTP_<status> code.
+		return body;
+	}
+	const envelope = apiErrorResponseSchema.safeParse(parsed);
+	return envelope.success ? envelope.data : body;
+}
+
+/**
+ * `GET /api/v2/projects/:id/code/archive`: the committed `main` code as one
+ * tar.gz file. Saves it as `fileName` through a temporary `<a download>`.
+ * An empty project answers 404 CODE_ARCHIVE_EMPTY, a too large one 413 CODE_ARCHIVE_TOO_LARGE.
+ */
+export async function downloadProjectCode(
+	projectId: string,
+	fileName: string,
+): Promise<void> {
+	const body = await apiClient.get<unknown>(
+		appBuilderRoutes.codeArchive(projectId),
+		{
+			responseType: "arraybuffer",
+			transformResponse: decodeCodeArchiveError,
+			timeout: CODE_ARCHIVE_TIMEOUT_MS,
+			headers: { Accept: "application/gzip, application/json" },
+		},
+	);
+	if (!(body instanceof ArrayBuffer)) {
+		throw new Error("The code archive answer is not a binary file.");
+	}
+	const url = URL.createObjectURL(
+		new Blob([body], { type: "application/gzip" }),
+	);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = fileName;
+	// Firefox starts the download only for an anchor inside the document.
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_DELAY_MS);
 }

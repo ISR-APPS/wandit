@@ -308,3 +308,106 @@ export const presentPlanHostToolOutputSchema = z.object({
 export type PresentPlanHostToolOutput = z.infer<
 	typeof presentPlanHostToolOutputSchema
 >;
+
+/**
+ * Input of the `web_search` host tool. The agent searches the web to confirm
+ * a current doc, API, version, or error text. Each call costs credits.
+ */
+export const webSearchHostToolInputSchema = z.object({
+	// 400 chars holds one focused question, for example an error text.
+	query: z.string().min(1).max(400),
+	// Each result adds one page of text to the Exa cost. 10 is the most that the fixed price covers.
+	numResults: z.int().min(1).max(10).default(5),
+	// Search only these sites, for example "react.dev" for the React docs.
+	// 253 chars is the DNS limit of a host name.
+	includeDomains: z.array(z.string().min(1).max(253)).max(10).optional(),
+});
+
+/** Parsed `web_search` input; the tool execute body reads this shape. */
+export type WebSearchHostToolInput = z.infer<
+	typeof webSearchHostToolInputSchema
+>;
+
+/**
+ * Output of the `web_search` host tool. `text` of a result is cut to a fixed
+ * length by the tool. `failed` and `unavailable` carry a message for the agent.
+ */
+export const webSearchHostToolOutputSchema = z.discriminatedUnion("status", [
+	z.object({
+		status: z.literal("ok"),
+		results: z.array(
+			z.object({
+				title: z.string(),
+				url: z.string(),
+				// ISO date of the page, when Exa knows it.
+				publishedDate: z.string().optional(),
+				// Icon of the page's site, for the source chips. Always an https: URL;
+				// the tool drops every other scheme, because the browser loads it.
+				favicon: z.string().optional(),
+				text: z.string(),
+			}),
+		),
+	}),
+	z.object({
+		status: z.literal("failed"),
+		message: z.string(),
+	}),
+	z.object({
+		status: z.literal("unavailable"),
+		message: z.string(),
+	}),
+]);
+
+/** Parsed `web_search` output; the union of the three statuses. */
+export type WebSearchHostToolOutput = z.infer<
+	typeof webSearchHostToolOutputSchema
+>;
+
+/**
+ * Input of the `suggest_follow_ups` host tool: the next ideas the user can
+ * try, written as prompts in the user's language. The chat shows each one as
+ * a row under the answer; a click sends it as the next message.
+ */
+export const suggestFollowUpsHostToolInputSchema = z.object({
+	// 2 or 3 ideas. 120 chars keeps each one on one row of the chat.
+	// A repeat fails the call, so the agent sends a new list of 2 or 3 ideas.
+	followUps: z
+		.array(z.string().trim().min(3).max(120))
+		.min(2)
+		.max(3)
+		.refine(
+			(followUps) => new Set(followUps).size === followUps.length,
+			"Each idea must be different",
+		),
+});
+
+/** Parsed `suggest_follow_ups` input; the web parses the streamed tool input with it too. */
+export type SuggestFollowUpsHostToolInput = z.infer<
+	typeof suggestFollowUpsHostToolInputSchema
+>;
+
+/**
+ * The fields of a 2xx answer of Exa `POST /search` that the `web_search` tool
+ * reads (https://docs.exa.ai/reference/search, read 2026-11-19). Exa can send
+ * more fields; zod drops them.
+ */
+export const exaSearchResponseSchema = z.object({
+	requestId: z.string().optional(),
+	results: z.array(
+		z.object({
+			// The schema says string, but a page without a title can answer null.
+			title: z.string().nullable().optional(),
+			url: z.string(),
+			publishedDate: z.string().nullable().optional(),
+			// Icon URL of the result's domain. The doc says string, but read it like `title`.
+			favicon: z.string().nullable().optional(),
+			// Present only when the request asks for `contents.text`.
+			text: z.string().optional(),
+		}),
+	),
+	// The estimated cost of this request, in US dollars.
+	costDollars: z.object({ total: z.number().nonnegative() }).optional(),
+});
+
+/** Parsed Exa search answer; the Exa client returns it to the tool. */
+export type ExaSearchResponse = z.infer<typeof exaSearchResponseSchema>;

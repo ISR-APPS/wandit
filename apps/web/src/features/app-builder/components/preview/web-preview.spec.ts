@@ -141,7 +141,7 @@ describe("WebPreview", () => {
 		expect(screen.queryByRole("link")?.getAttribute("href") ?? null).toBe(href);
 	});
 
-	it("shows a page change of the app in the capsule and keeps the iframe src", async () => {
+	it("shows a page change of the app in the address field and keeps the iframe src", async () => {
 		render(previewElement(propsWith(depsWithTokens("t1"), 0)));
 		const iframe = await screen.findByTitle(TITLE);
 

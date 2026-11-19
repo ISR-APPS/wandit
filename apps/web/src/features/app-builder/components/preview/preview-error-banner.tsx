@@ -15,7 +15,7 @@ import {
 
 // The amber pill of the retry button in preview-panel.tsx. "Try to fix" is the one action of the banner.
 const FIX_BUTTON_CLASS =
-	"shrink-0 bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90";
+	"shrink-0 bg-spark px-4 font-grotesk font-medium text-[13px] text-night shadow-key hover:bg-spark/90 active:translate-y-px";
 
 /** Props of the error banner. Both previews pass the state of usePreviewRuntimeErrors. */
 export type PreviewErrorBannerProps = {
@@ -52,18 +52,18 @@ export function PreviewErrorBanner({
 				className="size-[18px] shrink-0 text-destructive"
 			/>
 			<div className="min-w-0 flex-1">
-				<p className="font-grotesk font-semibold text-[13.5px] text-night dark:text-foreground">
+				<p className="font-grotesk font-medium text-[13px] text-night dark:text-foreground">
 					{t("appBuilder.preview.errors.title")}
 				</p>
 				<p
 					dir="auto"
-					className="truncate text-[12.5px] text-night/60 dark:text-foreground/60"
+					className="truncate text-[12px] text-night/60 dark:text-foreground/60"
 				>
 					{firstError.message}
 				</p>
 			</div>
 			{count > 1 ? (
-				<span className="shrink-0 text-[12.5px] text-night/50 dark:text-foreground/50">
+				<span className="shrink-0 text-[12px] text-night/50 dark:text-foreground/50">
 					{t("appBuilder.preview.errors.count", { count })}
 				</span>
 			) : null}

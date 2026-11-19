@@ -1,6 +1,6 @@
 /**
  * The end card of a `security_scan` turn in the thread: the finding counts
- * per severity, the checks that did not finish, and an "Open report" pill.
+ * per severity, the checks that did not finish, and an "Open report" button.
  * Rendered by chat-message.tsx for each `data-security-report` part. The
  * full list stays in the Security panel; `onOpenReport` opens it.
  */
@@ -18,7 +18,7 @@ import {
 	SECURITY_GROUP_TONE,
 } from "../more/security-panel";
 import {
-	CARD_PRIMARY_PILL_CLASS,
+	CARD_PRIMARY_BUTTON_CLASS,
 	CardMedallion,
 	MessageCard,
 } from "./message-card";
@@ -31,7 +31,7 @@ export type SecurityReportCardProps = {
 	onOpenReport: () => void;
 };
 
-/** The scan result card: a chip per severity with findings, the check notes, and the report pill. */
+/** The scan result card: a chip per severity with findings, the check notes, and the report button. */
 export function SecurityReportCard({
 	report,
 	onOpenReport,
@@ -93,7 +93,7 @@ export function SecurityReportCard({
 			)}
 			<Button
 				size="sm"
-				className={cn(CARD_PRIMARY_PILL_CLASS, "w-fit")}
+				className={cn(CARD_PRIMARY_BUTTON_CLASS, "w-fit")}
 				onClick={onOpenReport}
 			>
 				{t("appBuilder.security.card.open")}

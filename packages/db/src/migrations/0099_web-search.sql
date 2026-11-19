@@ -1,0 +1,1 @@
+ALTER TYPE "public"."ai_usage_operation" ADD VALUE IF NOT EXISTS 'web_search' BEFORE 'topup_adjust';

@@ -2,6 +2,7 @@
  * The root route of the web app: the page head, and the providers around every page.
  * TanStack Router builds the route tree from this file. It wraps every route in
  * React Query, i18n, theme, auth modal, workspace, and billing modal providers.
+ * It also mounts the capture components of the affiliate, UTM, and user referral links.
  */
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -16,11 +17,16 @@ import { Toaster } from "@wandit/ui/components/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
 import { useGithubReturnToast } from "@/features/app-builder";
-import { AuthModalProvider } from "@/features/auth";
+import { AuthModalProvider, useSession } from "@/features/auth";
 import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
 import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
 import { UtmCapture } from "@/features/story-links/lib/use-utm-capture";
 import { isChatwootConfigured } from "@/features/support";
+import {
+	readStoredInviteCode,
+	UserReferralCapture,
+	useCreditPhrase,
+} from "@/features/user-referrals";
 import { WorkspaceProvider } from "@/features/workspaces/lib/workspace-provider";
 import { AppI18nProvider, pageTitle, useI18n } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
@@ -69,6 +75,8 @@ function RootComponent() {
 
 function RootProviders() {
 	const { dir } = useI18n();
+	const { data: session } = useSession();
+	const creditPhrase = useCreditPhrase();
 	useConnectReturnToast();
 	useGithubReturnToast();
 
@@ -80,10 +88,17 @@ function RootProviders() {
 			storageKey="wandit-theme"
 		>
 			<DirectionProvider dir={dir}>
-				<AuthModalProvider>
+				{/* The auth and user-referrals features cannot import each other without an import cycle.
+				    So this route gives the sign-in dialog the stored invite code and the credit phrase.
+				    It gives the capture component the user id. */}
+				<AuthModalProvider
+					readInviteCode={readStoredInviteCode}
+					creditPhrase={creditPhrase}
+				>
 					<WorkspaceProvider>
 						<BillingModalProvider>
 							<AffiliateCapture />
+							<UserReferralCapture userId={session?.user.id} />
 							<UtmCapture />
 							<Outlet />
 						</BillingModalProvider>

@@ -23,8 +23,8 @@ import { cn } from "@wandit/ui/lib/utils";
 
 import { useTranslation } from "@/lib/i18n";
 import {
-	CARD_PRIMARY_PILL_CLASS,
-	CARD_SECONDARY_PILL_CLASS,
+	CARD_PRIMARY_BUTTON_CLASS,
+	CARD_SECONDARY_BUTTON_CLASS,
 	CardMedallion,
 	MessageCard,
 } from "./message-card";
@@ -93,7 +93,6 @@ export function ApprovalCard({
 			className={cn(
 				"flex items-start gap-3",
 				// An open approval stops the turn, so its border asks for attention. The halo is spark at 12 %.
-				// It is a ring, not a shadow class: a shadow class replaces the lift of MessageCard in the merge.
 				isOpen &&
 					"border-spark/60 ring-[3px] ring-spark/[0.12] dark:border-spark/50",
 			)}
@@ -109,7 +108,7 @@ export function ApprovalCard({
 				{network?.success ? (
 					<p
 						dir="auto"
-						className="mt-1 font-sans text-[14px] text-night/70 leading-relaxed dark:text-foreground/70"
+						className="mt-1 font-sans text-[13px] text-night/60 leading-relaxed dark:text-foreground/60"
 					>
 						{network.data.reason}
 					</p>
@@ -126,7 +125,7 @@ export function ApprovalCard({
 					<CollapsibleContent>
 						<pre
 							dir="ltr"
-							className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-[12px] border border-night/[0.07] bg-night/[0.025] p-2.5 font-mono text-[12px] text-night/80 dark:border-white/[0.07] dark:bg-white/[0.03] dark:text-foreground/80"
+							className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-[12px] bg-night/[0.04] p-2.5 font-mono text-[12px] text-night/80 dark:bg-white/[0.05] dark:text-foreground/80"
 						>
 							{input.slice(0, INPUT_PREVIEW_MAX_CHARS)}
 						</pre>
@@ -138,14 +137,14 @@ export function ApprovalCard({
 							size="sm"
 							variant="outline"
 							onClick={() => onDecide(false)}
-							className={CARD_SECONDARY_PILL_CLASS}
+							className={CARD_SECONDARY_BUTTON_CLASS}
 						>
 							{t("appBuilder.chat.approval.deny")}
 						</Button>
 						<Button
 							size="sm"
 							onClick={() => onDecide(true)}
-							className={CARD_PRIMARY_PILL_CLASS}
+							className={CARD_PRIMARY_BUTTON_CLASS}
 						>
 							{t("appBuilder.chat.approval.approve")}
 						</Button>

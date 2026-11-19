@@ -17,7 +17,7 @@ import {
 	PanelMessage,
 } from "./panel-shell";
 
-/** Props of EmptyPanel. more-view.tsx passes them for the Analytics and the Security panel. */
+/** Props of EmptyPanel. more-view.tsx passes them for the Analytics panel. */
 export type EmptyPanelProps = {
 	/** Translated label of the planned action, for example "Turn on analytics". */
 	ctaLabel: string;
@@ -37,7 +37,7 @@ export function EmptyPanel({ ctaLabel }: EmptyPanelProps) {
 			<div className="flex items-center gap-2">
 				<Button
 					disabled
-					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-8 px-3.5")}
 				>
 					{ctaLabel}
 				</Button>

@@ -65,7 +65,7 @@ export function ChatSwitcher({
 					size="sm"
 					aria-label={t("appBuilder.chat.conversations.trigger", { title })}
 					// The negative margin puts the title text on the 20 px line of the message list.
-					className="group/trigger -ms-2 h-8 min-w-0 shrink gap-1.5 px-2 font-grotesk font-semibold text-[15px] text-night hover:bg-night/[0.05] hover:text-night has-[>svg]:px-2 dark:text-foreground dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+					className="group/trigger -ms-2 h-8 min-w-0 shrink gap-1.5 px-2 font-grotesk font-semibold text-[15px] text-night hover:bg-night/[0.05] hover:text-night has-[>svg]:px-2 aria-expanded:bg-night/[0.07] dark:text-foreground dark:aria-expanded:bg-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-foreground"
 				>
 					{/* A title is user text, so its direction follows its first letter. */}
 					<span dir="auto" className="min-w-0 truncate">

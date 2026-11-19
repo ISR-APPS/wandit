@@ -33,6 +33,7 @@ export const MOBILE_TARGET_ICON: Record<MobilePreviewTarget, Icon> = {
 };
 
 // Large soft blobs of the brand colors on the night ground, behind the glass card.
+// The glass card needs a ground that is not flat, or its blur shows nothing.
 const BACKDROP_STYLE: CSSProperties = {
 	backgroundImage: [
 		"radial-gradient(70% 42% at 12% 14%, color-mix(in oklab, var(--color-ember) 85%, transparent), transparent 70%)",
@@ -185,7 +186,9 @@ function DeviceCard({
 				<Button
 					onClick={onStart}
 					disabled={isButtonDisabled}
-					className="mt-5 h-10 rounded-full bg-spark px-5 font-grotesk font-semibold text-night hover:bg-spark/90 has-[>svg]:px-5"
+					// The spark fill marks the main action on the night ground in both themes. The kit gives the pill corner.
+					// It is 32 px high, like the other amber buttons of the night stage.
+					className="mt-5 h-8 bg-spark px-4 font-grotesk font-medium text-[13px] text-night shadow-key hover:bg-spark/90 active:translate-y-px has-[>svg]:px-4"
 				>
 					<ButtonIcon aria-hidden weight="bold" />
 					{buttonLabel}
@@ -253,7 +256,8 @@ export function DeviceBarControls({
 				size="sm"
 				onClick={onStop}
 				className={cn(
-					"rounded-full border-night/15 bg-transparent font-grotesk font-medium text-night hover:bg-night/[0.05] hover:text-night dark:border-white/15 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06]",
+					// Stop is a second action: a flat outline with the kit pill corner.
+					"border-night/[0.12] bg-white font-grotesk font-medium text-[13px] text-night shadow-none hover:bg-night/[0.04] hover:text-night dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground",
 					isCompact
 						? "px-2.5 has-[>svg]:px-2.5"
 						: "ms-1 px-3.5 has-[>svg]:px-3.5",

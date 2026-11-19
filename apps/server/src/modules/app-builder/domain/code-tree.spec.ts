@@ -15,6 +15,8 @@ describe("isReadableCodePath", () => {
 		"src/a..b.ts",
 		"src/my file.ts",
 		"src/.envrc-notes/readme.md",
+		"docs/.claude-notes.md",
+		"docs/CLAUDE.md.bak",
 	])("accepts %s", (path) => {
 		expect(isReadableCodePath(path)).toBe(true);
 	});
@@ -33,6 +35,11 @@ describe("isReadableCodePath", () => {
 		["a .env file", ".env"],
 		["a .env.local file", ".env.local"],
 		["a nested .env file", "apps/web/.env"],
+		["a .claude folder", ".claude/hooks/pre-tool-use.mjs"],
+		["a nested .claude folder", "packages/ui/.claude/settings.json"],
+		["the root CLAUDE.md", "CLAUDE.md"],
+		["a CLAUDE.local.md", "CLAUDE.local.md"],
+		["a nested AGENTS.md", "packages/ui/AGENTS.md"],
 	])("rejects %s", (_label, path) => {
 		expect(isReadableCodePath(path)).toBe(false);
 	});
@@ -188,19 +195,6 @@ describe("pickPrefetchPaths", () => {
 			"src/app.tsx",
 			"public/favicon.svg",
 			"package.json",
-		]);
-	});
-
-	it("skips the top-level .claude/ folder only", () => {
-		const tree = buildCodeTree([
-			".claude/skills/forge/SKILL.md",
-			"docs/.claude-notes.md",
-			"README.md",
-		]);
-
-		expect(pickPrefetchPaths(tree)).toEqual([
-			"docs/.claude-notes.md",
-			"README.md",
 		]);
 	});
 

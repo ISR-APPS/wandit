@@ -1,9 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DomainProviderError } from "../../domain/errors/domain.errors";
+import {
+	CustomHostnameMissingError,
+	DomainProviderError,
+} from "../../domain/errors/domain.errors";
 import { CustomHostnameService } from "./custom-hostname.service";
 
 describe("CustomHostnameService", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	});
+
 	it("keeps hostnames pending until SSL is active even when hostname validation is active", () => {
 		const service = new CustomHostnameService();
 		const status = (
@@ -26,6 +34,24 @@ describe("CustomHostnameService", () => {
 		});
 	});
 
+	it("makes no Cloudflare call on staging: create refuses and delete only logs", async () => {
+		vi.stubEnv("SITES_SLUG_SUFFIX", "-stg");
+		vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
+		vi.stubEnv("CLOUDFLARE_ZONE_ID_WANDIT_APP", "zone_saas");
+		const fetch = vi.spyOn(globalThis, "fetch");
+		const service = new CustomHostnameService();
+
+		await expect(
+			service.findOrCreateCustomHostname("shop.com"),
+		).rejects.toMatchObject({
+			response: { code: "CUSTOM_DOMAINS_PRODUCTION_ONLY" },
+		});
+		await expect(
+			service.deleteCustomHostname("cf_production"),
+		).resolves.toBeUndefined();
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it("treats custom-hostname DELETE 404 as success", async () => {
 		const service = new CustomHostnameService();
 		(service as unknown as { requiredEnv: () => string }).requiredEnv = vi.fn(
@@ -40,6 +66,29 @@ describe("CustomHostnameService", () => {
 		await expect(
 			service.deleteCustomHostname("cf_deleted"),
 		).resolves.toBeUndefined();
+	});
+
+	it.each([
+		[
+			"GET",
+			(service: CustomHostnameService) =>
+				service.getCustomHostnameStatus("cf_gone"),
+		],
+		[
+			"PATCH",
+			(service: CustomHostnameService) =>
+				service.refreshCustomHostnameValidation("cf_gone"),
+		],
+	])("maps a %s 404 on a hostname id to CustomHostnameMissingError", async (_method, request) => {
+		vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
+		vi.stubEnv("CLOUDFLARE_ZONE_ID_WANDIT_APP", "zone_saas");
+		vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+			Response.json({ success: false }, { status: 404 }),
+		);
+
+		await expect(request(new CustomHostnameService())).rejects.toBeInstanceOf(
+			CustomHostnameMissingError,
+		);
 	});
 
 	it("creates the apex hostname with the bare name", async () => {

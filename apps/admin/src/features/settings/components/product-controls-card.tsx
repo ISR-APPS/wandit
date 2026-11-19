@@ -1,4 +1,14 @@
-import type { PatchProductSettingsBody } from "@wandit/contracts";
+/**
+ * Admin settings card for the product switches and their amounts.
+ * The amounts are the signup grant, the offline grace days, and the user referral rewards.
+ * The settings page renders it. It calls the product-settings mutation.
+ */
+import {
+	type PatchProductSettingsBody,
+	USER_REFERRAL_ACTIVATION_MIN_CREDITS,
+	USER_REFERRAL_ACTIVATION_WINDOW_DAYS,
+	USER_REFERRAL_PAID_HOLD_DAYS,
+} from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
 	CalendarClockIcon,
@@ -7,6 +17,7 @@ import {
 	RefreshCwIcon,
 	SaveIcon,
 	ShieldCheckIcon,
+	UserPlusIcon,
 } from "lucide-react";
 import {
 	type FormEvent,
@@ -62,6 +73,7 @@ const BOOLEAN_SETTING_KEYS = [
 	"emailAuthEnabled",
 	"lifecycleEmailsEnabled",
 	"v2BuilderEnabled",
+	"userReferralsEnabled",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -71,7 +83,34 @@ type PendingToggle = {
 	nextValue: boolean;
 };
 
-type NumericSettingKey = "signupGrantCredits" | "manualGraceDays";
+// Same upper limit as the settings contract and the `product_settings` checks, in whole credits.
+const USER_REFERRAL_CREDITS_MAX = 10_000;
+
+// The three reward amounts of the user referral program. Each one gets one form row.
+const USER_REFERRAL_CREDIT_FIELDS = [
+	{
+		key: "userReferralFriendCredits",
+		title: "Referral friend bonus",
+		description: "Promo credits the invited friend gets right after signup.",
+	},
+	{
+		key: "userReferralActivationCredits",
+		title: "Referral activation reward",
+		description: `Promo credits the referrer gets when the friend uses ${USER_REFERRAL_ACTIVATION_MIN_CREDITS} credits within ${USER_REFERRAL_ACTIVATION_WINDOW_DAYS} days of joining.`,
+	},
+	{
+		key: "userReferralPaidCredits",
+		title: "Referral paid reward",
+		description: `Promo credits the referrer gets ${USER_REFERRAL_PAID_HOLD_DAYS} days after the friend's first payment, if the subscription is still live.`,
+	},
+] as const;
+
+type UserReferralCreditField = (typeof USER_REFERRAL_CREDIT_FIELDS)[number];
+
+type NumericSettingKey =
+	| "signupGrantCredits"
+	| "manualGraceDays"
+	| UserReferralCreditField["key"];
 
 type ToggleDetails = {
 	description: string;
@@ -151,6 +190,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 				? "Users whose PostHog flag v2-builder is on will reach the V2 app builder routes. Everyone else still gets the V1 page builder."
 				: "The V2 app builder routes will deny every user regardless of the PostHog flag. Existing V2 projects keep their data but their turns stop.",
 	},
+	userReferralsEnabled: {
+		label: "User referrals",
+		description:
+			"Give each user an invite link. The invited friend and the referrer both get promo credits.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Each user will get an invite link in the app. The invited friend and the referrer will both receive promo credits at the referral amounts set below."
+				: "No invite link will show and no reward will be paid while this is off. Credits already paid remain available.",
+	},
 };
 
 type ProductControlsCardProps = {
@@ -158,6 +206,11 @@ type ProductControlsCardProps = {
 	reloadSettings: () => Promise<void>;
 };
 
+/**
+ * The "Admission controls" card of the settings page.
+ * A switch asks for a confirmation first. Each amount has its own form and its own save.
+ * A 409 from the server locks the card until the admin reloads the settings.
+ */
 export function ProductControlsCard({
 	settings,
 	reloadSettings,
@@ -300,6 +353,25 @@ export function ProductControlsCard({
 			});
 			toast.success("Offline grace period updated.");
 			setGraceSubmitted(false);
+		} catch (error) {
+			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setPendingNumericSetting(null);
+		}
+	}
+
+	async function saveUserReferralCredits(
+		field: UserReferralCreditField,
+		credits: number,
+	) {
+		setErrorMessage(null);
+		setPendingNumericSetting(field.key);
+		const input: PatchProductSettingsBody = { version: settings.version };
+		input[field.key] = credits;
+
+		try {
+			await mutation.mutateAsync(input);
+			toast.success(`${field.title} updated.`);
 		} catch (error) {
 			handleMutationError(error, () => setConflict(true));
 		} finally {
@@ -583,6 +655,17 @@ export function ProductControlsCard({
 						</Field>
 					</FieldGroup>
 				</form>
+
+				{USER_REFERRAL_CREDIT_FIELDS.map((field) => (
+					<UserReferralCreditsForm
+						key={field.key}
+						field={field}
+						savedCredits={settings[field.key]}
+						isLocked={mutation.isPending || conflict || !canManage}
+						isSaving={mutation.isPending && pendingNumericSetting === field.key}
+						onSave={(credits) => void saveUserReferralCredits(field, credits)}
+					/>
+				))}
 			</CardContent>
 
 			<AlertDialog
@@ -645,5 +728,120 @@ export function ProductControlsCard({
 				</AlertDialogContent>
 			</AlertDialog>
 		</Card>
+	);
+}
+
+type UserReferralCreditsFormProps = {
+	/** The settings key that this form saves, with the title and the help text of the row. */
+	field: UserReferralCreditField;
+	/** Amount in the settings row now, in whole credits. */
+	savedCredits: number;
+	/** True while a settings save runs, a version conflict shows, or the admin cannot manage settings. */
+	isLocked: boolean;
+	/** True while the save of this field runs. The button then shows a spinner. */
+	isSaving: boolean;
+	/** Gets a valid, changed amount in whole credits. The card sends it and shows a failure. */
+	onSave: (credits: number) => void;
+};
+
+/** One amount row of the user referral program. It has the layout of the signup grant form. */
+function UserReferralCreditsForm({
+	field,
+	savedCredits,
+	isLocked,
+	isSaving,
+	onSave,
+}: UserReferralCreditsFormProps) {
+	const [draftCredits, setDraftCredits] = useState(String(savedCredits));
+	const [submitted, setSubmitted] = useState(false);
+
+	// A save or a reload changes the saved amount. The draft and the error then start again.
+	useEffect(() => {
+		setDraftCredits(String(savedCredits));
+		setSubmitted(false);
+	}, [savedCredits]);
+
+	const parsedCredits = Number(draftCredits);
+	// Zero is not a legal amount: the credit grant rejects it.
+	const creditsAreValid =
+		Number.isSafeInteger(parsedCredits) &&
+		parsedCredits >= 1 &&
+		parsedCredits <= USER_REFERRAL_CREDITS_MAX;
+	const creditsChanged = creditsAreValid && parsedCredits !== savedCredits;
+	const showError = submitted && !creditsAreValid;
+	const descriptionId = `${field.key}-description`;
+	const errorId = `${field.key}-error`;
+
+	function handleSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSubmitted(true);
+
+		if (isLocked || !creditsChanged) {
+			return;
+		}
+
+		onSave(parsedCredits);
+	}
+
+	return (
+		<form
+			onSubmit={handleSubmit}
+			noValidate
+			className="border-t bg-muted/20 px-5 py-5"
+		>
+			<FieldGroup>
+				<Field
+					data-invalid={showError}
+					className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+				>
+					<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+						<div className="flex items-center gap-2 font-medium text-sm">
+							<UserPlusIcon aria-hidden="true" />
+							{field.title}
+						</div>
+						<FieldDescription id={descriptionId}>
+							{field.description} A new amount applies to friends who join after
+							the change.
+						</FieldDescription>
+					</div>
+					<div className="flex flex-col gap-2">
+						<FieldLabel htmlFor={field.key}>Credits</FieldLabel>
+						<Input
+							id={field.key}
+							type="number"
+							inputMode="numeric"
+							min={1}
+							max={USER_REFERRAL_CREDITS_MAX}
+							step={1}
+							value={draftCredits}
+							onChange={(event) => setDraftCredits(event.target.value)}
+							disabled={isLocked}
+							aria-invalid={showError}
+							aria-describedby={`${descriptionId} ${errorId}`}
+						/>
+					</div>
+					<Button
+						type="submit"
+						disabled={isLocked || (creditsAreValid && !creditsChanged)}
+					>
+						{isSaving ? (
+							<Loader2Icon
+								data-icon="inline-start"
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<SaveIcon data-icon="inline-start" aria-hidden="true" />
+						)}
+						{isSaving ? "Saving…" : "Save amount"}
+					</Button>
+					<FieldError id={errorId} className="sm:col-span-2 sm:col-start-2">
+						{showError
+							? `Enter a whole number of credits from 1 to ${USER_REFERRAL_CREDITS_MAX.toLocaleString()}.`
+							: null}
+					</FieldError>
+				</Field>
+			</FieldGroup>
+		</form>
 	);
 }

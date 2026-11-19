@@ -35,6 +35,10 @@
 		"expire": "أرصدة منتهية",
 		"revoke": "أرصدة مسترجعة"
 	},
+	"ledgerReasons": {
+		"user_referral_friend_bonus": "مكافأة الدعوة",
+		"user_referral_reward": "مكافأة دعوة صديق"
+	},
 	"activityOperations": {
 		"chat": "رسالة الذكاء الاصطناعي",
 		"page_build": "إنشاء صفحة",
@@ -51,6 +55,7 @@
 		"app_ai_gateway": "استدعاء ذكاء اصطناعي من التطبيق",
 		"desktop_build": "بناء تطبيق سطح المكتب",
 		"theme_design": "تصميم السمة",
+		"web_search": "بحث في الويب",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

@@ -145,7 +145,8 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // the plan allowance (WANDIT-196); `app_ai_gateway` is one AI call of a
 // V2 app through the app AI gateway, billed by tokens; `desktop_build` is
 // one desktop build, Windows or macOS, of a V2 desktop app; `theme_design`
-// is one AI theme design of the builder Thème sheet.
+// is one AI theme design of the builder Thème sheet; `web_search` is one
+// Exa search of the `web_search` host tool in a builder turn.
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -162,6 +163,7 @@ export const creditActivityOperations = [
 	"app_ai_gateway",
 	"desktop_build",
 	"theme_design",
+	"web_search",
 	"topup_adjust",
 ] as const;
 

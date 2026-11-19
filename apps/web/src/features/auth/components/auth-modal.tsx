@@ -2,6 +2,7 @@
  * The app-wide sign-in dialog: AuthModalProvider, useAuthModal, and useRequireAuth.
  * routes/__root.tsx mounts the provider. Pages call requireAuth before an action that needs a session.
  * Signs in with Google, with email when emailAuthEnabled is on, and with a password under `vite dev`.
+ * A visitor with an invite code of the user referral program sees the friend bonus below the subtitle.
  * The look is the V2 brand: an ember band on a white sheet, and the landing keycap for Google.
  */
 import {
@@ -81,8 +82,27 @@ export function useRequireAuth(): (then: () => void) => void {
 	return ctx.requireAuth;
 }
 
-export function AuthModalProvider({ children }: { children: React.ReactNode }) {
+/** Props of AuthModalProvider. The root route passes the two functions of the user referral program. */
+type AuthModalProviderProps = {
+	children: React.ReactNode;
+	/**
+	 * Reads the invite code that the user referral program stored in this browser. Null when the visitor has none.
+	 * It comes from the root route: an import of the user-referrals barrel in this feature closes an import cycle.
+	 */
+	readInviteCode: () => string | null;
+	/** Writes an amount of decimal credits as a phrase in the current language, for example "10 credits". */
+	creditPhrase: (credits: number) => string;
+};
+
+/** Holds the sign-in dialog and its open state. It also sends the signed-in user to analytics. */
+export function AuthModalProvider({
+	children,
+	readInviteCode,
+	creditPhrase,
+}: AuthModalProviderProps) {
 	const [isOpen, setIsOpen] = useState(false);
+	// The stored invite code at the last open of the dialog. Null when the visitor has none.
+	const [inviteCode, setInviteCode] = useState<string | null>(null);
 	const [nextPath, setNextPath] = useState<string | undefined>();
 	const [redirectError, setRedirectError] = useState(false);
 	// Auth handoffs in flight. Dismissing the modal during a handoff must not
@@ -105,17 +125,22 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const userName = session?.user.name;
 	const identifiedUserIdRef = useRef<string | null>(null);
 
-	const open = useCallback((opts?: AuthModalOpenOptions) => {
-		setNextPath(sanitizeAuthRedirectPath(opts?.next));
-		setRedirectError(opts?.redirectError ?? false);
-		// A fresh open means any Google redirect is over; an auth error means
-		// the whole handoff failed.
-		googleRedirectPendingRef.current = false;
-		if (opts?.redirectError) {
-			magicLinkSentAtRef.current = null;
-		}
-		setIsOpen(true);
-	}, []);
+	const open = useCallback(
+		(opts?: AuthModalOpenOptions) => {
+			// The read is here, not at mount: the capture component can store the code after the first render.
+			setInviteCode(readInviteCode());
+			setNextPath(sanitizeAuthRedirectPath(opts?.next));
+			setRedirectError(opts?.redirectError ?? false);
+			// A fresh open means any Google redirect is over; an auth error means
+			// the whole handoff failed.
+			googleRedirectPendingRef.current = false;
+			if (opts?.redirectError) {
+				magicLinkSentAtRef.current = null;
+			}
+			setIsOpen(true);
+		},
+		[readInviteCode],
+	);
 
 	const requireAuth = useCallback(
 		(then: () => void) => {
@@ -243,6 +268,8 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 				open={isOpen}
 				nextPath={nextPath}
 				redirectError={redirectError}
+				inviteCode={inviteCode}
+				creditPhrase={creditPhrase}
 				onOpenChange={handleOpenChange}
 				onGoogleRedirectStart={handleGoogleRedirectStart}
 				onGoogleRedirectEnd={handleGoogleRedirectEnd}
@@ -256,6 +283,8 @@ function AuthModalDialog({
 	open,
 	nextPath,
 	redirectError,
+	inviteCode,
+	creditPhrase,
 	onOpenChange,
 	onGoogleRedirectStart,
 	onGoogleRedirectEnd,
@@ -264,6 +293,10 @@ function AuthModalDialog({
 	open: boolean;
 	nextPath: string | undefined;
 	redirectError: boolean;
+	/** The invite code of the user referral program that this browser holds. Null when the visitor has none. */
+	inviteCode: string | null;
+	/** Writes an amount of decimal credits as a phrase, for example "10 credits". From the root route. */
+	creditPhrase: (credits: number) => string;
 	onOpenChange: (open: boolean) => void;
 	onGoogleRedirectStart: () => void;
 	onGoogleRedirectEnd: () => void;
@@ -288,6 +321,11 @@ function AuthModalDialog({
 	// the dialog renders exactly the pre-email (Google-only) modal.
 	const settingsQuery = usePublicSettingsQuery();
 	const emailAuthEnabled = settingsQuery.data?.emailAuthEnabled === true;
+	// Product rule: an invited visitor sees the friend bonus before sign-up, only while the referral program is on.
+	const inviteFriendBonus =
+		inviteCode !== null && settingsQuery.data?.userReferralsEnabled === true
+			? creditPhrase(settingsQuery.data.userReferralFriendCredits)
+			: null;
 
 	useEffect(() => {
 		if (!open) {
@@ -367,6 +405,13 @@ function AuthModalDialog({
 						<DialogDescription className="text-balance text-night">
 							{t("auth.modalSubtitle")}
 						</DialogDescription>
+						{inviteFriendBonus === null ? null : (
+							<p className="text-balance font-grotesk font-semibold text-night text-sm">
+								{t("userReferrals.entry.authModalLine", {
+									friend: inviteFriendBonus,
+								})}
+							</p>
+						)}
 					</DialogHeader>
 				</div>
 
@@ -398,6 +443,7 @@ function AuthModalDialog({
 								<AuthDivider label={t("auth.emailDivider")} />
 								<EmailAuthSection
 									nextPath={nextPath}
+									inviteCode={inviteCode}
 									onError={setError}
 									onClearError={() => setError(null)}
 									onMagicLinkPendingChange={onMagicLinkPendingChange}

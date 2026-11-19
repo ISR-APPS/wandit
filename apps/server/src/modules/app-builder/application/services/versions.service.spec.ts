@@ -56,6 +56,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
+	name: "My app",
 	organizationId: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
@@ -82,10 +83,12 @@ const OK = { exitCode: 0, stderr: "", stdout: "" };
 // A link whose worker mirrored a GitHub head that the project did not pull.
 const LINK: ProjectGithubLinkRow = {
 	createdAt: new Date("2026-11-01T10:00:00.000Z"),
+	githubCheckedAt: null,
 	githubUserId: 583231,
 	id: "link-1",
 	installationId: 7,
 	lastError: null,
+	lastSyncedAt: null,
 	lastSyncedSha: HEAD,
 	mirroredSha: GITHUB_SHA,
 	projectId: "p-1",

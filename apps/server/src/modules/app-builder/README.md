@@ -20,11 +20,14 @@ PostHog flag `v2-builder`).
   `paperinstruments/ultramarine-1-flash`. A turn on a model that is not
   Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
   Claude Code call, also helper and subagent calls, to it. The harness
-  then turns off the experimental betas, tool search, and WebSearch.
-- Claude Code compacts the conversation by itself. On a 1M-window Claude
-  model it compacts at 300,000 tokens: the harness adds the `[1m]` suffix
-  and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Other models compact at
-  167,000. At each turn end the bridge fork reads Claude Code's own count.
+  then turns off the experimental betas and tool search. The native
+  WebSearch is off for every model: the LLM proxy does not bill it. The
+  `web_search` host tool (Exa) is the one search.
+- Claude Code compacts the conversation by itself. On a 1M-window model,
+  Claude or not, it compacts at 450,000 tokens: the harness adds the `[1m]`
+  suffix and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Haiku 4.5 has a 200K
+  window and compacts at 167,000. The LLM proxy drops the 1M beta for a
+  model that is not Claude. At each turn end the bridge fork reads Claude Code's own count.
   The task writes it as the `data-turn-context` part. The composer shows it
   as a context ring; the warning tone starts 50,000 tokens before the
   compaction point.
@@ -543,6 +546,10 @@ and the catch block refunds its hold.
   as `{ path, content, size, binary }`. Both sit behind
   `V2BuilderEnabledGuard`; read = any member, like `GET /:projectId`.
   The MCP tools `list_files` and `read_file` call the same service.
+- `GET .../code/archive` (viewer, 10 per user per minute) answers the stored `main`
+  head as `<project-slug>.tar.gz` with the top folder `<project-slug>/`, without
+  `.claude/**` and `.env*`. It never reads the sandbox. No head answers 404
+  `CODE_ARCHIVE_EMPTY`; more than 50 MB of gzip answers 413 `CODE_ARCHIVE_TOO_LARGE`.
 - Committed code first. When `app_branches` has a `main` head,
   `CodeService` reads that commit on code.storage through `GitFileReader`,
   with no sandbox call: a stopped sandbox still shows its code. The tree is
@@ -573,7 +580,9 @@ and the catch block refunds its hold.
   `git ls-files --cached --others --exclude-standard`, so ignored files
   never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
   never listed or read, also not through a symlink: the real path must stay
-  inside the worktree. A bad path answers 400 `CODE_PATH_INVALID`, a
+  inside the worktree. The agent files `.claude/`, `CLAUDE.md`,
+  `CLAUDE.local.md`, and `AGENTS.md` are hidden the same way, on both paths
+  and in the MCP `list_files` and `read_file` tools. A bad path answers 400 `CODE_PATH_INVALID`, a
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
@@ -587,7 +596,7 @@ and the catch block refunds its hold.
   with no request. On the sandbox path, one more command reads them with
   the tree. On the committed path, they come from the archive.
   `pickPrefetchPaths` picks the default file first, then `src/`, then the
-  rest, never `.claude/`, at most 300 paths. Both paths keep at most 64 KB
+  rest, at most 300 paths. Both paths keep at most 64 KB
   per file and 512 KB in total. The sandbox script uses the same path rule
   as a file read. A failed prefetch logs a warning and answers `files: []`.
   The tree answer never fails because of it. `code-scripts.linux.spec.ts`
@@ -1249,7 +1258,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@4"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@5"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
@@ -1360,6 +1369,22 @@ releases per-turn clients (none today — connectors land in a follow-up).
   refunds, and a `failed`/`unavailable` result returns to the agent
   instead of throwing. `null` `holdEventId` answers `failed` — a paid
   tool never runs unbilled.
+- `web_search` searches the web through Exa (`POST /search`, type
+  `auto`) to confirm a current doc, API, version, or error text. The
+  registry adds it only when `EXA_API_KEY` exists, in build and Plan Mode
+  turns, never in a security scan. Each call reserves a fixed-price
+  `web_search` child under the turn hold (`WEB_SEARCH_CREDITS`, a default
+  price; key `builder-turn-web-search:<turnId>:<n>`). A success settles
+  it with the Exa `costDollars.total` as the provider cost; a failure or
+  a throw refunds it. At most 20 calls per turn
+  (`BUILDER_MAX_WEB_SEARCHES_PER_TURN`); the text of each result is cut
+  to 2,000 chars. The log line holds no query text. A result keeps
+  the Exa `favicon` only when it is an `https:` URL.
+- `suggest_follow_ups` shows 2 or 3 next ideas under the answer, in
+  build turns only (not Plan Mode, not a security scan). It is
+  `"not-applicable"`, free, and its execute only answers `{ status: "ok" }`.
+  The chat reads the streamed tool input; a click sends one idea as the
+  next message. The project instructions ask for one call per build turn.
 - `ask_user` asks the user 1 to 4 questions in one call. It is
   `"not-applicable"`, has no execute, and pauses the turn. The harness
   cuts the input to the card limits (`askUserQuestionsOf`). The built-in

@@ -1,7 +1,12 @@
+/**
+ * The route "/": the landing page for a visitor. A signed-in user goes to the dashboard or to onboarding.
+ * TanStack Router calls `beforeLoad` before the page renders. It reads the session through `getSession`.
+ */
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { getSession } from "@/features/auth/lib/session";
 import LandingPage from "@/features/landing/pages/landing-page";
+import { parseInviteCode } from "@/features/user-referrals";
 import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
 import { pageTitle } from "@/lib/i18n";
 
@@ -31,6 +36,11 @@ export const Route = createFileRoute("/")({
 		// A section deep link (/#pricing from /pricing, the logo link) is a
 		// deliberate visit to the marketing page — see use-section-nav.ts.
 		if (location.hash) return;
+		// An invite link of the user referral program stays on this page, also for a signed-in user.
+		// UserReferralCapture in the root route claims the code and then removes the parameter.
+		// That removal runs this function again, and the signed-in user then goes to the dashboard.
+		// A parameter that is not a valid code does not stop the redirect: nothing removes it.
+		if (parseInviteCode(location.searchStr) !== null) return;
 		// A failed session CHECK is not a signed-out user (same reasoning as
 		// routes/_auth/route.tsx): fall through to the landing page.
 		const session = await Promise.race([

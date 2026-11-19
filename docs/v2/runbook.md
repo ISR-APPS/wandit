@@ -19,6 +19,10 @@ can sign in.
 - The signup grant in the admin app (Product controls): decide per
   environment. Each new account gets it, so it is a cost per sign-up.
 
+## Custom domains on staging
+
+Custom domains work only in production. Staging and production use the same wandit.app SaaS zone. A customer host matches only the production edge route, so a staging domain always shows 404. A staging hostname write can also adopt or delete the hostname of a production customer. Thus staging (`SITES_SLUG_SUFFIX=-stg`) refuses search, purchase, attach, and verify with the error `CUSTOM_DOMAINS_PRODUCTION_ONLY` (`areCustomDomainsEnabled` in `domain-provisioning-rules.ts`). `CustomHostnameService` refuses each create and refresh, and a delete makes no Cloudflare call. Detach of an old staging row still works. Its configuration run fails the row once and stops.
+
 ## Before production
 
 These limits are still lifted. Restore them before V2 goes to production.

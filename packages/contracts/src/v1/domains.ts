@@ -1,3 +1,8 @@
+/**
+ * Domain contracts: name parsers, the purchase TLD catalog, and the API schemas for domains.
+ * The server domains and orders modules and the web domains feature import them.
+ * Only zod is called. Nothing here does I/O.
+ */
 import { z } from "zod";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
@@ -79,6 +84,34 @@ const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
 const domainLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const reservedRegistrableDomains = ["wandit.app", "wandit.dev"] as const;
 const reservedSecondLevelDomains = ["wandit-preview"] as const;
+// A bring-your-own name may end in one of these two-label suffixes, for example "example.com.dz".
+// LIMIT: fixed suffix list, not the Public Suffix List. Upgrade: parse names with the `tldts` package (PSL data).
+const supportedTwoPartSuffixes: ReadonlySet<string> = new Set([
+	"com.dz",
+	"net.dz",
+	"org.dz",
+	"edu.dz",
+	"asso.dz",
+	"art.dz",
+	"co.ma",
+	"net.ma",
+	"org.ma",
+	"press.ma",
+	"com.tn",
+	"co.uk",
+	"org.uk",
+	"com.au",
+	"com.br",
+	"com.tr",
+	"com.eg",
+	"com.sa",
+]);
+// Only one "www." goes away, and only when a full name stays, so "www.com" stays as typed.
+const leadingWwwRegex = /^www\.(?=[^.]+\.)/;
+
+function isSupportedTwoPartSuffix(suffix: string) {
+	return supportedTwoPartSuffixes.has(suffix);
+}
 
 export type ParsedDomainName = {
 	name: string;
@@ -86,14 +119,16 @@ export type ParsedDomainName = {
 	tld: DomainTld;
 };
 
+/** A bring-your-own name. `tld` holds one label ("fr") or a supported two-part suffix ("com.dz"). */
 export type ParsedExternalDomainName = {
 	name: string;
+	/** The label in front of the suffix: "example" in "example.com.dz". */
 	sld: string;
 	tld: string;
 };
 
 function normalizeDomainNameInput(name: string) {
-	return name.trim().toLowerCase();
+	return name.trim().toLowerCase().replace(leadingWwwRegex, "");
 }
 
 function normalizeTldInput(tld: string) {
@@ -178,6 +213,11 @@ export function parseDomainName(name: string): ParsedDomainName | null {
 	};
 }
 
+/**
+ * Parses a bring-your-own name: "sld.tld", or "sld.suffix" for a supported two-part suffix.
+ * Returns null for a subdomain, a bare suffix ("com.dz"), a reserved name, or a bad label.
+ * The purchase path uses `parseDomainName` and stays two labels only.
+ */
 export function parseExternalDomainName(
 	name: string,
 ): ParsedExternalDomainName | null {
@@ -186,25 +226,32 @@ export function parseExternalDomainName(
 	if (
 		normalizedName.length === 0 ||
 		normalizedName.length > 253 ||
-		isReservedDomainName(normalizedName)
+		isReservedDomainName(normalizedName) ||
+		isSupportedTwoPartSuffix(normalizedName)
 	) {
 		return null;
 	}
 
 	const labels = normalizedName.split(".");
 
-	if (labels.length !== 2) {
+	if (!labels.every(isValidDomainLabel)) {
 		return null;
 	}
 
-	const [sld, tld] = labels;
+	const [sld, ...suffixLabels] = labels;
+	const tld = suffixLabels.join(".");
 
-	if (!sld || !tld || !isValidDomainLabel(sld) || !isValidDomainLabel(tld)) {
+	// Three labels are a registrable name only under a known two-part suffix. Else it is a subdomain.
+	const isRegistrable =
+		suffixLabels.length === 1 ||
+		(suffixLabels.length === 2 && isSupportedTwoPartSuffix(tld));
+
+	if (!sld || !isRegistrable) {
 		return null;
 	}
 
 	return {
-		name: `${sld}.${tld}`,
+		name: normalizedName,
 		sld,
 		tld,
 	};
@@ -220,24 +267,30 @@ export const domainNameSchema = sanitizedDomainInputSchema.pipe(
 	}),
 );
 
+const externalDomainNameMessage =
+	"Domain name must be an unreserved main domain, such as example.com or example.com.dz";
+
+/** Body field of the bring-your-own attach call. It removes one leading "www.". */
 export const externalDomainNameSchema = sanitizedDomainInputSchema.pipe(
 	z.string().refine((name) => parseExternalDomainName(name) !== null, {
-		message: "Domain name must be an unreserved sld.tld name",
+		message: externalDomainNameMessage,
 	}),
 );
 
+/** `name` of a domain in API responses. It accepts purchased and bring-your-own names. */
 export const publicDomainNameSchema = sanitizedDomainInputSchema.pipe(
 	z.string().refine((name) => parseExternalDomainName(name) !== null, {
-		message: "Domain name must be an unreserved sld.tld name",
+		message: externalDomainNameMessage,
 	}),
 );
 
+/** `tld` of a domain in API responses: one label ("com") or a supported two-part suffix ("com.dz"). */
 export const publicDomainTldSchema = z
 	.string()
 	.trim()
 	.toLowerCase()
-	.refine(isValidDomainLabel, {
-		message: "Domain TLD must be a valid lowercase label",
+	.refine((tld) => isValidDomainLabel(tld) || isSupportedTwoPartSuffix(tld), {
+		message: "Domain TLD must be a valid label or a supported two-part suffix",
 	});
 
 export const registrantSchema = z.object({

@@ -49,6 +49,17 @@ const doneFrame = {
 	data: { status: "succeeded" },
 };
 
+// The card frame of a failed turn. The relay sends an `error` chunk after it.
+const turnErrorFrame = {
+	type: "data-turn-error",
+	id: "turn-error",
+	data: {
+		code: "internal",
+		message: "Something went wrong on our side.",
+		retryable: true,
+	},
+};
+
 // `resumeReply` makes the reconnect GET answer an open stream with one
 // assistant reply, like the API does during a turn after a reload.
 function createDeps(options: { resumeReply?: boolean } = {}) {
@@ -122,10 +133,18 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 	const getActiveTurnState = vi.fn<BuilderChatDeps["getActiveTurnState"]>(
 		async () => activeTurnState,
 	);
+	// The real player needs Web Audio and reads the page focus. The fake counts the turn ends.
+	const playTurnEndSoundWhenAway =
+		vi.fn<BuilderChatDeps["playTurnEndSoundWhenAway"]>();
 
 	return {
 		requests,
-		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+		deps: {
+			fetch: fetchImpl,
+			cancelTurn,
+			getActiveTurnState,
+			playTurnEndSoundWhenAway,
+		},
 		setActiveTurnState: (next: ActiveTurnStateResponse) => {
 			activeTurnState = next;
 		},
@@ -286,6 +305,77 @@ describe("useBuilderChat", () => {
 		expect(fake.cancelSawAbort()).toBe(true);
 		expect(fake.deps.cancelTurn).toHaveBeenCalledWith(PROJECT_ID, TURN_ID);
 		expect(result.current.turnId).toBeNull();
+		// The user clicked Stop on the page, so a Stop is not a turn end to announce.
+		expect(fake.deps.playTurnEndSoundWhenAway).not.toHaveBeenCalled();
+	});
+
+	// The sound rule reads the end frames of the server, not the end of the
+	// stream. A lost stream has no end frame, and its turn can still run.
+	it.each([
+		{
+			name: "the turn succeeds",
+			frames: [createdFrame, doneFrame],
+			expectedCalls: 1,
+		},
+		{
+			name: "the turn fails",
+			frames: [
+				createdFrame,
+				turnErrorFrame,
+				{ type: "error", errorText: "failed" },
+			],
+			expectedCalls: 1,
+		},
+		{
+			name: "a done frame follows the error frame",
+			frames: [
+				createdFrame,
+				turnErrorFrame,
+				{ type: "data-turn-done", id: "turn-done", data: { status: "failed" } },
+			],
+			expectedCalls: 1,
+		},
+		{
+			name: "the stream fails with no end frame",
+			frames: [createdFrame, { type: "error", errorText: "lost" }],
+			expectedCalls: 0,
+		},
+	])("plays the turn end sound only at the first end frame, when $name", async ({
+		frames,
+		expectedCalls,
+	}) => {
+		const fake = createDeps();
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? Promise.resolve(sseResponse<{ type: string }>(frames))
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+		);
+		// The mount resume GET answers 204 first, so it cannot reset the status.
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+
+		await act(async () => {
+			await result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(false));
+
+		expect(fake.deps.playTurnEndSoundWhenAway).toHaveBeenCalledTimes(
+			expectedCalls,
+		);
 	});
 
 	// A Stop during the admission of the POST has no turn id yet. Without the

@@ -115,6 +115,22 @@ type CreateExternalDomainInput = {
 	userId: string;
 };
 
+/**
+ * The account that connects a name, from `projectOwnerColumns(scope)`.
+ * Personal scope: the workspace owner and a null org. Org scope: the actor and the org.
+ */
+export type DomainAttacher = {
+	organizationId: string | null;
+	userId: string;
+};
+
+type RelinkPurchasedDomainInput = {
+	attacher: DomainAttacher;
+	name: string;
+	/** The live project of the attach scope that gets the domain. */
+	projectId: string;
+};
+
 type DomainUpdate = Partial<
 	Pick<
 		typeof domains.$inferInsert,
@@ -772,14 +788,48 @@ export class DomainsRepository {
 	 * Else it throws DomainAlreadyExistsError.
 	 */
 	async createExternalReplacingReleased(
-		input: CreateExternalDomainInput,
+		input: CreateExternalDomainInput & { attacher: DomainAttacher },
 	): Promise<DomainRow> {
 		return this.db.transaction(async (tx) => {
 			await this.deleteReplaceableNameOrThrow(tx, input.name, (holder) =>
-				canExternalAttachReplace(holder, input.userId),
+				canExternalAttachReplace(holder, input.attacher),
 			);
 
 			return this.insertExternal(tx, input);
+		});
+	}
+
+	/**
+	 * Moves the attacher's own purchased orphan named `input.name` to `input.projectId`.
+	 * Keeps the row id, registrar data, expiry, auto-renew, and DNS.
+	 * Null when `canRelinkPurchasedDomain` refuses or no row has the name.
+	 */
+	async relinkPurchasedDomain(
+		input: RelinkPurchasedDomainInput,
+	): Promise<DomainRow | null> {
+		return this.db.transaction(async (tx) => {
+			const holder = await this.lockNameHolder(tx, input.name);
+
+			if (
+				!holder ||
+				!canRelinkPurchasedDomain(holder, input.attacher, input.projectId)
+			) {
+				return null;
+			}
+
+			// A move clears the mark: the new project can already have a primary (unique index).
+			// A re-connect on the same project keeps it, so the login URL order stays.
+			const [row] = await tx
+				.update(domains)
+				.set(
+					holder.projectId === input.projectId
+						? { projectId: input.projectId }
+						: { isPrimary: false, projectId: input.projectId },
+				)
+				.where(eq(domains.id, holder.id))
+				.returning();
+
+			return this.expectRow(row);
 		});
 	}
 
@@ -1013,11 +1063,31 @@ export class DomainsRepository {
 	): Promise<void> {
 		// A parallel call for the same name waits on this row lock. After our
 		// delete it finds no row, and its insert then fails on the unique name.
+		const existing = await this.lockNameHolder(tx, name);
+
+		if (!existing) {
+			return;
+		}
+
+		if (!canReplace(existing)) {
+			throw new DomainAlreadyExistsError(name);
+		}
+
+		await tx.delete(domains).where(eq(domains.id, existing.id));
+	}
+
+	/** Reads and row-locks the row that has `name`, with the fields of its project the rules read. */
+	private async lockNameHolder(
+		tx: DomainTransaction,
+		name: string,
+	): Promise<(DomainNameHolder & { id: string }) | null> {
 		const [existing] = await tx
 			.select({
+				createdAt: domains.createdAt,
 				id: domains.id,
 				projectDeletedAt: projects.deletedAt,
 				projectId: domains.projectId,
+				projectOrganizationId: projects.organizationId,
 				source: domains.source,
 				status: domains.status,
 				userId: domains.userId,
@@ -1029,15 +1099,7 @@ export class DomainsRepository {
 			// Postgres cannot lock the nullable side of a left join, so lock only `domains`.
 			.for("update", { of: domains });
 
-		if (!existing) {
-			return;
-		}
-
-		if (!canReplace(existing)) {
-			throw new DomainAlreadyExistsError(name);
-		}
-
-		await tx.delete(domains).where(eq(domains.id, existing.id));
+		return existing ?? null;
 	}
 
 	private async insertPurchased(
@@ -1115,41 +1177,94 @@ export function isTerminalDomainStatus(status: DomainStatus) {
 /** The row that has a name, as the replace rules read it. */
 export type DomainNameHolder = Pick<
 	DomainRow,
-	"projectId" | "source" | "status" | "userId"
+	"createdAt" | "projectId" | "source" | "status" | "userId"
 > & {
 	/** `deleted_at` of the row's project. Null for a live project or no project. */
 	projectDeletedAt: Date | null;
+	/** `organization_id` of the row's project. Null for a personal project or no project. */
+	projectOrganizationId: string | null;
 };
 
 /**
- * Tells if an external attach by `attachingUserId` may delete `holder` and take
+ * 7 days in ms. Cloudflare deletes a custom hostname that stays pending for 7 days.
+ * An external attach still `configuring` after that is abandoned.
+ */
+const ABANDONED_EXTERNAL_ATTACH_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Tells if an external attach by `attacher` may delete `holder` and take
  * its name. The unique name index is global, so a kept row blocks all accounts.
  */
 export function canExternalAttachReplace(
 	holder: DomainNameHolder,
-	attachingUserId: string,
+	attacher: DomainAttacher,
+	now: Date = new Date(),
 ): boolean {
 	if (isTerminalDomainStatus(holder.status)) {
 		return true;
 	}
 
-	// A detach and a project soft-delete keep the row. Only such an orphan is free.
-	// A purchased row stays with its buyer.
-	const isOrphaned =
-		holder.projectId === null || holder.projectDeletedAt !== null;
-
-	if (holder.source !== "external" || !isOrphaned) {
+	// A purchased row stays with its buyer. relinkPurchasedDomain moves it.
+	if (holder.source !== "external") {
 		return false;
 	}
 
-	// Never verified: nobody proved ownership, so any account may take the name.
+	// A detach and a project soft-delete keep the row.
+	const isOrphaned =
+		holder.projectId === null || holder.projectDeletedAt !== null;
+
+	// Never verified: nobody proved ownership, so any account may take the name
+	// of an orphan, or of an abandoned attach on a live project.
 	if (holder.status === "configuring") {
-		return true;
+		return (
+			isOrphaned ||
+			now.getTime() - holder.createdAt.getTime() >
+				ABANDONED_EXTERNAL_ATTACH_AGE_MS
+		);
 	}
 
 	// Verified: the owner's DNS can still point at us. Another account would get
 	// the hostname validated by that CNAME and serve its content on the name.
-	return holder.userId === attachingUserId;
+	return isOrphaned && isSameDomainAccount(holder, attacher);
+}
+
+/**
+ * Tells if `attacher` may move the purchased row `holder` to `projectId`.
+ * A detached or soft-deleted purchase stays with its buyer's account.
+ */
+export function canRelinkPurchasedDomain(
+	holder: DomainNameHolder,
+	attacher: DomainAttacher,
+	projectId: string,
+): boolean {
+	if (holder.source !== "purchased" || isTerminalDomainStatus(holder.status)) {
+		return false;
+	}
+
+	// A retry after a failed serve step finds the row already on this live project.
+	if (holder.projectId === projectId && holder.projectDeletedAt === null) {
+		return true;
+	}
+
+	const isOrphaned =
+		holder.projectId === null || holder.projectDeletedAt !== null;
+
+	return isOrphaned && isSameDomainAccount(holder, attacher);
+}
+
+/**
+ * The attacher is the recorded user of the row, or shares the org of its
+ * project. A detached row has no project, so only its recorded user matches.
+ */
+function isSameDomainAccount(
+	holder: DomainNameHolder,
+	attacher: DomainAttacher,
+): boolean {
+	return (
+		holder.userId === attacher.userId ||
+		(attacher.organizationId !== null &&
+			holder.projectOrganizationId === attacher.organizationId)
+	);
 }
 
 function boundedRepositoryLimit(limit: number): number {

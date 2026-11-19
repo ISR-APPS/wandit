@@ -1,14 +1,15 @@
 /**
  * More view of the app builder: the section nav on the start side and the
  * open panel on the other side. The nav lies on the white stage sheet. The
- * panel lies on a sand ground, so its white cards lift off it.
+ * panel lies on the `sand` ground, a cool off-white, so its white cards read on it.
  * Every panel renders inside panel-shell.tsx, which draws its icon tile and
  * its title; a Cloud panel renders through cloud/cloud-panel-content.tsx.
  * The `code` panel is different. The code screen of code/code-view.tsx
  * replaces the nav and the shell. Its Back button returns to the last panel.
  * Rendered by pages/app-builder-page.tsx, which keeps it mounted while
  * hidden. A project viewer gets a note in place of the AI and Security
- * panels. The Security panel sends its turns through the page. The MCP panel
+ * panels. The Security panel sends its turns through the page, and the
+ * Integrations panel uses the GitHub Update pull of the page. The MCP panel
  * body comes from the coding-agents feature.
  */
 
@@ -37,7 +38,10 @@ import { AiPanel } from "./ai-panel";
 import { AppStoresPanel } from "./app-stores-panel";
 import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
-import { IntegrationsPanel } from "./integrations-panel";
+import {
+	type GithubUpdateControl,
+	IntegrationsPanel,
+} from "./integrations-panel";
 import { MoreNav } from "./more-nav";
 import { PANEL_CARD_CLASS, PanelMessage, PanelShell } from "./panel-shell";
 import { PaymentsPanel } from "./payments-panel";
@@ -67,6 +71,8 @@ export type MoreViewProps = {
 	onRunSecurityScan: () => void;
 	/** Sends a build turn that asks the AI to fix security findings, and opens the chat. */
 	onAskSecurityFix: (text: string) => void;
+	/** The Update pull of the page. The chat banner uses the same one, and a success reloads the preview. */
+	githubUpdate: GithubUpdateControl;
 };
 
 /** Panels that are not built yet. Each one shows the Soon state with its own action label. */
@@ -92,6 +98,7 @@ export function MoreView({
 	canSendTurn,
 	onRunSecurityScan,
 	onAskSecurityFix,
+	githubUpdate,
 }: MoreViewProps) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
@@ -185,7 +192,13 @@ export function MoreView({
 			case "payments":
 				return <PaymentsPanel />;
 			case "integrations":
-				return <IntegrationsPanel project={project} isActive={isShellActive} />;
+				return (
+					<IntegrationsPanel
+						project={project}
+						isActive={isShellActive}
+						githubUpdate={githubUpdate}
+					/>
+				);
 			case "mcp":
 				return (
 					<section className={cn(PANEL_CARD_CLASS, "p-5 sm:p-6")}>
@@ -232,8 +245,8 @@ export function MoreView({
 						onSelect={selectFromNav}
 					/>
 				</div>
-				{/* The sand ground of the panel. In dark mode the stage is already sand, so a black shade makes the ground one step deeper. */}
-				<div className="scroll-warm min-w-0 flex-1 overflow-y-auto bg-sand/70 px-4 py-6 sm:px-8 md:px-10 md:py-10 dark:bg-black/15">
+				{/* The `sand` ground of the panel, one step off the white stage. In dark mode the stage is already sand, so a black shade makes the ground one step deeper. */}
+				<div className="scroll-warm min-w-0 flex-1 overflow-y-auto bg-sand px-4 py-6 sm:px-8 md:px-10 md:py-10 dark:bg-black/15">
 					<PanelShell panel={shellPanel}>
 						{isCloudPanel(shellPanel) ? (
 							<CloudPanelContent

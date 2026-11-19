@@ -1,6 +1,16 @@
+/**
+ * One durable configuration run of a domain: probes the www hostname with backoff,
+ * runs the apex pass, and activates the domain when the hostname is active.
+ * domain-fulfillment.runtime.ts builds it for the Trigger domain tasks.
+ * It calls the steps and the cursor store that the runtime passes in.
+ */
 import { domainDnsSchema } from "@wandit/contracts";
 
-import { withoutNameserverRequiredDomainRecords } from "../../domain/domain-provisioning-rules";
+import {
+	areCustomDomainsEnabled,
+	withoutNameserverRequiredDomainRecords,
+} from "../../domain/domain-provisioning-rules";
+import { CustomDomainsProductionOnlyError } from "../../domain/errors/domain.errors";
 import type { CustomHostnameVerificationResult } from "./custom-hostname-verification.step";
 import {
 	type DomainActivationResult,
@@ -79,8 +89,12 @@ type DomainConfigurationRunnerDependencies = {
 	terminalFailure: {
 		execute(row: DomainFulfillmentRow, error: unknown): Promise<unknown>;
 	};
+	/** Probes the www hostname `id` of the row. It creates the hostname again when Cloudflare deleted it. */
 	verification: {
-		execute(id: string): Promise<CustomHostnameVerificationResult>;
+		execute(
+			id: string,
+			row: DomainFulfillmentRow,
+		): Promise<CustomHostnameVerificationResult>;
 	};
 	wait: DurableWait;
 };
@@ -116,6 +130,22 @@ export class DomainConfigurationRunner {
 				processed: false,
 				reason: "not_configuring",
 				terminalized: false,
+			};
+		}
+
+		// Staging refuses custom domains. An old staging row fails once here, so the reconciler stops re-sending it.
+		// The terminal step skips the Cloudflare hostname delete on staging (CustomHostnameService).
+		if (!areCustomDomainsEnabled()) {
+			await this.dependencies.terminalFailure.execute(
+				initial,
+				new CustomDomainsProductionOnlyError(),
+			);
+			await this.clearCurrentCursor(initial.id);
+
+			return {
+				processed: false,
+				reason: "custom_domains_disabled",
+				terminalized: true,
 			};
 		}
 
@@ -208,8 +238,15 @@ export class DomainConfigurationRunner {
 			let verification: CustomHostnameVerificationResult;
 
 			if (row.source === "external") {
-				verification =
-					await this.dependencies.verification.execute(cfCustomHostnameId);
+				verification = await this.dependencies.verification.execute(
+					cfCustomHostnameId,
+					row,
+				);
+
+				// The apex pass merges dns.records, so it must start from the row with the new records.
+				if (verification.status === "recreated") {
+					row = verification.row;
+				}
 
 				if (this.dependencies.apexZone) {
 					row = await this.dependencies.apexZone.execute(row, {
@@ -225,8 +262,10 @@ export class DomainConfigurationRunner {
 					});
 				}
 
-				verification =
-					await this.dependencies.verification.execute(cfCustomHostnameId);
+				verification = await this.dependencies.verification.execute(
+					cfCustomHostnameId,
+					row,
+				);
 			}
 
 			if (verification.status === "active") {

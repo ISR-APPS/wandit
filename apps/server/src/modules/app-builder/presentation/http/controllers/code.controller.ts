@@ -1,10 +1,11 @@
 /**
  * `/api/v2/projects/:projectId/code`: the file tree and one file of the
- * project code, for the Code view (WANDIT-271). `CodeService` reads the
- * commit at the stored `main` head on code.storage, else the running sandbox.
- * Both routes sit behind the global AuthGuard and the `V2BuilderEnabledGuard`;
- * the global ProjectAccessGuard checks the project role, and `CodeService`
- * checks the scope. The tree route sets the ETag and Cache-Control headers.
+ * project code, for the Code view (WANDIT-271), and the tar.gz Download.
+ * `CodeService` reads the commit at the stored `main` head on code.storage,
+ * else the running sandbox. The routes sit behind the global AuthGuard and
+ * the `V2BuilderEnabledGuard`; the global ProjectAccessGuard checks the
+ * project role, and `CodeService` checks the scope. The tree route sets the
+ * ETag and Cache-Control headers. `RedisRateLimitGuard` reads `@RateLimit`.
  */
 import {
 	Controller,
@@ -26,6 +27,7 @@ import {
 } from "@wandit/contracts";
 import type { FastifyReply } from "fastify";
 
+import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
 import {
@@ -35,14 +37,18 @@ import {
 	type ResolvedProjectAccess,
 } from "../../../../projects";
 import { CodeService } from "../../../application/services/code.service";
+import {
+	RateLimit,
+	RedisRateLimitGuard,
+} from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
 /**
- * The two Code view routes. Both are reads, so a project viewer may call
- * them, like `GET /api/v2/projects/:projectId`.
+ * The Code view routes and the Download. All are reads, so a project viewer
+ * may call them, like `GET /api/v2/projects/:projectId`.
  */
 @Controller("v2/projects/:projectId/code")
-@UseGuards(V2BuilderEnabledGuard)
+@UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
 export class CodeController {
 	constructor(
 		@Inject(CodeService)
@@ -96,5 +102,41 @@ export class CodeController {
 			projectId,
 			query.path,
 		);
+	}
+
+	// Raw attachment, not the JSON envelope: the browser saves the file under the
+	// Content-Disposition name. Each download holds up to 50 MB in the API
+	// memory, so the bucket caps the downloads of one user.
+	@RequireProjectRole("viewer")
+	@RateLimit({ key: "code-archive", limit: 10, windowMs: 60_000 })
+	@Get("archive")
+	@SkipResponseEnvelope()
+	async archive(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+		@Res() reply: FastifyReply,
+	): Promise<void> {
+		const download = await this.codeService.archive(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
+		await reply
+			.header("content-type", "application/gzip")
+			// The file name is a slug of a-z, 0-9, and "-", so plain quotes are header-safe.
+			.header(
+				"content-disposition",
+				`attachment; filename="${download.fileName}"`,
+			)
+			.header("cache-control", "private, no-store")
+			// A view on the same memory: a copy would hold a second 50 MB.
+			.send(
+				Buffer.from(
+					download.bytes.buffer,
+					download.bytes.byteOffset,
+					download.bytes.byteLength,
+				),
+			);
 	}
 }

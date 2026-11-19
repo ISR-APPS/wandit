@@ -182,7 +182,7 @@ export function SecretsPanel({
 											<Button
 												variant="ghost"
 												size="icon-sm"
-												className="text-night/55 hover:bg-destructive/10 hover:text-destructive dark:text-foreground/55 dark:hover:bg-destructive/15 dark:hover:text-destructive"
+												className="size-7 text-night/55 hover:bg-destructive/10 hover:text-destructive dark:text-foreground/55 dark:hover:bg-destructive/15 dark:hover:text-destructive"
 												onClick={() => setPendingDelete(secret.name)}
 											>
 												<TrashIcon aria-hidden weight="bold" />

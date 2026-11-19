@@ -25,12 +25,12 @@ type Translate = ReturnType<typeof useTranslation>["t"];
 type Severity = PublishGateFinding["severity"];
 
 /**
- * The quiet outline pill of a gate action: "Ask the AI to fix" here, and
- * "Publish anyway" in publish-popover.tsx. The dark: classes override the
- * dark fill and border of the kit outline variant.
+ * The flat outline pill of a second action in a destination card, 28 px high. The kit gives the corner.
+ * publish-popover.tsx, desktop-build-card.tsx, and expo-go-popover.tsx use it too.
+ * The classes override the fill and the border of the kit outline variant.
  */
 export const GATE_ACTION_CLASS =
-	"font-grotesk font-semibold border-popover-foreground/[0.12] bg-transparent text-popover-foreground hover:bg-popover-foreground/[0.04] dark:border-white/[0.12] dark:bg-transparent dark:hover:bg-white/[0.05]";
+	"h-7 font-grotesk font-medium text-[13px] border-night/[0.12] bg-white text-night hover:bg-night/[0.04] hover:text-night dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
 
 // A block finding stops the publish, so it reads as an error. A warn finding is a caution in spark.
 const SEVERITY_STYLES = {
@@ -123,7 +123,7 @@ function FindingGroup({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<h4 className={cn("font-grotesk font-semibold text-xs", className)}>
+			<h4 className={cn("font-grotesk font-medium text-xs", className)}>
 				{t(`appBuilder.publish.findings.${severity}`)}
 			</h4>
 			<ul className="flex flex-col gap-1.5">

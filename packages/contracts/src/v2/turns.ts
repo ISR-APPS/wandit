@@ -684,7 +684,7 @@ export const turnContextDataSchema = z.object({
 	// Tokens of the conversation that Claude Code sends on its next model call.
 	tokens: z.int().nonnegative(),
 	// Claude Code summarizes the conversation when `tokens` reaches this
-	// count: 300,000 on a 1M-window Claude model, 167,000 on other models.
+	// count: 450,000 on a 1M-window model, 167,000 on a 200K model (Haiku 4.5).
 	compactAtTokens: z.int().positive(),
 });
 

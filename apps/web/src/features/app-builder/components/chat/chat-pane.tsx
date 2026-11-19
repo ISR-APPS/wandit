@@ -1,5 +1,5 @@
 /**
- * The chat column of the app builder. It has no card and lies on the sand
+ * The chat column of the app builder. It has no card and lies on the
  * desk. The header shows the conversation switcher, the dev view switch in
  * local dev, and the collapse button; a running turn adds a "Building" or
  * "Planning" chip and a Stop pill. While another conversation holds the
@@ -21,7 +21,8 @@
  * again, except a stop on the daily AI limit, and while the payer has no
  * credits. The plan card's
  * "Build this plan" sends a build turn, and Retry of a failed security scan
- * sends a scan. The other sends carry no mode. The
+ * sends a scan. A follow-up idea under the last finished reply sends like
+ * the composer. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
  * reply shows only as the status line. Under the composer, a line shows the
@@ -71,7 +72,7 @@ import { ChatMessageView } from "./chat-message";
 import { ChatSwitcher } from "./chat-switcher";
 import { Composer } from "./composer";
 import { GithubUpdateBanner } from "./github-update-banner";
-import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
+import { CARD_SECONDARY_BUTTON_CLASS } from "./message-card";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { WorkingRow } from "./working-row";
@@ -298,7 +299,7 @@ export function ChatPane({
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
-			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
+			<div className="flex h-12 shrink-0 items-center gap-2 ps-5 pe-2">
 				{/* min-w-0 lets the switcher shrink and cut its title, so the chip and Stop stay in a 320 px column. */}
 				<h2 className="flex min-w-0">
 					<ChatSwitcher
@@ -348,7 +349,7 @@ export function ChatPane({
 							variant="outline"
 							size="sm"
 							onClick={onCancel}
-							className="h-8 gap-1.5 border-night/25 bg-transparent px-3 font-grotesk font-medium text-[13px] text-night hover:bg-night/[0.05] hover:text-night has-[>svg]:px-3 dark:border-white/25 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+							className="h-8 gap-1.5 border-night/[0.12] bg-white px-3 font-grotesk font-medium text-[13px] text-night hover:bg-night/[0.04] hover:text-night has-[>svg]:px-3 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground"
 						>
 							<StopIcon weight="fill" className="size-3.5" aria-hidden />
 							{t("appBuilder.chat.stop")}
@@ -435,6 +436,15 @@ export function ChatPane({
 									: null
 							}
 							trayQuestionKey={tray.questionKey}
+							// Product rule: the ideas show only under the last reply, once it ended
+							// and waits for nothing, while the user can send. Like the composer: no mode.
+							onSendFollowUp={
+								message.id === lastMessageId &&
+								canSend &&
+								isSettledReply(message)
+									? (text) => void onSend({ text, files: [] })
+									: undefined
+							}
 						/>
 					))}
 					{isSending ? (
@@ -473,7 +483,7 @@ export function ChatPane({
 								variant="outline"
 								size="sm"
 								onClick={() => void onReconnect()}
-								className={cn("mt-2", CARD_SECONDARY_PILL_CLASS)}
+								className={cn("mt-2", CARD_SECONDARY_BUTTON_CLASS)}
 							>
 								<ArrowsClockwiseIcon weight="bold" aria-hidden />
 								{t("appBuilder.chat.reconnect")}
@@ -599,6 +609,25 @@ export function ChatPane({
 				) : null}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * True for a reply that ended and waits for nothing: no error, no stop, and
+ * no open question, approval, or plan card.
+ */
+function isSettledReply(message: BuilderMessage): boolean {
+	return (
+		message.role === "assistant" &&
+		!message.parts.some(
+			(part) =>
+				part.type === "data-error" ||
+				part.type === "data-stopped" ||
+				((part.type === "data-question" ||
+					part.type === "data-approval" ||
+					part.type === "data-plan") &&
+					part.data.isOpen),
+		)
 	);
 }
 

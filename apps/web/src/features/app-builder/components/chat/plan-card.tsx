@@ -1,7 +1,7 @@
 /**
  * The plan of a Plan Mode turn in the thread. An open card shows the whole
  * plan: the title, the summary, the numbered sections, the choices the
- * agent made, and the "Build this plan" pill. A closed card (a later reply
+ * agent made, and the "Build this plan" button. A closed card (a later reply
  * exists) keeps the title and the summary, and hides the rest behind a
  * disclosure. Rendered by chat-message.tsx for each `data-plan` part. Pure
  * presentation: `onBuild` hands the build to the caller, who sends it.
@@ -25,7 +25,7 @@ import { useState } from "react";
 import { formatNumber, useTranslation } from "@/lib/i18n";
 import { BOOT_EASE } from "../../lib/constants";
 import {
-	CARD_PRIMARY_PILL_CLASS,
+	CARD_PRIMARY_BUTTON_CLASS,
 	CardMedallion,
 	MessageCard,
 } from "./message-card";
@@ -45,7 +45,7 @@ export type PlanCardProps = {
 const BULLET_CLASS =
 	"relative ps-3.5 before:absolute before:start-0.5 before:top-[0.55em] before:size-1.5 before:rounded-full";
 
-/** The plan card: the whole plan with the build pill while open; title and summary with a disclosure once closed. */
+/** The plan card: the whole plan with the build button while open; title and summary with a disclosure once closed. */
 export function PlanCard({ plan, isOpen, onBuild }: PlanCardProps) {
 	const { t } = useTranslation();
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -69,7 +69,7 @@ export function PlanCard({ plan, isOpen, onBuild }: PlanCardProps) {
 					<CollapsibleContent>
 						<PlanBody plan={plan} />
 					</CollapsibleContent>
-					<CollapsibleTrigger className="group mx-4 mt-2.5 mb-3.5 flex items-center gap-1 rounded-sm font-grotesk font-medium text-[12.5px] text-night/55 outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/55 dark:hover:text-foreground">
+					<CollapsibleTrigger className="group mx-4 mt-2.5 mb-3.5 flex items-center gap-1 rounded-sm font-grotesk font-medium text-[12px] text-night/55 outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/55 dark:hover:text-foreground">
 						{t(
 							isExpanded
 								? "appBuilder.chat.plan.hideFull"
@@ -95,7 +95,6 @@ export function PlanCard({ plan, isOpen, onBuild }: PlanCardProps) {
 				transition={{ duration: 0.32, ease: BOOT_EASE }}
 			>
 				{/* An open plan waits for the user, so its border asks for attention like an open approval. The halo is spark at 12 %. */}
-				{/* It is a ring, not a shadow class: a shadow class replaces the lift of MessageCard in the merge. */}
 				<MessageCard className="overflow-hidden border-spark/60 p-0 ring-[3px] ring-spark/[0.12] dark:border-spark/50">
 					{head}
 					<PlanBody plan={plan} />
@@ -105,13 +104,13 @@ export function PlanCard({ plan, isOpen, onBuild }: PlanCardProps) {
 								size="sm"
 								disabled={onBuild === null}
 								onClick={onBuild ?? undefined}
-								className={cn(CARD_PRIMARY_PILL_CLASS, "gap-1.5")}
+								className={cn(CARD_PRIMARY_BUTTON_CLASS, "gap-1.5")}
 							>
 								<HammerIcon weight="bold" aria-hidden />
 								{t("appBuilder.chat.plan.build")}
 							</Button>
 						) : null}
-						<span className="font-sans text-[12.5px] text-night/55 leading-snug dark:text-foreground/55">
+						<span className="font-sans text-[13px] text-night/60 leading-snug dark:text-foreground/60">
 							{t("appBuilder.chat.plan.changeHint")}
 						</span>
 					</div>
@@ -129,13 +128,13 @@ function PlanHead({ plan }: { plan: TurnPlanData }) {
 			<div className="flex items-center gap-3">
 				<CardMedallion icon={ListChecksIcon} />
 				<div className="min-w-0">
-					<p className="font-grotesk font-semibold text-[11px] text-ember-text uppercase tracking-[0.08em] rtl:tracking-normal">
+					<p className="font-grotesk font-medium text-[11px] text-ember-text uppercase tracking-[0.08em] rtl:tracking-normal">
 						{t("appBuilder.chat.plan.eyebrow")}
 					</p>
 					{plan.title.trim() !== "" ? (
 						<h3
 							dir="auto"
-							className="font-grotesk font-semibold text-[16px] text-night leading-snug dark:text-foreground"
+							className="font-grotesk font-semibold text-[15px] text-night leading-snug dark:text-foreground"
 						>
 							{plan.title}
 						</h3>
@@ -169,7 +168,7 @@ function PlanBody({ plan }: { plan: TurnPlanData }) {
 						>
 							<span
 								aria-hidden
-								className="grid size-[22px] place-items-center rounded-full bg-night/[0.05] font-grotesk font-semibold text-[11px] text-night/60 tabular-nums dark:bg-white/[0.07] dark:text-foreground/60"
+								className="grid size-[22px] place-items-center rounded-full bg-night/[0.05] font-grotesk font-medium text-[11px] text-night/60 tabular-nums dark:bg-white/[0.07] dark:text-foreground/60"
 							>
 								{formatNumber(index + 1, locale)}
 							</span>
@@ -203,7 +202,7 @@ function PlanBody({ plan }: { plan: TurnPlanData }) {
 				</ol>
 			) : null}
 			{plan.assumptions.length > 0 ? (
-				<div className="mx-4 mt-4 rounded-[14px] bg-sand px-3 py-2.5 dark:bg-white/[0.04]">
+				<div className="mx-4 mt-4 rounded-[14px] bg-night/[0.04] px-3 py-2.5 dark:bg-white/[0.05]">
 					<p className="flex items-center gap-1.5 font-grotesk font-medium text-[12px] text-night/60 dark:text-foreground/60">
 						<LightbulbIcon
 							weight="duotone"

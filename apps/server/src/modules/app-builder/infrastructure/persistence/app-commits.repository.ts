@@ -58,6 +58,8 @@ export type NewAppCommit = {
 /** Columns the versions flow needs from the owning `projects` row. */
 export type ScopedAppProject = {
 	id: string;
+	/** `projects.name`, as the user typed it. The code Download names its file after it. */
+	name: string;
 	engine: string;
 	framework: string | null;
 	templateVersion: string | null;
@@ -326,6 +328,7 @@ export class AppCommitsRepository {
 		const rows = await this.db
 			.select({
 				id: projects.id,
+				name: projects.name,
 				engine: projects.engine,
 				framework: projects.framework,
 				templateVersion: projects.templateVersion,

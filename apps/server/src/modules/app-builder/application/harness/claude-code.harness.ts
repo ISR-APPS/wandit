@@ -153,26 +153,21 @@ const KEPT_SESSION_IDLE_MS = 20 * 60_000;
 /**
  * The window Claude Code compacts in, as the `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
  * value. Claude Code 2.1.281 compacts 33,000 tokens below it (a 20,000 summary
- * reserve plus a 13,000 buffer), so at 300,000 tokens (Zack, 2026-11-04).
+ * reserve plus a 13,000 buffer), so at 450,000 tokens (Zack, 2026-11-17).
  * Claude Code uses the smaller of this value and the model window.
  */
-const AUTO_COMPACT_WINDOW_TOKENS = "333000";
+const AUTO_COMPACT_WINDOW_TOKENS = "483000";
 
 /**
- * The builder models of `LLM_MODEL_PRICES` with a 1M-token window. Claude
- * Code 2.1.281 assumes 200K for these gateway ids and compacts at 167,000.
- * The `[1m]` suffix gives it the real window. It sends the id without the
- * suffix, plus the `context-1m-2025-08-07` beta. A 200K model must stay out:
- * Claude Code would then wait for 300,000 tokens that the API refuses.
- * A new 1M row in `LLM_MODEL_PRICES` needs its id here too.
+ * The builder models of `LLM_MODEL_PRICES` with a 200K-token window. Every
+ * other row has a 1M window (gateway `/v1/models`, read 2026-11-17; Paper
+ * per Zack). Without a suffix, Claude Code 2.1.281 assumes 200K for a gateway
+ * id and compacts at 167,000. The `[1m]` suffix gives it 1M for any id. It sends the
+ * id without the suffix, plus the `context-1m-2025-08-07` beta. A 200K model
+ * must stay here: Claude Code would wait for 450,000 tokens that the API refuses.
  */
-const MILLION_TOKEN_WINDOW_MODELS: ReadonlySet<string> = new Set([
-	"anthropic/claude-sonnet-5",
-	"anthropic/claude-opus-5.5",
-	"anthropic/claude-opus-5.5-fast",
-	"anthropic/claude-opus-5",
-	"anthropic/claude-opus-5-fast",
-	"anthropic/claude-fable-5.1",
+const TWO_HUNDRED_K_WINDOW_MODELS: ReadonlySet<string> = new Set([
+	"anthropic/claude-haiku-4-5",
 ]);
 
 /**
@@ -1044,10 +1039,6 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			);
 		}
 		const isOtherProviderModel = !isAnthropicModel(input.model);
-		// Only Anthropic runs the `web_search` server tool that WebSearch
-		// calls, and Paper answers 400 to it. The adapter key is `webSearch`:
-		// HarnessAgent throws on the native name.
-		const otherProviderBlockedTools = isOtherProviderModel ? ["webSearch"] : [];
 		return this.agentFactory({
 			harness: this.claudeFactory({
 				// The explicit auth object stops the adapter from reading
@@ -1119,9 +1110,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				startupTimeoutMs: BRIDGE_STARTUP_TIMEOUT_MS,
 			}),
 			instructions: input.instructions,
-			model: MILLION_TOKEN_WINDOW_MODELS.has(input.model)
-				? `${input.model}[1m]`
-				: input.model,
+			model: TWO_HUNDRED_K_WINDOW_MODELS.has(input.model)
+				? input.model
+				: `${input.model}[1m]`,
 			// The model asks through the `ask_user` host tool only. It carries
 			// the kinds and the world cards; the built-in question tool has none.
 			// A build session has no subagents. The bridge drops subagent output,
@@ -1133,7 +1124,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					: input.mode === "security_scan"
 						? SECURITY_SCAN_BLOCKED_TOOLS
 						: ["Agent", "Workflow"]),
-				...otherProviderBlockedTools,
+				// The native WebSearch calls the Anthropic `web_search` server tool.
+				// The LLM proxy does not bill it, and Paper answers 400 to it. So it
+				// is off for every model: the metered `web_search` host tool is the
+				// one search. The adapter key is `webSearch`: HarnessAgent throws on
+				// the native name.
+				"webSearch",
 			],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",

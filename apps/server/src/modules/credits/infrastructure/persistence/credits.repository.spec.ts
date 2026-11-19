@@ -115,6 +115,29 @@ describe("CreditsRepository.netConsumedCentiCredits", () => {
 	});
 });
 
+describe("CreditsRepository settled net consumption by user", () => {
+	// Money rule of the user referral sweep: an open hold is not consumption, and an org row is not personal.
+	it("leaves out each user with an in-flight hold on the personal pool", () => {
+		// SAFETY: `db` is the Drizzle client of `@wandit/db`. The case compiles SQL and sends no query.
+		const repository = new CreditsRepository(db as Database);
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const query = repository["buildSettledNetConsumedQuery"]([
+			"user-1",
+			"user-2",
+		]).toSQL();
+		const statement = normalizeSql(query.sql);
+
+		expect(statement).toContain('"credit_ledger"."user_id" in ($1, $2)');
+		expect(statement).toContain('"credit_ledger"."organization_id" is null');
+		// The hold filter reads the user of each ledger row, not a fixed parameter.
+		expect(statement).toContain(
+			'not exists ( select 1 from "ai_usage_events" where ("ai_usage_events"."status" = \'reserved\' or ("ai_usage_events"."status" = \'reconcile_failed\' and "ai_usage_events"."final_credits" is null)) and ("ai_usage_events"."organization_id" is null and (("ai_usage_events"."user_id" = "credit_ledger"."user_id" and "ai_usage_events"."payer_user_id" is null) or "ai_usage_events"."payer_user_id" = "credit_ledger"."user_id")) )',
+		);
+		expect(statement).toContain('group by "credit_ledger"."user_id"');
+		expect(query.params).toEqual(["user-1", "user-2"]);
+	});
+});
+
 describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 	it("adds each bucket's open hold back from ONE statement", async () => {
 		const repository = new CreditsRepository(db as Database);

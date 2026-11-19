@@ -12,10 +12,11 @@ describe("CodeController", () => {
 		);
 	});
 
-	it("opens both reads to a project viewer", () => {
+	it("opens every read to a project viewer", () => {
 		for (const route of [
 			CodeController.prototype.snapshot,
 			CodeController.prototype.file,
+			CodeController.prototype.archive,
 		]) {
 			expect(Reflect.getMetadata(PROJECT_ROLE_KEY, route)).toEqual({
 				anyEngine: false,
