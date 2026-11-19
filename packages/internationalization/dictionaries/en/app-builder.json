@@ -541,6 +541,11 @@
 				"fetch": "Opened",
 				"running": "Browsing the web"
 			},
+			"clone": {
+				"running": "Matching the original site",
+				"capture": "Captured",
+				"compare": "Compared with the original"
+			},
 			"image": {
 				"done": "Generated an image",
 				"running": "Generating an image"
@@ -594,6 +599,18 @@
 			"body": "The page opens in a new tab. Check the address first.",
 			"confirm": "Open link",
 			"cancel": "Cancel"
+		},
+		"clone": {
+			"toggle": {
+				"label": "Clone",
+				"hint": "Copy a public web page into this project."
+			},
+			"urlLabel": "Page address",
+			"urlPlaceholder": "https://example.com",
+			"urlInvalid": "Enter a public web address.",
+			"confirm": "Use this page",
+			"notice": "Clone only pages that you own or have permission to copy.",
+			"message": "Clone this website: {url}"
 		},
 		"placeholder": "Ask Wandit…",
 		"attach": "Attach a file",
@@ -686,6 +703,7 @@
 			"explore": "Looking at your project",
 			"run": "Checking your app",
 			"web": "Searching the web",
+			"clone": "Copying the website",
 			"image": "Creating an image",
 			"database": "Updating the database",
 			"databaseCheck": "Checking the database",

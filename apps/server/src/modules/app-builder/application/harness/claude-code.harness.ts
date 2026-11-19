@@ -1130,6 +1130,10 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				// one search. The adapter key is `webSearch`: HarnessAgent throws on
 				// the native name.
 				"webSearch",
+				// The native WebFetch runs in the sandbox behind the egress policy
+				// and fails on most hosts. So it is off for every model: the metered
+				// `web_fetch` host tool is the one fetch. The adapter key is `WebFetch`.
+				"WebFetch",
 			],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",

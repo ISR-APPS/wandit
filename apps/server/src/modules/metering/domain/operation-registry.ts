@@ -76,6 +76,20 @@ export const THEME_DESIGN_RESERVE_FLOOR_CREDITS = 50;
  * This is a default price. Zack sets the final price later.
  */
 export const WEB_SEARCH_CREDITS = 60;
+/**
+ * The price of one `web_fetch` host tool call that reaches Firecrawl, in
+ * centi-credits (0.2 credit). The worst case is a PDF of 5 pages on the
+ * Standard plan: $0.00495, about 15.5 cc at $0.032 per credit.
+ * This is a default price. Zack sets the final price later.
+ */
+export const WEB_FETCH_CREDITS = 20;
+/**
+ * The price of one `capture_site` host tool call, in centi-credits (1 credit).
+ * The worst case is 4 Firecrawl credits for the two viewports. On the Standard
+ * plan ($0.00099 per credit) that is $0.00396, about 12.4 cc at $0.032 per credit.
+ * This is a default price. Zack sets the final price later.
+ */
+export const SITE_CAPTURE_CREDITS = 100;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -139,7 +153,14 @@ const NO_CHILDREN = [] as const;
  */
 export const OPERATION_REGISTRY = {
 	agent_session: {
-		allowedChildOperations: ["image", "connector", "sandbox", "web_search"],
+		allowedChildOperations: [
+			"image",
+			"connector",
+			"sandbox",
+			"web_search",
+			"web_fetch",
+			"site_capture",
+		],
 		allowedParentOperations: NO_PARENTS,
 		mode: "token",
 		reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
@@ -254,6 +275,16 @@ export const OPERATION_REGISTRY = {
 		rootAllowed: false,
 		unit: "minute",
 	},
+	// Only the `capture_site` host tool of a builder turn reserves it, always under the turn hold.
+	site_capture: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: ["agent_session"],
+		creditsPerUnit: SITE_CAPTURE_CREDITS,
+		mode: "fixed",
+		reserveFloorCredits: SITE_CAPTURE_CREDITS,
+		rootAllowed: false,
+		unit: "operation",
+	},
 	// The user asks for a theme in the Thème sheet, never inside a turn, so it has no parent.
 	theme_design: {
 		allowedChildOperations: NO_CHILDREN,
@@ -287,6 +318,16 @@ export const OPERATION_REGISTRY = {
 		reserveFloorCredits: VIDEO_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 		unit: "video",
+	},
+	// Only the `web_fetch` host tool of a builder turn reserves it, always under the turn hold.
+	web_fetch: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: ["agent_session"],
+		creditsPerUnit: WEB_FETCH_CREDITS,
+		mode: "fixed",
+		reserveFloorCredits: WEB_FETCH_CREDITS,
+		rootAllowed: false,
+		unit: "operation",
 	},
 	// Only the `web_search` host tool of a builder turn reserves it, always under the turn hold.
 	web_search: {
@@ -455,6 +496,20 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "outcome = await deps.searchWeb(",
 		source:
 			"apps/server/src/modules/app-builder/application/host-tools/web-search.host-tool.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "web_fetch" },
+		id: "builder-host-tool-web-fetch",
+		marker: "outcome = await deps.fetchWebPage(",
+		source:
+			"apps/server/src/modules/app-builder/application/host-tools/web-fetch.host-tool.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "site_capture" },
+		id: "builder-host-tool-site-capture",
+		marker: "await deps.captureSitePage(",
+		source:
+			"apps/server/src/modules/app-builder/application/host-tools/capture-site.host-tool.ts",
 	},
 	{
 		billing: { kind: "metered", operation: "marketing" },

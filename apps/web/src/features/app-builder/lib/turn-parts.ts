@@ -63,6 +63,11 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 	["WebFetch", "web"],
 	// The Exa search host tool. Its input has `query`, like the native WebSearch.
 	["web_search", "web"],
+	// The Firecrawl page read host tool. Its input has `url`, like the native WebFetch.
+	["web_fetch", "web"],
+	// The two host tools of a site clone: the capture of the source page, and the compare of the clone with it.
+	["capture_site", "clone"],
+	["compare_clone", "clone"],
 	["generate_image", "image"],
 	["apply_migration", "database"],
 	["apply_destructive_migration", "database"],
@@ -476,6 +481,20 @@ function stepContentOf(
 				target: host,
 				description: null,
 				detail: capLines(linesOf(input.url ?? input.query ?? "", "context")),
+			};
+		}
+		case "clone": {
+			// Only `capture_site` has `url`. A `compare_clone` row names no page.
+			// A `url` that is not a URL stays as raw text, so the row keeps the capture label.
+			const host =
+				input.url === undefined ? null : (hostOf(input.url) ?? input.url);
+			return {
+				target: host,
+				description: null,
+				detail:
+					input.url === undefined
+						? []
+						: capLines(linesOf(input.url, "context")),
 			};
 		}
 		case "image": {

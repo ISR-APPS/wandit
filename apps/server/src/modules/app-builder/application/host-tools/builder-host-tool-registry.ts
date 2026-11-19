@@ -3,12 +3,14 @@
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
  * `generate_image`, `suggest_follow_ups`, `web_search` when `EXA_API_KEY`
- * exists, and `set_theme` for a template with the theme system.
+ * exists, `web_fetch` when `FIRECRAWL_API_KEY` exists, and `set_theme` for a
+ * template with the theme system.
  * A web or mobile project adds `request_network_host`, the seven backend
  * tools of WANDIT-186, and `enable_ai` of the app AI gateway; a desktop
- * project adds `add_local_migration`. A Plan Mode turn gets only `ask_user`,
- * `present_plan`, and `web_search` (with the key). A `security_scan` turn
- * gets only the two backend reads.
+ * project adds `add_local_migration`. A web project with the Firecrawl key
+ * adds `capture_site` and `compare_clone`. A Plan Mode turn gets only
+ * `ask_user`, `present_plan`, `web_search`, and `web_fetch` (each with its
+ * key). A `security_scan` turn gets only the two backend reads.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
  */
@@ -18,6 +20,10 @@ import type {
 	HostToolRegistry,
 	HostToolSet,
 } from "../../domain/ports/host-tools";
+import type {
+	CaptureSitePage,
+	FetchWebPage,
+} from "../../domain/ports/web-pages";
 import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import {
 	ADD_LOCAL_MIGRATION_TOOL_NAME,
@@ -41,6 +47,15 @@ import {
 } from "./backend/run-sql.host-tool";
 import { createSetSecretTool } from "./backend/set-secret.host-tool";
 import {
+	CAPTURE_SITE_TOOL_NAME,
+	type CaptureSiteHostToolDeps,
+	createCaptureSiteTool,
+} from "./capture-site.host-tool";
+import {
+	COMPARE_CLONE_TOOL_NAME,
+	createCompareCloneTool,
+} from "./compare-clone.host-tool";
+import {
 	createGenerateImageTool,
 	type GenerateImageHostToolDeps,
 } from "./generate-image.host-tool";
@@ -58,6 +73,11 @@ import {
 	SUGGEST_FOLLOW_UPS_TOOL_NAME,
 } from "./suggest-follow-ups.host-tool";
 import {
+	createWebFetchTool,
+	WEB_FETCH_TOOL_NAME,
+	type WebFetchHostToolDeps,
+} from "./web-fetch.host-tool";
+import {
 	createWebSearchTool,
 	type SearchWeb,
 	WEB_SEARCH_TOOL_NAME,
@@ -66,8 +86,9 @@ import {
 /**
  * The image deps, the backend tool deps (WANDIT-186) with the AI key write
  * of `enable_ai`, the network-host repository (WANDIT-180), and the desktop
- * migration registry, and the Exa search. `audit`
- * serves `request_network_host` and the backend tools; `logger` serves every tool.
+ * migration registry, the Exa search, and the page reader with the site
+ * capture. `audit` serves `request_network_host`, `capture_site`, and the
+ * backend tools; `logger` serves every tool.
  */
 export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
 	EnableAiToolDeps & {
@@ -77,6 +98,17 @@ export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
 		desktopMigrations: AddLocalMigrationHostToolDeps["desktopMigrations"];
 		/** One Exa search, bound to `EXA_API_KEY`. Absent when the key is absent: no `web_search` tool. */
 		searchWeb?: SearchWeb;
+		/** The page reader and the site capture, bound to `FIRECRAWL_API_KEY`. Absent without the key: no `web_fetch`, `capture_site`, or `compare_clone`. */
+		webPages?: {
+			/** One page read at the provider, for `web_fetch`. */
+			fetchWebPage: FetchWebPage;
+			/** The 24 h Redis cache of the pages that `web_fetch` reads. */
+			pageCache: WebFetchHostToolDeps["pageCache"];
+			/** One provider capture of one device, for `capture_site`. */
+			captureSitePage: CaptureSitePage;
+			/** The guarded download of one file of the source site, for `capture_site`. */
+			fetchPublicFile: CaptureSiteHostToolDeps["fetchPublicFile"];
+		};
 	};
 
 /**
@@ -87,7 +119,7 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 	constructor(private readonly deps: BuilderHostToolRegistryDeps) {}
 
 	build(context: HostToolContext): Promise<HostToolSet> {
-		const { searchWeb } = this.deps;
+		const { searchWeb, webPages } = this.deps;
 		// A search changes nothing in the project, so Plan Mode gets it too.
 		// No approval card: a search only reads, and its description names the cost.
 		const webSearch =
@@ -108,8 +140,30 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 							),
 						},
 					};
+		// A page read changes nothing in the project, so Plan Mode gets it too.
+		// No approval card: a read only reads, and its description names the cost.
+		const webFetch =
+			webPages === undefined
+				? null
+				: {
+						approval: {
+							[WEB_FETCH_TOOL_NAME]: "not-applicable",
+						} satisfies HostToolSet["toolApproval"],
+						tools: {
+							[WEB_FETCH_TOOL_NAME]: createWebFetchTool(
+								{
+									fetchWebPage: webPages.fetchWebPage,
+									logger: this.deps.logger,
+									metering: this.deps.metering,
+									pageCache: webPages.pageCache,
+								},
+								context,
+							),
+						},
+					};
 		// Plan Mode changes nothing in the project, the backend, or the
-		// network: the agent only asks questions, searches, and shows the plan.
+		// network: the agent only asks questions, searches, reads pages, and
+		// shows the plan.
 		if (context.mode === "plan") {
 			return Promise.resolve({
 				close: async () => {},
@@ -118,11 +172,13 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 					[ASK_USER_TOOL_NAME]: "not-applicable",
 					[PRESENT_PLAN_TOOL_NAME]: "not-applicable",
 					...webSearch?.approval,
+					...webFetch?.approval,
 				},
 				tools: {
 					[ASK_USER_TOOL_NAME]: createAskUserTool(),
 					[PRESENT_PLAN_TOOL_NAME]: createPresentPlanTool(),
 					...webSearch?.tools,
+					...webFetch?.tools,
 				},
 			});
 		}
@@ -156,6 +212,36 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 		}
 		// Only a template with src/styles/theme.json has a theme to set.
 		const hasAppTheme = supportsAppTheme(context.templateVersion);
+		// The clone rules and the capture files fit only the web template, so
+		// a mobile or desktop project gets no clone tool.
+		// No approval card: the user asks for the clone, and the capture
+		// description names the cost.
+		const siteClone =
+			webPages === undefined ||
+			context.framework !== TEMPLATE_PROFILES.web.framework
+				? null
+				: {
+						approval: {
+							[CAPTURE_SITE_TOOL_NAME]: "not-applicable",
+							[COMPARE_CLONE_TOOL_NAME]: "not-applicable",
+						} satisfies HostToolSet["toolApproval"],
+						tools: {
+							[CAPTURE_SITE_TOOL_NAME]: createCaptureSiteTool(
+								{
+									audit: this.deps.audit,
+									captureSitePage: webPages.captureSitePage,
+									fetchPublicFile: webPages.fetchPublicFile,
+									logger: this.deps.logger,
+									metering: this.deps.metering,
+								},
+								context,
+							),
+							[COMPARE_CLONE_TOOL_NAME]: createCompareCloneTool(
+								{ logger: this.deps.logger },
+								context,
+							),
+						},
+					};
 		return Promise.resolve({
 			// Nothing to release yet: the connector clients that need a
 			// close land in the connector follow-up issue.
@@ -169,6 +255,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				// The ideas only show under the answer; the user picks one or not.
 				[SUGGEST_FOLLOW_UPS_TOOL_NAME]: "not-applicable",
 				...webSearch?.approval,
+				...webFetch?.approval,
+				...siteClone?.approval,
 				...(isDesktop
 					? // The gate refuses every statement that can lose saved data.
 						{ [ADD_LOCAL_MIGRATION_TOOL_NAME]: "not-applicable" }
@@ -193,6 +281,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				generate_image: createGenerateImageTool(this.deps, context),
 				[SUGGEST_FOLLOW_UPS_TOOL_NAME]: createSuggestFollowUpsTool(),
 				...webSearch?.tools,
+				...webFetch?.tools,
+				...siteClone?.tools,
 				...(isDesktop
 					? {
 							[ADD_LOCAL_MIGRATION_TOOL_NAME]: createAddLocalMigrationTool(

@@ -145,6 +145,8 @@ export type ChatPaneProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick. The composer shows the menu next to the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** True for a web project, from `project.kind` in the page. The composer then shows the Clone chip. */
+	canCloneSite: boolean;
 	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
 	chatCost?: ChatCostResponse;
 	/** How full the model context is, from useBuilderThread. The composer shows it as a ring; null shows no ring. */
@@ -213,6 +215,7 @@ export function ChatPane({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	canCloneSite,
 	chatCost,
 	contextUsage,
 	onCancel,
@@ -580,6 +583,7 @@ export function ChatPane({
 						isPlanMode={isPlanMode}
 						onPlanModeChange={onPlanModeChange}
 						modelPick={modelPick}
+						canCloneSite={canCloneSite}
 						contextUsage={contextUsage}
 						onCreateChat={onCreateChat}
 						submitOverride={tray.submit}

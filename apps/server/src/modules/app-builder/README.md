@@ -22,7 +22,10 @@ PostHog flag `v2-builder`).
   Claude Code call, also helper and subagent calls, to it. The harness
   then turns off the experimental betas and tool search. The native
   WebSearch is off for every model: the LLM proxy does not bill it. The
-  `web_search` host tool (Exa) is the one search.
+  `web_search` host tool (Exa) is the one search. The native WebFetch is
+  off for every model too: it runs in the sandbox behind the egress policy
+  and fails on most hosts. The `web_fetch` host tool (Firecrawl) is the one
+  fetch.
 - Claude Code compacts the conversation by itself. On a 1M-window model,
   Claude or not, it compacts at 450,000 tokens: the harness adds the `[1m]`
   suffix and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Haiku 4.5 has a 200K
@@ -1319,8 +1322,9 @@ In Plan Mode the agent does not build. It interviews the user with
   `approval` is always `build`: it answers a paused build call. An old spec
   parses as `build`. The `data-turn-created` and `data-turn-summary` parts
   carry the mode, so the web knows it after a reload.
-- Tools: a plan turn gets only `ask_user` and `present_plan` from
-  `BuilderHostToolRegistry`. The harness also blocks the built-in tools
+- Tools: a plan turn gets only `ask_user`, `present_plan`, `web_search`,
+  and `web_fetch` (each with its key) from `BuilderHostToolRegistry`. The
+  harness also blocks the built-in tools
   that write, run, or start an agent (`PLAN_MODE_BLOCKED_TOOLS`). This is a
   hard block, not only prompt text.
 - Rules: the session instructions do not change. `PLAN_MODE_PROMPT`
@@ -1380,6 +1384,40 @@ releases per-turn clients (none today — connectors land in a follow-up).
   (`BUILDER_MAX_WEB_SEARCHES_PER_TURN`); the text of each result is cut
   to 2,000 chars. The log line holds no query text. A result keeps
   the Exa `favicon` only when it is an `https:` URL.
+- `web_fetch` reads one public web page as markdown through Firecrawl
+  (`POST /v2/scrape`). The registry adds it only when `FIRECRAWL_API_KEY`
+  exists, in build and Plan Mode turns, never in a security scan. The
+  input is `publicWebUrlSchema`: a public http(s) URL of at most 500
+  chars. A page in the Redis cache (`RedisWebPageCache`, 24 h, shared by
+  all users) costs nothing and does not count. Each other call reserves a
+  fixed-price `web_fetch` child under the turn hold (`WEB_FETCH_CREDITS`,
+  0.2 credit; key `builder-turn-web-fetch:<turnId>:<n>`). A success
+  settles it with the Firecrawl credit count as the provider cost; a
+  failure or a throw refunds it. At most 20 provider calls per turn
+  (`BUILDER_MAX_WEB_FETCHES_PER_TURN`). One answer holds 20,000 chars
+  (`WEB_FETCH_PAGE_CHARS`), and `offset` gives the next part; the tool
+  keeps at most 200,000 chars of a page. The log line holds only the host.
+- `capture_site` captures one public page for a site clone: screenshot
+  bands at 1440 px and 390 px, the page HTML, the style sheets, the
+  computed styles, and the image and font files. The registry adds it only
+  when `FIRECRAWL_API_KEY` exists, in a build turn of a web app. Firecrawl
+  opens the source site; the sandbox gets only files, under
+  `/tmp/wandit/clone/<captureId>` and `public/clone/`. Each call
+  reserves a fixed-price `site_capture` child under the turn hold
+  (`SITE_CAPTURE_CREDITS`, 1 credit; key
+  `builder-turn-site-capture:<turnId>:<n>`). A failure or a throw refunds
+  it. The tool clones any public page, also a sign-in or payment page:
+  the users are business owners, and the audit row finds a user who abuses it. At most 3 calls per turn
+  (`BUILDER_MAX_SITE_CAPTURES_PER_TURN`), and one capture stops after
+  190 s. The worker downloads each file with `fetchPublicBytes`
+  (`docs/v2/security.md` section 15). A capture writes one `site.captured`
+  audit row. The result holds the clone rules (`SITE_CLONE_RULES`).
+- `compare_clone` compares a full-page screenshot of the preview with a
+  capture and returns the mismatch percent of each band. It comes with
+  `capture_site`: a build turn of a web app, with the key. It is free. At
+  most 8 calls per turn (`BUILDER_MAX_CLONE_COMPARES_PER_TURN`). A band
+  above 5 % (`CLONE_BAND_PASS_PERCENT`) gets a diff image in the capture
+  folder.
 - `suggest_follow_ups` shows 2 or 3 next ideas under the answer, in
   build turns only (not Plan Mode, not a security scan). It is
   `"not-applicable"`, free, and its execute only answers `{ status: "ok" }`.

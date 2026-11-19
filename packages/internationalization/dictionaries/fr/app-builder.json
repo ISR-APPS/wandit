@@ -541,6 +541,11 @@
 				"fetch": "A ouvert",
 				"running": "Parcourt le web"
 			},
+			"clone": {
+				"running": "Copie du site d'origine",
+				"capture": "Capturé",
+				"compare": "Comparé avec l'original"
+			},
 			"image": {
 				"done": "A généré une image",
 				"running": "Génère une image"
@@ -594,6 +599,18 @@
 			"body": "La page s'ouvre dans un nouvel onglet. Vérifie l'adresse d'abord.",
 			"confirm": "Ouvrir le lien",
 			"cancel": "Annuler"
+		},
+		"clone": {
+			"toggle": {
+				"label": "Cloner",
+				"hint": "Copie une page web publique dans ce projet."
+			},
+			"urlLabel": "Adresse de la page",
+			"urlPlaceholder": "https://example.com",
+			"urlInvalid": "Saisissez une adresse web publique.",
+			"confirm": "Utiliser cette page",
+			"notice": "Clonez uniquement des pages qui vous appartiennent ou que vous avez le droit de copier.",
+			"message": "Clone ce site web : {url}"
 		},
 		"placeholder": "Demande à Wandit…",
 		"attach": "Joindre un fichier",
@@ -686,6 +703,7 @@
 			"explore": "Lecture de ton projet",
 			"run": "Vérification de ton app",
 			"web": "Recherche sur le web",
+			"clone": "Copie du site web",
 			"image": "Création d'une image",
 			"database": "Mise à jour de la base de données",
 			"databaseCheck": "Vérification de la base de données",

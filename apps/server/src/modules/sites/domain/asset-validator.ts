@@ -13,6 +13,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { load } from "cheerio";
+import { isPublicAddress } from "../../../infrastructure/http/public-fetch";
 
 export type AssetCheckResult = {
 	broken: string[];
@@ -293,54 +294,6 @@ function stripBrackets(hostname: string): string {
 	return hostname.startsWith("[") && hostname.endsWith("]")
 		? hostname.slice(1, -1)
 		: hostname;
-}
-
-function isPublicAddress(ip: string): boolean {
-	return isIP(ip) === 4 ? isPublicIpv4(ip) : isPublicIpv6(ip);
-}
-
-function isPublicIpv4(ip: string): boolean {
-	const [a = 0, b = 0] = ip.split(".").map(Number);
-
-	if (a === 0 || a === 10 || a === 127) {
-		return false;
-	}
-
-	if (a === 169 && b === 254) {
-		return false;
-	}
-
-	if (a === 172 && b >= 16 && b <= 31) {
-		return false;
-	}
-
-	if (a === 192 && b === 168) {
-		return false;
-	}
-
-	// 100.64.0.0/10 carrier-grade NAT.
-	if (a === 100 && b >= 64 && b <= 127) {
-		return false;
-	}
-
-	// Multicast, reserved, and broadcast.
-	return a < 224;
-}
-
-function isPublicIpv6(ip: string): boolean {
-	const lower = ip.toLowerCase();
-	const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-
-	if (mapped?.[1]) {
-		return isPublicIpv4(mapped[1]);
-	}
-
-	if (lower === "::" || lower === "::1") {
-		return false;
-	}
-
-	// fc00::/7 unique-local and fe80::/10 link-local.
-	return !/^f[cd]/.test(lower) && !/^fe[89ab]/.test(lower);
 }
 
 function fetchWithTimeout(

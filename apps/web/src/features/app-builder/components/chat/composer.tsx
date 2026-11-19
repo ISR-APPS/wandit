@@ -1,9 +1,10 @@
 /**
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks, the files, and the long pastes, the textarea,
- * then the add menu (a file or an image), the Plan chip, the model menu, the
- * credit estimate, the context ring, dictation, and send. While the tray
- * shows, send becomes the answer button of the tray.
+ * then the add menu (a file or an image), the Plan chip, the Clone chip of a
+ * web project, the model menu, the credit estimate, the context ring,
+ * dictation, and send. While the tray shows, send becomes the answer button
+ * of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
  * the pasted texts, and the uploaded files; a send that the API refuses puts
  * them back. Uploads and pastes go through the projects feature.
@@ -63,6 +64,7 @@ import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { ContextUsage } from "../../lib/turn-parts";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
 import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
+import { CloneSiteChip } from "../clone-site-chip";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
 import { ContextRing } from "./context-ring";
@@ -84,6 +86,7 @@ export type ComposerSubmitOverride = {
 	onSubmit: (text: string) => Promise<boolean>;
 };
 
+/** Props of the chat prompt box. chat-pane.tsx passes them; most values come from the page. */
 export type ComposerProps = {
 	/** Credits the next turn holds, whole credits, from the estimate route or the running turn. Null hides the text. */
 	turnEstimateCredits: number | null;
@@ -108,6 +111,8 @@ export type ComposerProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick on the page. The menu locks and hides like the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** True for a web project, from the page through the chat pane. Shows the Clone chip, which locks and hides like the Plan chip. */
+	canCloneSite: boolean;
 	/** How full the model context is, from contextUsageOf through the chat pane. Null renders no ring: no turn wrote a count yet. The ring hides while the tray shows. */
 	contextUsage: ContextUsage | null;
 	/** Creates an empty conversation and opens it, from the page. The context ring offers it near the limit. */
@@ -172,6 +177,7 @@ export function Composer({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	canCloneSite,
 	contextUsage,
 	onCreateChat,
 }: ComposerProps) {
@@ -491,6 +497,23 @@ export function Composer({
 								// reader still give the name.
 								labelClassName="@max-[380px]:sr-only"
 							/>
+							{canCloneSite ? (
+								<CloneSiteChip
+									onCloneRequest={(cloneRequest) => {
+										// The request goes first, so the text that the user typed reads as its details.
+										setDraft(
+											trimmed === ""
+												? cloneRequest
+												: `${cloneRequest}\n${draft}`,
+										);
+										// A Plan turn has no capture tool, so the clone needs a build turn.
+										onPlanModeChange(false);
+									}}
+									disabled={isSending}
+									// The same rule as the Plan chip: a row under 380 px shows only the icon.
+									labelClassName="@max-[380px]:sr-only"
+								/>
+							) : null}
 							<BuilderModelPicker pick={modelPick} disabled={isSending} />
 						</>
 					)}

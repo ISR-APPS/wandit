@@ -451,6 +451,8 @@ export default function AppBuilderPage({
 			isPlanMode={thread.isPlanMode}
 			onPlanModeChange={thread.setPlanMode}
 			modelPick={modelPick}
+			// Product rule: only a web project can copy a web page.
+			canCloneSite={project.kind === "web"}
 			chatCost={chatCost}
 			contextUsage={thread.contextUsage}
 			onCancel={() =>
