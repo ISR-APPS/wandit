@@ -157,7 +157,7 @@ function RouteList({ projectId, currentPath, onPick }: RouteListProps) {
 				placeholder={t("appBuilder.preview.routes.search")}
 				// A typed path reads left to right; the empty field keeps the locale direction for the placeholder.
 				dir={query === "" ? undefined : "auto"}
-				className="font-mono text-[13px] placeholder:font-sans placeholder:text-sm"
+				className="font-mono text-[13px] placeholder:font-sans placeholder:text-[13px]"
 			/>
 			<CommandList>
 				{canGoToTypedPath ? (

@@ -41,7 +41,6 @@ import { CLOUD_DATE_TIME_FORMAT } from "../../lib/constants";
 import {
 	PANEL_CARD_CLASS,
 	PANEL_INPUT_CLASS,
-	PANEL_SECONDARY_BUTTON_CLASS,
 	PANEL_TABS_LIST_CLASS,
 	PANEL_TABS_TRIGGER_CLASS,
 	PanelChip,
@@ -50,7 +49,7 @@ import {
 } from "../more/panel-shell";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { CloudLoadFailed } from "./backend-state";
-import { RowsGridSkeleton } from "./rows-grid";
+import { CLOUD_PAGER_BUTTON_CLASS, RowsGridSkeleton } from "./rows-grid";
 
 /** The source and the search the panel opens with. */
 export type LogsFilter = {
@@ -180,7 +179,7 @@ export function LogsPanel({
 				</ol>
 				{/* The route answers at most 100 lines, so a full page can hide older lines of the window. */}
 				{logs.data.length >= CLOUD_LOGS_PAGE_SIZE ? (
-					<p className="px-1 font-sans text-[13px] text-night/55 dark:text-foreground/55">
+					<p className="px-1 font-sans text-night/55 text-xs dark:text-foreground/55">
 						{t("workspace.cloud.logs.capped", {
 							limit: formatNumber(CLOUD_LOGS_PAGE_SIZE, locale),
 						})}
@@ -192,8 +191,8 @@ export function LogsPanel({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-4">
-			{/* One 48 px row from about 580 px of panel width. Below that, the search wraps to its own full row. */}
-			<div className="flex min-h-12 flex-wrap items-center gap-2">
+			{/* One row of 32 px controls on a wide panel. On a narrow panel, the search wraps to its own full row. */}
+			<div className="flex min-h-8 flex-wrap items-center gap-2">
 				<Tabs
 					value={source}
 					onValueChange={(value) => {
@@ -223,9 +222,9 @@ export function LogsPanel({
 					<SelectTrigger
 						aria-label={t("workspace.cloud.logs.levelLabel")}
 						className={cn(
-							PANEL_SECONDARY_BUTTON_CLASS,
-							// A field, not a button: no lift and no press.
-							"rounded-full px-4 shadow-none active:translate-y-0 data-[size=default]:h-10",
+							PANEL_INPUT_CLASS,
+							// A field of the toolbar, 32 px. The height repeats the size variant of the kit trigger, because a plain h-8 loses to it.
+							"font-medium text-[13px] data-[size=default]:h-8",
 						)}
 					>
 						<SelectValue />
@@ -250,7 +249,7 @@ export function LogsPanel({
 					<MagnifyingGlassIcon
 						aria-hidden
 						weight="bold"
-						className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-night/40 dark:text-foreground/45"
+						className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-night/40 dark:text-foreground/45"
 					/>
 					<Input
 						type="search"
@@ -260,7 +259,8 @@ export function LogsPanel({
 						aria-label={t("workspace.cloud.logs.searchLabel")}
 						className={cn(
 							PANEL_INPUT_CLASS,
-							"ps-10 pe-11 font-mono md:text-[13px]",
+							// 32 px in the toolbar. The start padding clears the search icon, the end padding the submit button.
+							"h-8 ps-9 pe-9 font-mono md:text-[13px]",
 						)}
 					/>
 					<IconAction label={t("workspace.cloud.logs.search")}>
@@ -270,15 +270,16 @@ export function LogsPanel({
 							size="icon-sm"
 							className={cn(
 								TOOLBAR_ICON_BUTTON_CLASS,
-								"absolute end-1 top-1/2 -translate-y-1/2",
+								// 24 px: it sits 4 px inside the 32 px field.
+								"absolute end-1 top-1/2 size-6 -translate-y-1/2",
 							)}
 						>
-							<ArrowRightIcon aria-hidden weight="bold" className="size-4" />
+							<ArrowRightIcon aria-hidden weight="bold" className="size-3.5" />
 						</Button>
 					</IconAction>
 				</form>
 			</div>
-			<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-[13px] text-night/55 tabular-nums dark:text-foreground/55">
+			<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-night/55 text-xs tabular-nums dark:text-foreground/55">
 				<span>
 					{t("workspace.cloud.logs.window", {
 						start: formatDate(windowStartMs, locale, CLOUD_DATE_TIME_FORMAT),
@@ -291,7 +292,7 @@ export function LogsPanel({
 						<Button
 							variant="outline"
 							size="icon-sm"
-							className={cn(PANEL_SECONDARY_BUTTON_CLASS, "me-1.5")}
+							className={cn(CLOUD_PAGER_BUTTON_CLASS, "me-1.5")}
 							onClick={refresh}
 						>
 							<ArrowClockwiseIcon aria-hidden weight="bold" />
@@ -301,7 +302,7 @@ export function LogsPanel({
 						<Button
 							variant="outline"
 							size="icon-sm"
-							className={PANEL_SECONDARY_BUTTON_CLASS}
+							className={CLOUD_PAGER_BUTTON_CLASS}
 							onClick={() =>
 								setWindowEndMs(windowEndMs - CLOUD_LOGS_MAX_WINDOW_MS)
 							}
@@ -318,7 +319,7 @@ export function LogsPanel({
 						<Button
 							variant="outline"
 							size="icon-sm"
-							className={PANEL_SECONDARY_BUTTON_CLASS}
+							className={CLOUD_PAGER_BUTTON_CLASS}
 							disabled={windowEndMs >= newestEndMs}
 							onClick={() =>
 								setWindowEndMs(

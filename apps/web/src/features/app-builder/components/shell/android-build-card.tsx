@@ -31,27 +31,30 @@ import {
 // 96 px gives about 3 px per module for an EAS APK URL. A phone camera reads that from a screen.
 const QR_SIZE_PX = 96;
 
-/** The full-width ember pill of a destination card: Publish, Update, or Build APK. */
+/**
+ * The full-width ember pill of a destination card: Publish, Update, or Build.
+ * Use it on a kit Button. It is 36 px high, like the fields of the build form.
+ */
 export const DESTINATION_ACTION_CLASS =
-	"h-10 w-full rounded-full font-grotesk font-semibold";
+	"h-9 w-full rounded-full font-grotesk font-medium text-[13px] active:translate-y-px";
 
-// The second build next to a ready APK is an outline pill, so the download stays the one ember action.
-// The dark: classes override the dark fill and border of the kit outline variant.
+// The second build next to a ready APK is a flat outline pill. The download stays the one ember action.
+// The classes override the fill and the border of the kit outline variant.
 const DESTINATION_OUTLINE_CLASS =
-	"border-popover-foreground/[0.12] bg-transparent text-popover-foreground hover:bg-popover-foreground/[0.04] dark:border-white/[0.12] dark:bg-transparent dark:hover:bg-white/[0.05]";
+	"border-night/[0.12] bg-white text-night hover:bg-night/[0.04] hover:text-night dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
 
 /**
  * A small ghost pill at the end of a history row: Roll back or Download APK.
- * versions-popover.tsx builds its Diff and Restore pills on it.
+ * It is 28 px high. versions-popover.tsx builds its Diff and Restore pills on it.
  */
 export const HISTORY_ACTION_CLASS =
-	"inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 font-grotesk font-medium text-popover-foreground/70 text-xs transition-colors hover:bg-popover-foreground/[0.07] hover:text-popover-foreground disabled:pointer-events-none disabled:opacity-40";
+	"inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 font-grotesk font-medium text-[13px] text-popover-foreground/70 transition-colors hover:bg-popover-foreground/[0.07] hover:text-popover-foreground disabled:pointer-events-none disabled:opacity-40";
 
 /** One row of a history list. A soft tint shows on hover. */
 export const HISTORY_ROW_CLASS =
 	"flex min-h-9 items-center gap-2.5 rounded-[14px] px-2 py-1 transition-colors hover:bg-popover-foreground/[0.04]";
 
-// The dot before an earlier build: green when ready, red when failed, faint otherwise.
+// The dot before an earlier build: ember while it runs, green when ready, red when failed, faint otherwise.
 const BUILD_DOT_CLASS: Record<MobileBuildStatus, string> = {
 	queued: "bg-popover-foreground/25",
 	building: "bg-primary",
@@ -158,7 +161,7 @@ export function HistoryList({
 }) {
 	return (
 		<div className="flex flex-col">
-			<h4 className="px-2 pt-0.5 pb-1 font-grotesk font-semibold text-popover-foreground/55 text-xs">
+			<h4 className="px-2 pt-0.5 pb-1 font-grotesk font-medium text-popover-foreground/55 text-xs">
 				{label}
 			</h4>
 			<ul className="flex flex-col">{children}</ul>
@@ -217,8 +220,8 @@ export function AndroidBuildCard({
 		>
 			{apkUrl ? (
 				<div className="flex items-center gap-3.5 rounded-[20px] bg-popover-foreground/[0.03] p-2.5 dark:bg-white/[0.03]">
-					{/* The same surface as QR_TILE_CLASS of expo-go-popover.tsx. Black on white in both themes: a phone camera cannot read a dark code. */}
-					<div className="shrink-0 rounded-[20px] bg-white p-3 shadow-[0_1px_2px_rgb(11_16_51/0.08)] ring-1 ring-night/[0.08] dark:ring-white/10">
+					{/* The same white tile as QR_TILE_CLASS of expo-go-popover.tsx. Black on white in both themes: a phone camera cannot read a dark code. */}
+					<div className="shrink-0 rounded-[20px] bg-white p-3 ring-1 ring-night/[0.08] dark:ring-white/10">
 						<QRCodeSVG
 							value={apkUrl}
 							size={QR_SIZE_PX}
@@ -232,7 +235,7 @@ export function AndroidBuildCard({
 						<Button
 							asChild
 							size="sm"
-							className="h-8 rounded-full font-grotesk font-semibold"
+							className="h-7 rounded-full font-grotesk font-medium text-[13px] active:translate-y-px"
 						>
 							{/* `download` forces a save only for a same-origin URL. The EAS URL opens in a new tab instead. */}
 							<a
@@ -266,7 +269,7 @@ export function AndroidBuildCard({
 						variant="outline"
 						size="sm"
 						className={cn(
-							"h-8 rounded-full font-grotesk font-semibold",
+							"h-7 rounded-full font-grotesk font-medium text-[13px]",
 							DESTINATION_OUTLINE_CLASS,
 						)}
 						disabled={isCanceling}

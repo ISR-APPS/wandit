@@ -67,11 +67,12 @@ import {
 } from "./rows-grid";
 
 /**
- * Colors of the ghost icon buttons at the end of a file row: download and
- * delete. The kit Button `icon-sm` size gives the round 32 px shape.
+ * Size and colors of the ghost icon buttons at the end of a file row:
+ * download and delete. 28 px, because the button sits in a table row. The
+ * kit Button gives the corner.
  */
 const ROW_ICON_BUTTON_CLASS =
-	"text-night/55 hover:bg-night/[0.06] hover:text-night dark:text-foreground/55 dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+	"size-7 text-night/55 hover:bg-night/[0.06] hover:text-night dark:text-foreground/55 dark:hover:bg-white/[0.08] dark:hover:text-foreground";
 
 /** Props of StoragePanel. The panel mounts only while the backend is `active`. */
 export type StoragePanelProps = {
@@ -415,7 +416,7 @@ function BucketFiles({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
-			<div className="flex min-h-12 flex-wrap items-center gap-2">
+			<div className="flex min-h-8 flex-wrap items-center gap-2">
 				<Button
 					variant="outline"
 					size="sm"
@@ -442,7 +443,7 @@ function BucketFiles({
 						className={cn(
 							"cursor-pointer rounded-sm px-1 outline-none hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:text-foreground",
 							segments.length === 0 &&
-								"font-semibold text-night dark:text-foreground",
+								"font-medium text-night dark:text-foreground",
 						)}
 					>
 						{bucket.name}
@@ -466,7 +467,7 @@ function BucketFiles({
 								className={cn(
 									"cursor-pointer rounded-sm px-1 outline-none hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:text-foreground",
 									index === segments.length - 1 &&
-										"font-semibold text-night dark:text-foreground",
+										"font-medium text-night dark:text-foreground",
 								)}
 							>
 								{segment}
@@ -486,7 +487,8 @@ function BucketFiles({
 					}}
 				/>
 				<Button
-					className={PANEL_PRIMARY_BUTTON_CLASS}
+					// 32 px, like the back button of this toolbar.
+					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-8")}
 					disabled={upload.isPending}
 					onClick={() => fileInput.current?.click()}
 				>

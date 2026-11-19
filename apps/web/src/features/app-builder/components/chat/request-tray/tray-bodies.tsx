@@ -119,12 +119,12 @@ function OptionRow({
 			onClick={onClick}
 			dir="auto"
 			className={cn(
-				"flex min-h-9 w-full items-center gap-2.5 rounded-[14px] border px-3 text-start font-grotesk font-medium text-[13.5px] leading-snug outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/30",
+				"flex min-h-9 w-full items-center gap-2.5 rounded-[14px] border px-3 text-start font-grotesk font-medium text-[13px] leading-snug outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/30",
 				// A row with a description line needs more air than a label alone.
 				option.description === null ? "py-1.5" : "py-2",
 				selected
 					? "border-spark/60 bg-spark/[0.14] text-night focus:bg-spark/20 dark:border-spark/50 dark:text-foreground"
-					: "border-night/[0.07] bg-white text-night/80 hover:border-night/[0.12] hover:text-night dark:border-white/[0.07] dark:bg-white/[0.04] dark:text-foreground/80 dark:hover:border-white/[0.14] dark:hover:text-foreground",
+					: "border-night/[0.1] bg-white text-night/80 hover:border-night/25 hover:text-night dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-foreground/80 dark:hover:border-white/25 dark:hover:text-foreground",
 			)}
 		>
 			{isMulti ? (
@@ -144,14 +144,14 @@ function OptionRow({
 				<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 					<span>{option.label}</span>
 					{option.isRecommended ? (
-						<span className="inline-flex h-5 items-center gap-1 rounded-full bg-spark/[0.2] px-2 font-grotesk font-semibold text-[11px] text-spark-deep dark:bg-spark/[0.16] dark:text-spark">
+						<span className="inline-flex h-5 items-center gap-1 rounded-full bg-spark/[0.2] px-2 font-grotesk font-medium text-[11px] text-spark-deep dark:bg-spark/[0.16] dark:text-spark">
 							<StarIcon weight="fill" className="size-2.5" aria-hidden />
 							{t("appBuilder.chat.tray.recommended")}
 						</span>
 					) : null}
 				</span>
 				{option.description !== null ? (
-					<span className="mt-0.5 block font-normal font-sans text-[12.5px] text-night/55 leading-snug dark:text-foreground/55">
+					<span className="mt-0.5 block font-normal font-sans text-[12px] text-night/55 leading-snug dark:text-foreground/55">
 						{option.description}
 					</span>
 				) : null}
@@ -175,15 +175,16 @@ const THEME_CARD_SCROLL_STEP = 240;
 const CARD_SCROLL_EPSILON = 2;
 
 /**
- * The face of a world card and of a theme card: a white card that lifts on
- * hover. The picked card gets the primary edge and an ember halo.
+ * The face of a world card and of a theme card: a white card with a hairline
+ * edge. The card moves up 2 px on hover and gets a faint ember halo. The
+ * picked card gets the primary edge and a stronger ember halo.
  */
 function pickCardClass(selected: boolean): string {
 	return cn(
 		"shrink-0 overflow-hidden rounded-[14px] border bg-white text-start outline-none transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ember/30 motion-reduce:hover:translate-y-0 dark:bg-white/[0.04]",
 		selected
 			? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
-			: "border-night/[0.08] hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)] dark:border-white/[0.08]",
+			: "border-night/[0.1] hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)] dark:border-white/[0.1]",
 	);
 }
 
@@ -334,15 +335,16 @@ function CardScrollRow({
 			</div>
 			{scrollState.canScrollBack ? (
 				<>
+					{/* The fade starts in the ground color of the tray: bg-card in request-tray.tsx. */}
 					<div
 						aria-hidden
-						className="pointer-events-none absolute inset-y-0 -start-4 w-6 bg-gradient-to-r from-secondary to-transparent rtl:bg-gradient-to-l"
+						className="pointer-events-none absolute inset-y-0 -start-4 w-6 bg-gradient-to-r from-card to-transparent rtl:bg-gradient-to-l"
 					/>
 					<IconAction label={t("appBuilder.chat.tray.scrollBack")}>
 						<button
 							type="button"
 							onClick={() => scrollByCard("back")}
-							className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-menu transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
+							className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-raised transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
 						>
 							<BackChevron weight="bold" aria-hidden className="size-3.5" />
 						</button>
@@ -353,13 +355,13 @@ function CardScrollRow({
 				<>
 					<div
 						aria-hidden
-						className="pointer-events-none absolute inset-y-0 -end-4 w-6 bg-gradient-to-l from-secondary to-transparent rtl:bg-gradient-to-r"
+						className="pointer-events-none absolute inset-y-0 -end-4 w-6 bg-gradient-to-l from-card to-transparent rtl:bg-gradient-to-r"
 					/>
 					<IconAction label={t("appBuilder.chat.tray.scrollForward")}>
 						<button
 							type="button"
 							onClick={() => scrollByCard("forward")}
-							className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-menu transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
+							className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-raised transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
 						>
 							<ForwardChevron weight="bold" aria-hidden className="size-3.5" />
 						</button>
@@ -438,7 +440,7 @@ function WorldCardButton({
 				{option.card ? (
 					<span
 						dir="auto"
-						className="mt-0.5 line-clamp-2 block font-sans text-[11.5px] text-night/55 leading-[1.35] dark:text-foreground/55"
+						className="mt-0.5 line-clamp-2 block font-sans text-[12px] text-night/55 leading-[1.35] dark:text-foreground/55"
 					>
 						{option.label}
 					</span>
@@ -582,7 +584,7 @@ function MediaDropBody({
 						<ImageIcon weight="duotone" className="size-5" aria-hidden />
 					</span>
 				</span>
-				<span className="block font-grotesk font-semibold text-[14px] text-night dark:text-foreground">
+				<span className="block font-grotesk font-medium text-[14px] text-night dark:text-foreground">
 					{t("appBuilder.chat.tray.dropTitle")}
 				</span>
 				<span className="mt-0.5 block font-sans text-[12px] text-night/55 dark:text-foreground/55">

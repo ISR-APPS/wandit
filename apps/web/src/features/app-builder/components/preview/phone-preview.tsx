@@ -160,7 +160,7 @@ export function PhonePreview({
 			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.07] border-b px-3 dark:border-white/[0.07]">
 				{canRunOnDevice ? (
 					// The switch scrolls on a very narrow bar, so Stop and the countdown always stay in view.
-					// A scroll box also clips the vertical axis. The padding and its negative margin leave room for the key shadow.
+					// A scroll box also clips the vertical axis. The padding and its negative margin leave room for the shadow of the active segment.
 					<div className="-my-3 min-w-0 overflow-x-auto py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 						<SegmentedControl
 							ariaLabel={t("appBuilder.device.ariaLabel")}

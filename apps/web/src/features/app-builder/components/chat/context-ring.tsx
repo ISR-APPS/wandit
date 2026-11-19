@@ -20,6 +20,7 @@ import {
 	type ContextUsage,
 	contextToneOf,
 } from "../../lib/turn-parts";
+import { CARD_SECONDARY_BUTTON_CLASS } from "./message-card";
 
 // Text color of the arc for each tone; the arc draws with `stroke-current`.
 const ARC_CLASS: Record<ContextTone, string> = {
@@ -107,7 +108,7 @@ export function ContextRing({
 						variant="outline"
 						size="sm"
 						onClick={onCreateChat}
-						className="mt-2.5 h-8 w-full font-grotesk font-medium text-[13px]"
+						className={cn("mt-2.5 w-full", CARD_SECONDARY_BUTTON_CLASS)}
 					>
 						{t("appBuilder.chat.context.newConversation")}
 					</Button>

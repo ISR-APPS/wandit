@@ -1,8 +1,8 @@
 /**
  * Section nav of the More view: Analytics, then the Backend group of the
  * seven Cloud panels, then the App group of the other panels of the kind.
- * The rows copy the pill look of the dashboard sidebar. The open row is a
- * raised key, like the active option of shell/segmented-control.tsx.
+ * The rows have the pill look of the dashboard sidebar and are 32 px high.
+ * The open row is a night key. Its icon is filled and lies in a spark circle.
  * Rendered by components/more/more-view.tsx, which owns the open panel and
  * the URL change. Reads MORE_PANEL_META, CLOUD_PANELS, and panelsForKind.
  */
@@ -32,15 +32,15 @@ export type MoreNavProps = {
 	onSelect: (panel: ProjectPanel) => void;
 };
 
-// A copy of NAV_BUTTON_CLASS of the dashboard sidebar
-// (projects/components/shell/app-sidebar.tsx). The rows are 36 px high, not
-// 40 px. The 17 rows and 2 headings of a web app then need about 750 px.
+// One row of the nav. It follows NAV_BUTTON_CLASS of the dashboard sidebar
+// (projects/components/shell/app-sidebar.tsx). The rows are 32 px high, not
+// 40 px. The 17 rows and 2 headings of a web app then need about 680 px.
 // A shorter column scrolls.
 const NAV_ROW_CLASS = cn(
-	"flex h-9 w-full shrink-0 items-center gap-2.5 rounded-full ps-1 pe-3 font-grotesk font-medium text-[14px] text-night/75 outline-none transition-colors duration-150",
-	"hover:bg-night/[0.06] hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50",
+	"flex h-8 w-full shrink-0 items-center gap-2 rounded-full ps-1 pe-3 font-grotesk font-medium text-[13.5px] text-night/75 outline-none transition-colors duration-150",
+	"hover:bg-night/[0.04] hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50",
 	"aria-[current=page]:bg-night aria-[current=page]:text-paper aria-[current=page]:shadow-key",
-	"dark:text-foreground/75 dark:hover:bg-white/[0.06] dark:hover:text-foreground",
+	"dark:text-foreground/75 dark:hover:bg-white/[0.05] dark:hover:text-foreground",
 	"dark:aria-[current=page]:bg-spark dark:aria-[current=page]:text-night",
 	// On phones the nav is one strip of pills, each as wide as its label.
 	"max-md:w-auto",
@@ -163,7 +163,7 @@ function NavRow({
 	);
 }
 
-/** The icon in its circle. On the open row the circle is spark (night in dark mode) and the icon is filled. */
+/** The icon in its 24 px circle. It is dim on an idle row. On the open row the circle is spark (night in dark mode) and the icon is filled. */
 function NavIcon({
 	icon: RowIcon,
 	isActive,
@@ -174,8 +174,10 @@ function NavIcon({
 	return (
 		<span
 			className={cn(
-				"grid size-7 shrink-0 place-items-center rounded-full transition-colors",
-				isActive && "bg-spark text-night dark:bg-night dark:text-spark",
+				"grid size-6 shrink-0 place-items-center rounded-full transition",
+				isActive
+					? "bg-spark text-night dark:bg-night dark:text-spark"
+					: "opacity-70",
 			)}
 		>
 			<RowIcon

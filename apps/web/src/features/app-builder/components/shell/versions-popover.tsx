@@ -241,7 +241,13 @@ export function VersionsList({
 				return (
 					<li
 						key={version.sha}
-						className="rounded-[14px] transition-colors hover:bg-popover-foreground/[0.035] has-[[aria-expanded=true]]:bg-popover-foreground/[0.035]"
+						className={cn(
+							"rounded-[14px] transition-colors",
+							// The current version is the selected row: it keeps a soft ink fill. Each other row tints on hover and while its diff is open.
+							isCurrent
+								? "bg-night/[0.06] dark:bg-white/[0.08]"
+								: "hover:bg-popover-foreground/[0.035] has-[[aria-expanded=true]]:bg-popover-foreground/[0.035]",
+						)}
 					>
 						<div className="flex items-center gap-3 px-2.5 py-2.5">
 							{/* A commit id reads left to right in every locale. */}
@@ -260,12 +266,12 @@ export function VersionsList({
 									{version.message.split("\n")[0]}
 								</div>
 								{/* The Live mark sits in this line, so a phone row keeps room for the message. */}
-								<div className="mt-1 flex items-center gap-1.5 text-popover-foreground/50 text-xs">
+								<div className="mt-1 flex items-center gap-1.5 text-popover-foreground/60 text-xs">
 									<span className="truncate">
 										{formatRelativeTime(version.createdAt, locale)}
 									</span>
 									{version.sha === liveCommitSha ? (
-										<span className="inline-flex shrink-0 items-center gap-1 font-grotesk font-semibold text-success-text">
+										<span className="inline-flex shrink-0 items-center gap-1 font-grotesk font-medium text-success-text">
 											<span
 												aria-hidden
 												className="size-1.5 rounded-full bg-success"
@@ -279,7 +285,8 @@ export function VersionsList({
 								</div>
 							</div>
 							{isCurrent ? (
-								<span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-spark/20 px-2.5 font-grotesk font-semibold text-[11.5px] text-night dark:bg-spark/15 dark:text-spark">
+								// The spark chip of the current version, on the ink fill of the row.
+								<span className="inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full bg-spark/20 px-2.5 font-grotesk font-medium text-[11px] text-night dark:bg-spark/15 dark:text-spark">
 									<span
 										aria-hidden
 										className="size-1.5 rounded-full bg-spark-deep dark:bg-spark"

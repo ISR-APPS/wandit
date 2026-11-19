@@ -290,12 +290,13 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 				<h2 className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
 					{t("appBuilder.code.files")}
 				</h2>
-				<span className="grid h-5 min-w-5 place-items-center rounded-full bg-night/[0.06] px-1.5 font-grotesk font-medium text-[11px] text-night/60 tabular-nums dark:bg-white/[0.08] dark:text-foreground/60">
+				<span className="grid h-5 min-w-5 place-items-center rounded-full bg-night/[0.06] px-1.5 font-grotesk font-medium text-night/60 text-xs tabular-nums dark:bg-white/[0.08] dark:text-foreground/60">
 					{fileCount}
 				</span>
 			</div>
 			<div className="shrink-0 px-3 pt-3 pb-1.5">
-				<InputGroup className="h-8 rounded-full border-night/[0.09] bg-white shadow-none dark:border-white/[0.08] dark:bg-white/[0.04]">
+				{/* The search field has the 32 px height of the dense tree column. The kit InputGroup gives the ember focus ring. */}
+				<InputGroup className="h-8 rounded-full border-night/[0.12] bg-white shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]">
 					<InputGroupAddon className="ps-3">
 						<MagnifyingGlassIcon
 							aria-hidden
@@ -372,7 +373,7 @@ function TreeRow({
 			style={{ paddingInlineStart: ROW_INSET_PX + level * DEPTH_INDENT_PX }}
 			className={cn(
 				// The browser skips layout and paint of rows outside the scroll view. The fixed row height keeps the scroll bar right.
-				"relative flex h-8 pointer-coarse:h-10 w-full shrink-0 items-center gap-1.5 rounded-[10px] pe-2 text-start font-sans text-[13px] outline-none transition-colors duration-150 [content-visibility:auto] focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-inset",
+				"relative flex h-7 pointer-coarse:h-10 w-full shrink-0 items-center gap-1.5 rounded-[10px] pe-2 text-start font-sans text-[13px] outline-none transition-colors duration-150 [content-visibility:auto] focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-inset",
 				isSelected
 					? "bg-spark/[0.14] font-medium text-night focus:bg-spark/20 dark:bg-spark/[0.16] dark:text-foreground dark:focus:bg-spark/[0.22]"
 					: "text-night/75 hover:bg-night/[0.04] hover:text-night dark:text-foreground/75 dark:hover:bg-white/[0.05] dark:hover:text-foreground",

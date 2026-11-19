@@ -3,7 +3,7 @@
  * chips of the preview picks, the files, and the long pastes, the textarea,
  * then the add menu (a file or an image), the Plan chip, the model menu, the
  * credit estimate, the context ring, dictation, and send. While the tray
- * shows, send becomes the answer pill of the tray.
+ * shows, send becomes the answer button of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
  * the pasted texts, and the uploaded files; a send that the API refuses puts
  * them back. Uploads and pastes go through the projects feature.
@@ -69,11 +69,11 @@ import { ContextRing } from "./context-ring";
 import { TargetChip } from "./target-chip";
 
 /**
- * The answer button that replaces the send circle while the request tray
+ * The answer button that replaces the send button while the request tray
  * shows. lib/use-request-tray.ts builds it.
  */
 export type ComposerSubmitOverride = {
-	/** Pill text, for example "Choose this option". */
+	/** Button text, for example "Choose this option". */
 	label: string;
 	/** True while the answer is incomplete; the empty draft does not decide it. */
 	disabled: boolean;
@@ -156,7 +156,7 @@ const SEND_CLASS =
 
 /**
  * The chat prompt box. Enter sends the trimmed draft joined to the pasted
- * texts, and the uploaded files. Shift+Enter adds a line. With `submitOverride` set, Enter and the pill
+ * texts, and the uploaded files. Shift+Enter adds a line. With `submitOverride` set, Enter and the button
  * answer the tray.
  */
 export function Composer({
@@ -232,7 +232,7 @@ export function Composer({
 		: (message.length > 0 || readyParts.length > 0) &&
 			!isUploading &&
 			!isSending;
-	// The tray answer pill needs the room of the ring, like the room of the Plan chip.
+	// The tray answer button needs the room of the ring, like the room of the Plan chip.
 	const showsContextRing = contextUsage !== null && !submitOverride;
 	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
 		max: formatNumber(builderMessageMaxLength, locale),
@@ -374,10 +374,13 @@ export function Composer({
 	);
 
 	return (
-		// Three navy shadows lift the card: a contact line, a near shade, and a drop.
-		// The drop ends inside the 16 px under the card, where the chat column clips.
-		// The ember ring shows while any control of the card has focus.
-		<div className="flex flex-col overflow-hidden rounded-[24px] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.08),0_12px_24px_-16px_rgb(11_16_51/0.4)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
+		// At rest, two navy shadows lift the card: a contact line and a short drop.
+		// While a control of the card has focus, the border turns ember and a 3 px
+		// ember ring shows. An ember aura then replaces the two navy shadows.
+		// Dark mode uses the spark for the border, the ring, and the aura.
+		// The chat column clips the aura at its bottom edge.
+		// That edge is 16 px under the card, or lower when the cost line shows.
+		<div className="flex flex-col overflow-hidden rounded-[24px] border border-night/[0.1] bg-white shadow-[0_1px_2px_rgb(11_16_51/0.05),0_10px_28px_-14px_rgb(11_16_51/0.22)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:shadow-[0_14px_36px_-14px_rgb(209_96_34/0.5)] focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.1] dark:bg-white/[0.05] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:shadow-[0_14px_40px_-14px_rgb(250_171_63/0.35)] dark:focus-within:ring-spark/15">
 			{topSlot}
 			{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
 			<div className="flex flex-col px-3.5 pt-3.5 pb-3">
@@ -476,7 +479,7 @@ export function Composer({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					{/* The tray answer pill needs this room. The answers keep the mode and the model; the skip X shows the chips again. */}
+					{/* The tray answer button needs this room. The answers keep the mode and the model; the skip X shows the chips again. */}
 					{submitOverride ? null : (
 						<>
 							<PlanModeToggle
@@ -553,7 +556,7 @@ export function Composer({
 							onClick={send}
 							className={cn(
 								SEND_CLASS,
-								"h-9 min-w-0 shrink gap-1.5 px-3.5 font-grotesk font-semibold text-[13px] has-[>svg]:px-3.5",
+								"h-8 min-w-0 shrink gap-1.5 px-3.5 font-grotesk font-medium text-[13px] has-[>svg]:px-3.5",
 							)}
 						>
 							<CheckIcon weight="bold" className="size-3.5" aria-hidden />
@@ -562,7 +565,7 @@ export function Composer({
 					) : (
 						<IconAction label={t("appBuilder.chat.send")}>
 							<Button
-								size="icon"
+								size="icon-sm"
 								disabled={!canSend}
 								onClick={send}
 								className={SEND_CLASS}
