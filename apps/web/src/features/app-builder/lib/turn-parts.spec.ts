@@ -8,6 +8,7 @@ import type {
 	BuilderEditArea,
 	BuilderMessage,
 	BuilderMessagePart,
+	BuilderSource,
 	BuilderStepKind,
 	BuilderStepState,
 	TurnMessage,
@@ -1185,6 +1186,208 @@ describe("toBuilderMessages", () => {
 				return [mapped.type, null];
 			}),
 		).toEqual(expected);
+	});
+});
+
+describe("toBuilderMessages sources and follow-ups", () => {
+	/** A finished call with any JSON input and output, as the harness streams it. */
+	function toolCall(
+		toolName: string,
+		input: JSONValue,
+		output: JSONValue,
+		id: string,
+	): DynamicToolUIPart {
+		return {
+			type: "dynamic-tool",
+			toolName,
+			toolCallId: id,
+			state: "output-available",
+			input,
+			output,
+		};
+	}
+
+	/** One Exa result with a title and a short text. */
+	function result(url: string, favicon?: string) {
+		return {
+			title: `Title of ${url}`,
+			url,
+			text: "Page text",
+			...(favicon === undefined ? {} : { favicon }),
+		};
+	}
+
+	/** The `data-sources` and `data-follow-ups` payloads of a stored reply. */
+	function extrasOf(parts: TurnMessagePart[]) {
+		const out =
+			toBuilderMessages([{ id: "a1", role: "assistant", parts }], IDLE)[0]
+				?.parts ?? [];
+		return {
+			sources: out.flatMap((part) =>
+				part.type === "data-sources" ? part.data.sources : [],
+			),
+			followUps:
+				out.find((part) => part.type === "data-follow-ups")?.data.followUps ??
+				null,
+		};
+	}
+
+	it("keeps one source per URL across calls, first seen first", () => {
+		const { sources } = extrasOf([
+			toolCall(
+				"web_search",
+				{ query: "react 19" },
+				{
+					status: "ok",
+					results: [
+						result("https://www.react.dev/blog", "https://react.dev/icon.png"),
+						result("https://vite.dev/guide"),
+					],
+				},
+				"call-1",
+			),
+			toolCall(
+				"web_search",
+				{ query: "react 19 again" },
+				{
+					status: "ok",
+					results: [
+						{ title: "", url: "https://example.com/", text: "" },
+						{ ...result("https://www.react.dev/blog"), title: "Second title" },
+					],
+				},
+				"call-2",
+			),
+		]);
+		expect(sources).toEqual([
+			{
+				url: "https://www.react.dev/blog",
+				href: "https://www.react.dev/blog",
+				title: "Title of https://www.react.dev/blog",
+				hostname: "react.dev",
+				favicon: "https://react.dev/icon.png",
+			},
+			{
+				url: "https://vite.dev/guide",
+				href: "https://vite.dev/guide",
+				title: "Title of https://vite.dev/guide",
+				hostname: "vite.dev",
+				favicon: null,
+			},
+			{
+				url: "https://example.com/",
+				href: "https://example.com/",
+				title: "example.com",
+				hostname: "example.com",
+				favicon: null,
+			},
+		]);
+	});
+
+	// Security: the browser loads the icon and opens the link, and old stored turns can hold any value.
+	it.each<{
+		name: string;
+		output: JSONValue;
+		expected: Pick<BuilderSource, "url" | "href" | "favicon">[];
+	}>([
+		{
+			name: "a bad output shape",
+			output: { status: "ok", results: [{ url: "https://a.dev" }] },
+			expected: [],
+		},
+		{
+			name: "an http: favicon",
+			output: {
+				status: "ok",
+				results: [result("https://a.dev/", "http://a.dev/icon.png")],
+			},
+			expected: [
+				{ url: "https://a.dev/", href: "https://a.dev/", favicon: null },
+			],
+		},
+		{
+			name: "a data: favicon",
+			output: {
+				status: "ok",
+				results: [result("https://a.dev/", "data:image/png;base64,xx")],
+			},
+			expected: [
+				{ url: "https://a.dev/", href: "https://a.dev/", favicon: null },
+			],
+		},
+		{
+			name: "a javascript: URL",
+			output: { status: "ok", results: [result("javascript:alert(1)")] },
+			expected: [],
+		},
+		{
+			name: "an ftp: URL",
+			output: { status: "ok", results: [result("ftp://files.a.dev/x")] },
+			expected: [{ url: "ftp://files.a.dev/x", href: null, favicon: null }],
+		},
+	])("filters $name", ({ output, expected }) => {
+		const { sources } = extrasOf([
+			toolCall("web_search", { query: "q" }, output, "call-1"),
+		]);
+		expect(
+			sources.map(({ url, href, favicon }) => ({ url, href, favicon })),
+		).toEqual(expected);
+	});
+
+	// Product rule: only a call that the build turn ran shows ideas, 2 or 3 different ones.
+	it.each<{
+		name: string;
+		lastInput: JSONValue;
+		lastState: "output-available" | "output-error";
+		expected: string[] | null;
+	}>([
+		{
+			name: "the last call wins",
+			lastInput: { followUps: ["Add a dark mode", "Add a login page"] },
+			lastState: "output-available",
+			expected: ["Add a dark mode", "Add a login page"],
+		},
+		{
+			name: "a bad last call shows nothing, also after a good call",
+			lastInput: { followUps: ["Only one idea"] },
+			lastState: "output-available",
+			expected: null,
+		},
+		{
+			name: "a repeated idea shows nothing",
+			lastInput: { followUps: ["Add a dark mode", " Add a dark mode"] },
+			lastState: "output-available",
+			expected: null,
+		},
+		{
+			// A plan turn has no such tool: the harness answers an unknown-tool error.
+			name: "a call that ended in an error shows nothing",
+			lastInput: { followUps: ["Add a dark mode", "Add a login page"] },
+			lastState: "output-error",
+			expected: null,
+		},
+	])("follow-ups: $name", ({ lastInput, lastState, expected }) => {
+		const lastCall: DynamicToolUIPart =
+			lastState === "output-error"
+				? {
+						type: "dynamic-tool",
+						toolName: "suggest_follow_ups",
+						toolCallId: "call-2",
+						state: "output-error",
+						input: lastInput,
+						errorText: "Unknown tool",
+					}
+				: toolCall("suggest_follow_ups", lastInput, { status: "ok" }, "call-2");
+		const { followUps } = extrasOf([
+			toolCall(
+				"suggest_follow_ups",
+				{ followUps: ["Old idea one", "Old idea two"] },
+				{ status: "ok" },
+				"call-1",
+			),
+			lastCall,
+		]);
+		expect(followUps).toEqual(expected);
 	});
 });
 

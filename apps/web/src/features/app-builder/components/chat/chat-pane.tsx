@@ -21,7 +21,8 @@
  * again, except a stop on the daily AI limit, and while the payer has no
  * credits. The plan card's
  * "Build this plan" sends a build turn, and Retry of a failed security scan
- * sends a scan. The other sends carry no mode. The
+ * sends a scan. A follow-up idea under the last finished reply sends like
+ * the composer. The other sends carry no mode. The
  * thread hook then uses the Plan toggle. An approval answer is always a
  * build. In the production view, the live
  * reply shows only as the status line. Under the composer, a line shows the
@@ -435,6 +436,15 @@ export function ChatPane({
 									: null
 							}
 							trayQuestionKey={tray.questionKey}
+							// Product rule: the ideas show only under the last reply, once it ended
+							// and waits for nothing, while the user can send. Like the composer: no mode.
+							onSendFollowUp={
+								message.id === lastMessageId &&
+								canSend &&
+								isSettledReply(message)
+									? (text) => void onSend({ text, files: [] })
+									: undefined
+							}
 						/>
 					))}
 					{isSending ? (
@@ -599,6 +609,25 @@ export function ChatPane({
 				) : null}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * True for a reply that ended and waits for nothing: no error, no stop, and
+ * no open question, approval, or plan card.
+ */
+function isSettledReply(message: BuilderMessage): boolean {
+	return (
+		message.role === "assistant" &&
+		!message.parts.some(
+			(part) =>
+				part.type === "data-error" ||
+				part.type === "data-stopped" ||
+				((part.type === "data-question" ||
+					part.type === "data-approval" ||
+					part.type === "data-plan") &&
+					part.data.isOpen),
+		)
 	);
 }
 

@@ -1,6 +1,6 @@
 /**
  * Builds the real `BuilderTurnDeps`: the repositories on a fresh pool, the
- * sandbox provider, the harness, the host tools, metering, the thumbnail
+ * sandbox provider, the harness, the host tools (with the Exa search), metering, the thumbnail
  * scheduler, the security scan reads and writes, and the Redis clients. The `builder-turn` task imports this
  * file lazily for one turn; the harness host builds it once for all its
  * turns. `close` ends every client.
@@ -26,6 +26,7 @@ import { ProjectSecretsService } from "../modules/app-builder/application/servic
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
 import type { BuilderHarness } from "../modules/app-builder/domain/ports/builder-harness";
 import type { SandboxFile } from "../modules/app-builder/domain/ports/sandbox-provider";
+import { searchExa } from "../modules/app-builder/infrastructure/exa/exa-search.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
 import { commitTurnUnlessClean } from "../modules/app-builder/infrastructure/git/commit-turn";
@@ -151,6 +152,8 @@ export async function createBuilderTurnDeps(
 		supabaseToken && supabaseOrganizationSlug
 			? new RedisSupabaseRateLimiter()
 			: null;
+	// Without the Exa key the turns get no `web_search` tool and no other search.
+	const exaApiKey = env.EXA_API_KEY;
 	const close = async () => {
 		// Each holds a Redis client; close them next to the pool (A6).
 		await counters.onModuleDestroy();
@@ -247,6 +250,12 @@ export async function createBuilderTurnDeps(
 				metering,
 				networkHosts: new ProjectNetworkHostsRepository(db),
 				now: () => new Date(),
+				...(exaApiKey === undefined
+					? {}
+					: {
+							searchWeb: (request, abortSignal) =>
+								searchExa(exaApiKey, request, abortSignal),
+						}),
 				secrets: new ProjectSecretsService(
 					secretsRepo,
 					new ProjectsRepository(db),

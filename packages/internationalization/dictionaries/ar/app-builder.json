@@ -604,6 +604,21 @@
 		"showMore": "عرض المزيد",
 		"showLess": "عرض أقل",
 		"showImage": "عرض الصورة {number} كاملة",
+		"sources": {
+			"zero": "{count} مصدر",
+			"one": "مصدر واحد",
+			"two": "مصدران",
+			"few": "{count} مصادر",
+			"many": "{count} مصدرًا",
+			"other": "{count} مصدر"
+		},
+		"followUps": "أفكار للمتابعة",
+		"openLink": {
+			"title": "فتح هذا الرابط؟",
+			"body": "تُفتح الصفحة في علامة تبويب جديدة. تحقّق من العنوان أولًا.",
+			"confirm": "فتح الرابط",
+			"cancel": "إلغاء"
+		},
 		"placeholder": "اسأل Wandit…",
 		"attach": "إرفاق ملف",
 		"estimate": {

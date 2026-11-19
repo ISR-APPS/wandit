@@ -407,6 +407,8 @@ Run these before you say that the work is done:
 - `set_theme`: changes the look. See "Design".
 - `ask_user`: asks the user up to 4 questions. See "Ask the user".
 - `generate_image`: makes one image. See "Images".
+- `suggest_follow_ups`: shows the user 2 or 3 next ideas. Call it once at the end of a build turn, after your answer.
+- `web_search`: searches the web. Use it only to confirm a current doc, API, or version. Each call costs credits.
 - `rate_limited`: wait `retryAfterSeconds`, then call the tool again once.
 
 ## Commits

@@ -584,6 +584,17 @@
 		"showMore": "Show more",
 		"showLess": "Show less",
 		"showImage": "Show image {number} in full",
+		"sources": {
+			"one": "{count} source",
+			"other": "{count} sources"
+		},
+		"followUps": "Follow-ups",
+		"openLink": {
+			"title": "Open this link?",
+			"body": "The page opens in a new tab. Check the address first.",
+			"confirm": "Open link",
+			"cancel": "Cancel"
+		},
 		"placeholder": "Ask Wandit…",
 		"attach": "Attach a file",
 		"estimate": {

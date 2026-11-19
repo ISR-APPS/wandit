@@ -68,6 +68,14 @@ export const DESKTOP_BUILD_CREDITS_CENTI = DESKTOP_BUILD_CREDITS * 100;
  * is 50 cc at $0.032 per credit. Settlement overdraft collects a longer answer.
  */
 export const THEME_DESIGN_RESERVE_FLOOR_CREDITS = 50;
+/**
+ * The price of one `web_search` host tool call, in centi-credits (0.6 credit).
+ * Exa "auto" costs $7 per 1,000 searches (up to 10 results) plus $1 per 1,000
+ * pages of text. The worst case, 10 results with text, costs $0.017. That is
+ * about 53 cc at $0.032 per credit (pricing v7), so 60 cc covers every input.
+ * This is a default price. Zack sets the final price later.
+ */
+export const WEB_SEARCH_CREDITS = 60;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -131,7 +139,7 @@ const NO_CHILDREN = [] as const;
  */
 export const OPERATION_REGISTRY = {
 	agent_session: {
-		allowedChildOperations: ["image", "connector", "sandbox"],
+		allowedChildOperations: ["image", "connector", "sandbox", "web_search"],
 		allowedParentOperations: NO_PARENTS,
 		mode: "token",
 		reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
@@ -279,6 +287,16 @@ export const OPERATION_REGISTRY = {
 		reserveFloorCredits: VIDEO_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 		unit: "video",
+	},
+	// Only the `web_search` host tool of a builder turn reserves it, always under the turn hold.
+	web_search: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: ["agent_session"],
+		creditsPerUnit: WEB_SEARCH_CREDITS,
+		mode: "fixed",
+		reserveFloorCredits: WEB_SEARCH_CREDITS,
+		rootAllowed: false,
+		unit: "operation",
 	},
 } as const satisfies Record<AiUsageOperation, OperationPricing>;
 
@@ -430,6 +448,13 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "const result = await generateImage({",
 		source:
 			"apps/server/src/modules/app-builder/application/host-tools/generate-image.host-tool.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "web_search" },
+		id: "builder-host-tool-web-search",
+		marker: "outcome = await deps.searchWeb(",
+		source:
+			"apps/server/src/modules/app-builder/application/host-tools/web-search.host-tool.ts",
 	},
 	{
 		billing: { kind: "metered", operation: "marketing" },
