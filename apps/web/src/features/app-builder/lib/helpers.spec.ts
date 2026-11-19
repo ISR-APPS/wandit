@@ -250,11 +250,14 @@ describe("readBuilderModel", () => {
 	const original = Object.getOwnPropertyDescriptor(window, "localStorage");
 	const values = new Map<string, string>();
 	const PROJECT_ID = "6f1c2a52-8f3e-4b9a-9d55-0c6f6c1e2a10";
+	const STANDARD = "deepseek/deepseek-v4.1-flash-1017";
 	const list: BuilderModelsResponse = {
 		defaultModel: "anthropic/claude-opus-5.5",
 		models: [
+			priceRow(STANDARD),
+			priceRow(`${STANDARD}-fast`),
 			priceRow("anthropic/claude-opus-5.5"),
-			priceRow("anthropic/claude-haiku-4-5"),
+			priceRow("zai/glm-5.3"),
 		],
 	};
 
@@ -270,20 +273,22 @@ describe("readBuilderModel", () => {
 		if (original) Object.defineProperty(window, "localStorage", original);
 	});
 
-	// The API refuses an id without a price row, so the read never returns one.
+	// Only a tier model or its Fast row survives. Anything else falls back to the first tier, never to the server default.
 	it.each([
 		[
-			"a listed pick",
-			"anthropic/claude-haiku-4-5",
-			"anthropic/claude-haiku-4-5",
+			"a tier pick",
+			"anthropic/claude-opus-5.5",
+			"anthropic/claude-opus-5.5",
 			list,
 		],
-		["an unknown pick", "anthropic/claude-opus-5.5", "openai/removed", list],
+		["the Fast row of a tier", `${STANDARD}-fast`, `${STANDARD}-fast`, list],
+		["a listed pick outside the tiers", STANDARD, "zai/glm-5.3", list],
+		["an unknown pick", STANDARD, "openai/removed", list],
 		[
-			"no pick and an unlisted default",
+			"no pick and no listed tier",
 			undefined,
 			null,
-			{ ...list, defaultModel: "openai/unpriced" },
+			{ ...list, models: [priceRow("zai/glm-5.3")] },
 		],
 	])("reads %s as %j", (_, expected, stored, models) => {
 		if (stored !== null) {
@@ -292,14 +297,14 @@ describe("readBuilderModel", () => {
 		expect(readBuilderModel(PROJECT_ID, models)).toBe(expected);
 	});
 
-	it("reads the default model when storage is blocked", () => {
+	it("reads the first tier when storage is blocked", () => {
 		Object.defineProperty(window, "localStorage", {
 			configurable: true,
 			get() {
 				throw new Error("blocked");
 			},
 		});
-		expect(readBuilderModel(null, list)).toBe("anthropic/claude-opus-5.5");
+		expect(readBuilderModel(null, list)).toBe(STANDARD);
 	});
 });
 

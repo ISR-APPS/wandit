@@ -7,6 +7,7 @@
 const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
 	"anthropic/claude-fable-5.1": "Claude Fable 5.1",
 	"anthropic/claude-haiku-4-5": "Claude Haiku 4.5",
+	"anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
 	"anthropic/claude-opus-5": "Claude Opus 5",
 	"anthropic/claude-opus-5-fast": "Claude Opus 5 Fast",
 	"anthropic/claude-opus-5.5": "Claude Opus 5.5",
@@ -19,6 +20,8 @@ const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
 	"google/gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
 	"google/gemini-3.6-flash": "Gemini 3.6 Flash",
 	"google/gemini-4-argon": "Gemini 4 Argon",
+	"google/gemini-4-hydrogen": "Gemini 4 Hydrogen",
+	"google/gemini-4-neon": "Gemini 4 Neon",
 	"meta/muse-spark-1.1": "Muse Spark 1.1",
 	"meta/muse-spark-1.2-contributor": "Muse Spark 1.2 Contributor",
 	"minimax/minimax-m3": "MiniMax M3",
