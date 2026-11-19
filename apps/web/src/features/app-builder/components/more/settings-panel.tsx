@@ -78,9 +78,12 @@ export type SettingsPanelProps = {
 	onOpenSecrets: (() => void) | undefined;
 };
 
-/** Pill frame of a cap field with its credits addon. The read-only project URL has its own tinted frame. */
+/**
+ * Pill frame of a field with an addon: a cap field, and the read-only project URL with a tint.
+ * The focus ring and the red invalid border are those of the kit group.
+ */
 const INPUT_GROUP_CLASS =
-	"h-10 rounded-full border-night/[0.12] bg-white shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]";
+	"h-9 rounded-full border-night/[0.12] bg-white shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]";
 
 export function SettingsPanel({ project, onOpenSecrets }: SettingsPanelProps) {
 	const { t } = useTranslation();
@@ -233,7 +236,10 @@ function ProjectSection({
 					{/* The project URL is the builder link, not the published domain. A URL reads left to right in every locale. */}
 					<InputGroup
 						dir="ltr"
-						className="h-10 rounded-full border-night/[0.12] bg-night/[0.025] shadow-none dark:border-white/[0.12] dark:bg-white/[0.03]"
+						className={cn(
+							INPUT_GROUP_CLASS,
+							"bg-night/[0.025] dark:bg-white/[0.03]",
+						)}
 					>
 						<InputGroupAddon className="ps-4">
 							<InputGroupText className="font-mono text-[12.5px] text-night/45 dark:text-foreground/45">
@@ -427,7 +433,7 @@ function SpendingLimitsForm({
 				</p>
 				<Button
 					type="submit"
-					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
+					className={PANEL_PRIMARY_BUTTON_CLASS}
 					disabled={!isChanged || update.isPending}
 				>
 					{t("appBuilder.settings.limitsSave")}
@@ -455,7 +461,7 @@ function DeleteZone({
 	const deleteProject = useDeleteProject();
 
 	return (
-		// The white card face of the other sections, so the sand ground does not show through. The red border marks the danger.
+		// The card face of the other sections. The red hairline marks the danger.
 		<section
 			className={cn(
 				PANEL_CARD_CLASS,
@@ -474,7 +480,7 @@ function DeleteZone({
 				<AlertDialogTrigger asChild>
 					<Button
 						variant="destructive"
-						className="h-10 px-5 font-grotesk font-semibold"
+						className="font-grotesk text-[13px]"
 						disabled={!canDelete || deleteProject.isPending}
 					>
 						{t("appBuilder.settings.delete")}

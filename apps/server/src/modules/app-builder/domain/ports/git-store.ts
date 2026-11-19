@@ -4,7 +4,7 @@
  * call `GitStore`. The sandbox-wake path calls `RepoRestorer` to push the repo back into a
  * fresh sandbox. WANDIT-171 implements both. The theme service reads one
  * committed file through `GitFileReader`. The Code view service reads the
- * committed tree and files through it, with no sandbox.
+ * committed tree, the files, and the Download archive through it, with no sandbox.
  */
 import type { SandboxHandle } from "./sandbox-provider";
 
@@ -64,6 +64,14 @@ export type GitArchiveFiles =
 	| { kind: "overCeiling" };
 
 /**
+ * The tar.gz bytes of a `git archive` for a download. "overCeiling" means the archive is over
+ * the download byte ceiling of the reader, so it gives no bytes.
+ */
+export type GitArchiveDownload =
+	| { kind: "archive"; bytes: Uint8Array }
+	| { kind: "overCeiling" };
+
+/**
  * Reads committed code without a sandbox. The theme GET route reads theme.json of a stopped
  * sandbox. The Code view routes read the tree and the files at the stored `main` head.
  */
@@ -97,4 +105,15 @@ export interface GitFileReader {
 		ref: string,
 		excludeGlobs: string[],
 	): Promise<GitArchiveFiles>;
+	/**
+	 * The raw tar.gz of the archive at `ref` for the Download button, without the paths that
+	 * `excludeGlobs` match. Each entry path starts with `prefix`, for example "my-app/".
+	 * Throws when the call fails, also when the repository or the ref does not exist.
+	 */
+	downloadArchive(
+		projectId: string,
+		ref: string,
+		excludeGlobs: string[],
+		prefix: string,
+	): Promise<GitArchiveDownload>;
 }

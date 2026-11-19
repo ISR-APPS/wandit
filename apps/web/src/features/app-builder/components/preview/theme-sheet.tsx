@@ -322,7 +322,7 @@ export default function ThemeSheet({
 					<SheetDescription className="text-[13px] text-night/60 dark:text-foreground/60">
 						{t("appBuilder.theme.description")}
 					</SheetDescription>
-					<p className="mt-1 flex items-center gap-2 font-grotesk font-medium text-[12.5px] text-night/70 dark:text-foreground/70">
+					<p className="mt-1 flex items-center gap-2 font-grotesk font-medium text-[12px] text-night/70 dark:text-foreground/70">
 						<span dir="auto" className="truncate">
 							{current.name}
 						</span>
@@ -337,7 +337,7 @@ export default function ThemeSheet({
 				{isReadOnly ? (
 					<p
 						role="status"
-						className="mx-5 mt-4 rounded-[14px] bg-spark/[0.14] px-3.5 py-2.5 font-grotesk text-[12.5px] text-night leading-snug dark:text-foreground"
+						className="mx-5 mt-4 rounded-[14px] bg-spark/[0.14] px-3.5 py-2.5 font-grotesk text-[13px] text-night leading-snug dark:text-foreground"
 					>
 						{t("appBuilder.theme.turnRunning")}
 					</p>
@@ -380,7 +380,7 @@ export default function ThemeSheet({
 												key={example}
 												type="button"
 												onClick={() => setPrompt(brief)}
-												className="rounded-full border border-night/[0.1] bg-white px-2.5 py-1 font-grotesk font-medium text-[11.5px] text-night/70 outline-none transition-colors duration-150 hover:border-night/25 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground/70 dark:hover:border-white/30 dark:hover:text-foreground"
+												className="rounded-full border border-night/[0.1] bg-white px-2.5 py-1 font-grotesk font-medium text-[12px] text-night/70 outline-none transition-colors duration-150 hover:border-night/25 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground/70 dark:hover:border-white/30 dark:hover:text-foreground"
 											>
 												{brief}
 											</button>
@@ -406,7 +406,7 @@ export default function ThemeSheet({
 								{designError !== null ? (
 									<p
 										role="alert"
-										className="font-sans text-[12.5px] text-destructive leading-snug"
+										className="font-sans text-[12px] text-destructive leading-snug"
 									>
 										{designError}
 									</p>
@@ -754,7 +754,7 @@ export default function ThemeSheet({
 					{saveError !== null ? (
 						<p
 							role="alert"
-							className="font-sans text-[12.5px] text-destructive leading-snug"
+							className="font-sans text-[12px] text-destructive leading-snug"
 						>
 							{saveError}
 						</p>
@@ -876,7 +876,7 @@ function lookPrimaryOf(
 function Row({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div className="flex flex-col gap-2">
-			<p className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
+			<p className="font-grotesk font-medium text-[13px] text-night dark:text-foreground">
 				{label}
 			</p>
 			{children}
@@ -911,7 +911,7 @@ function SegmentRow<Value extends string>({
 					label: labelOf(option),
 				}))}
 				// Five segments must fit the sheet, so each one shrinks its padding and its text.
-				className="w-full *:min-w-0 *:flex-1 *:justify-center *:px-1 *:text-[12.5px]"
+				className="w-full *:min-w-0 *:flex-1 *:justify-center *:px-1 *:text-[12px]"
 			/>
 		</Row>
 	);
@@ -1027,7 +1027,7 @@ function BrandColorField({
 		<div className="mt-1.5">
 			<label
 				htmlFor={inputId}
-				className="font-grotesk font-medium text-[12.5px] text-night/65 dark:text-foreground/65"
+				className="font-grotesk font-medium text-[12px] text-night/65 dark:text-foreground/65"
 			>
 				{t("appBuilder.theme.brandColor")}
 			</label>
@@ -1055,7 +1055,7 @@ function BrandColorField({
 					aria-invalid={isInvalid}
 					aria-describedby={hintId}
 					onChange={(event) => applyText(event.target.value)}
-					className={cn(PANEL_INPUT_CLASS, "h-9 font-mono text-[13px]")}
+					className={cn(PANEL_INPUT_CLASS, "font-mono text-[13px]")}
 				/>
 			</div>
 			<p

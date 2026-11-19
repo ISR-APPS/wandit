@@ -65,11 +65,11 @@ export function ProjectMenu({ project }: ProjectMenuProps) {
 				<Button
 					variant="ghost"
 					// `shrink` beats the kit's shrink-0, so a long name truncates. The cap keeps room for the work controls.
-					className="h-9 min-w-0 max-w-72 shrink gap-2 rounded-full px-3 text-night hover:bg-night/[0.05] hover:text-night aria-expanded:bg-night/[0.07] dark:text-foreground dark:aria-expanded:bg-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+					className="h-8 min-w-0 max-w-72 shrink gap-2 rounded-full px-3 text-night hover:bg-night/[0.05] hover:text-night aria-expanded:bg-night/[0.07] dark:text-foreground dark:aria-expanded:bg-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-foreground"
 					aria-label={t("appBuilder.topBar.projectMenu")}
 				>
 					<span
-						className="truncate font-grotesk font-semibold text-[15px]"
+						className="truncate font-grotesk font-medium text-sm"
 						dir="auto"
 					>
 						{project.name}

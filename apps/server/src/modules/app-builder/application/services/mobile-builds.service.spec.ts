@@ -92,6 +92,7 @@ function mobileProject(
 		engine: "v2_app",
 		framework: "mobile-app",
 		id: PROJECT_ID,
+		name: "My app",
 		organizationId: null,
 		templateVersion: "mobile-app@1.1.0",
 		userId: "user_1",

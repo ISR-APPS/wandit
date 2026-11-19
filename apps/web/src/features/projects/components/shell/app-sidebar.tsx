@@ -2,8 +2,9 @@
  * The floating sidebar of the dashboard pages: a paper card beside the
  * content, in the look of the landing page. DashboardShell renders it. It
  * holds the logo, the workspace switcher, the page links, the feedback
- * entry, the language segments, and the user menu. The active link is a
- * night pill with a spark circle, like the platform token of the landing hero.
+ * entry, the upgrade and referral cards, the language segments, and the user
+ * menu. The active link is a night pill with a spark circle, like the
+ * platform token of the landing hero.
  */
 import { Link, useLocation } from "@tanstack/react-router";
 import {
@@ -30,6 +31,7 @@ import { UserMenu } from "@/features/auth";
 import { UpgradeCard } from "@/features/billing/components/upgrade-button";
 import { FeedbackHost } from "@/features/feedback";
 import { isChatwootConfigured, openSupportChat } from "@/features/support";
+import { ReferralCard } from "@/features/user-referrals";
 import { useCollaborationGates } from "@/features/workspaces";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { localeMeta, locales, useI18n, useTranslation } from "@/lib/i18n";
@@ -284,6 +286,8 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 				{/* The upgrade card gates itself on purchases + free plan, so this
 				    stays invisible until billing opens (ship-dark launch policy). */}
 				<UpgradeCard className="group-data-[collapsible=icon]:hidden" />
+				{/* The referral card renders nothing while the referral program is off. */}
+				<ReferralCard className="group-data-[collapsible=icon]:hidden" />
 				<LanguageSegments />
 				<UserMenu variant="sidebar" />
 			</SidebarFooter>

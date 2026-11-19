@@ -1,6 +1,6 @@
 /**
  * The GitHub routes of the V2 app builder: the user connection (`/api/v2/github/account`,
- * `/api/v2/github/authorize`) and the project link (`/api/v2/projects/:projectId/github`, `/pull`).
+ * `/api/v2/github/authorize`) and the project link (`/api/v2/projects/:projectId/github`, `/check`, `/pull`).
  * The global AuthGuard requires a session, and the global ProjectAccessGuard checks the project
  * role on the `:projectId` routes. `V2BuilderEnabledGuard` gates the routes, and
  * `RedisRateLimitGuard` reads `@RateLimit`. `GithubCallbackController` holds the public OAuth callback.
@@ -64,7 +64,7 @@ export class GithubController {
 		@Inject(GithubProjectService)
 		private readonly projects: Pick<
 			GithubProjectService,
-			"status" | "link" | "unlink"
+			"status" | "recheck" | "link" | "unlink"
 		>,
 		@Inject(VersionsService)
 		private readonly versions: Pick<VersionsService, "pullFromGithub">,
@@ -103,6 +103,24 @@ export class GithubController {
 		@CurrentProjectAccess() access: ResolvedProjectAccess,
 	): Promise<ProjectGithubStatusResponse> {
 		return this.projects.status(
+			projectScopeFromAccess(access, user.id),
+			projectId,
+		);
+	}
+
+	// The Re-check button. The service lets one GitHub read through per 10 s per
+	// project, so this bucket only caps a loop. A viewer may read, like the status.
+	@RequireProjectRole("viewer")
+	@RateLimit({ key: "github-check", limit: 30, windowMs: 60_000 })
+	@Post("projects/:projectId/github/check")
+	@HttpCode(200)
+	recheck(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentProjectAccess() access: ResolvedProjectAccess,
+	): Promise<ProjectGithubStatusResponse> {
+		return this.projects.recheck(
 			projectScopeFromAccess(access, user.id),
 			projectId,
 		);

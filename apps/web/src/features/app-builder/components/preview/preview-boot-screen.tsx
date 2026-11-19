@@ -49,8 +49,8 @@ const TIMER_TICK_MS = 250;
  */
 const WAKE_WAIT_LIMIT_MS = 3 * 60_000;
 
-// Soft blobs of the brand colors on the night ground, like the device screen backdrop of device-panel.tsx.
-// They have about half its strength. So the drawing stays the brightest part.
+// Soft blobs of ember, spark, and cream on the night ground.
+// They are faint. So the drawing stays the brightest part.
 // Each blob fades out before the top and bottom edges. So the flat night bands of the phone frame meet no seam.
 const BACKDROP_STYLE: CSSProperties = {
 	backgroundImage: [
@@ -289,7 +289,7 @@ function BootCopy({
 						{/* The amber pill of the retry button in preview-panel.tsx. It reads on the night stage in both themes. */}
 						<Button
 							size="sm"
-							className="mt-4 bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
+							className="mt-4 bg-spark px-4 font-grotesk font-medium text-[13px] text-night shadow-key hover:bg-spark/90 active:translate-y-px"
 							disabled={isWakePending}
 							onClick={onWake}
 						>

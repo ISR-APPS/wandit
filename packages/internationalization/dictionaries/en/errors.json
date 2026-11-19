@@ -113,6 +113,8 @@
 		"GITHUB_NOTHING_TO_UPDATE": "GitHub has no new changes for this project.",
 		"GITHUB_UPDATE_CHANGED": "GitHub changed again. Try the update again.",
 		"GITHUB_MERGE_FAILED": "Wandit could not merge the GitHub changes. Your code did not change.",
-		"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository can no longer open this project. Unlink it and link it again."
+		"GITHUB_LINK_OWNER_LEFT": "The person who linked this repository can no longer open this project. Unlink it and link it again.",
+		"CODE_ARCHIVE_EMPTY": "Your app has no saved version yet. Build it in the chat first.",
+		"CODE_ARCHIVE_TOO_LARGE": "The code is too large to download. Link a GitHub repository to get the code."
 	}
 }

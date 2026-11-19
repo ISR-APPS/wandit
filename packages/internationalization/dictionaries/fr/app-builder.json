@@ -194,7 +194,12 @@
 		"tooLargeTitle": "Fichier trop lourd",
 		"missingTitle": "Fichier introuvable",
 		"loadFailedHint": "Attends un instant, puis réessaie.",
-		"reloadHint": "Recharge la page pour réessayer."
+		"reloadHint": "Recharge la page pour réessayer.",
+		"download": {
+			"title": "Télécharger le code",
+			"hint": "Un fichier .tar.gz de la dernière version enregistrée. Il s’ouvre sur macOS, Windows 11 et Linux.",
+			"button": "Télécharger"
+		}
 	},
 	"moreNavAriaLabel": "Sections de l'app",
 	"soon": "Bientôt",
@@ -419,12 +424,38 @@
 		"private": "Dépôt privé",
 		"privateHelp": "Seuls toi et les personnes que tu ajoutes sur GitHub peuvent le voir.",
 		"create": "Créer le dépôt",
-		"lastSynced": "Dernière synchronisation : {sha}",
-		"neverSynced": "Pas encore synchronisé.",
 		"unlink": "Délier le dépôt",
 		"unlinkConfirmTitle": "Délier {repo} ?",
 		"unlinkConfirmBody": "Wandit arrête la synchronisation. Le dépôt et ses commits restent sur GitHub.",
 		"cancel": "Annuler",
+		"connection": {
+			"title": "Connexion du dépôt",
+			"repository": "Dépôt",
+			"branch": "Branche",
+			"branchInfo": "Wandit synchronise seulement la branche main.",
+			"connected": "Connecté",
+			"syncError": "Erreur de synchronisation",
+			"openOnGithub": "Ouvrir sur GitHub"
+		},
+		"sync": {
+			"recheck": "Revérifier",
+			"inSyncTitle": "Synchronisé avec GitHub",
+			"inSyncText": "Wandit et GitHub sont sur le même commit.",
+			"pushPendingTitle": "Envoi des modifications vers GitHub",
+			"pushPendingText": "Wandit a de nouvelles modifications. Elles arrivent sur GitHub dans un instant.",
+			"firstSyncTitle": "Première synchronisation en cours",
+			"firstSyncText": "Wandit envoie le code de ce projet vers le dépôt.",
+			"updateTitle": "GitHub a de nouveaux commits",
+			"updateText": "Ce projet n’a pas encore ces commits.",
+			"lastSynced": "Dernière synchronisation {time}",
+			"checked": "Vérifié {time}"
+		},
+		"clone": {
+			"title": "Cloner le dépôt",
+			"command": "Commande de clonage",
+			"copy": "Copier la commande",
+			"copied": "Copié"
+		},
 		"notes": {
 			"mainOnly": "Seule la branche main se synchronise, dans les deux sens.",
 			"githubWins": "Quand les deux côtés modifient les mêmes lignes, la version GitHub l’emporte.",

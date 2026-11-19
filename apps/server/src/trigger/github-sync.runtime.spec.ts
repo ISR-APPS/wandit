@@ -20,10 +20,12 @@ const GITHUB_HEAD = "a".repeat(40);
 
 const LINK: ProjectGithubLinkRow = {
 	createdAt: new Date("2026-11-01T10:00:00.000Z"),
+	githubCheckedAt: null,
 	githubUserId: 583231,
 	id: "link-1",
 	installationId: 11,
 	lastError: null,
+	lastSyncedAt: null,
 	lastSyncedSha: null,
 	mirroredSha: null,
 	projectId: "0b9f1c52-6a43-4f7e-9d1a-2f4c8e7b5a10",

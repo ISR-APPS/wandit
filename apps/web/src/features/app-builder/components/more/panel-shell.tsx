@@ -5,8 +5,8 @@
  * constants, PanelChip, and PanelMessage give all panels one look for cards,
  * chips, inputs, tabs, and empty states.
  * Rendered by more-view.tsx; the panels of more/ and cloud/ import the rest.
- * The feature barrel exports the class constants, so the MCP pages of
- * features/coding-agents have the same look.
+ * The feature barrel exports some class constants for features/coding-agents, which also renders outside the workspace.
+ * So a `studio:` class holds each look that only the workspace has.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -60,15 +60,15 @@ export function PanelShell({ panel, children }: PanelShellProps) {
 				{/* On a phone the nav strip above already shows the icon, and the title needs the width. */}
 				<span
 					aria-hidden
-					className="hidden size-12 shrink-0 place-items-center rounded-[16px] bg-night text-spark shadow-key sm:grid dark:bg-spark dark:text-night"
+					className="hidden size-10 shrink-0 place-items-center rounded-[16px] bg-night text-spark shadow-key sm:grid dark:bg-spark dark:text-night"
 				>
-					<PanelIcon weight="duotone" className="size-6" />
+					<PanelIcon weight="duotone" className="size-5" />
 				</span>
 				<div className="min-w-0">
-					<h1 className="font-extrabold font-grotesk text-[1.875rem] text-night leading-[1.1] tracking-[-0.03em] dark:text-foreground">
+					<h1 className="font-grotesk font-semibold text-[1.5rem] text-night leading-[1.2] tracking-[-0.02em] dark:text-foreground">
 						{title}
 					</h1>
-					<p className="mt-1.5 max-w-2xl font-sans text-[15px] text-night/60 leading-relaxed dark:text-foreground/60">
+					<p className="mt-1 max-w-2xl font-sans text-[14px] text-night/60 leading-relaxed dark:text-foreground/60">
 						{description}
 					</p>
 				</div>
@@ -78,9 +78,13 @@ export function PanelShell({ panel, children }: PanelShellProps) {
 	);
 }
 
-/** Face of every card inside a panel: white with a navy hairline and a soft drop. It lifts off the sand ground that more-view.tsx puts under the panel. */
+/**
+ * Face of every card inside a panel: white with a navy hairline and no shadow.
+ * The corner is 20 px, the card corner of the app.
+ * The card reads on the off-white ground that more-view.tsx puts under the panel.
+ */
 export const PANEL_CARD_CLASS =
-	"rounded-[20px] border border-night/[0.08] bg-white shadow-raised dark:border-white/[0.08] dark:bg-white/[0.03]";
+	"rounded-[20px] border border-night/[0.08] bg-white dark:border-white/[0.08] dark:bg-white/[0.03]";
 
 /** Title of a card. The Settings and Integrations panels use it. */
 export const PANEL_CARD_TITLE_CLASS =
@@ -98,40 +102,45 @@ export const PANEL_FIELD_LABEL_CLASS =
 export const PANEL_CARD_ROW_CLASS =
 	"border-night/[0.07] border-t dark:border-white/[0.07]";
 
-/** Pill text field of the panels, for the kit Input. The focus ring is a soft ember halo. */
+/**
+ * Pill text field of the workspace panels and popovers, for the kit Input and Select trigger. It is 36 px high.
+ * The focus ring is a soft ember halo. A Textarea that uses it sets its own corner.
+ * The last class keeps the red invalid border in dark mode. The dark border class is stronger than the kit one.
+ */
 export const PANEL_INPUT_CLASS =
-	"h-10 rounded-full border-night/[0.12] bg-white px-4 shadow-none placeholder:text-night/40 focus-visible:border-primary/50 focus-visible:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.04] dark:placeholder:text-foreground/40";
+	"h-9 rounded-full border-night/[0.12] bg-white px-4 shadow-none placeholder:text-night/40 focus-visible:border-primary/50 focus-visible:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.04] dark:placeholder:text-foreground/40 dark:aria-invalid:border-destructive";
 
 /**
- * Main ember pill of the panels, for the kit Button with the default variant.
- * It has the top light and the ember glow of the Publish key. A disabled
- * pill turns flat navy-grey, not a faded ember, so it reads as "not yet".
+ * Main ember pill of the panels, for the kit Button with the default variant. It has the ember glow of the app.
+ * In the workspace the `studio:` classes give it medium 13 px text.
+ * A disabled pill turns flat navy-grey, not a faded ember, so it reads as "not yet".
  */
 export const PANEL_PRIMARY_BUTTON_CLASS =
-	"font-grotesk font-semibold shadow-ember hover:bg-ember-deep active:translate-y-px disabled:bg-night/10 disabled:text-night/40 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/40";
+	"font-grotesk font-semibold shadow-ember hover:bg-ember-deep active:translate-y-px disabled:bg-night/10 disabled:text-night/40 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/40 studio:font-medium studio:text-[13px]";
 
 /**
- * Secondary pill button of the panels, for the kit Button with
- * `variant="outline"`. It is a raised white pill, one step under the ember
- * pill. The kit Button is already round. A Select trigger that uses it turns
- * the lift and the press off.
+ * Second action of the panels, for the kit Button with `variant="outline"`: a raised white pill outside the workspace.
+ * In the workspace the `studio:` classes make it a flat outline with 13 px text and an ink hover tint.
+ * The kit Button gives the pill corner.
  */
 export const PANEL_SECONDARY_BUTTON_CLASS =
-	"border-night/[0.1] bg-white font-grotesk font-medium text-night shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px disabled:shadow-none dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+	"border-night/[0.1] bg-white font-grotesk font-medium text-night shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px disabled:shadow-none dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground studio:shadow-none studio:hover:border-night/[0.12] studio:hover:bg-night/[0.04] dark:studio:hover:border-white/[0.12] dark:studio:hover:bg-white/[0.08] studio:text-[13px]";
 
 /**
- * Track of a kit TabsList: the recessed well of shell/segmented-control.tsx. The
- * height repeats the group variant of the kit, because a plain h-10 loses to it.
+ * Track of a kit TabsList: a pill with an ink tint. Outside the workspace it is recessed and 40 px high.
+ * In the workspace the `studio:` classes make it flat and 32 px high.
+ * Each height repeats the group variant of the kit, because a plain h-10 loses to it.
  */
 export const PANEL_TABS_LIST_CLASS =
-	"rounded-full border-0 bg-night/[0.055] p-1 shadow-well group-data-[orientation=horizontal]/tabs:h-10 dark:bg-white/[0.06]";
+	"rounded-full border-0 bg-night/[0.055] p-1 shadow-well group-data-[orientation=horizontal]/tabs:h-10 dark:bg-white/[0.06] studio:p-0.5 studio:shadow-none studio:group-data-[orientation=horizontal]/tabs:h-8";
 
 /**
  * One kit TabsTrigger on PANEL_TABS_LIST_CLASS. The open tab is a night key, a spark key in dark mode.
- * The shadow class repeats the variant chain of the kit trigger, so it replaces the kit shadow in the merge.
+ * In the workspace each tab is 28 px high with 13 px text. The open tab is a white pill there, like the active segment of shell/segmented-control.tsx.
+ * Each shadow class repeats the variant chain of the kit trigger. A shorter class can lose to the shadow it replaces.
  */
 export const PANEL_TABS_TRIGGER_CLASS =
-	"h-8 flex-none rounded-full px-3.5 font-grotesk font-medium text-night/60 hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper group-data-[variant=default]/tabs-list:data-[state=active]:shadow-key dark:text-foreground/60 dark:hover:text-foreground dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night";
+	"h-8 flex-none rounded-full px-3.5 font-grotesk font-medium text-night/60 hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper group-data-[variant=default]/tabs-list:data-[state=active]:shadow-key dark:text-foreground/60 dark:hover:text-foreground dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night studio:h-7 studio:text-[13px] studio:data-[state=active]:bg-white studio:data-[state=active]:text-night studio:group-data-[variant=default]/tabs-list:data-[state=active]:shadow-raised dark:studio:data-[state=active]:bg-spark";
 
 /** Text and ground of each chip tone. Each tone keeps its text readable on the white card. */
 const CHIP_TONE_CLASS = {
@@ -173,13 +182,13 @@ export function PanelChip({
 /** Props of PanelMessage. The empty panels, the backend gate, and the empty lists pass them. */
 export type PanelMessageProps = {
 	icon: Icon;
-	/** Grotesk title line. A short message inside a panel has none. */
+	/** Title line, in semibold. A short message inside a panel has none. */
 	title?: string;
-	/** The body line in DM Sans. */
+	/** The body line, in ink at 60 %. */
 	text: string;
 	/**
-	 * `feature`: the 64 px night tile, for a whole empty panel or a backend
-	 * state. `inline`: a soft 48 px tile, for an empty list or a failed load.
+	 * `feature`: the 48 px night tile with a spark icon, for a whole empty panel or a
+	 * backend state. `inline`: a dim 40 px tile, for an empty list or a failed load.
 	 */
 	tone?: "feature" | "inline";
 	/** Buttons or notes under the text. */
@@ -201,7 +210,7 @@ export function PanelMessage({
 			className={cn(
 				PANEL_CARD_CLASS,
 				"flex flex-col items-center px-6 text-center",
-				// A feature state gets a soft spark glow above its tile, like the desk of the workspace.
+				// A feature state gets a soft spark glow above its tile.
 				isFeature
 					? "bg-[radial-gradient(60%_55%_at_50%_0%,rgb(250_171_63/0.13),transparent)] py-14 dark:bg-[radial-gradient(60%_55%_at_50%_0%,rgb(250_171_63/0.07),transparent)]"
 					: "py-10",
@@ -210,22 +219,23 @@ export function PanelMessage({
 			<span
 				aria-hidden
 				className={cn(
-					"grid shrink-0 place-items-center",
+					"grid shrink-0 place-items-center rounded-[16px]",
+					// The feature tile is the night key with a spark icon. The inline tile is a dim ink tint.
 					isFeature
-						? "size-16 rounded-[20px] bg-night text-spark shadow-key dark:bg-spark dark:text-night"
-						: "size-12 rounded-[16px] bg-night/[0.05] text-night/55 dark:bg-white/[0.06] dark:text-foreground/60",
+						? "size-12 bg-night text-spark shadow-key dark:bg-spark dark:text-night"
+						: "size-10 bg-night/[0.05] text-night/55 dark:bg-white/[0.06] dark:text-foreground/60",
 				)}
 			>
 				<MessageIcon
 					weight="duotone"
-					className={isFeature ? "size-8" : "size-6"}
+					className={isFeature ? "size-6" : "size-5"}
 				/>
 			</span>
 			{title ? (
 				<p
 					className={cn(
 						"font-grotesk font-semibold text-night tracking-[-0.01em] dark:text-foreground",
-						isFeature ? "mt-5 text-[20px]" : "mt-4 text-[15px]",
+						isFeature ? "mt-5 text-[17px]" : "mt-4 text-[15px]",
 					)}
 				>
 					{title}

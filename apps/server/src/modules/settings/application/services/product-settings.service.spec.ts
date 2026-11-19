@@ -1,4 +1,5 @@
 import { ConflictException } from "@nestjs/common";
+import type { AuthUser } from "@wandit/auth";
 import {
 	type PatchProductSettingsBody,
 	patchProductSettingsBodySchema,
@@ -12,6 +13,7 @@ import type {
 	ProductSettingsRow,
 	UpdateProductSettingsInput,
 } from "../../infrastructure/persistence/product-settings.repository";
+import { AdminSettingsController } from "../../presentation/http/controllers/admin-settings.controller";
 import { ProductSettingsService } from "./product-settings.service";
 
 const INITIAL_DATE = new Date("2026-08-01T10:00:00.000Z");
@@ -143,6 +145,11 @@ describe("ProductSettingsService", () => {
 			topupsEnabled: false,
 			updatedAt: INITIAL_DATE.toISOString(),
 			updatedByUserId: null,
+			// Centi-credits: 10, 10, and 100 credits.
+			userReferralActivationCredits: 1000,
+			userReferralFriendCredits: 1000,
+			userReferralPaidCredits: 10_000,
+			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
 			version: 1,
 		});
@@ -271,6 +278,10 @@ describe("ProductSettingsService", () => {
 			signupGrantCredits: storedCentiCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
+			userReferralActivationCredits: 2500,
+			userReferralFriendCredits: 1500,
+			userReferralPaidCredits: 12_000,
+			userReferralsEnabled: true,
 		});
 
 		const publicSettings = await service.getPublic();
@@ -283,6 +294,11 @@ describe("ProductSettingsService", () => {
 			signupGrantCredits: exposedCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
+			// The row holds centi-credits. The public answer holds credits.
+			userReferralActivationCredits: 25,
+			userReferralFriendCredits: 15,
+			userReferralPaidCredits: 120,
+			userReferralsEnabled: true,
 			v2BuilderEnabled: false,
 		};
 
@@ -293,6 +309,37 @@ describe("ProductSettingsService", () => {
 		expect(await service.get()).toMatchObject({
 			dzdPerUsdRate: 27_000,
 			lifecycleEmailsEnabled: true,
+		});
+	});
+});
+
+describe("AdminSettingsController", () => {
+	it("stores the user referral amounts as centi-credits and answers in whole credits", async () => {
+		const { repository, service } = setup();
+		const controller = new AdminSettingsController(service);
+		// SAFETY: the controller reads only `id` of the admin.
+		const admin = { id: "admin_1" } as AuthUser;
+
+		const response = await controller.update(
+			{
+				userReferralActivationCredits: 25,
+				userReferralFriendCredits: 15,
+				userReferralPaidCredits: 120,
+				version: 1,
+			},
+			admin,
+		);
+
+		expect(repository.row).toMatchObject({
+			userReferralActivationCredits: 2500,
+			userReferralFriendCredits: 1500,
+			userReferralPaidCredits: 12_000,
+		});
+		expect(response).toMatchObject({
+			userReferralActivationCredits: 25,
+			userReferralFriendCredits: 15,
+			userReferralPaidCredits: 120,
+			version: 2,
 		});
 	});
 });
