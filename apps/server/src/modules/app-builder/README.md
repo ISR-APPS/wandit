@@ -20,7 +20,9 @@ PostHog flag `v2-builder`).
   `paperinstruments/ultramarine-1-flash`. A turn on a model that is not
   Claude (Paper, or a gateway model such as DeepSeek or GLM) sends every
   Claude Code call, also helper and subagent calls, to it. The harness
-  then turns off the experimental betas, tool search, and WebSearch.
+  then turns off the experimental betas and tool search. The native
+  WebSearch is off for every model: the LLM proxy does not bill it. The
+  `web_search` host tool (Exa) is the one search.
 - Claude Code compacts the conversation by itself. On a 1M-window model,
   Claude or not, it compacts at 450,000 tokens: the harness adds the `[1m]`
   suffix and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Haiku 4.5 has a 200K
@@ -1367,6 +1369,22 @@ releases per-turn clients (none today — connectors land in a follow-up).
   refunds, and a `failed`/`unavailable` result returns to the agent
   instead of throwing. `null` `holdEventId` answers `failed` — a paid
   tool never runs unbilled.
+- `web_search` searches the web through Exa (`POST /search`, type
+  `auto`) to confirm a current doc, API, version, or error text. The
+  registry adds it only when `EXA_API_KEY` exists, in build and Plan Mode
+  turns, never in a security scan. Each call reserves a fixed-price
+  `web_search` child under the turn hold (`WEB_SEARCH_CREDITS`, a default
+  price; key `builder-turn-web-search:<turnId>:<n>`). A success settles
+  it with the Exa `costDollars.total` as the provider cost; a failure or
+  a throw refunds it. At most 20 calls per turn
+  (`BUILDER_MAX_WEB_SEARCHES_PER_TURN`); the text of each result is cut
+  to 2,000 chars. The log line holds no query text. A result keeps
+  the Exa `favicon` only when it is an `https:` URL.
+- `suggest_follow_ups` shows 2 or 3 next ideas under the answer, in
+  build turns only (not Plan Mode, not a security scan). It is
+  `"not-applicable"`, free, and its execute only answers `{ status: "ok" }`.
+  The chat reads the streamed tool input; a click sends one idea as the
+  next message. The project instructions ask for one call per build turn.
 - `ask_user` asks the user 1 to 4 questions in one call. It is
   `"not-applicable"`, has no execute, and pauses the turn. The harness
   cuts the input to the card limits (`askUserQuestionsOf`). The built-in

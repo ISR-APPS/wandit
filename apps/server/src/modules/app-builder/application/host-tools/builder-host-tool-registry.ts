@@ -2,11 +2,13 @@
  * The real `HostToolRegistry` of the builder turn (WANDIT-169).
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
- * `generate_image`, and `set_theme` for a template with the theme system.
+ * `generate_image`, `suggest_follow_ups`, `web_search` when `EXA_API_KEY`
+ * exists, and `set_theme` for a template with the theme system.
  * A web or mobile project adds `request_network_host`, the seven backend
  * tools of WANDIT-186, and `enable_ai` of the app AI gateway; a desktop
- * project adds `add_local_migration`. A Plan Mode turn gets only `ask_user`
- * and `present_plan`. A `security_scan` turn gets only the two backend reads.
+ * project adds `add_local_migration`. A Plan Mode turn gets only `ask_user`,
+ * `present_plan`, and `web_search` (with the key). A `security_scan` turn
+ * gets only the two backend reads.
  * The tools run in the task process, so platform and partner secrets stay
  * out of the sandbox.
  */
@@ -51,11 +53,20 @@ import {
 	type RequestNetworkHostHostToolDeps,
 } from "./request-network-host.host-tool";
 import { createSetThemeTool, SET_THEME_TOOL_NAME } from "./set-theme.host-tool";
+import {
+	createSuggestFollowUpsTool,
+	SUGGEST_FOLLOW_UPS_TOOL_NAME,
+} from "./suggest-follow-ups.host-tool";
+import {
+	createWebSearchTool,
+	type SearchWeb,
+	WEB_SEARCH_TOOL_NAME,
+} from "./web-search.host-tool";
 
 /**
  * The image deps, the backend tool deps (WANDIT-186) with the AI key write
  * of `enable_ai`, the network-host repository (WANDIT-180), and the desktop
- * migration registry. `audit`
+ * migration registry, and the Exa search. `audit`
  * serves `request_network_host` and the backend tools; `logger` serves every tool.
  */
 export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
@@ -64,6 +75,8 @@ export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
 		networkHosts: RequestNetworkHostHostToolDeps["networkHosts"];
 		/** Reads the frozen migrations of a desktop project for `add_local_migration`. */
 		desktopMigrations: AddLocalMigrationHostToolDeps["desktopMigrations"];
+		/** One Exa search, bound to `EXA_API_KEY`. Absent when the key is absent: no `web_search` tool. */
+		searchWeb?: SearchWeb;
 	};
 
 /**
@@ -74,8 +87,29 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 	constructor(private readonly deps: BuilderHostToolRegistryDeps) {}
 
 	build(context: HostToolContext): Promise<HostToolSet> {
+		const { searchWeb } = this.deps;
+		// A search changes nothing in the project, so Plan Mode gets it too.
+		// No approval card: a search only reads, and its description names the cost.
+		const webSearch =
+			searchWeb === undefined
+				? null
+				: {
+						approval: {
+							[WEB_SEARCH_TOOL_NAME]: "not-applicable",
+						} satisfies HostToolSet["toolApproval"],
+						tools: {
+							[WEB_SEARCH_TOOL_NAME]: createWebSearchTool(
+								{
+									logger: this.deps.logger,
+									metering: this.deps.metering,
+									searchWeb,
+								},
+								context,
+							),
+						},
+					};
 		// Plan Mode changes nothing in the project, the backend, or the
-		// network: the agent only asks questions and shows the plan.
+		// network: the agent only asks questions, searches, and shows the plan.
 		if (context.mode === "plan") {
 			return Promise.resolve({
 				close: async () => {},
@@ -83,10 +117,12 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				toolApproval: {
 					[ASK_USER_TOOL_NAME]: "not-applicable",
 					[PRESENT_PLAN_TOOL_NAME]: "not-applicable",
+					...webSearch?.approval,
 				},
 				tools: {
 					[ASK_USER_TOOL_NAME]: createAskUserTool(),
 					[PRESENT_PLAN_TOOL_NAME]: createPresentPlanTool(),
+					...webSearch?.tools,
 				},
 			});
 		}
@@ -130,6 +166,9 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				// The questions themselves are the user's turn; no approval first.
 				[ASK_USER_TOOL_NAME]: "not-applicable",
 				generate_image: "not-applicable",
+				// The ideas only show under the answer; the user picks one or not.
+				[SUGGEST_FOLLOW_UPS_TOOL_NAME]: "not-applicable",
+				...webSearch?.approval,
 				...(isDesktop
 					? // The gate refuses every statement that can lose saved data.
 						{ [ADD_LOCAL_MIGRATION_TOOL_NAME]: "not-applicable" }
@@ -152,6 +191,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 			tools: {
 				[ASK_USER_TOOL_NAME]: createAskUserTool(),
 				generate_image: createGenerateImageTool(this.deps, context),
+				[SUGGEST_FOLLOW_UPS_TOOL_NAME]: createSuggestFollowUpsTool(),
+				...webSearch?.tools,
 				...(isDesktop
 					? {
 							[ADD_LOCAL_MIGRATION_TOOL_NAME]: createAddLocalMigrationTool(

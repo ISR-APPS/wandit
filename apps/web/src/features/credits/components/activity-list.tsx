@@ -10,6 +10,7 @@ import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { HardDrivesIcon } from "@phosphor-icons/react/HardDrives";
 import { HourglassIcon } from "@phosphor-icons/react/Hourglass";
 import { ImageIcon } from "@phosphor-icons/react/Image";
@@ -51,6 +52,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	app_ai_gateway: SparkleIcon,
 	desktop_build: DesktopIcon,
 	theme_design: PaletteIcon,
+	web_search: GlobeIcon,
 	topup_adjust: ScalesIcon,
 };
 

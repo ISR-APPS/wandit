@@ -315,29 +315,25 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(captured.claudeSettings?.env?.WANDIT_TOKEN_EPOCH).toBe("3");
 	});
 
-	// Paper answers 400 to the experimental betas and refuses web_search; the
-	// gateway providers of DeepSeek and GLM have no web_search either. A Claude
-	// session must keep its betas and WebSearch.
+	// Paper answers 400 to the experimental betas; a Claude session keeps its
+	// betas. The native WebSearch is not billed, so it is off for every model,
+	// Claude too: the metered `web_search` host tool is the one search.
 	it.each([
 		{
 			model: "paperinstruments/ultramarine-1-flash",
 			betasFlag: "1",
-			blocksWebSearch: true,
 		},
 		{
 			model: "deepseek/deepseek-v4.1-flash-1017",
 			betasFlag: "1",
-			blocksWebSearch: true,
 		},
 		{
 			model: "anthropic/claude-sonnet-5",
 			betasFlag: undefined,
-			blocksWebSearch: false,
 		},
-	])("sets the other-provider flags only for a model that is not Claude ($model)", async ({
+	])("sets the other-provider flags only for a model that is not Claude, and blocks WebSearch for all ($model)", async ({
 		model,
 		betasFlag,
-		blocksWebSearch,
 	}) => {
 		const { captured, harness } = setup();
 
@@ -346,9 +342,7 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(
 			captured.claudeSettings?.env?.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
 		).toBe(betasFlag);
-		expect(captured.agentSettings?.inactiveTools?.includes("webSearch")).toBe(
-			blocksWebSearch,
-		);
+		expect(captured.agentSettings?.inactiveTools).toContain("webSearch");
 	});
 
 	// Claude Code compacts at 450,000 tokens only when it knows the 1M window.

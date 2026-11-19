@@ -1039,10 +1039,6 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			);
 		}
 		const isOtherProviderModel = !isAnthropicModel(input.model);
-		// Only Anthropic runs the `web_search` server tool that WebSearch
-		// calls, and Paper answers 400 to it. The adapter key is `webSearch`:
-		// HarnessAgent throws on the native name.
-		const otherProviderBlockedTools = isOtherProviderModel ? ["webSearch"] : [];
 		return this.agentFactory({
 			harness: this.claudeFactory({
 				// The explicit auth object stops the adapter from reading
@@ -1128,7 +1124,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					: input.mode === "security_scan"
 						? SECURITY_SCAN_BLOCKED_TOOLS
 						: ["Agent", "Workflow"]),
-				...otherProviderBlockedTools,
+				// The native WebSearch calls the Anthropic `web_search` server tool.
+				// The LLM proxy does not bill it, and Paper answers 400 to it. So it
+				// is off for every model: the metered `web_search` host tool is the
+				// one search. The adapter key is `webSearch`: HarnessAgent throws on
+				// the native name.
+				"webSearch",
 			],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",

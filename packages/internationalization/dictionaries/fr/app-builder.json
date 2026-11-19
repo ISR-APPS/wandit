@@ -584,6 +584,17 @@
 		"showMore": "Afficher plus",
 		"showLess": "Afficher moins",
 		"showImage": "Afficher l'image {number} en entier",
+		"sources": {
+			"one": "{count} source",
+			"other": "{count} sources"
+		},
+		"followUps": "Pour continuer",
+		"openLink": {
+			"title": "Ouvrir ce lien ?",
+			"body": "La page s'ouvre dans un nouvel onglet. Vérifie l'adresse d'abord.",
+			"confirm": "Ouvrir le lien",
+			"cancel": "Annuler"
+		},
 		"placeholder": "Demande à Wandit…",
 		"attach": "Joindre un fichier",
 		"estimate": {

@@ -1,8 +1,8 @@
 /**
  * Port: the host-side tool set the agent may call during a turn.
  * `builder-turn.runtime.ts` calls `build` once per turn after the sandbox
- * exists. `BuilderHostToolRegistry` implements it with `generate_image` and
- * `set_theme`, plus `request_network_host` and the backend tools of WANDIT-186
+ * exists. `BuilderHostToolRegistry` implements it with `generate_image`,
+ * `web_search`, and `set_theme`, plus `request_network_host` and the backend tools of WANDIT-186
  * (web and mobile) or `add_local_migration` (desktop), or with the Plan Mode
  * tools. AI SDK `ToolSet` only: vendor packages stay out.
  */

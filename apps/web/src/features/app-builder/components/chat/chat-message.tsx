@@ -12,7 +12,10 @@
  * the error with Retry, the stopped line, and the receipt. The receipt shows
  * the cache counts only outside production. The developer view (local dev
  * only) renders every part in stream order, with the thinking text. A footer
- * ends a reply: the Copy action when it has a final answer, then the receipt. Rendered by
+ * ends a reply: the Copy action when it has a final answer, the web sources
+ * button, then the receipt. In the answer, a link to a source site shows as
+ * a chip (message-sources.tsx). The last finished reply can end with its
+ * follow-up ideas (follow-up-list.tsx). Rendered by
  * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
@@ -40,12 +43,19 @@ import type {
 	BuilderDataParts,
 	BuilderMessage,
 	BuilderMessagePart,
+	BuilderSource,
 } from "../../api/dto";
 import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
+import { FollowUpList } from "./follow-up-list";
 import { MessageActions } from "./message-actions";
 import { CARD_SECONDARY_BUTTON_CLASS } from "./message-card";
+import {
+	MessageSourcesContext,
+	SOURCE_LINK_COMPONENTS,
+	SourcesButton,
+} from "./message-sources";
 import { PlanCard } from "./plan-card";
 import { QuestionReceipt } from "./question-receipt";
 import { SecurityReportCard } from "./security-report-card";
@@ -116,6 +126,11 @@ export type ChatMessageViewProps = {
 	onRetry?: () => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
 	onOpenSecrets?: () => void;
+	/**
+	 * Sends one follow-up idea as the next user message. Set only on the last
+	 * reply when it ended and the user can send; absent hides the ideas.
+	 */
+	onSendFollowUp?: (text: string) => void;
 };
 
 /** One thread message: the user bubble, or the byline and the parts of a reply, in the production or the developer view. */
@@ -129,6 +144,7 @@ export function ChatMessageView({
 	trayQuestionKey,
 	onRetry,
 	onOpenSecrets,
+	onSendFollowUp,
 }: ChatMessageViewProps) {
 	if (message.role === "user") {
 		const text = textOf(message.parts);
@@ -166,6 +182,12 @@ export function ChatMessageView({
 	const finalText = textOf(message.parts);
 	// The receipt leaves the stream order: it closes the reply in the footer, next to Copy.
 	const receipt = message.parts.find((part) => part.type === "data-receipt");
+	const sources =
+		message.parts.find((part) => part.type === "data-sources")?.data.sources ??
+		[];
+	const followUps = message.parts.find(
+		(part) => part.type === "data-follow-ups",
+	)?.data.followUps;
 	const partView = (part: BuilderMessagePart, key: string) => (
 		<MessagePartView
 			key={key}
@@ -175,6 +197,7 @@ export function ChatMessageView({
 			onOpenSecurityReport={onOpenSecurityReport}
 			trayQuestionKey={trayQuestionKey}
 			onRetry={onRetry}
+			sources={sources}
 		/>
 	);
 
@@ -236,14 +259,20 @@ export function ChatMessageView({
 					})}
 				</>
 			)}
-			{finalText.trim() !== "" || receipt !== undefined ? (
+			{finalText.trim() !== "" ||
+			sources.length > 0 ||
+			receipt !== undefined ? (
 				// min-h-7 is the height of the Copy button, so a footer with only the receipt keeps the same line.
 				<div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
 					{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
+					{sources.length > 0 ? <SourcesButton sources={sources} /> : null}
 					{receipt !== undefined ? (
 						<ReceiptLine receipt={receipt.data} />
 					) : null}
 				</div>
+			) : null}
+			{followUps !== undefined && onSendFollowUp !== undefined ? (
+				<FollowUpList followUps={followUps} onSend={onSendFollowUp} />
 			) : null}
 		</div>
 	);
@@ -329,8 +358,9 @@ function ImageStrip({
 /**
  * One part of an assistant message outside the feed rows. Both views use
  * it; the production view never passes a note or a summary. The receipt
- * shows in the reply footer (ReceiptLine), so it renders nothing here. A
- * part type this switch does not know also renders nothing.
+ * and the sources show in the reply footer, and the follow-ups under it, so
+ * they render nothing here. A part type this switch does not know also
+ * renders nothing. A link to a source site in a text renders as a chip.
  */
 function MessagePartView({
 	part,
@@ -339,6 +369,7 @@ function MessagePartView({
 	onOpenSecurityReport,
 	trayQuestionKey,
 	onRetry,
+	sources,
 }: Pick<
 	ChatMessageViewProps,
 	| "onDecideApproval"
@@ -348,15 +379,25 @@ function MessagePartView({
 	| "onRetry"
 > & {
 	part: BuilderMessagePart;
+	/** The `data-sources` pages of the reply; empty when it made no web search. */
+	sources: BuilderSource[];
 }) {
 	const { t, locale } = useTranslation();
 	switch (part.type) {
 		case "text":
 		case "data-note":
 			return (
-				<Streamdown dir="auto" className={PROSE_CLASS}>
-					{part.type === "text" ? part.text : part.data.text}
-				</Streamdown>
+				<MessageSourcesContext.Provider value={sources}>
+					<Streamdown
+						dir="auto"
+						className={PROSE_CLASS}
+						// Without sources, Streamdown keeps its own link. With sources, the override
+						// adds the chips and keeps the open-link confirm on every link.
+						components={sources.length > 0 ? SOURCE_LINK_COMPONENTS : undefined}
+					>
+						{part.type === "text" ? part.text : part.data.text}
+					</Streamdown>
+				</MessageSourcesContext.Provider>
 			);
 		case "data-summary":
 			return (

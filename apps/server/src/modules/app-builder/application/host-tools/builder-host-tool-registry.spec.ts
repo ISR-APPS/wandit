@@ -29,6 +29,10 @@ async function setup() {
 		imageEditModel: "edit-model-1",
 		imageModel: "image-model-1",
 		metering: unusedMetering(),
+		// `build` only creates the tools; no search runs in this spec.
+		searchWeb: async () => {
+			throw new Error("searchWeb is not called by build");
+		},
 		networkHosts: {
 			appendHost: async () => [],
 			transaction: async () => undefined,
@@ -59,6 +63,8 @@ describe("BuilderHostToolRegistry.build", () => {
 				"ask_user",
 				"generate_image",
 				"request_network_host",
+				"suggest_follow_ups",
+				"web_search",
 			].sort(),
 		);
 		expect(toolSet.toolApproval).toEqual({
@@ -73,6 +79,8 @@ describe("BuilderHostToolRegistry.build", () => {
 			run_sql: "not-applicable",
 			run_sql_write: "user-approval",
 			set_secret: "not-applicable",
+			suggest_follow_ups: "not-applicable",
+			web_search: "not-applicable",
 		});
 	});
 
@@ -104,13 +112,15 @@ describe("BuilderHostToolRegistry.build", () => {
 			ask_user: "not-applicable",
 			generate_image: "not-applicable",
 			set_theme: "not-applicable",
+			suggest_follow_ups: "not-applicable",
+			web_search: "not-applicable",
 		});
 		expect(Object.keys(toolSet.tools).sort()).toEqual(
 			Object.keys(toolSet.toolApproval).sort(),
 		);
 	});
 
-	it("gives a plan turn only the tools that ask the user", async () => {
+	it("gives a plan turn only the tools that ask the user or search the web", async () => {
 		const { fixture, registry } = await setup();
 
 		const toolSet = await registry.build({ ...fixture.context, mode: "plan" });
@@ -119,10 +129,12 @@ describe("BuilderHostToolRegistry.build", () => {
 		expect(Object.keys(toolSet.tools).sort()).toEqual([
 			"ask_user",
 			"present_plan",
+			"web_search",
 		]);
 		expect(toolSet.toolApproval).toEqual({
 			ask_user: "not-applicable",
 			present_plan: "not-applicable",
+			web_search: "not-applicable",
 		});
 	});
 

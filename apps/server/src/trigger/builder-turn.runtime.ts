@@ -2303,6 +2303,8 @@ export async function runBuilderTurn(
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
 				"End with a short answer in plain words: at most 100 words, plus the test account when this turn created one. " +
+				// Plan and scan turns get the same text but not the tool, so the sentence names the build turn.
+				"In a build turn, after that answer, call suggest_follow_ups once with 2 or 3 next ideas for the user. " +
 				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
 				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
 				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +
