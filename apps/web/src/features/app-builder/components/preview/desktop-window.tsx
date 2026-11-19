@@ -16,10 +16,11 @@ import { fitFrameScale } from "../../lib/helpers";
 import { useElementSize } from "../../lib/use-element-size";
 
 /**
- * Size of the window content, CSS px. 1024 px is the `lg` breakpoint, so the
- * app shows its desktop layout. 640 px keeps the 16:10 shape of a laptop.
+ * Size of the window content, CSS px: the 16:10 screen of a 15-inch laptop.
+ * It is wider than the `lg` breakpoint (1024 px), so the app shows its desktop
+ * layout. A large stage shows the window at this size, a small stage scales it down.
  */
-const WINDOW_CONTENT_SIZE_PX = { width: 1024, height: 640 };
+const WINDOW_CONTENT_SIZE_PX = { width: 1440, height: 900 };
 
 /** Height of the title bar of a Windows 11 window, CSS px. */
 const TITLE_BAR_HEIGHT_PX = 32;
