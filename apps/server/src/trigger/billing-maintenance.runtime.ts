@@ -1,7 +1,7 @@
 /**
  * Builds the billing service graphs of the Trigger.dev billing tasks by hand, without Nest.
  * The refill, reconciliation, manual expiry, SlickPay sweep, renewal reminder, affiliate, signup grant,
- * and webhook tasks call it.
+ * user referral, and webhook tasks call it.
  * Each function takes one task database pool and returns the services that the task calls.
  */
 import { logger as triggerLogger } from "@trigger.dev/sdk";
@@ -75,6 +75,8 @@ import {
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
 import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
 import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
+import { UserReferralsService } from "../modules/user-referrals/application/services/user-referrals.service";
+import { UserReferralsRepository } from "../modules/user-referrals/infrastructure/persistence/user-referrals.repository";
 import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
@@ -179,6 +181,17 @@ export function createSignupGrantRuntime(db: TriggerDatabase) {
 	return {
 		outbox: new SignupGrantOutboxService(
 			new SignupGrantOutboxRepository(db),
+			createCredits(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
+		),
+	};
+}
+
+/** The user referral sweep graph. The task `user-referral-sweep` calls `userReferrals.runSweep`. */
+export function createUserReferralRuntime(db: TriggerDatabase) {
+	return {
+		userReferrals: new UserReferralsService(
+			new UserReferralsRepository(db),
 			createCredits(db),
 			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),

@@ -1,9 +1,9 @@
 /**
  * The two halves of the top bar of the app builder. ProjectBar holds the
  * project controls: back link, project menu, version history, and the chat
- * expand button. WorkBar holds the view switcher, the Share button, the
- * Publish popover, and the user menu. A project viewer sees History without
- * Restore, and no Publish.
+ * expand button. WorkBar holds the view switcher, the referral button,
+ * the Share button, the Publish popover, and the user menu. A project viewer
+ * sees History without Restore, and no Publish.
  * It shows no credit balance. Billing opens from the user menu.
  * The preview controls live in the bar of each preview card.
  * Rendered by pages/app-builder-page.tsx, which owns every value shown
@@ -11,6 +11,7 @@
  */
 
 import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
 import { Link } from "@tanstack/react-router";
@@ -20,11 +21,15 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
 import { hasProjectRole, ShareButton } from "@/features/project-sharing";
+import {
+	ReferralDialog,
+	useUserReferralsEnabled,
+} from "@/features/user-referrals";
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import type { BuilderView } from "../../lib/constants";
@@ -127,6 +132,7 @@ export function WorkBar({
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
 			<ViewSwitcher view={view} onChangeView={onChangeView} />
 			<div className="ms-auto flex shrink-0 items-center gap-2">
+				<ReferralEntry />
 				{/* An older API sends no access and has no sharing routes. */}
 				{project.access === undefined ? null : (
 					<ShareButton projectId={project.id} projectName={project.name} />
@@ -142,6 +148,36 @@ export function WorkBar({
 				<UserMenu />
 			</div>
 		</div>
+	);
+}
+
+/** The "Earn free credits" button of the work bar. It opens the referral dialog and keeps the open state. */
+function ReferralEntry() {
+	const { t } = useTranslation();
+	const isUserReferralsEnabled = useUserReferralsEnabled();
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+	// Product rule: the entry shows only while the admin switch of the referral program is on.
+	if (!isUserReferralsEnabled) return null;
+
+	return (
+		<>
+			<Button
+				variant="ghost"
+				aria-label={t("userReferrals.entry.button")}
+				onClick={() => setIsDialogOpen(true)}
+				// A spark pill, the same height as the Share pill beside it.
+				// A phone row is full, so it hides there. The user menu has the same entry.
+				className="h-9 gap-2 rounded-full bg-spark/25 px-2.5 font-grotesk font-semibold text-night hover:bg-spark/40 hover:text-night active:translate-y-px max-sm:hidden xl:px-4 dark:bg-spark/15 dark:text-foreground dark:hover:bg-spark/25 dark:hover:text-foreground"
+			>
+				<GiftIcon aria-hidden weight="fill" className="size-[18px]" />
+				{/* Below 1280 px the bar has no room for the text, so only the icon shows. */}
+				<span className="hidden xl:inline">
+					{t("userReferrals.entry.button")}
+				</span>
+			</Button>
+			<ReferralDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
+		</>
 	);
 }
 

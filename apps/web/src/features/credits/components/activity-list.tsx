@@ -31,7 +31,7 @@ import type {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 
-import { useTranslation } from "@/lib/i18n";
+import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { formatCreditDelta } from "../lib/format-credits";
 
@@ -65,6 +65,18 @@ const LEDGER_ICONS: Record<
 	revoke: MinusCircleIcon,
 };
 
+/**
+ * Label of a grant by its reason. The reason is `meta.reason` of the ledger row, a free text of the API.
+ * A grant with a reason that is not here shows the label of its ledger kind.
+ */
+const GRANT_REASON_LABEL_KEYS = new Map<string, TranslationKey>([
+	[
+		"user_referral_friend_bonus",
+		"credits.ledgerReasons.user_referral_friend_bonus",
+	],
+	["user_referral_reward", "credits.ledgerReasons.user_referral_reward"],
+]);
+
 const SKELETON_KEYS = ["one", "two", "three", "four", "five"];
 
 type ActivityListProps = {
@@ -82,6 +94,7 @@ function rowIcon(item: CreditActivityItem): Icon {
 	return item.ledgerKind ? LEDGER_ICONS[item.ledgerKind] : LightningIcon;
 }
 
+/** The rows of the credit activity, newest first as the API sends them. It also draws the loading, error, and empty states. */
 export function ActivityList({
 	items,
 	isError = false,
@@ -134,12 +147,19 @@ export function ActivityList({
 				const inProgress = item.status === "in_progress";
 				const credits = inProgress ? null : (item.credits ?? 0);
 				const positive = credits !== null && credits > 0;
+				// Only a grant reads its reason. An expiry of the same credits keeps the label of its kind.
+				const grantReasonLabelKey =
+					item.ledgerKind === "grant" && item.reason !== null
+						? GRANT_REASON_LABEL_KEYS.get(item.reason)
+						: undefined;
 				const label =
 					item.kind === "usage" && item.operation
 						? t(`credits.activityOperations.${item.operation}`)
-						: item.ledgerKind
-							? t(`credits.ledgerKinds.${item.ledgerKind}`)
-							: t("credits.activityOperations.topup_adjust");
+						: grantReasonLabelKey
+							? t(grantReasonLabelKey)
+							: item.ledgerKind
+								? t(`credits.ledgerKinds.${item.ledgerKind}`)
+								: t("credits.activityOperations.topup_adjust");
 
 				return (
 					<li

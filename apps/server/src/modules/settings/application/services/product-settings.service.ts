@@ -69,6 +69,17 @@ export class ProductSettingsService {
 			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,
+			// Centi-credits to decimal credits: the web shows the three referral amounts.
+			userReferralActivationCredits: centiCreditsToCredits(
+				settings.userReferralActivationCredits,
+			),
+			userReferralFriendCredits: centiCreditsToCredits(
+				settings.userReferralFriendCredits,
+			),
+			userReferralPaidCredits: centiCreditsToCredits(
+				settings.userReferralPaidCredits,
+			),
+			userReferralsEnabled: settings.userReferralsEnabled,
 			// The web opens V2 only when this API serves it. On production, the env forces V2_BUILDER_ENABLED off.
 			v2BuilderEnabled: settings.v2BuilderEnabled && env.V2_BUILDER_ENABLED,
 		};

@@ -330,6 +330,10 @@ function productSettings(
 		topupsEnabled: false,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
+		userReferralActivationCredits: 1000,
+		userReferralFriendCredits: 1000,
+		userReferralPaidCredits: 10_000,
+		userReferralsEnabled: false,
 		v2BuilderEnabled: false,
 		version: 1,
 	};
