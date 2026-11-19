@@ -56,6 +56,8 @@
 		"desktop_build": "Build d'app de bureau",
 		"theme_design": "Design de thème",
 		"web_search": "Recherche web",
+		"web_fetch": "Lecture de page web",
+		"site_capture": "Capture de site web",
 		"topup_adjust": "Ajustement du solde"
 	},
 	"activityStatus": {

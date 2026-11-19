@@ -33,8 +33,9 @@ export type StepRowProps = BuilderDataParts["step"] & {
 
 /**
  * The dictionary key of a row label. Explore and web rows have one label
- * for a single named target and one for a search; the others have a done
- * and a running label.
+ * for a single named target and one for a search. A clone row has one label
+ * for a capture, which names its page, and one for a compare. The others
+ * have a done and a running label.
  */
 function labelKeyOf(
 	kind: BuilderStepKind,
@@ -52,6 +53,11 @@ function labelKeyOf(
 			return hasTarget
 				? "appBuilder.chat.steps.web.fetch"
 				: "appBuilder.chat.steps.web.search";
+		case "clone":
+			if (isRunning) return "appBuilder.chat.steps.clone.running";
+			return hasTarget
+				? "appBuilder.chat.steps.clone.capture"
+				: "appBuilder.chat.steps.clone.compare";
 		default:
 			return `appBuilder.chat.steps.${kind}.${isRunning ? "running" : "done"}`;
 	}

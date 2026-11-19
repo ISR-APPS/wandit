@@ -146,7 +146,9 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // V2 app through the app AI gateway, billed by tokens; `desktop_build` is
 // one desktop build, Windows or macOS, of a V2 desktop app; `theme_design`
 // is one AI theme design of the builder Thème sheet; `web_search` is one
-// Exa search of the `web_search` host tool in a builder turn.
+// Exa search of the `web_search` host tool in a builder turn;
+// `web_fetch` is one page read of the `web_fetch` host tool through Firecrawl;
+// `site_capture` is one page capture of the `capture_site` host tool through Firecrawl.
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -164,6 +166,8 @@ export const creditActivityOperations = [
 	"desktop_build",
 	"theme_design",
 	"web_search",
+	"web_fetch",
+	"site_capture",
 	"topup_adjust",
 ] as const;
 

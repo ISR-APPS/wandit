@@ -56,6 +56,8 @@
 		"desktop_build": "بناء تطبيق سطح المكتب",
 		"theme_design": "تصميم السمة",
 		"web_search": "بحث في الويب",
+		"web_fetch": "قراءة صفحة ويب",
+		"site_capture": "التقاط موقع ويب",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

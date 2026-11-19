@@ -317,7 +317,8 @@ describe("ClaudeCodeHarness.createSession", () => {
 
 	// Paper answers 400 to the experimental betas; a Claude session keeps its
 	// betas. The native WebSearch is not billed, so it is off for every model,
-	// Claude too: the metered `web_search` host tool is the one search.
+	// Claude too: the metered `web_search` host tool is the one search. The
+	// native WebFetch fails behind the sandbox egress policy, so it is off too.
 	it.each([
 		{
 			model: "paperinstruments/ultramarine-1-flash",
@@ -331,7 +332,7 @@ describe("ClaudeCodeHarness.createSession", () => {
 			model: "anthropic/claude-sonnet-5",
 			betasFlag: undefined,
 		},
-	])("sets the other-provider flags only for a model that is not Claude, and blocks WebSearch for all ($model)", async ({
+	])("sets the other-provider flags only for a model that is not Claude, and blocks WebSearch and WebFetch for all ($model)", async ({
 		model,
 		betasFlag,
 	}) => {
@@ -342,7 +343,9 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(
 			captured.claudeSettings?.env?.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
 		).toBe(betasFlag);
-		expect(captured.agentSettings?.inactiveTools).toContain("webSearch");
+		expect(captured.agentSettings?.inactiveTools).toEqual(
+			expect.arrayContaining(["webSearch", "WebFetch"]),
+		);
 	});
 
 	// Claude Code compacts at 450,000 tokens only when it knows the 1M window.

@@ -118,6 +118,7 @@ import {
 	securityScanPromptOf,
 	securityScanReportOf,
 } from "../modules/app-builder/domain/security-scan";
+import { SITE_CLONE_INSTRUCTION } from "../modules/app-builder/domain/site-clone";
 import {
 	DEFAULT_PER_TURN_CAP_CREDITS,
 	monthStartUtc,
@@ -2286,8 +2287,9 @@ export async function runBuilderTurn(
 			// The product rules for every project, plus the platform sentences:
 			// the Expo rule and the design world order for a mobile app, the
 			// desktop data rule and the app design recipe for a desktop app, the
-			// app design recipe for a web app, the browser sentences, and the
-			// starter template sentences of a project that started from one. A plan
+			// app design recipe for a web app, the browser sentences, the site
+			// clone sentences for a web app, and the starter template sentences
+			// of a project that started from one. A plan
 			// turn blocks Bash, so it cannot use the browser, but it gets the same
 			// text: the text is part of the CLI process key, so a Plan toggle must
 			// not change it. A project keeps the CLAUDE.md of its template version,
@@ -2317,6 +2319,10 @@ export async function runBuilderTurn(
 				"Never propose Morocco, a Moroccan city, the dirham, or +212 in a question, an option, an example, or sample data. Use them only when the user names Morocco first. " +
 				platformInstructionOf(templateProfile, projectId) +
 				` ${browserInstructionOf(templateProfile)}` +
+				// A plan turn, or a turn without FIRECRAWL_API_KEY, gets this text but not the capture_site tool. The last sentence covers both cases.
+				(templateProfile === TEMPLATE_PROFILES.web
+					? ` ${SITE_CLONE_INSTRUCTION}`
+					: "") +
 				// Last, so it wins over the first-build sentences above.
 				starterTemplateInstructionOf(
 					project.starterTemplateId === null

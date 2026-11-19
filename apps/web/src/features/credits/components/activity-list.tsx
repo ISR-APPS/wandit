@@ -4,7 +4,9 @@
  * the credits chip render it and pass the activity items of the credits API.
  */
 import type { Icon } from "@phosphor-icons/react";
+import { BookOpenIcon } from "@phosphor-icons/react/BookOpen";
 import { ChatCircleIcon } from "@phosphor-icons/react/ChatCircle";
+import { CopySimpleIcon } from "@phosphor-icons/react/CopySimple";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
@@ -53,6 +55,8 @@ const OPERATION_ICONS: Record<CreditActivityOperation, Icon> = {
 	desktop_build: DesktopIcon,
 	theme_design: PaletteIcon,
 	web_search: GlobeIcon,
+	web_fetch: BookOpenIcon,
+	site_capture: CopySimpleIcon,
 	topup_adjust: ScalesIcon,
 };
 

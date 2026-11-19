@@ -10,8 +10,8 @@ Covers the network egress policy, the `request_network_host` host tool,
 the sandbox env allow list, the template deny rules, and the PreToolUse
 hook.
 
-It also covers the mobile build worker (section 12) and desktop apps
-(section 14).
+It also covers the mobile build worker (section 12), desktop apps
+(section 14), and the web tools of the turn worker (section 15).
 
 Does not cover:
 
@@ -1137,3 +1137,32 @@ not cover the Electron shell.
   on whose Developer ID signs user apps (D36).
 - The gate dry run still runs on the event loop of the task. Upgrade: a
   worker thread (see "Untrusted frontend and SQL").
+
+## 15. Web tools of the turn worker
+
+The `web_fetch` host tool
+(`application/host-tools/web-fetch.host-tool.ts`) is a limited egress
+path. The task process sends the URL of the agent to Firecrawl, and
+Firecrawl opens the page. The sandbox policy of section 2 does not apply
+to this path. An injected page can make the agent put data in a URL. The
+limits are: at most 20 provider calls per turn
+(`BUILDER_MAX_WEB_FETCHES_PER_TURN`), and at most 500 chars per URL
+(`publicWebUrlSchema` in `packages/contracts/src/v2/host-tools.ts`). The
+schema accepts any public http(s) host. It refuses an IP address, a user
+name or password in the URL, and the endings `.localhost`, `.local`, and
+`.internal`. The tool has no host allow list (`LIMIT` in the tool file).
+The log line holds only the host, because the path and the query of a
+URL can hold user content. The Firecrawl key stays in the task process.
+
+The `capture_site` host tool
+(`application/host-tools/capture-site.host-tool.ts`) makes the worker
+download files that an unknown page names: the screenshots, the style
+sheets, the images, and the fonts. `fetchPublicBytes`
+(`apps/server/src/infrastructure/http/public-fetch.ts`) is the guard
+against SSRF. It accepts `https:` only. It checks at connect time that
+each DNS answer is a public address, so DNS rebinding fails. It follows
+at most 3 redirects and checks each one. It accepts only the content
+types that the caller lists, and it stops at the size and time caps of
+the caller. It sends no cookie and no custom header. The file extension
+of a copy under `public/clone/` comes from the content type, never from
+the URL.

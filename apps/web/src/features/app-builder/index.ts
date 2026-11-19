@@ -5,6 +5,7 @@ export {
 	turnEstimateQuery,
 } from "./api/app-builder.queries";
 export { BuilderModelPicker } from "./components/builder-model-picker";
+export { CloneSiteChip } from "./components/clone-site-chip";
 // The look of a V2 panel: card rows, titles, hints, buttons, and tabs. The MCP pages of features/coding-agents use it.
 export {
 	PANEL_CARD_ROW_CLASS,

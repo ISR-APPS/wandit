@@ -30,6 +30,8 @@ const REQUIRED_WORKFLOW_IDS = [
 	"standalone-image",
 	"builder-host-tool-image",
 	"builder-host-tool-web-search",
+	"builder-host-tool-web-fetch",
+	"builder-host-tool-site-capture",
 	"marketing",
 	"connector-inline",
 	"connector-background",
@@ -278,7 +280,14 @@ describe("operation registry", () => {
 
 	it("prices agent sessions as a token operation with a reserve ceiling", () => {
 		expect(OPERATION_REGISTRY.agent_session).toMatchObject({
-			allowedChildOperations: ["image", "connector", "sandbox", "web_search"],
+			allowedChildOperations: [
+				"image",
+				"connector",
+				"sandbox",
+				"web_search",
+				"web_fetch",
+				"site_capture",
+			],
 			allowedParentOperations: [],
 			mode: "token",
 			reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
@@ -289,6 +298,9 @@ describe("operation registry", () => {
 		expect(canNestOperation("agent_session", "image")).toBe(true);
 		// The web_search tool reserves its child under the turn hold; a broken nest refuses every search.
 		expect(canNestOperation("agent_session", "web_search")).toBe(true);
+		// The same rule holds for the web_fetch and capture_site tools.
+		expect(canNestOperation("agent_session", "web_fetch")).toBe(true);
+		expect(canNestOperation("agent_session", "site_capture")).toBe(true);
 		expect(maxFinalCreditsCeiling("agent_session", 500)).toBe(250_000);
 	});
 

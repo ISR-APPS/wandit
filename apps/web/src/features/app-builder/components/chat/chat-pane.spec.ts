@@ -181,6 +181,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 							modelId: undefined,
 							setModelId: vi.fn(),
 						},
+						canCloneSite: false,
 						contextUsage: null,
 						onCancel: () => {},
 						errorText: null,

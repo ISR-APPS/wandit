@@ -56,6 +56,8 @@
 		"desktop_build": "Desktop app build",
 		"theme_design": "Theme design",
 		"web_search": "Web search",
+		"web_fetch": "Web page read",
+		"site_capture": "Website capture",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {

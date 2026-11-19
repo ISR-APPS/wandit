@@ -23,6 +23,9 @@ function unusedMetering(): HostToolMetering {
 /** The registry with the real backend tool deps and no metering. */
 async function setup() {
 	const fixture = await createBackendToolFixture();
+	const unusedWebPages = async () => {
+		throw new Error("webPages is not called by build");
+	};
 	const registry = new BuilderHostToolRegistry({
 		...fixture.deps,
 		desktopMigrations: { listFrozen: async () => [] },
@@ -32,6 +35,13 @@ async function setup() {
 		// `build` only creates the tools; no search runs in this spec.
 		searchWeb: async () => {
 			throw new Error("searchWeb is not called by build");
+		},
+		// `build` only creates the tools; no page read and no capture runs in this spec.
+		webPages: {
+			captureSitePage: unusedWebPages,
+			fetchPublicFile: unusedWebPages,
+			fetchWebPage: unusedWebPages,
+			pageCache: { get: unusedWebPages, set: unusedWebPages },
 		},
 		networkHosts: {
 			appendHost: async () => [],
@@ -61,9 +71,12 @@ describe("BuilderHostToolRegistry.build", () => {
 			[
 				...backendToolNames,
 				"ask_user",
+				"capture_site",
+				"compare_clone",
 				"generate_image",
 				"request_network_host",
 				"suggest_follow_ups",
+				"web_fetch",
 				"web_search",
 			].sort(),
 		);
@@ -71,6 +84,8 @@ describe("BuilderHostToolRegistry.build", () => {
 			apply_destructive_migration: "user-approval",
 			ask_user: "not-applicable",
 			apply_migration: "not-applicable",
+			capture_site: "not-applicable",
+			compare_clone: "not-applicable",
 			deploy_function: "not-applicable",
 			enable_ai: "user-approval",
 			generate_image: "not-applicable",
@@ -80,6 +95,7 @@ describe("BuilderHostToolRegistry.build", () => {
 			run_sql_write: "user-approval",
 			set_secret: "not-applicable",
 			suggest_follow_ups: "not-applicable",
+			web_fetch: "not-applicable",
 			web_search: "not-applicable",
 		});
 	});
@@ -107,12 +123,14 @@ describe("BuilderHostToolRegistry.build", () => {
 
 		// A desktop app has no cloud backend and no remote network: no Supabase
 		// tool may reach a backend, and the agent may not open an egress host.
+		// The clone tools are for a web app only.
 		expect(toolSet.toolApproval).toEqual({
 			add_local_migration: "not-applicable",
 			ask_user: "not-applicable",
 			generate_image: "not-applicable",
 			set_theme: "not-applicable",
 			suggest_follow_ups: "not-applicable",
+			web_fetch: "not-applicable",
 			web_search: "not-applicable",
 		});
 		expect(Object.keys(toolSet.tools).sort()).toEqual(
@@ -120,7 +138,7 @@ describe("BuilderHostToolRegistry.build", () => {
 		);
 	});
 
-	it("gives a plan turn only the tools that ask the user or search the web", async () => {
+	it("gives a plan turn only the tools that ask the user or read the web", async () => {
 		const { fixture, registry } = await setup();
 
 		const toolSet = await registry.build({ ...fixture.context, mode: "plan" });
@@ -129,11 +147,13 @@ describe("BuilderHostToolRegistry.build", () => {
 		expect(Object.keys(toolSet.tools).sort()).toEqual([
 			"ask_user",
 			"present_plan",
+			"web_fetch",
 			"web_search",
 		]);
 		expect(toolSet.toolApproval).toEqual({
 			ask_user: "not-applicable",
 			present_plan: "not-applicable",
+			web_fetch: "not-applicable",
 			web_search: "not-applicable",
 		});
 	});

@@ -62,6 +62,10 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"theme_design",
 	// One Exa web search of a V2 builder turn, at a fixed price, under the turn hold.
 	"web_search",
+	// One Firecrawl page read of a V2 builder turn, at a fixed price, under the turn hold.
+	"web_fetch",
+	// One Firecrawl page capture for a site clone in a V2 builder turn, at a fixed price, under the turn hold.
+	"site_capture",
 	"topup_adjust",
 ]);
 

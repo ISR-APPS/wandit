@@ -68,6 +68,7 @@ export type BuilderStepKind =
 	| "explore"
 	| "run"
 	| "web"
+	| "clone"
 	| "image"
 	| "database"
 	| "databaseCheck"

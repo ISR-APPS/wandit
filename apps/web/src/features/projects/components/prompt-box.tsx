@@ -3,7 +3,8 @@
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
  * mode menu picks the app type, web, mobile, desktop, or desktop 2 (Electron), through `platformChoice`,
- * the Plan chip of the app-builder feature sets `planChoice`, and its
+ * the Plan chip of the app-builder feature sets `planChoice`, its Clone chip
+ * writes a clone request into the draft of a web app, and its
  * model menu sets `modelChoice`. With `acceptsLongText`, a long paste becomes
  * a text chip that goes with the prompt (lib/pasted-text.ts).
  * Calls the attachments upload service and the voice dictation hook.
@@ -100,6 +101,7 @@ import { Spark } from "@/components/logo";
 import {
 	type BuilderModelPick,
 	BuilderModelPicker,
+	CloneSiteChip,
 	PlanModeToggle,
 } from "@/features/app-builder";
 import { useSession } from "@/features/auth";
@@ -1742,6 +1744,11 @@ export type PromptBoxProps = {
 	className?: string;
 };
 
+/**
+ * The prompt box. With `platformChoice` it is a V2 create: the app type menu,
+ * the Plan chip, the Clone chip of a web app, and the model menu replace the
+ * V1 mode menu, connectors, and output settings.
+ */
 export function PromptBox({
 	onSubmit,
 	attachmentsEnabled = false,
@@ -2387,6 +2394,24 @@ export function PromptBox({
 							<PlanModeToggle
 								isPlanMode={planChoice.value}
 								onPlanModeChange={planChoice.onChange}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
+						) : null}
+						{/* The same constant removes the Clone chip from the production bundle. Product rule: only a web app can copy a web page. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice?.value === "web" ? (
+							<CloneSiteChip
+								onCloneRequest={(cloneRequest) => {
+									// The request goes first, so the text that the user typed reads as its details.
+									const next =
+										value.trim() === ""
+											? cloneRequest
+											: `${cloneRequest}\n${value}`;
+									setValue(next);
+									onValueChange?.(joinPastedText(next, pastedTexts));
+									// A Plan turn has no capture tool, so the clone needs a build turn.
+									planChoice?.onChange(false);
+								}}
 								disabled={submissionPending || disabled}
 								size={isHero ? "md" : "sm"}
 							/>
