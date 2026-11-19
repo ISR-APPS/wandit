@@ -20,8 +20,11 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { AppAiAdmission } from "./application/services/app-ai-admission";
 import { AppAiGatewayService } from "./application/services/app-ai-gateway.service";
 import { AppAiKeysService } from "./application/services/app-ai-keys.service";
+import { AppAiMediaService } from "./application/services/app-ai-media.service";
+import { AppAiVideoService } from "./application/services/app-ai-video.service";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
 import { AppThemeDesignService } from "./application/services/app-theme-design.service";
@@ -253,8 +256,11 @@ export function createCloudSupabaseClient(
 		WorkspacesModule,
 	],
 	providers: [
+		AppAiAdmission,
 		AppAiGatewayService,
 		AppAiKeysService,
+		AppAiMediaService,
+		AppAiVideoService,
 		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,

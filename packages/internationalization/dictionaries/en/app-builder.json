@@ -293,6 +293,13 @@
 		"models": "Models",
 		"modelsHint": "The agent picks one of these models for each AI feature.",
 		"defaultModel": "Default",
+		"modelGroups": {
+			"chat": "Chat",
+			"image": "Images",
+			"video": "Video",
+			"speech": "Voice",
+			"transcription": "Transcription"
+		},
 		"actions": {
 			"enable": "Turn on",
 			"rotate": "Rotate key",

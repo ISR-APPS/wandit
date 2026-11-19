@@ -157,6 +157,8 @@ type CommonSettlement = {
 export type TokenMeteringSettlement = CommonSettlement & {
 	modelId: string;
 	pricing: "token";
+	/** Prompt tokens of ONE upstream call. It selects the price tier. Leave it out for a summed usage. */
+	promptTokens?: number;
 	usage: MeteredTokenUsage;
 };
 

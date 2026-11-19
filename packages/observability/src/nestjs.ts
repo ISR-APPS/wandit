@@ -2,6 +2,8 @@
  * Sentry setup of the two `apps/server` processes: the NestJS API and the
  * harness host. `apps/server/src/instrument.ts` calls `initNestSentry` as a
  * `node --import` preload. It calls `@sentry/nestjs` and the shared helpers.
+ * No URL query string of any route goes to Sentry: errors, transactions,
+ * spans, and breadcrumbs lose it.
  */
 import * as Sentry from "@sentry/nestjs";
 
@@ -10,6 +12,8 @@ import {
 	dropHealthchecks,
 	isEnabled,
 	scrubEvent,
+	stripEventUrlQueries,
+	stripSpanUrlQueries,
 	type WanditSentryOptions,
 } from "./internal/shared";
 
@@ -67,7 +71,11 @@ export function initNestSentry(options: InitNestSentryOptions): void {
 			options.runtime === "harness-host"
 				? () => 0
 				: dropHealthchecks(options.tracesSampleRate ?? 0.2),
-		beforeSend: scrubEvent,
+		// Security: a URL query can hold a secret (a video billing token, an
+		// OAuth code). Thus no query of any route goes to Sentry.
+		beforeSend: (event, hint) => scrubEvent(stripEventUrlQueries(event), hint),
+		beforeSendTransaction: (event) => scrubEvent(stripEventUrlQueries(event)),
+		beforeSendSpan: stripSpanUrlQueries,
 		initialScope: { tags: { runtime: options.runtime } },
 	});
 }

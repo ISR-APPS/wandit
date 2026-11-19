@@ -1085,6 +1085,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// one changed the prompt prefix ahead of the chat history, so every
 					// warm turn wrote the whole history to the cache again (Phase 1, item 4).
 					CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+					// Claude Code 2.1.281 cuts each MCP tool description at 2,048
+					// characters. The `enable_ai` host tool has more than 4,000. Keep it below 4,096.
+					CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "4096",
 					WANDIT_TOKEN_EPOCH: String(epoch),
 					// A model of another provider only (Paper, or a gateway model such
 					// as DeepSeek or GLM). A Claude model keeps its betas and its haiku

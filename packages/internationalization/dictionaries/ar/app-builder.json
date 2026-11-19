@@ -305,6 +305,13 @@
 		"models": "النماذج",
 		"modelsHint": "يختار الوكيل أحد هذه النماذج لكل ميزة ذكاء اصطناعي.",
 		"defaultModel": "الافتراضي",
+		"modelGroups": {
+			"chat": "المحادثة",
+			"image": "الصور",
+			"video": "الفيديو",
+			"speech": "الصوت",
+			"transcription": "التفريغ الصوتي"
+		},
 		"actions": {
 			"enable": "تفعيل",
 			"rotate": "تغيير المفتاح",
