@@ -14,6 +14,7 @@ import {
 	projectScopeFrom,
 } from "../../../projects/domain/project-scope";
 import {
+	CustomHostnameMissingError,
 	DomainNotAvailableError,
 	DomainsUnavailableError,
 	ExternalDomainUnregisteredError,
@@ -37,6 +38,8 @@ import type {
 } from "../../infrastructure/dns/domain-registration-check.service";
 import {
 	canExternalAttachReplace,
+	canRelinkPurchasedDomain,
+	type DomainAttacher,
 	type DomainRow,
 	type DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
@@ -128,14 +131,48 @@ class FakeDomainsRepository {
 	}
 
 	async createExternalReplacingReleased(input: {
+		attacher: DomainAttacher;
 		name: string;
 		projectId: string;
 		tld: string;
 		userId: string;
 	}) {
-		this.deleteReplaceableNameOrThrow(input.name, input.userId);
+		this.deleteReplaceableNameOrThrow(input.name, input.attacher);
 
 		return this.createExternal(input);
+	}
+
+	async relinkPurchasedDomain(input: {
+		attacher: DomainAttacher;
+		name: string;
+		projectId: string;
+	}) {
+		const existing = [...this.rows.values()].find(
+			(row) => row.name === input.name,
+		);
+
+		// The fake has no soft-deleted projects and no org projects.
+		if (
+			!existing ||
+			!canRelinkPurchasedDomain(
+				{
+					...existing,
+					projectDeletedAt: null,
+					projectOrganizationId: null,
+				},
+				input.attacher,
+				input.projectId,
+			)
+		) {
+			return null;
+		}
+
+		return this.updateById(
+			existing.id,
+			existing.projectId === input.projectId
+				? { projectId: input.projectId }
+				: { isPrimary: false, projectId: input.projectId },
+		);
 	}
 
 	async deleteById(id: string) {
@@ -380,18 +417,18 @@ class FakeDomainsRepository {
 		return row;
 	}
 
-	private deleteReplaceableNameOrThrow(name: string, attachingUserId: string) {
+	private deleteReplaceableNameOrThrow(name: string, attacher: DomainAttacher) {
 		const existing = [...this.rows.values()].find((row) => row.name === name);
 
 		if (!existing) {
 			return;
 		}
 
-		// The fake has no soft-deleted projects.
+		// The fake has no soft-deleted projects and no org projects.
 		if (
 			!canExternalAttachReplace(
-				{ ...existing, projectDeletedAt: null },
-				attachingUserId,
+				{ ...existing, projectDeletedAt: null, projectOrganizationId: null },
+				attacher,
 			)
 		) {
 			throw new Error(`${name} already connected`);
@@ -504,12 +541,19 @@ class FakeCustomHostnameService {
 		sslStatus: "pending_validation",
 		status: "pending",
 	}));
-	readonly getCustomHostnameStatus = vi.fn(async () => ({
+	readonly getCustomHostnameStatus = vi.fn(async (_id: string) => ({
 		hostnameStatus: this.status,
 		id: "cf_1",
 		requiredRecords: this.requiredRecords,
 		sslStatus: this.status,
 		status: this.status,
+	}));
+	readonly createApexCustomHostname = vi.fn(async (_host: string) => ({
+		hostnameStatus: "pending",
+		id: "cf_apex_new",
+		requiredRecords: [],
+		sslStatus: "pending_validation",
+		status: "pending",
 	}));
 	readonly deleteCustomHostname = vi.fn(async () => undefined);
 }
@@ -636,6 +680,36 @@ function setup(projectDomainHook: ProjectDomainHook | null = null) {
 describe("DomainsService", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
+		// The env module is the mocked object above, so a staging case sets and resets it here.
+		Object.assign(env, { SITES_SLUG_SUFFIX: undefined });
+	});
+
+	it.each([
+		["search", (service: DomainsService) => service.search(userId, "shop")],
+		[
+			"attach",
+			(service: DomainsService) =>
+				service.attachExternal(scope, projectId, { name: "shop.com" }),
+		],
+		[
+			"purchase",
+			(service: DomainsService) =>
+				service.preparePurchase(scope, "shop.com", projectId),
+		],
+	])("refuses %s on staging before any row, registrar, or Cloudflare call", async (_label, run) => {
+		Object.assign(env, { SITES_SLUG_SUFFIX: "-stg" });
+		const { cloudflare, provider, registration, repository, service } = setup();
+
+		const error = await run(service).catch((caught: unknown) => caught);
+
+		expect(error).toMatchObject({
+			response: { code: "CUSTOM_DOMAINS_PRODUCTION_ONLY" },
+			status: 403,
+		});
+		expect(repository.rows.size).toBe(0);
+		expect(registration.check).not.toHaveBeenCalled();
+		expect(provider.checkAvailability).not.toHaveBeenCalled();
+		expect(cloudflare.findOrCreateCustomHostname).not.toHaveBeenCalled();
 	});
 
 	it("returns retail USD prices only for safely purchasable domains", async () => {
@@ -954,6 +1028,78 @@ describe("DomainsService", () => {
 		expect(cloudflare.findOrCreateCustomHostname).toHaveBeenCalledOnce();
 		expect(zones.findZoneByName).not.toHaveBeenCalled();
 		expect(zones.createZone).not.toHaveBeenCalled();
+	});
+
+	it("re-links an own detached bought domain on connect, keeps its row, and serves it", async () => {
+		const hook = {
+			onProjectDomainsChanged: vi.fn(async (_projectId: string) => undefined),
+		};
+		const {
+			cloudflare,
+			dispatcher,
+			registration,
+			repository,
+			routing,
+			service,
+		} = setup(hook);
+		repository.serving = { engine: "v2_app", suspendedReasonCode: null };
+		const bought = repository.seed({
+			autoRenew: true,
+			cfCustomHostnameId: "cf_1",
+			dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex_old" },
+			expiresAt: new Date("2027-06-01T00:00:00.000Z"),
+			name: "bought.com",
+			projectId: null,
+			providerDomainId: "bought.com",
+			source: "purchased",
+			status: "active",
+		});
+		cloudflare.status = "active";
+		// Detach deleted the apex hostname. The www hostname still exists.
+		cloudflare.getCustomHostnameStatus.mockImplementation(
+			async (id: string) => {
+				if (id === "cf_apex_old") {
+					throw new CustomHostnameMissingError();
+				}
+
+				return {
+					hostnameStatus: "active",
+					id,
+					requiredRecords: [],
+					sslStatus: "active",
+					status: "active",
+				};
+			},
+		);
+
+		const attached = await service.attachExternal(scope, projectId, {
+			name: "bought.com",
+		});
+
+		expect(attached).toMatchObject({
+			domain: { id: bought.id, source: "purchased", status: "active" },
+			requiredRecords: [],
+		});
+		expect(repository.rows.get(bought.id)).toMatchObject({
+			autoRenew: true,
+			dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex_new" },
+			expiresAt: bought.expiresAt,
+			projectId,
+			providerDomainId: "bought.com",
+		});
+		expect(repository.rows.size).toBe(1);
+		expect(cloudflare.createApexCustomHostname).toHaveBeenCalledExactlyOnceWith(
+			"bought.com",
+		);
+		expect(cloudflare.findOrCreateCustomHostname).not.toHaveBeenCalled();
+		expect(registration.check).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
+		expect(routing.pointers).toEqual([
+			{ host: "bought.com", pointer: expect.objectContaining({ projectId }) },
+		]);
+		expect(hook.onProjectDomainsChanged).toHaveBeenCalledExactlyOnceWith(
+			projectId,
+		);
 	});
 
 	it("attaches BYO domains, reuses pending verification, and freshly restarts an active probe", async () => {
@@ -1375,6 +1521,65 @@ describe("DomainsService", () => {
 		expect(repository.rows.get(row.id)?.dns).not.toHaveProperty(
 			"externalVerification",
 		);
+	});
+
+	it("creates a hostname that Cloudflare deleted again and restarts the stalled run", async () => {
+		const { cloudflare, dispatcher, repository, service } = setup();
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_deleted",
+			dns: {
+				externalVerification: { attempts: 101, stalledAt },
+				records: [
+					{
+						name: "_cf-custom-hostname.www.deleted.com",
+						purpose: "ownership_or_ssl_validation",
+						type: "TXT",
+						value: "old-token",
+					},
+				],
+				triggerConfiguration: {
+					nextAttempt: 100,
+					nextProbeAt: null,
+					nonce: "manual:stable-restart",
+				},
+			},
+			name: "deleted.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+		cloudflare.getCustomHostnameStatus.mockRejectedValueOnce(
+			new CustomHostnameMissingError(),
+		);
+		cloudflare.findOrCreateCustomHostname.mockResolvedValueOnce({
+			hostnameStatus: "pending",
+			id: "cf_new",
+			requiredRecords: [
+				{
+					name: "_cf-custom-hostname.www.deleted.com",
+					type: "TXT",
+					value: "new-token",
+				},
+			],
+			sslStatus: "pending_validation",
+			status: "pending",
+		});
+
+		const response = await service.verify(row.id, scope);
+
+		expect(cloudflare.findOrCreateCustomHostname).toHaveBeenCalledWith(
+			"deleted.com",
+		);
+		expect(repository.rows.get(row.id)?.cfCustomHostnameId).toBe("cf_new");
+		expect(response.requiredRecords?.map((record) => record.value)).toEqual([
+			"new-token",
+			"customers.wandit.app",
+		]);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledWith({
+			domainId: row.id,
+			nonce: `manual-restart:${stalledAt}`,
+		});
 	});
 
 	it("keeps the stalled marker when the restart handoff fails", async () => {

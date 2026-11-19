@@ -32,6 +32,7 @@
 		"DOMAIN_ALREADY_EXISTS": "This domain is already connected.",
 		"INVALID_DOMAIN_STATE": "This domain is not ready for that action.",
 		"EXTERNAL_DOMAIN_UNREGISTERED": "This domain is not registered. Buy it first, or check the spelling.",
+		"CUSTOM_DOMAINS_PRODUCTION_ONLY": "Custom domains work only in production.",
 		"FORBIDDEN": "You do not have permission to do that.",
 		"INSUFFICIENT_CREDITS": "Not enough credits for this action.",
 		"MOBILE_TEMPLATE_UNAVAILABLE": "Mobile apps are not available right now. Try again later.",

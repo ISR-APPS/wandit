@@ -122,6 +122,36 @@ export class DomainProviderError extends DomainHttpError {
 	}
 }
 
+/**
+ * Cloudflare answers 404 for a custom hostname id. Cloudflare deletes a hostname
+ * that stays pending for 7 days. The verification step, ApexZoneStep, and
+ * DomainsService.verify catch it and create the hostname again.
+ */
+export class CustomHostnameMissingError extends DomainProviderError {
+	constructor() {
+		super("Cloudflare custom hostname no longer exists", {
+			upstreamStatus: 404,
+		});
+	}
+}
+
+/**
+ * 403 on staging for search, purchase, attach, verify, and each Cloudflare
+ * hostname create or refresh. `assertCustomDomainsEnabled` throws it.
+ */
+export class CustomDomainsProductionOnlyError extends DomainHttpError {
+	/** The environment does not change between retries, so the purchase orchestrator fails the row at once. */
+	readonly retryable = false;
+
+	constructor() {
+		super(
+			"CUSTOM_DOMAINS_PRODUCTION_ONLY",
+			"Custom domains work only in production.",
+			HttpStatus.FORBIDDEN,
+		);
+	}
+}
+
 export class DomainRateLimitExceededError extends DomainHttpError {
 	constructor(message = "Too many domain requests; try again later") {
 		super("DOMAIN_RATE_LIMITED", message, HttpStatus.TOO_MANY_REQUESTS);

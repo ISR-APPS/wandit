@@ -1,3 +1,8 @@
+/**
+ * The domain table of a project: status, DNS records, verify, primary,
+ * transfer unlock, and detach. `DomainsSection` renders it.
+ * It calls the domain queries and mutations of `../api`.
+ */
 import { formatDate } from "@wandit/internationalization";
 import {
 	AlertDialog,
@@ -467,6 +472,12 @@ function DomainListRow({
 						<AlertDialogDescription>
 							{t("settings.domains.detachDescription", { name: domain.name })}
 						</AlertDialogDescription>
+						{/* A bought domain stays with its buyer. Its name connects it again on any project. */}
+						{domain.source === "purchased" ? (
+							<p className="text-muted-foreground text-sm">
+								{t("settings.domains.detachPurchasedReconnect")}
+							</p>
+						) : null}
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>

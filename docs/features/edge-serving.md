@@ -10,7 +10,7 @@ the **manual Cloudflare dashboard steps** that code cannot apply.
 ```
 visitor → Cloudflare edge (wandit.app zone, route */*) → wandit-edge Worker
    host = Host header
-   ptr  = KV get "domain:{host}"                (60 s edge cache)
+   ptr  = KV get "domain:{host}"                (60 s KV edge cache + 10 s isolate cache)
    obj  = R2 get "published/{ptr.projectId}/current.html"
    → stream obj (ETag, Cache-Control: public, max-age=60)
 ```

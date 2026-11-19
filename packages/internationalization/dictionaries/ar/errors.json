@@ -32,6 +32,7 @@
 		"DOMAIN_ALREADY_EXISTS": "هذا النطاق متصل بالفعل.",
 		"INVALID_DOMAIN_STATE": "حالة هذا النطاق لا تسمح بهذا الإجراء.",
 		"EXTERNAL_DOMAIN_UNREGISTERED": "هذا النطاق غير مسجّل. اشتره أولًا أو تحقّق من كتابته.",
+		"CUSTOM_DOMAINS_PRODUCTION_ONLY": "النطاقات المخصصة تعمل في بيئة الإنتاج فقط.",
 		"FORBIDDEN": "ليست لديك صلاحية لتنفيذ هذا الإجراء.",
 		"INSUFFICIENT_CREDITS": "ليست لديك أرصدة كافية لهذا الإجراء.",
 		"MOBILE_TEMPLATE_UNAVAILABLE": "تطبيقات الهاتف غير متاحة حاليًا. حاول مرة أخرى لاحقًا.",

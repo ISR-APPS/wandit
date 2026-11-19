@@ -74,8 +74,13 @@ function pointerKey(host: string): string {
 	return `domain:${host}`;
 }
 
-/** 10 s: a publish, a suspend, or an unpublish reaches every isolate within this time. */
+/** 10 s. How long one isolate keeps a pointer in memory, on top of the KV edge cache. */
 const POINTER_CACHE_TTL_MS = 10_000;
+/**
+ * 60 s, the KV minimum. workerd rejects a lower value with a 400. KV caches a miss for this time too.
+ * So a publish, a suspend, or an unpublish reaches every isolate in about 70 s.
+ */
+const POINTER_KV_CACHE_TTL_SEC = 60;
 /** Past this many hosts the isolate forgets all of them instead of growing. */
 const POINTER_CACHE_MAX_HOSTS = 1_000;
 
@@ -100,7 +105,7 @@ async function readPointer(
 		return cached.pointer;
 	}
 	const pointer = await env.PTR.get<HostPointer>(pointerKey(host), {
-		cacheTtl: 60,
+		cacheTtl: POINTER_KV_CACHE_TTL_SEC,
 		type: "json",
 	});
 	if (pointerCache.size >= POINTER_CACHE_MAX_HOSTS) {
