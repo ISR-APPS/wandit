@@ -168,9 +168,9 @@ function ReferralEntry() {
 				onClick={() => setIsDialogOpen(true)}
 				// A spark pill, the same height as the Share pill beside it.
 				// A phone row is full, so it hides there. The user menu has the same entry.
-				className="h-9 gap-2 rounded-full bg-spark/25 px-2.5 font-grotesk font-semibold text-night hover:bg-spark/40 hover:text-night active:translate-y-px max-sm:hidden xl:px-4 dark:bg-spark/15 dark:text-foreground dark:hover:bg-spark/25 dark:hover:text-foreground"
+				className="h-8 gap-2 rounded-full bg-spark/25 px-2.5 font-grotesk font-medium text-[13px] text-night hover:bg-spark/40 hover:text-night active:translate-y-px max-sm:hidden xl:px-4 dark:bg-spark/15 dark:text-foreground dark:hover:bg-spark/25 dark:hover:text-foreground"
 			>
-				<GiftIcon aria-hidden weight="fill" className="size-[18px]" />
+				<GiftIcon aria-hidden weight="fill" className="size-4" />
 				{/* Below 1280 px the bar has no room for the text, so only the icon shows. */}
 				<span className="hidden xl:inline">
 					{t("userReferrals.entry.button")}
