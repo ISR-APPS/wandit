@@ -98,6 +98,8 @@ export * from "./v1/story-links";
 export * from "./v1/support";
 // Audio transcription contract.
 export * from "./v1/transcriptions";
+// User referral program contracts: the invite code, the summary, and the claim.
+export * from "./v1/user-referrals";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
 // V2 app AI gateway contracts: the request, the key, the tool, and the panel.

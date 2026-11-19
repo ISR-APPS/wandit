@@ -1,3 +1,10 @@
+/**
+ * The out-of-credits strip around a prompt composer.
+ * The landing hero, the dashboard, and the chat panes of the two builders render it.
+ * It reads the workspace, the purchase switch, and the public settings.
+ * It opens the plan picker and links to the /refer page.
+ */
+import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { Zap } from "lucide-react";
@@ -5,6 +12,7 @@ import type { ReactNode } from "react";
 
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
+import { usePublicSettingsQuery } from "@/features/settings";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
@@ -15,6 +23,8 @@ import { useTranslation } from "@/lib/i18n";
  * blocked composer still reads as one component. Billing is owner-only
  * (teams-workspaces.md §9): org members get "ask an owner" copy instead of
  * an upgrade CTA, and while purchases are paused (beta) the CTA disappears.
+ * In a Personal workspace, while the referral program is on, the strip also
+ * links to the /refer page.
  *
  * Inactive, it renders children untouched — callers keep the wrapper mounted
  * and flip `active` (callers should also drop the beta banner while active,
@@ -33,6 +43,8 @@ export function OutOfCreditsBanner({
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
+	const isUserReferralsEnabled =
+		usePublicSettingsQuery().data?.userReferralsEnabled === true;
 
 	if (!active) {
 		return <>{children}</>;
@@ -45,6 +57,8 @@ export function OutOfCreditsBanner({
 		: purchasesEnabled === false
 			? t("credits.outOfCredits.pausedBody")
 			: null;
+	// Product rule: referral rewards go to the personal pool, so an invite cannot fill a team pool.
+	const showReferralLink = isUserReferralsEnabled && isPersonal;
 
 	return (
 		<div className={cn("rounded-[1.25rem] bg-primary/10 p-1 pt-0", className)}>
@@ -57,6 +71,19 @@ export function OutOfCreditsBanner({
 					<span className="font-medium">{t("credits.outOfCredits.title")}</span>
 					{detail ? (
 						<span className="text-muted-foreground"> — {detail}</span>
+					) : null}
+					{/* The link is in the text, so it wraps with the text on a narrow composer. */}
+					{showReferralLink ? (
+						<>
+							{/* The title has no full stop. Without a detail, the dash divides it from the link. */}
+							{detail ? " " : " — "}
+							<Link
+								to="/refer"
+								className="rounded-xs font-medium underline underline-offset-2 outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+							>
+								{t("userReferrals.entry.creditsLink")}
+							</Link>
+						</>
 					) : null}
 				</p>
 				{canUpgrade ? (

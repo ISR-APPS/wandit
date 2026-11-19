@@ -1,0 +1,112 @@
+{
+	"meta": {
+		"title": "Inviter des amis — Wandit"
+	},
+	"title": "Inviter des amis",
+	"units": {
+		"days": {
+			"one": "{count} jour",
+			"other": "{count} jours"
+		},
+		"friends": {
+			"one": "{count} ami",
+			"other": "{count} amis"
+		}
+	},
+	"hero": {
+		"badge": "Jusqu'à {max} par ami",
+		"headline": "Offre des crédits. Gagne des crédits.",
+		"offer": "Ton ami reçoit {friend} en bonus. Toi, jusqu'à {max} par ami.",
+		"personalWorkspaceNote": "Les récompenses arrivent dans ton espace Personnel."
+	},
+	"link": {
+		"label": "Ton lien d'invitation",
+		"copy": "Copier mon lien",
+		"copied": "Lien copié",
+		"copyFailed": "La copie a échoué. Sélectionne le lien et copie-le.",
+		"shareLabel": "Partager avec",
+		"nativeShare": "Partager",
+		"email": "E-mail",
+		"shareText": "Je crée des apps avec l'IA sur Wandit. Inscris-toi avec mon lien et reçois {friend} en bonus : {url}",
+		"emailSubject": "{friend} en bonus pour essayer Wandit",
+		"shareFailed": "Le partage a échoué. Copie plutôt le lien.",
+		"loadError": "Ton lien ne s'est pas chargé.",
+		"retry": "Réessayer"
+	},
+	"steps": {
+		"title": "Comment ça marche",
+		"share": {
+			"title": "Partage ton lien",
+			"body": "Ton ami s'inscrit et reçoit {friend}."
+		},
+		"build": {
+			"title": "Ton ami crée",
+			"body": "Dès {min} utilisés, tu reçois {activation}."
+		},
+		"subscribe": {
+			"title": "Ton ami s'abonne",
+			"body": "{days} après son premier paiement, tu reçois {paid}."
+		}
+	},
+	"stats": {
+		"title": "Tes chiffres",
+		"joined": "Amis inscrits",
+		"activated": "Amis actifs",
+		"subscribed": "Amis abonnés",
+		"earned": "Crédits gagnés",
+		"pending": "{pending} en route"
+	},
+	"friends": {
+		"title": "Tes amis",
+		"newestNote": {
+			"one": "La liste affiche ton dernier ami inscrit.",
+			"other": "La liste affiche tes {count} derniers amis inscrits."
+		},
+		"joinedOn": "Inscrit le {date}",
+		"status": {
+			"joined": "Inscrit",
+			"activated": "Actif",
+			"subscribed": "Abonné"
+		},
+		"earned": "Gagné : {credits}",
+		"hints": {
+			"activation": "{activation} dès {min} utilisés",
+			"paid": "{paid} si ton ami s'abonne",
+			"paidPending": "En route : {pending}, {days} après son premier paiement"
+		},
+		"empty": {
+			"title": "Pas encore d'amis",
+			"body": "Partage ton lien. Tes amis apparaissent ici dès leur inscription."
+		},
+		"loadError": "Tes chiffres ne se sont pas chargés."
+	},
+	"rules": {
+		"title": "Bon à savoir",
+		"newAccounts": "Seuls les nouveaux comptes comptent. Ton ami doit s'inscrire avec ton lien.",
+		"window": "Ton ami a {days} pour utiliser {min}. Cette récompense vaut pour {friends} au maximum tous les {days}.",
+		"noCash": "Les crédits n'ont aucune valeur monétaire.",
+		"abuse": "Les faux comptes et les doublons perdent leurs récompenses."
+	},
+	"card": {
+		"title": "Des crédits gratuits",
+		"body": "Invite un ami. Gagne jusqu'à {max}.",
+		"progress": {
+			"one": "{count} ami inscrit · Gains : {earned}",
+			"other": "{count} amis inscrits · Gains : {earned}"
+		}
+	},
+	"dialog": {
+		"title": "Des crédits gratuits",
+		"seeRewards": "Voir mes récompenses"
+	},
+	"entry": {
+		"button": "Gagne des crédits gratuits",
+		"menuItem": "Inviter des amis",
+		"creditsLink": "Invite des amis, reçois des crédits gratuits",
+		"authModalLine": "Ton ami t'offre {friend}."
+	},
+	"claim": {
+		"bonusTitle": "Tu as reçu {friend} en bonus.",
+		"bonusBody": "Un cadeau de l'ami qui t'a invité. À toi de créer."
+	}
+}

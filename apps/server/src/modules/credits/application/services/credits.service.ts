@@ -137,6 +137,17 @@ export class CreditsService {
 	}
 
 	/**
+	 * Settled net consumption of personal pools, in centi-credits, keyed by user id.
+	 * A user with an in-flight hold, or with no consumption, is absent from the map.
+	 * The user referral sweep calls it for each page of friends that are not activated.
+	 */
+	settledNetConsumedCentiCreditsByUser(
+		userIds: string[],
+	): Promise<Map<string, number>> {
+		return this.creditsRepository.settledNetConsumedCentiCreditsByUser(userIds);
+	}
+
+	/**
 	 * Balance plus the reserved add-back, all integer centi-credits. While a
 	 * usage event stays reserved its ledger dip equals its reserved_credits, so
 	 * the sum restores exactly what settlement will return at worst.
