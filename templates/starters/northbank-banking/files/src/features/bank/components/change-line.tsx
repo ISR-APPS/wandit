@@ -1,5 +1,5 @@
 // The delta of one figure: an arrow, a signed percent, and a color for good or bad news.
-// The totals line of the home renders it.
+// The KPI tiles of the home and the KPI badges of the cards page render it.
 // It follows the KPI form "number" of the app-dashboard skill.
 import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
@@ -13,14 +13,16 @@ type ChangeLineProps = {
 	change: number | null;
 	/** "down" when a fall is good news, for example for money out. */
 	goodWhen: "up" | "down";
+	/** Size classes, for example "text-xs [&_svg]:size-3" inside a Badge. */
+	className?: string;
 };
 
 /** A change of null (no earlier data) never shows "0%". */
-export function ChangeLine({ change, goodWhen }: ChangeLineProps) {
+export function ChangeLine({ change, goodWhen, className }: ChangeLineProps) {
 	const { t, locale } = useT();
 	if (change === null) {
 		return (
-			<span className="text-muted-foreground text-sm">
+			<span className={cn("text-muted-foreground text-sm", className)}>
 				{t("kpi.noComparison")}
 			</span>
 		);
@@ -43,6 +45,7 @@ export function ChangeLine({ change, goodWhen }: ChangeLineProps) {
 					: isGood
 						? "text-success"
 						: "text-destructive",
+				className,
 			)}
 		>
 			{isFlat ? null : <TrendIcon className="size-4 rtl:-scale-x-100" />}

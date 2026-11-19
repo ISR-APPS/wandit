@@ -1,5 +1,6 @@
 // Builds the rows of the guests page: each guest with the stays, the totals, and the presence.
 // guests.queries.ts calls it. A real app can get the same rows from one select with an embedded relation.
+// guestKindOf gives the kind column and the kind filter of the guests page.
 import {
 	addDays,
 	type Guest,
@@ -54,6 +55,25 @@ export type GuestRow = Guest & {
 	/** The reservations of the guest in the sample book, newest arrival first. */
 	stays: GuestStay[];
 };
+
+/** How well the hotel knows a guest. Its label is the message key `guests.kinds.<kind>`. */
+export const GUEST_KINDS = ["first", "returning", "regular"] as const;
+
+/** One guest kind: 0 or 1 stay is "first", 2 to 4 stays "returning", 5 or more "regular". */
+export type GuestKind = (typeof GUEST_KINDS)[number];
+
+// From 2 stays, a guest is a returning guest. From 5 stays, the desk greets the guest as a regular.
+const RETURNING_STAYS = 2;
+const REGULAR_STAYS = 5;
+
+/** The kind of a guest from the count of stays that started. */
+export function guestKindOf(guest: Pick<GuestRow, "stayCount">): GuestKind {
+	return guest.stayCount >= REGULAR_STAYS
+		? "regular"
+		: guest.stayCount >= RETURNING_STAYS
+			? "returning"
+			: "first";
+}
 
 // A stay in the next 7 days is "arriving". The desk prepares these arrivals.
 const ARRIVING_DAYS = 7;

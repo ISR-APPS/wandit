@@ -1,4 +1,7 @@
-export { articlesQueryOptions } from "./api/articles.queries";
+export {
+	articleFiguresQueryOptions,
+	articlesQueryOptions,
+} from "./api/articles.queries";
 export {
 	ArticlesPage,
 	ArticlesPageError,

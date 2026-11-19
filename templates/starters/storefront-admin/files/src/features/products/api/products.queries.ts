@@ -1,18 +1,23 @@
-// Reads of products: the catalog with its sales and stock figures, and the sales record of one product.
-// The loader of the product route prefetches the catalog. The product dialog reads the sales record after a click.
+// Reads of products: the catalog with its sales and stock figures, the sales figures of the catalog,
+// and the sales record of one product. The loader of the product route prefetches the first two.
+// The product dialog reads the sales record after a click.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	buildDailySeries,
 	calendarDaysFromNow,
 	countsAsRevenue,
+	coverDaysOf,
 	type DailyPoint,
 	getSampleTables,
 	type OrderStatus,
+	type PeriodFigure,
 	type ProductCategory,
+	periodFigureOf,
 	type SampleTables,
+	type StockLevel,
+	stockLevelOf,
 } from "~/features/shop";
-import { coverDaysOf, type StockLevel, stockLevelOf } from "../lib/stock";
 
 /** The sales figures of the product pages cover this count of full days. */
 export const SALES_DAYS = 30;
@@ -57,6 +62,17 @@ export type ProductSales = {
 	recentOrders: ProductOrder[];
 };
 
+/** The four figure cards of the product page: the last SALES_DAYS days against the SALES_DAYS days before. */
+export type CatalogFigures = {
+	/** The sum of the line amounts, before the order discounts, in the app currency. */
+	revenue: PeriodFigure;
+	unitsSold: PeriodFigure;
+	/** revenue / unitsSold. 0 when no unit sold. */
+	averagePrice: PeriodFigure;
+	/** The sum of the discount codes taken off, in the app currency. A fall is good news. */
+	discounts: PeriodFigure;
+};
+
 // The status and the time of each order, by id. The lines join it to count the sales.
 function ordersById(tables: SampleTables) {
 	return new Map(tables.orders.map((order) => [order.id, order]));
@@ -92,6 +108,45 @@ export function productsQueryOptions() {
 					coverDays: coverDaysOf(product.stock, sold, SALES_DAYS),
 				};
 			});
+		},
+	});
+}
+
+/** The sales figures of the whole catalog. Only orders that count as revenue add to them. */
+export function catalogFiguresQueryOptions() {
+	return queryOptions({
+		queryKey: ["products", "figures"],
+		queryFn: async (): Promise<CatalogFigures> => {
+			const tables = getSampleTables();
+			const current = { revenue: 0, units: 0, discounts: 0 };
+			const previous = { revenue: 0, units: 0, discounts: 0 };
+			// Index 0 is the last SALES_DAYS full days. Index 1 is the SALES_DAYS days before them.
+			const sums = [current, previous];
+			const periodOf = new Map<string, number>();
+			for (const order of tables.orders) {
+				const daysAgo = -calendarDaysFromNow(order.placedAt, tables.dayStart);
+				const period = Math.floor((daysAgo - 1) / SALES_DAYS);
+				const sum = sums[period];
+				if (sum && countsAsRevenue(order.status)) {
+					periodOf.set(order.id, period);
+					sum.discounts += order.discount;
+				}
+			}
+			for (const line of tables.orderLines) {
+				const sum = sums[periodOf.get(line.orderId) ?? -1];
+				if (sum) {
+					sum.revenue += line.quantity * line.unitPrice;
+					sum.units += line.quantity;
+				}
+			}
+			const averageOf = (sum: { revenue: number; units: number }) =>
+				sum.units === 0 ? 0 : sum.revenue / sum.units;
+			return {
+				revenue: periodFigureOf(current.revenue, previous.revenue),
+				unitsSold: periodFigureOf(current.units, previous.units),
+				averagePrice: periodFigureOf(averageOf(current), averageOf(previous)),
+				discounts: periodFigureOf(current.discounts, previous.discounts),
+			};
 		},
 	});
 }

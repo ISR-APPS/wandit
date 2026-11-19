@@ -96,3 +96,17 @@ export function fillMessage(
 		(placeholder, name: string) => values[name] ?? placeholder,
 	);
 }
+
+/** Up to two initials of a name, for an avatar or a tile: "Kestrel Running" gives "KR", "Ines" gives "I". */
+export function initialsOf(name: string): string {
+	return (
+		name
+			.split(/\s+/)
+			.filter((word) => word !== "")
+			.slice(0, 2)
+			// Array.from splits by code point, so an accented or astral first letter stays whole.
+			.map((word) => Array.from(word)[0] ?? "")
+			.join("")
+			.toLocaleUpperCase()
+	);
+}

@@ -9,7 +9,7 @@ import {
 	audiencesSearchSchema,
 } from "~/features/audiences";
 
-/** /app/audiences: every segment. `?type=` opens one type tab, `?audience=` opens the panel of one audience. */
+/** /app/audiences: every segment. `?type=` sets the type filter, `?audience=` opens the panel of one audience. */
 export const Route = createFileRoute("/app/audiences")({
 	validateSearch: audiencesSearchSchema,
 	loader: ({ context }) => context.queryClient.query(audiencesQueryOptions()),

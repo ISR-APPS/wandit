@@ -1,4 +1,4 @@
-// The round mark of one asset: its ticker, or the first two letters of a long ticker, on a tint of its category color.
+// The mark of one asset, a circle or a square tile: its ticker, or the first two letters of a long ticker, on a tint of its category color.
 // Tables, lists, and the asset page render it before the asset name.
 // The app ships no logo image, so the glyph is the visual identity of an asset.
 import { cn } from "~/shared/lib/utils";
@@ -14,23 +14,39 @@ const CATEGORY_TINT = {
 	gaming: "border-chart-3/40 bg-chart-3/15",
 } satisfies Record<AssetCategory, string>;
 
+/** Circle and letter size per glyph size. */
+const GLYPH_SIZE = {
+	sm: "size-6 text-[8px]",
+	md: "size-8 text-[10px]",
+	lg: "size-12 text-sm",
+	xl: "size-20 text-xl",
+} satisfies Record<NonNullable<AssetGlyphProps["size"]>, string>;
+
 type AssetGlyphProps = {
 	/** The ticker of the asset: 3 or 4 capital letters. "AUR" shows "AUR", "KUSD" shows "KU". */
 	symbol: string;
 	category: AssetCategory;
-	/** "lg" is for the header of the asset page. */
-	size?: "md" | "lg";
+	/** "sm" fits a select row, "md" a list row, "lg" an activity row or a table thumbnail, "xl" the asset profile card. */
+	size?: "sm" | "md" | "lg" | "xl";
+	/** "square" is the thumbnail tile of a list table. The other places use the circle. */
+	shape?: "circle" | "square";
 };
 
 /** Decoration only: the name beside it gives the asset, so screen readers skip the glyph. */
-export function AssetGlyph({ symbol, category, size = "md" }: AssetGlyphProps) {
+export function AssetGlyph({
+	symbol,
+	category,
+	size = "md",
+	shape = "circle",
+}: AssetGlyphProps) {
 	return (
 		<span
 			aria-hidden="true"
 			className={cn(
-				"flex shrink-0 items-center justify-center rounded-full border font-display font-semibold tracking-tight",
-				// 10 px lets three letters fit in the 32 px circle.
-				size === "lg" ? "size-12 text-sm" : "size-8 text-[10px]",
+				"flex shrink-0 items-center justify-center border font-display font-semibold tracking-tight",
+				shape === "square" ? "rounded-md" : "rounded-full",
+				// The letter size keeps three letters inside the circle: 8 px in 24 px, 10 px in 32 px.
+				GLYPH_SIZE[size],
 				CATEGORY_TINT[category],
 			)}
 		>

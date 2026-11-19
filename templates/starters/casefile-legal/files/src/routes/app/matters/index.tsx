@@ -9,7 +9,7 @@ import {
 	mattersSearchSchema,
 } from "~/features/matters";
 
-/** /app/matters: every matter of the firm. `?stage=` opens one stage tab, `?area=` filters one practice area. */
+/** /app/matters: every matter of the firm as cards. `?status=` opens one status tab, `?area=` filters one practice area. */
 export const Route = createFileRoute("/app/matters/")({
 	validateSearch: mattersSearchSchema,
 	loader: ({ context }) => context.queryClient.query(mattersQueryOptions()),

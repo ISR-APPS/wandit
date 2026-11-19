@@ -2,7 +2,7 @@
 // The cash flow strip of the home and the balance chart of an account read the choices.
 // The totals of the home and the position of the accounts page compute their deltas with changeRatio.
 
-/** The period choices, in days. The ledger keeps 90 days of history, so 90 is the longest one. */
+/** The period choices, in days. A 90-day period compares with the 90 days before, so the history keeps 186 days. */
 export const PERIOD_DAYS = [7, 30, 90] as const;
 
 /** One period choice. */

@@ -1,5 +1,5 @@
 // Reads of purchase orders: every order with its lines, its deliveries, and its late days.
-// The /app/purchase-orders route prefetches the list. The home rail and the supplier panel read it too.
+// The /app/purchase-orders route prefetches the list. The home reads it too.
 // The queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -33,6 +33,8 @@ export type PurchaseOrder = {
 	number: string;
 	supplierId: string;
 	supplierName: string;
+	/** The order email of the supplier. The list shows it under the name. */
+	supplierEmail: string;
 	status: PurchaseOrderStatus;
 	/** Full days past the expected day. 0 when on time or closed. */
 	lateDays: number;
@@ -58,8 +60,8 @@ export function purchaseOrdersQueryOptions() {
 		queryFn: async (): Promise<PurchaseOrder[]> => {
 			const tables = getSampleTables();
 			const itemById = new Map(tables.items.map((item) => [item.id, item]));
-			const supplierName = new Map(
-				tables.suppliers.map((supplier) => [supplier.id, supplier.name]),
+			const supplierById = new Map(
+				tables.suppliers.map((supplier) => [supplier.id, supplier]),
 			);
 			return tables.purchaseOrders.map((order) => {
 				const lines = order.lines.flatMap((line) => {
@@ -83,7 +85,8 @@ export function purchaseOrdersQueryOptions() {
 					id: order.id,
 					number: order.number,
 					supplierId: order.supplierId,
-					supplierName: supplierName.get(order.supplierId) ?? "",
+					supplierName: supplierById.get(order.supplierId)?.name ?? "",
+					supplierEmail: supplierById.get(order.supplierId)?.email ?? "",
 					status: order.status,
 					lateDays: lateDaysOf(order, tables.todayStart),
 					createdAt: order.createdAt,

@@ -10,7 +10,7 @@
 		"mode": "dark",
 		"primary": "look",
 		"font": "look",
-		"displayFont": "look",
+		"displayFont": "epilogue",
 		"scale": "md",
 		"radius": "sm",
 		"border": "2",
@@ -97,8 +97,8 @@
 				"href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
 			},
 			"display": {
-				"family": "IBM Plex Mono",
-				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+				"family": "Epilogue",
+				"href": "https://fonts.googleapis.com/css2?family=Epilogue:wght@400;500;600;700;800&display=swap"
 			},
 			"arabicSans": {
 				"family": "IBM Plex Sans Arabic",

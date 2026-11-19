@@ -1,5 +1,5 @@
 // The stages of a matter, the practice areas, and the dot color of each stage.
-// The board, the matter list and detail pages, and the client sheet read this file.
+// The dashboard, the matter list and detail pages, and the client sheet read this file.
 // A later database keeps the same values in a check constraint of the matters table.
 
 /** Every stage. The four open stages come in the order of the work. "declined" ends a matter at intake. */
@@ -23,7 +23,7 @@ const OPEN_STAGES = [
 	"negotiation",
 ] as const satisfies readonly MatterStage[];
 
-/** The path of a matter from intake to closed. The board has one column per stage; the detail page draws the path. */
+/** The path of a matter from intake to closed. The stage pipeline and the progress bars count the steps on it. */
 export const STAGE_PATH = [
 	...OPEN_STAGES,
 	"closed",
@@ -35,7 +35,7 @@ export function isOpenStage(stage: MatterStage): boolean {
 }
 
 /**
- * Dot color of each stage in the board heads, the stage path, and the stage badge. The word always sits beside it.
+ * Dot color of each stage in the stage pipeline of the dashboard and in the stage badge. The word always sits beside it.
  * Research is pale ink and drafting is deep ink, so the two blue stages differ in lightness.
  * Negotiation needs action soon; declined is a closed record with no result.
  */
@@ -49,7 +49,7 @@ export const MATTER_STAGE_DOT = {
 } satisfies Record<MatterStage, string>;
 
 /**
- * A deadline this many calendar days ahead or less needs attention. The board flags the slip.
+ * A deadline this many calendar days ahead or less needs attention. deadlinePriority gives it "medium" or "high".
  * A week gives the team time to prepare a filing or a hearing.
  */
 export const DEADLINE_SOON_DAYS = 7;
@@ -67,3 +67,12 @@ export const PRACTICE_AREAS = [
 
 /** One practice area. */
 export type PracticeArea = (typeof PRACTICE_AREAS)[number];
+
+/**
+ * The step of a stage on STAGE_PATH: 1 for intake to 5 for closed. The progress bars of the matter cards
+ * and of the active matters table read it. null for "declined": that matter leaves the path at intake.
+ */
+export function stageStep(stage: MatterStage): number | null {
+	// Every stage except "declined" is on STAGE_PATH, so indexOf finds it.
+	return stage === "declined" ? null : STAGE_PATH.indexOf(stage) + 1;
+}

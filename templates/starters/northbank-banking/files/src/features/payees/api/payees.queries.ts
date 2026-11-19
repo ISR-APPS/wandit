@@ -16,7 +16,7 @@ export function payeesQueryOptions() {
 	});
 }
 
-/** One payee with its payments and its monthly totals. null for an unknown id. */
+/** One payee with every payment to it. null for an unknown id. */
 export function payeeDetailQueryOptions(payeeId: string) {
 	return queryOptions({
 		queryKey: ["payees", "detail", payeeId],

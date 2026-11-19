@@ -1,29 +1,26 @@
-// The home behind login: the digest of the school. The /app layout checks the session first.
-// The loader fills the series of the default period and the lists. Thin: the page and its states live in the overview feature.
+// The home behind login: the school dashboard. The /app layout checks the session first.
+// The loader fills the summary, the lessons trend of the default period, and the assignments due in parallel.
+// Thin: the page and its states live in the dashboard feature.
 import { createFileRoute } from "@tanstack/react-router";
-import { submissionsQueryOptions } from "~/features/assignments";
+import { dueAssignmentsQueryOptions } from "~/features/assignments";
 import {
-	courseActivityQueryOptions,
-	DEFAULT_DAYS,
-	dailyEnrollmentsQueryOptions,
-	dailyLessonsQueryOptions,
-	newestEnrollmentsQueryOptions,
-	OverviewPage,
-	OverviewPageError,
-	OverviewPageSkeleton,
-} from "~/features/overview";
+	DashboardPage,
+	DashboardPageError,
+	DashboardPageSkeleton,
+	dashboardSummaryQueryOptions,
+	lessonsTrendQueryOptions,
+	TREND_DEFAULT_DAYS,
+} from "~/features/dashboard";
 
-/** /app: the last days of the school in one column. */
+/** /app: the welcome, course progress, leaderboard, pass rate, grading, activity, lessons trend, and assignments due. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(dailyLessonsQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(courseActivityQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(dailyEnrollmentsQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(newestEnrollmentsQueryOptions()),
-			context.queryClient.query(submissionsQueryOptions()),
+			context.queryClient.query(dashboardSummaryQueryOptions()),
+			context.queryClient.query(lessonsTrendQueryOptions(TREND_DEFAULT_DAYS)),
+			context.queryClient.query(dueAssignmentsQueryOptions()),
 		]),
-	pendingComponent: OverviewPageSkeleton,
-	errorComponent: OverviewPageError,
-	component: OverviewPage,
+	pendingComponent: DashboardPageSkeleton,
+	errorComponent: DashboardPageError,
+	component: DashboardPage,
 });

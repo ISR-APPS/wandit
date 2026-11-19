@@ -4,7 +4,8 @@ export {
 	AppointmentsPageError,
 	AppointmentsPageSkeleton,
 } from "./components/appointments-page";
+export { appointmentCsvColumns } from "./lib/appointment-csv";
 export {
-	APPOINTMENT_VIEWS,
-	type AppointmentView,
+	CALENDAR_VIEWS,
+	type CalendarView,
 } from "./lib/appointment-views";

@@ -1,6 +1,6 @@
 // The delta line of a figure: an arrow, a signed percent, and a text for screen readers.
-// The KPI strip of the board, the closed figure of the board header, and the hours trend render it.
-// It follows the KPI form "strip" of the app-dashboard skill.
+// The KPI cards of the dashboard and of the billing page render it, under the value.
+// It follows the delta line of the kit KPI cards: text-sm, the signed percent in a success or destructive color.
 import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
@@ -21,7 +21,7 @@ export function ChangeLine({ change, goodWhen, className }: ChangeLineProps) {
 	const { t, locale } = useT();
 	if (change === null) {
 		return (
-			<p className={cn("text-muted-foreground text-xs", className)}>
+			<p className={cn("text-muted-foreground text-sm", className)}>
 				{t("kpi.noComparison")}
 			</p>
 		);
@@ -38,7 +38,7 @@ export function ChangeLine({ change, goodWhen, className }: ChangeLineProps) {
 	return (
 		<p
 			className={cn(
-				"flex items-center gap-1 font-medium text-xs",
+				"flex items-center gap-1 font-medium text-sm",
 				isFlat
 					? "text-muted-foreground"
 					: isGood
@@ -47,7 +47,7 @@ export function ChangeLine({ change, goodWhen, className }: ChangeLineProps) {
 				className,
 			)}
 		>
-			{isFlat ? null : <TrendIcon className="size-3.5 rtl:-scale-x-100" />}
+			{isFlat ? null : <TrendIcon className="size-4 rtl:-scale-x-100" />}
 			{/* dir="ltr" keeps "+12%" in this order in an Arabic page. */}
 			<bdi dir="ltr" className="tabular-nums">
 				{percent.format(change)}

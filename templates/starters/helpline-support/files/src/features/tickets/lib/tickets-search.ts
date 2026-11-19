@@ -1,5 +1,5 @@
 // The search params of the ticket list: the status tab lives in the URL, as /app/tickets?status=pending.
-// The /app/tickets route validates the URL with this schema. "See all tickets" on the home opens its active tab.
+// The /app/tickets route validates the URL with this schema. Each tab of the page writes it.
 import { z } from "zod";
 import { TICKET_STATUSES } from "~/features/helpdesk";
 

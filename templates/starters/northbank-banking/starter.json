@@ -25,7 +25,7 @@
 			"sidebarCollapse": "offcanvas",
 			"sidebarStart": "open",
 			"sidebarTone": "contrast",
-			"activeItem": "quiet",
+			"activeItem": "bar",
 			"header": "bar",
 			"userMenu": "header",
 			"frame": "outlined",

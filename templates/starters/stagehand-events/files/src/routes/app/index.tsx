@@ -1,25 +1,24 @@
 // The home of the box office behind login. The /app layout checks the session first.
-// The loader fills the hero, the facts, and the next events in parallel. Thin: the page lives in the overview feature.
+// The loader fills the summary of the default period, the events, and the newest orders in parallel.
+// Thin: the page lives in the overview feature.
 import { createFileRoute } from "@tanstack/react-router";
+import { eventsQueryOptions } from "~/features/events";
 import {
 	DEFAULT_DAYS,
-	dailyRevenueQueryOptions,
-	nextEventsQueryOptions,
+	homeSummaryQueryOptions,
 	OverviewPage,
 	OverviewPageError,
 	OverviewPageSkeleton,
-	overviewKpisQueryOptions,
-	todaySalesQueryOptions,
+	recentOrdersQueryOptions,
 } from "~/features/overview";
 
-/** /app: ticket revenue, today so far, the facts of the last 30 full days, and the next events. */
+/** /app: the KPIs and charts of the last 30 days, the newest orders, the calendar, and the events ahead. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(dailyRevenueQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(overviewKpisQueryOptions()),
-			context.queryClient.query(nextEventsQueryOptions()),
-			context.queryClient.query(todaySalesQueryOptions()),
+			context.queryClient.query(homeSummaryQueryOptions(DEFAULT_DAYS)),
+			context.queryClient.query(eventsQueryOptions()),
+			context.queryClient.query(recentOrdersQueryOptions()),
 		]),
 	pendingComponent: OverviewPageSkeleton,
 	errorComponent: OverviewPageError,

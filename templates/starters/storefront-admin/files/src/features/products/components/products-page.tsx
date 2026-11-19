@@ -1,23 +1,45 @@
-// The product page behind login: the units sold per category, the products to restock, and the catalog table.
-// The /app/products route renders it after its loader. The route also uses the skeleton and the error below.
+// The product page behind login, in the anatomy of the kit product list: the title and the export,
+// four figure cards of the last 30 days, then the table with a search, the Status, Category, and Price filters,
+// a column menu, row checkboxes, and pages. The /app/products route renders it after its loader.
 // A product name puts the product in the URL (?product=), and the dialog shows that product.
-// The page holds the stock tab and the category filter.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
+	ChangeBadge,
+	type CsvColumn,
+	copyToClipboard,
 	dayCountFormat,
+	downloadCsv,
 	fillMessage,
 	moneyFormat,
+	type PeriodFigure,
 	PRODUCT_CATEGORIES,
-	type ProductCategory,
 	ProductTile,
+	STOCK_LEVELS,
+	toCsv,
 } from "~/features/shop";
-import { useT } from "~/shared/i18n";
+import { type TranslationKey, useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import {
+	Card,
+	CardAction,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import {
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+} from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import {
 	Select,
 	SelectContent,
@@ -26,26 +48,38 @@ import {
 	SelectValue,
 } from "~/shared/ui/select";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import {
+	catalogFiguresQueryOptions,
 	type Product,
 	productsQueryOptions,
 	SALES_DAYS,
 } from "../api/products.queries";
-import { STOCK_LEVELS, type StockLevel } from "../lib/stock";
-import { CategoryBreakdownCard } from "./category-breakdown-card";
 import { ProductDialog } from "./product-dialog";
-import { RestockCard } from "./restock-card";
 import { StockLevelBadge } from "./stock-level-badge";
 
 const routeApi = getRouteApi("/app/products");
 
-/** The product page. The two cards read the whole catalog; the tab and the category cut only the table. */
+/**
+ * The bands of the Price filter, in the app currency. `max` is exclusive; null has no top.
+ * The sample catalog costs 8 to 96, so each band holds some products.
+ */
+const PRICE_BANDS = [
+	{ id: "under20", min: 0, max: 20 },
+	{ id: "20to40", min: 20, max: 40 },
+	{ id: "40to60", min: 40, max: 60 },
+	{ id: "over60", min: 60, max: null },
+] as const;
+
+type PriceBandId = (typeof PRICE_BANDS)[number]["id"];
+
+/** The list page. The filters cut the rows; then RecordTable searches, sorts, and pages them. */
 export function ProductsPage() {
 	const { t, locale } = useT();
 	const { data: products } = useSuspenseQuery(productsQueryOptions());
-	const [level, setLevel] = useState<StockLevel | "all">("all");
-	const [category, setCategory] = useState<ProductCategory | "all">("all");
+	const { data: figures } = useSuspenseQuery(catalogFiguresQueryOptions());
+	const [level, setLevel] = useState<string | null>(null);
+	const [category, setCategory] = useState<string | null>(null);
+	const [priceBand, setPriceBand] = useState<PriceBandId | "all">("all");
 	const { product: productId } = routeApi.useSearch();
 	const navigate = routeApi.useNavigate();
 	// The id of the product that the dialog showed last. The dialog keeps this product while it fades out.
@@ -53,8 +87,8 @@ export function ProductsPage() {
 
 	const number = new Intl.NumberFormat(locale);
 	const money = moneyFormat(locale);
-	const dayCount = dayCountFormat(locale);
-	const period = dayCount.format(SALES_DAYS);
+	const wholeMoney = moneyFormat(locale, "whole");
+	const period = dayCountFormat(locale).format(SALES_DAYS);
 
 	const openedProduct = products.find((row) => row.id === productId) ?? null;
 	const dialogProduct =
@@ -64,196 +98,248 @@ export function ProductsPage() {
 		navigate({ search: { product: product.id }, replace: true });
 	}
 
-	// The largest category comes first, so the legend reads as a ranking. The colors follow the category, not the place.
-	const slices = PRODUCT_CATEGORIES.map((label) => ({
-		label,
-		value: products
-			.filter((product) => product.category === label)
-			.reduce((sum, product) => sum + product.soldUnits, 0),
-	})).sort((first, second) => second.value - first.value);
-	// An empty shelf comes first, then the shortest stock cover. A product with no sales has no end date.
-	const toRestock = products
-		.filter((product) => product.stockLevel !== "in_stock")
-		.sort(
-			(first, second) =>
-				(first.stock === 0 ? -1 : (first.coverDays ?? Number.MAX_VALUE)) -
-				(second.stock === 0 ? -1 : (second.coverDays ?? Number.MAX_VALUE)),
-		);
+	const band = PRICE_BANDS.find((option) => option.id === priceBand);
+	const rows = products.filter(
+		(product) =>
+			(level === null || product.stockLevel === level) &&
+			(category === null || product.category === category) &&
+			(band === undefined ||
+				(product.price >= band.min &&
+					(band.max === null || product.price < band.max))),
+	);
 
-	// The category filter comes first, so each tab count is the count of the rows that its tab shows.
-	const byCategory =
-		category === "all"
-			? products
-			: products.filter((product) => product.category === category);
-	// A tab shows only for a level that has rows.
-	const tabs = STOCK_LEVELS.map((value) => ({
-		value,
-		count: byCategory.filter((product) => product.stockLevel === value).length,
-	})).filter((tab) => tab.count > 0);
-	const activeLevel = tabs.some((tab) => tab.value === level) ? level : "all";
-	const rows =
-		activeLevel === "all"
-			? byCategory
-			: byCategory.filter((product) => product.stockLevel === activeLevel);
+	const csvColumns: CsvColumn<Product>[] = [
+		{ header: t("products.product"), value: (row) => row.name },
+		{ header: t("products.sku"), value: (row) => row.sku },
+		{
+			header: t("products.category"),
+			value: (row) => t(`products.categories.${row.category}`),
+		},
+		{ header: t("products.price"), value: (row) => String(row.price) },
+		{ header: t("products.stock"), value: (row) => String(row.stock) },
+		{
+			header: fillMessage(t("products.soldIn"), { days: period }),
+			value: (row) => String(row.soldUnits),
+		},
+		{
+			header: t("products.status"),
+			value: (row) => t(`products.levels.${row.stockLevel}`),
+		},
+	];
 
-	const columns: DataTableColumn<Product>[] = [
+	const columns: RecordColumn<Product>[] = [
 		{
 			id: "product",
 			header: t("products.product"),
 			sortValue: (row) => row.name,
 			cell: (row) => (
-				// On a phone the card edge falls on the end of the Stock column, so no badge is cut in the middle.
-				// 16.125rem is the card padding and border, three cell paddings, and the next two cells (w-26, w-18).
-				<div className="flex @md/main:w-auto w-[calc(100cqw-16.125rem)] items-center gap-3">
-					<ProductTile
-						category={row.category}
-						className="@md/main:flex hidden"
-					/>
-					<div className="grid min-w-0 justify-items-start">
-						<button
-							type="button"
-							className="relative whitespace-normal rounded-sm text-start font-medium outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 max-sm:before:absolute max-sm:before:-inset-3"
-							onClick={() => openProduct(row)}
-						>
-							{row.name}
-						</button>
-						<span className="max-w-full truncate text-muted-foreground text-xs">
-							{`${row.sku} · ${t(`products.categories.${row.category}`)}`}
-						</span>
-					</div>
+				<div className="flex items-center gap-4">
+					<ProductTile category={row.category} className="size-10" />
+					<button
+						type="button"
+						className="max-w-56 truncate text-start font-medium hover:underline"
+						onClick={() => openProduct(row)}
+					>
+						{row.name}
+					</button>
 				</div>
 			),
 		},
 		{
-			id: "level",
-			header: t("products.availability"),
-			sortValue: (row) => STOCK_LEVELS.indexOf(row.stockLevel),
+			id: "price",
+			header: t("products.price"),
+			sortValue: (row) => row.price,
 			cell: (row) => (
-				<div className="@md/main:w-auto w-26">
-					<StockLevelBadge level={row.stockLevel} />
-				</div>
+				<span className="tabular-nums">{money.format(row.price)}</span>
 			),
+		},
+		{
+			id: "category",
+			header: t("products.category"),
+			hideable: true,
+			sortValue: (row) => PRODUCT_CATEGORIES.indexOf(row.category),
+			cell: (row) => t(`products.categories.${row.category}`),
 		},
 		{
 			id: "stock",
 			header: t("products.stock"),
-			align: "end",
+			hideable: true,
 			sortValue: (row) => row.stock,
 			cell: (row) => (
-				<div className="@md/main:w-auto w-18">{number.format(row.stock)}</div>
+				<span className="tabular-nums">{number.format(row.stock)}</span>
+			),
+		},
+		{
+			id: "sku",
+			header: t("products.sku"),
+			hideable: true,
+			cell: (row) => (
+				<span className="text-muted-foreground tabular-nums">{row.sku}</span>
 			),
 		},
 		{
 			id: "sold",
 			header: fillMessage(t("products.soldIn"), { days: period }),
-			align: "end",
+			hideable: true,
 			sortValue: (row) => row.soldUnits,
-			cell: (row) => number.format(row.soldUnits),
+			cell: (row) => (
+				<span className="tabular-nums">{number.format(row.soldUnits)}</span>
+			),
 		},
 		{
-			id: "price",
-			header: t("products.price"),
-			align: "end",
-			sortValue: (row) => row.price,
-			cell: (row) => money.format(row.price),
+			id: "status",
+			header: t("products.status"),
+			hideable: true,
+			sortValue: (row) => STOCK_LEVELS.indexOf(row.stockLevel),
+			cell: (row) => <StockLevelBadge level={row.stockLevel} />,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("products.title")}
-				description={t("products.description")}
+				actions={
+					<Button
+						type="button"
+						disabled={rows.length === 0}
+						onClick={() => downloadCsv("products.csv", toCsv(rows, csvColumns))}
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
 			/>
-			{products.length === 0 ? (
-				<Card>
-					<CardContent className="py-10 text-center text-muted-foreground text-sm">
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				<FigureCard
+					labelKey="products.figures.revenue"
+					value={wholeMoney.format(figures.revenue.value)}
+					figure={figures.revenue}
+					goodWhen="up"
+				/>
+				<FigureCard
+					labelKey="products.figures.unitsSold"
+					value={number.format(figures.unitsSold.value)}
+					figure={figures.unitsSold}
+					goodWhen="up"
+				/>
+				<FigureCard
+					labelKey="products.figures.averagePrice"
+					value={money.format(figures.averagePrice.value)}
+					figure={figures.averagePrice}
+					goodWhen="up"
+				/>
+				<FigureCard
+					labelKey="products.figures.discounts"
+					value={wholeMoney.format(figures.discounts.value)}
+					figure={figures.discounts}
+					goodWhen="down"
+				/>
+			</div>
+			<div className="pt-4">
+				{products.length === 0 ? (
+					<p className="rounded-md border p-10 text-center text-muted-foreground text-sm">
 						{t("products.empty")}
-					</CardContent>
-				</Card>
-			) : (
-				<>
-					<div className="grid @4xl/main:grid-cols-3 grid-cols-1 gap-6">
-						<CategoryBreakdownCard slices={slices} />
-						<div className="@4xl/main:col-span-2 grid">
-							<RestockCard products={toRestock} onOpen={openProduct} />
-						</div>
-					</div>
-					<Card>
-						{/* A narrower padding on a phone gives the table room for its first three columns. */}
-						<CardContent className="@md/main:px-6 px-4">
-							<DataTable
-								rows={rows}
-								columns={columns}
-								searchText={(row) =>
-									`${row.name} ${row.sku} ${t(`products.categories.${row.category}`)}`
+					</p>
+				) : (
+					<RecordTable
+						rows={rows}
+						columns={columns}
+						searchText={(row) => `${row.name} ${row.sku}`}
+						searchPlaceholder={t("products.search")}
+						selectable
+						pageSize={10}
+						noResults={t("products.noResults")}
+						toolbar={
+							<>
+								<RecordFilter
+									label={t("products.status")}
+									options={STOCK_LEVELS.map((value) => ({
+										value,
+										label: t(`products.levels.${value}`),
+									}))}
+									value={level}
+									onValueChange={setLevel}
+								/>
+								<RecordFilter
+									label={t("products.category")}
+									options={PRODUCT_CATEGORIES.map((value) => ({
+										value,
+										label: t(`products.categories.${value}`),
+									}))}
+									value={category}
+									onValueChange={setCategory}
+								/>
+								<Select
+									value={priceBand}
+									onValueChange={(value) =>
+										setPriceBand(
+											PRICE_BANDS.find((option) => option.id === value)?.id ??
+												"all",
+										)
+									}
+								>
+									<SelectTrigger
+										aria-label={t("products.price")}
+										className="h-9 w-auto"
+									>
+										<span className="text-muted-foreground text-sm">
+											{t("products.priceLabel")}
+										</span>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											{t("products.allPrices")}
+										</SelectItem>
+										{PRICE_BANDS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{t(`products.priceBands.${option.id}`)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</>
+						}
+						bulkActions={(selected) => (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-9"
+								onClick={() =>
+									downloadCsv(
+										"products-selected.csv",
+										toCsv(selected, csvColumns),
+									)
 								}
-								noResults={t("products.noResults")}
-								toolbar={
-									<>
-										<Tabs
-											value={activeLevel}
-											onValueChange={(value) =>
-												setLevel(
-													STOCK_LEVELS.find((option) => option === value) ??
-														"all",
-												)
-											}
-											// On a narrow card the tabs take their own line under the search and the filter.
-											className="@4xl/main:order-none order-last max-w-full @4xl/main:basis-auto basis-full"
-										>
-											{/* On a narrow card the tabs wrap to a second line, so no tab label is cut. */}
-											<TabsList className="flex-wrap group-data-[orientation=horizontal]/tabs:h-auto">
-												<TabsTrigger value="all">
-													{t("products.all")}
-													<span className="text-muted-foreground tabular-nums">
-														{number.format(byCategory.length)}
-													</span>
-												</TabsTrigger>
-												{tabs.map((tab) => (
-													<TabsTrigger key={tab.value} value={tab.value}>
-														{t(`products.levels.${tab.value}`)}
-														<span className="text-muted-foreground tabular-nums">
-															{number.format(tab.count)}
-														</span>
-													</TabsTrigger>
-												))}
-											</TabsList>
-										</Tabs>
-										<Select
-											value={category}
-											onValueChange={(value) =>
-												setCategory(
-													PRODUCT_CATEGORIES.find(
-														(option) => option === value,
-													) ?? "all",
-												)
-											}
-										>
-											<SelectTrigger
-												aria-label={t("products.category")}
-												className="w-44 max-sm:w-full sm:ms-auto"
-											>
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent align="end">
-												<SelectItem value="all">
-													{t("products.allCategories")}
-												</SelectItem>
-												{PRODUCT_CATEGORIES.map((option) => (
-													<SelectItem key={option} value={option}>
-														{t(`products.categories.${option}`)}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</>
-								}
-							/>
-						</CardContent>
-					</Card>
-				</>
-			)}
+							>
+								<DownloadSimpleIcon />
+								{t("table.exportSelected")}
+							</Button>
+						)}
+						rowMenu={(row) => (
+							<>
+								<DropdownMenuLabel>{t("table.actions")}</DropdownMenuLabel>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={() => openProduct(row)}>
+									{t("products.open")}
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() =>
+										copyToClipboard(row.sku, {
+											done: t("table.copied"),
+											failed: t("table.copyFailed"),
+										})
+									}
+								>
+									{t("products.copySku")}
+								</DropdownMenuItem>
+							</>
+						)}
+					/>
+				)}
+			</div>
 			<ProductDialog
 				product={dialogProduct}
 				open={openedProduct !== null}
@@ -268,29 +354,61 @@ export function ProductsPage() {
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6"];
+type FigureCardProps = {
+	/** The message key of the label, for example "products.figures.revenue". */
+	labelKey: TranslationKey;
+	/** The figure of the last SALES_DAYS days, already formatted. */
+	value: string;
+	/** The raw figure. The badge reads its change against the SALES_DAYS days before. */
+	figure: PeriodFigure;
+	goodWhen: "up" | "down";
+};
+
+// One figure card in the kit anatomy: the label, the large value, and the change badge at the end.
+function FigureCard({ labelKey, value, figure, goodWhen }: FigureCardProps) {
+	const { t } = useT();
+	return (
+		<Card>
+			<CardHeader>
+				<CardDescription>{t(labelKey)}</CardDescription>
+				<CardTitle className="font-display @4xl/main:text-3xl text-2xl tabular-nums">
+					{value}
+				</CardTitle>
+				<CardAction>
+					<ChangeBadge
+						change={figure.change}
+						goodWhen={goodWhen}
+						look="badge"
+					/>
+				</CardAction>
+			</CardHeader>
+		</Card>
+	);
+}
+
+// Placeholder keys of the figure cards and the table rows. Fixed keys, because they never reorder.
+const SKELETON_FIGURES = ["1", "2", "3", "4"];
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
 /** Placeholder while the product loader runs. The route sets it as pendingComponent. */
 export function ProductsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 gap-6">
-				<Skeleton className="h-96" />
-				<Skeleton className="@4xl/main:col-span-2 h-96" />
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_FIGURES.map((key) => (
+					<Skeleton key={key} className="h-28" />
+				))}
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<div className="grid gap-2 pt-4">
+				<Skeleton className="h-9 w-full sm:max-w-sm" />
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-14 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

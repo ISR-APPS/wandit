@@ -1,31 +1,24 @@
-// Pure functions of the plans page: the members and the monthly value of each plan, and the payments ahead.
+// Pure functions of the plans page: the members and the monthly value of each plan, and the 4 KPIs of the page.
 // plans.queries.ts calls them. They read only their arguments. Amounts are whole units of PLAN_CURRENCY.
 // Only active members pay. A frozen member pays again on the first day back.
 import {
 	addDays,
+	changeRatio,
+	isTrainingOn,
 	type Member,
 	monthlyValueOf,
-	nextPaymentOn,
 	PLANS,
 	type Plan,
 	type PlanId,
 	planOf,
 } from "~/features/gym";
 
-/** The days of the payments panel. Two weeks give the front desk time to call before a card fails. */
-export const PAYMENT_WINDOW_DAYS = 14;
+/** The KPI deltas compare today with this many days ago: one billing month. */
+export const COMPARE_DAYS = 30;
 
-/** The chart color of each plan: the donut slice and the mark on the plan card agree. */
-export const PLAN_CHART_COLOR = {
-	unlimited: { fill: "var(--chart-1)", mark: "bg-chart-1" },
-	annual: { fill: "var(--chart-2)", mark: "bg-chart-2" },
-	eight: { fill: "var(--chart-3)", mark: "bg-chart-3" },
-	"off-peak": { fill: "var(--chart-4)", mark: "bg-chart-4" },
-	student: { fill: "var(--chart-5)", mark: "bg-chart-5" },
-} satisfies Record<PlanId, { fill: string; mark: string }>;
-
-/** One plan with its members. */
-export type PlanSummary = {
+/** One plan with its members. The row id is the plan id. */
+export type PlanRow = {
+	id: PlanId;
 	plan: Plan;
 	/** Members with the status active on this plan. They pay. */
 	activeCount: number;
@@ -35,63 +28,92 @@ export type PlanSummary = {
 	monthlyValue: number;
 };
 
-/** One summary per plan, in the order of PLANS. The active counts add up to the active members of the gym. */
-export function buildPlanSummaries(members: readonly Member[]): PlanSummary[] {
-	return PLANS.map((plan) => {
-		const ofPlan = members.filter((member) => member.planId === plan.id);
-		const activeCount = ofPlan.filter(
-			(member) => member.status === "active",
-		).length;
-		return {
-			plan,
-			activeCount,
-			frozenCount: ofPlan.filter((member) => member.status === "frozen").length,
-			monthlyValue: activeCount * monthlyValueOf(plan),
-		};
-	});
-}
+/** One KPI of the plans page, with its change against COMPARE_DAYS days ago. null: no earlier data. */
+export type PlanKpi = { value: number; change: number | null };
 
-/** One payment ahead. */
-export type UpcomingPayment = {
-	memberId: string;
-	fullName: string;
-	/** Name of the plan. Data, not a UI text. */
-	planName: string;
-	/** "return": the first payment after a freeze. "renewal": the usual monthly or yearly payment. */
-	kind: "renewal" | "return";
-	/** Local midnight of the payment day. */
-	dueAt: number;
-	/** The plan price, in whole units of PLAN_CURRENCY. */
-	amount: number;
+/** Everything that the plans page shows. */
+export type PlansOverview = {
+	/** One row per plan, in the order of PLANS. */
+	rows: PlanRow[];
+	/** Monthly value of every active member. */
+	monthlyRevenue: PlanKpi;
+	/** Members who pay now. */
+	payingMembers: PlanKpi;
+	/** Monthly value per paying member. 0 when nobody pays. */
+	averagePerMember: PlanKpi;
+	/** Members on a freeze. A fall is good news. */
+	frozenMembers: PlanKpi;
 };
 
-/** The payments from today to PAYMENT_WINDOW_DAYS days ahead, the earliest first. Lapsed members pay nothing. */
-export function buildUpcomingPayments(
+// Whether the member is on a freeze on the local day `dayStart`.
+function isFrozenOn(member: Member, dayStart: number): boolean {
+	return (
+		member.joinedAt <= dayStart &&
+		member.frozenFrom !== null &&
+		member.frozenUntil !== null &&
+		dayStart >= member.frozenFrom &&
+		dayStart < member.frozenUntil
+	);
+}
+
+/** The plans page data at the local midnight `todayStart`. */
+export function buildPlansOverview(
 	members: readonly Member[],
 	todayStart: number,
-): UpcomingPayment[] {
-	const windowEnd = addDays(todayStart, PAYMENT_WINDOW_DAYS);
-	return members
-		.flatMap((member): UpcomingPayment[] => {
-			const dueAt = nextPaymentOn(member, todayStart);
-			if (dueAt === null || dueAt >= windowEnd) {
-				return [];
-			}
-			const plan = planOf(member.planId);
-			return [
-				{
-					memberId: member.id,
-					fullName: member.fullName,
-					planName: plan.name,
-					kind: member.status === "frozen" ? "return" : "renewal",
-					dueAt,
-					amount: plan.price,
-				},
-			];
-		})
-		.sort(
-			(first, second) =>
-				first.dueAt - second.dueAt ||
-				first.fullName.localeCompare(second.fullName),
+): PlansOverview {
+	const before = addDays(todayStart, -COMPARE_DAYS);
+	const payingNow = members.filter((member) =>
+		isTrainingOn(member, todayStart),
+	);
+	const payingBefore = members.filter((member) => isTrainingOn(member, before));
+	const revenueOf = (rows: Member[]) =>
+		rows.reduce(
+			(sum, member) => sum + monthlyValueOf(planOf(member.planId)),
+			0,
 		);
+	const revenueNow = revenueOf(payingNow);
+	const revenueBefore = revenueOf(payingBefore);
+	const averageNow = payingNow.length === 0 ? 0 : revenueNow / payingNow.length;
+	const averageBefore =
+		payingBefore.length === 0 ? 0 : revenueBefore / payingBefore.length;
+	const frozenNow = members.filter((member) =>
+		isFrozenOn(member, todayStart),
+	).length;
+	const frozenBefore = members.filter((member) =>
+		isFrozenOn(member, before),
+	).length;
+
+	return {
+		rows: PLANS.map((plan) => {
+			const activeCount = payingNow.filter(
+				(member) => member.planId === plan.id,
+			).length;
+			return {
+				id: plan.id,
+				plan,
+				activeCount,
+				frozenCount: members.filter(
+					(member) =>
+						member.planId === plan.id && isFrozenOn(member, todayStart),
+				).length,
+				monthlyValue: activeCount * monthlyValueOf(plan),
+			};
+		}),
+		monthlyRevenue: {
+			value: revenueNow,
+			change: changeRatio(revenueNow, revenueBefore),
+		},
+		payingMembers: {
+			value: payingNow.length,
+			change: changeRatio(payingNow.length, payingBefore.length),
+		},
+		averagePerMember: {
+			value: averageNow,
+			change: changeRatio(averageNow, averageBefore),
+		},
+		frozenMembers: {
+			value: frozenNow,
+			change: changeRatio(frozenNow, frozenBefore),
+		},
+	};
 }

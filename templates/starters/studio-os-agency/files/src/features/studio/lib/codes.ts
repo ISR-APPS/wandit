@@ -40,7 +40,7 @@ export const PHASES = [
 /** One phase. Its label is `codes.phases.<phase>`. */
 export type Phase = (typeof PHASES)[number];
 
-/** The phases that a fixed or hourly project walks through. The timeline card draws these four plus delivery. */
+/** The phases that a fixed or hourly project walks through before delivery. */
 export const TIMELINE_PHASES = [
 	"discovery",
 	"design",

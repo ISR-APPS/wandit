@@ -1,5 +1,5 @@
 // A round avatar with the initials of a person: a sales rep or a contact.
-// The board slips, the tables, the timeline, and the detail pages render it.
+// The board cards, the tables, the timeline, and the detail pages render it.
 // The sample rows have no photo, so it always shows the initials.
 import { cn } from "~/shared/lib/utils";
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";

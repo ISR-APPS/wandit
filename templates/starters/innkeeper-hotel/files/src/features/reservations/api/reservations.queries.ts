@@ -1,4 +1,4 @@
-// Reads of reservations: the list, one reservation with its folio, and the rooms of the calendar.
+// Reads of reservations: the list, one reservation with its folio, and the rooms of the schedule.
 // The list and detail routes prefetch them in their loaders. The pages read them with useSuspenseQuery.
 // Each queryFn returns sample rows of ~/features/hotel. To make it real: replace the body with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
@@ -35,6 +35,8 @@ export type ReservationDetail = {
 	/** Count of the stays of this guest that started, with the earlier stays. 0 for a first booking to come. */
 	guestStayCount: number;
 	room: Room;
+	/** The other reservations of the same guest in the book, newest arrival first. */
+	otherStays: ReservationRow[];
 	charges: FolioCharge[];
 	payments: Payment[];
 	timeline: TimelineStep[];
@@ -122,6 +124,13 @@ export function reservationQueryOptions(id: string) {
 							candidate.arrivedAt !== null,
 					).length,
 				room,
+				otherStays: reservations
+					.filter(
+						(candidate) =>
+							candidate.guestId === guest.id && candidate.id !== id,
+					)
+					.sort((first, second) => second.checkIn.localeCompare(first.checkIn))
+					.map((candidate) => toRow(candidate, guests, rooms)),
 				charges: listFolioCharges(id, now),
 				payments,
 				timeline: buildStayTimeline(reservation, payments, now),
@@ -130,7 +139,7 @@ export function reservationQueryOptions(id: string) {
 	});
 }
 
-/** The 18 rooms, by door number. The calendar view draws one row per room. */
+/** The 18 rooms, by door number. The schedule view draws one column per room. */
 export function roomsQueryOptions() {
 	return queryOptions({
 		queryKey: ["rooms", "list"],

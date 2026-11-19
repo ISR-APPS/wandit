@@ -30,7 +30,7 @@
 			"userMenu": "sidebar-footer",
 			"frame": "outlined",
 			"icons": "bold",
-			"navIcon": "plain"
+			"navIcon": "solid"
 		}
 	}
 }

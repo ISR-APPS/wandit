@@ -76,8 +76,19 @@ export const RESERVED_SLUGS = [
 	"www",
 ] as const;
 
+/**
+ * Ending of the host of each starter template preview: `<id>-template.wandit.app`.
+ * A route of the preview Worker takes that host before the edge Worker, so a site on it never shows.
+ * templates/starters/scripts/deploy-previews.mjs keeps a copy of this value.
+ */
+export const STARTER_TEMPLATE_PREVIEW_SLUG_SUFFIX = "-template";
+
+/** True for a label of the list above, and for every label of a template preview host. */
 export function isReservedSlug(slug: string): boolean {
-	return (RESERVED_SLUGS as readonly string[]).includes(slug);
+	return (
+		(RESERVED_SLUGS as readonly string[]).includes(slug) ||
+		slug.endsWith(STARTER_TEMPLATE_PREVIEW_SLUG_SUFFIX)
+	);
 }
 
 export const deploymentSchema = z.object({

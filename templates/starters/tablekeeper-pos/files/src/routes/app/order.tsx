@@ -14,7 +14,7 @@ const orderSearchSchema = z.object({
 	table: z.string().max(10).optional().catch(undefined),
 });
 
-/** /app/order. `?table=t4` chooses table T4; the floor panel and the check page link here with it. */
+/** /app/order. `?table=t4` chooses table T4; the header alerts and the check page link here with it. */
 export const Route = createFileRoute("/app/order")({
 	validateSearch: orderSearchSchema,
 	loader: ({ context }) =>

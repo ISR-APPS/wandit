@@ -1,20 +1,17 @@
-// The math of the cards pages: the summary of each card, the spend breakdown, the detail of one card,
-// and the running spend of one card. cards.queries.ts calls these pure functions with the sample rows.
+// The math of the cards pages: the summary of each card, the totals of the KPI row, and the detail of one card.
+// cards.queries.ts calls these pure functions with the sample rows.
 import {
 	addDays,
+	addMonths,
 	type BankCard,
-	CARD_SPEND_CATEGORIES,
 	CARDS,
-	type CardSpendCategory,
 	type CardStatus,
 	cardStatusOf,
 	cardStatusSince,
 	countsInBalance,
-	type DailyPoint,
 	dayPartsOf,
 	daysBetween,
 	findCard,
-	lastDays,
 	monthStartOf,
 	type Transaction,
 } from "~/features/bank";
@@ -41,12 +38,6 @@ export type MerchantTotal = {
 	count: number;
 };
 
-/** One part of the spend breakdown, in positive cents. `label` is a spend group code or "other". */
-export type SpendSlice = {
-	label: CardSpendCategory | "other";
-	value: number;
-};
-
 /** Everything the card detail page shows, except the daily series that has its own period. */
 export type CardDetail = {
 	summary: CardSummary;
@@ -59,13 +50,10 @@ export type CardDetail = {
 // A card keeps its number for four years after the issue month.
 const CARD_LIFE_YEARS = 4;
 
-// The breakdown shows this many groups and folds the rest into "other".
-const BREAKDOWN_PARTS = 5;
-
 // The detail page lists this many merchants.
 const TOP_MERCHANTS = 5;
 
-// The breakdown and the merchant list cover the last 30 days.
+// The merchant list covers the last 30 days.
 const SPEND_WINDOW_DAYS = 30;
 
 // The payments of one card that count, newest first. A returned payment never left the account.
@@ -100,35 +88,6 @@ export function buildCardSummaries(
 	today: string,
 ): CardSummary[] {
 	return CARDS.map((card) => summaryOf(card, rows, today));
-}
-
-/** Card spend by group in the last 30 days: the 5 largest groups, then "other". Labels are group codes. */
-export function buildSpendBreakdown(
-	rows: Transaction[],
-	today: string,
-): SpendSlice[] {
-	const totals = new Map<CardSpendCategory, number>();
-	for (const row of rows) {
-		const category = CARD_SPEND_CATEGORIES.find(
-			(item) => item === row.category,
-		);
-		if (
-			category &&
-			countsInBalance(row) &&
-			daysBetween(row.day, today) < SPEND_WINDOW_DAYS
-		) {
-			totals.set(category, (totals.get(category) ?? 0) - row.amountCents);
-		}
-	}
-	const sorted = [...totals.entries()]
-		.map(([label, value]): SpendSlice => ({ label, value }))
-		.sort((first, second) => second.value - first.value);
-	const rest = sorted
-		.slice(BREAKDOWN_PARTS)
-		.reduce((sum, slice) => sum + slice.value, 0);
-	return rest > 0
-		? [...sorted.slice(0, BREAKDOWN_PARTS), { label: "other", value: rest }]
-		: sorted;
 }
 
 /** The detail of the card `cardId`, or null for an unknown id. */
@@ -167,26 +126,65 @@ export function buildCardDetail(
 	};
 }
 
-/**
- * The running spend of one card over the last `days` days, against the same days one period earlier.
- * Each point is the sum from the first day of its period, in positive cents. One card pays on few days,
- * so a daily line is mostly 0; the running sum rises in steps that the reader can compare.
- */
-export function buildCardRunningSpend(
+/** The figures of the KPI row of the cards page. Spend values are positive cents. */
+export type CardTotals = {
+	/** Card spend since the 1st of this month, all cards. */
+	monthSpendCents: number;
+	/** Card spend of the same days of the month before: the 1st to the same day of the month. */
+	previousSpendCents: number;
+	/** Card payments since the 1st of this month. */
+	paymentCount: number;
+	/** Card payments of the same days of the month before. */
+	previousPaymentCount: number;
+	/** The sum of the monthly limits of the active cards. */
+	activeLimitCents: number;
+	/** Spend of the active cards since the 1st. The "left on limits" figure subtracts it from the limits. */
+	activeSpendCents: number;
+	activeCount: number;
+};
+
+/** The totals of the KPI row. The month before stops on the same day of the month, so both spans match. */
+export function buildCardTotals(
 	rows: Transaction[],
 	today: string,
-	cardId: string,
-	days: number,
-): DailyPoint[] {
-	const spendByDay = new Map<string, number>();
-	for (const row of paymentsOf(rows, cardId)) {
-		spendByDay.set(row.day, (spendByDay.get(row.day) ?? 0) - row.amountCents);
+): CardTotals {
+	const monthStart = monthStartOf(today);
+	const previousStart = addMonths(today, -1);
+	// The same day of the month before. Day 31 meets the last day of a shorter month.
+	const sameDay = addDays(previousStart, dayPartsOf(today).dayOfMonth - 1);
+	const previousEnd = sameDay >= monthStart ? addDays(monthStart, -1) : sameDay;
+	const summaries = buildCardSummaries(rows, today);
+	const active = summaries.filter((summary) => summary.status === "active");
+	let previousSpendCents = 0;
+	let previousPaymentCount = 0;
+	let paymentCount = 0;
+	for (const row of rows) {
+		if (row.method !== "card" || !countsInBalance(row)) {
+			continue;
+		}
+		if (row.day >= monthStart) {
+			paymentCount += 1;
+		} else if (row.day >= previousStart && row.day <= previousEnd) {
+			previousPaymentCount += 1;
+			previousSpendCents -= row.amountCents;
+		}
 	}
-	let currentSum = 0;
-	let previousSum = 0;
-	return lastDays(today, days).map((day) => {
-		currentSum += spendByDay.get(day) ?? 0;
-		previousSum += spendByDay.get(addDays(day, -days)) ?? 0;
-		return { day, current: currentSum, previous: previousSum };
-	});
+	return {
+		monthSpendCents: summaries.reduce(
+			(sum, summary) => sum + summary.monthSpendCents,
+			0,
+		),
+		previousSpendCents,
+		paymentCount,
+		previousPaymentCount,
+		activeLimitCents: active.reduce(
+			(sum, summary) => sum + summary.card.monthlyLimitCents,
+			0,
+		),
+		activeSpendCents: active.reduce(
+			(sum, summary) => sum + summary.monthSpendCents,
+			0,
+		),
+		activeCount: active.length,
+	};
 }

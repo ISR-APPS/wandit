@@ -1,5 +1,5 @@
 // The dialog of one product: its price and stock facts, the units sold per day, and the newest orders with it.
-// ProductsPage opens it from the product table and from the restock card.
+// ProductsPage opens it from the name and the row menu of the product table.
 // The sales record loads after the click, so the dialog has its own loading and error states.
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";

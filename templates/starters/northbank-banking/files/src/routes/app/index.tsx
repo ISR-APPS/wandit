@@ -1,23 +1,25 @@
 // The home behind login. The /app layout checks the session first.
-// The loader fills the totals, the strip of the first period, and the entry list. Thin: the page lives in overview.
+// The loader fills the figures of the default period, the entries, the cards, and the cash flow. Thin: the page lives in overview.
 import { createFileRoute } from "@tanstack/react-router";
+import { cardsQueryOptions } from "~/features/cards";
 import {
+	cashFlowQueryOptions,
 	DEFAULT_DAYS,
-	dailyBalanceQueryOptions,
 	OverviewPage,
 	OverviewPageError,
 	OverviewPageSkeleton,
-	overviewKpisQueryOptions,
+	overviewSummaryQueryOptions,
 } from "~/features/overview";
 import { transactionsQueryOptions } from "~/features/transactions";
 
-/** /app: the totals, the balance strip, and every entry of the three accounts. */
+/** /app: the KPI tiles, the card limits, the cash flow, the spending, and the newest entries. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(overviewKpisQueryOptions()),
-			context.queryClient.query(dailyBalanceQueryOptions(DEFAULT_DAYS)),
+			context.queryClient.query(overviewSummaryQueryOptions(DEFAULT_DAYS)),
 			context.queryClient.query(transactionsQueryOptions()),
+			context.queryClient.query(cardsQueryOptions()),
+			context.queryClient.query(cashFlowQueryOptions()),
 		]),
 	pendingComponent: OverviewPageSkeleton,
 	errorComponent: OverviewPageError,

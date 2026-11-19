@@ -1,6 +1,6 @@
 // The sample reservations of the hotel, with their folio charges and payments.
 // It stands in for the tables `reservations`, `folio_charges`, and `payments`.
-// A seeded walk fills each room from 14 days ago to 21 days ahead, as day offsets from today.
+// A seeded walk fills each room from 62 days ago to 21 days ahead, as day offsets from today.
 // The `*.queries.ts` files of the pages read the list functions. sample-housekeeping.ts reads STAY_PLANS.
 import { addDays, MINUTE_MS, startOfLocalDay, toIsoDay } from "./hotel-day";
 import { GUEST_SEEDS } from "./sample-guests";
@@ -57,8 +57,8 @@ const BREAKFAST_PRICE = 18;
 /** City tax for one adult and one night, in whole units of HOTEL_CURRENCY. */
 const CITY_TAX = 3;
 
-/** The sample book starts this many days before today. The older days of a chart come from a seeded series. */
-export const BOOK_PAST_DAYS = 14;
+/** The sample book starts this many days before today: enough for this month and the same days of last month. */
+export const BOOK_PAST_DAYS = 62;
 /** The sample book ends this many days after today. */
 export const BOOK_FUTURE_DAYS = 21;
 
@@ -220,8 +220,8 @@ export type Payment = {
 /** What the book already holds for one guest: the nights and the rooms of the reservations. */
 type GuestUse = { nights: Set<number>; roomIds: Set<string> };
 
-// A guest has at most 2 reservations in the 5 weeks of the book. More would read as a copy error.
-const MAX_BOOKINGS_PER_GUEST = 2;
+// A guest has at most 4 reservations in the 12 weeks of the book. More would read as a copy error.
+const MAX_BOOKINGS_PER_GUEST = 4;
 
 /**
  * Picks a guest for a reservation. `guestUses` holds the use of each guest id.
@@ -259,7 +259,7 @@ function pickGuestId(
 			return guestId;
 		}
 	}
-	// 150 guests with 2 reservations each are more than the book holds, so the loop always returns.
+	// 150 guests with 4 reservations each are more than the book holds, so the loop always returns.
 	return GUEST_SEEDS[first]?.id ?? "";
 }
 
@@ -425,7 +425,7 @@ function finishPlans(plans: StayPlan[]): StayPlan[] {
 		});
 }
 
-/** Every reservation of the sample book as day offsets, oldest booking first. About 200 rows. */
+/** Every reservation of the sample book as day offsets, oldest booking first. About 400 rows. */
 export const STAY_PLANS: StayPlan[] = (() => {
 	const guestUses = new Map<string, GuestUse>();
 	return finishPlans(

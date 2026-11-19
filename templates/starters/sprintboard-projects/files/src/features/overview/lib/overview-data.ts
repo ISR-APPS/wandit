@@ -1,209 +1,299 @@
-// The figures, the daily series, and the breakdown of the overview, built from task rows for one period.
-// overview.queries.ts calls buildOverview in its queryFn. A SQL read function does the same math later.
-// Every figure uses periodOf, so a figure and the breakdown total of one period agree.
+// The pure functions behind the home: the KPI figures, the team highlights, the monthly totals,
+// the on-time split, the work series, and the next due tasks. The overview queries call them with the sample rows.
+// Every "last N days" figure uses periodOf of the tracker, so the home agrees with the other pages.
 import {
-	type BreakdownSlice,
-	buildDailySeries,
-	changeRatio,
 	cycleTimeDays,
-	type DailyPoint,
+	DAY_MS,
+	isDueBetween,
+	isOverdue,
+	type Member,
+	type PeriodDays,
 	type ProjectRow,
 	periodOf,
-	periodTotals,
+	startOfLocalDay,
+	type Task,
 	type TaskRow,
 } from "~/features/tracker";
 
-/** The ids of the overview figures. The page reads the label `kpi.<id>` from messages.ts. */
-export type KpiId =
-	| "completed"
-	| "bugsReported"
-	| "pointsShipped"
-	| "cycleTime"
-	| "bugsFixed"
-	| "onTime";
+/** One KPI value and its change against the period before, as a ratio. null change: no earlier data. */
+export type Figure = { value: number; change: number | null };
 
-/** One figure of the overview. */
-export type KpiItem = {
-	id: KpiId;
-	/** The value of the current period. */
-	value: number;
-	/** The change against the previous period, as a ratio. null when the previous value is 0. */
-	change: number | null;
-	/** "down" when a fall is good news. */
-	goodWhen: "up" | "down";
-	/** The Intl options of the value, for example a unit of days. */
-	format: Intl.NumberFormatOptions;
+/** One figure that can be missing, for example a median of no task. */
+export type OptionalFigure = { value: number | null; change: number | null };
+
+/** One person of the "Top contributors" row: the most story points done in the period. */
+export type Contributor = { id: string; name: string; points: number };
+
+/** The tasks done in one calendar month. */
+export type MonthTotal = {
+	/** The first day of the month, local midnight, in milliseconds since 1970. */
+	monthStart: number;
+	count: number;
 };
 
-/** All the numbers of the overview for one period. */
-export type OverviewData = {
-	/** Tasks done per working day. */
-	completedDaily: DailyPoint[];
-	/** Bugs written per working day. */
-	bugsDaily: DailyPoint[];
-	/** Tasks done in the period per project: the 5 largest and "other". */
-	completedByProject: BreakdownSlice[];
-	/** completed, bugsReported, pointsShipped, cycleTime, bugsFixed, onTime, in this order. */
-	kpis: KpiItem[];
+/** The delivery classes of a done task with a due day, in the order of the donut. */
+export const DELIVERY_CLASSES = [
+	"early",
+	"onTime",
+	"late",
+	"veryLate",
+] as const;
+
+/** One delivery class. */
+export type DeliveryClass = (typeof DELIVERY_CLASSES)[number];
+
+/** Everything the home shows for one period. */
+export type OverviewSummary = {
+	/** Projects that run now (started, not paused or completed). The change compares with the start of the period. */
+	activeProjects: Figure;
+	/** Planned open tasks due in the next 7 days (isDueBetween). The change compares with the same count for the last 7 days. */
+	dueThisWeek: Figure;
+	/** Hours logged on the tasks done in the period. */
+	hoursLogged: Figure;
+	/** Overdue tasks now. The change compares with the overdue tasks at the start of the period. */
+	overdue: Figure;
+	headcount: number;
+	/** At most 6 people, the most points first. */
+	contributors: Contributor[];
+	/** Median start-to-done time of the tasks done in the period, in days. */
+	cycleTime: OptionalFigure;
+	/** Story points done in the period per team member. */
+	pointsPerPerson: Figure;
+	/** Bugs moved to done in the period. */
+	bugsFixed: Figure;
+	/** The last 3 full calendar months, the newest first. */
+	months: MonthTotal[];
+	/** Done tasks of the period with a due day, per delivery class. */
+	delivery: Record<DeliveryClass, number>;
 };
 
-/** The task fields that the overview reads. */
-type OverviewTask = Pick<
-	TaskRow,
-	| "projectId"
-	| "kind"
-	| "estimate"
-	| "createdAt"
-	| "startedAt"
-	| "completedAt"
-	| "dueAt"
->;
+/** One working day of the work chart. */
+export type WorkPoint = {
+	/** YYYY-MM-DD in the browser time zone. */
+	day: string;
+	/** Features done that day. */
+	features: number;
+	/** Bugs and chores done that day. */
+	fixes: number;
+};
 
-// The breakdown shows the 5 largest projects. The rest joins "other".
-const BREAKDOWN_PARTS = 5;
-
-// The middle value of a list. The middle of an even list is the mean of its two middle values.
-function median(values: number[]): number {
-	const sorted = [...values].sort((first, second) => first - second);
-	const middle = Math.floor(sorted.length / 2);
-	if (sorted.length === 0) {
-		return 0;
-	}
-	return sorted.length % 2 === 0
-		? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
-		: (sorted[middle] ?? 0);
+// Change as a ratio. A previous value of 0 gives no ratio: the card shows "No earlier data", never "0%".
+function ratio(current: number, previous: number): number | null {
+	return previous === 0 ? null : (current - previous) / previous;
 }
 
-/** Builds the overview of the last `days` full days, up to yesterday, against the `days` days before. */
-export function buildOverview(
-	tasks: OverviewTask[],
-	projects: ProjectRow[],
-	days: number,
-	now: number,
-): OverviewData {
-	const done = tasks.flatMap((task) =>
-		task.completedAt === null
-			? []
-			: [
-					{
-						task,
-						completedAt: task.completedAt,
-						period: periodOf(task.completedAt, days, now),
-					},
-				],
-	);
-	const doneNow = done.filter((entry) => entry.period === "current");
-	const doneBefore = done.filter((entry) => entry.period === "previous");
-
-	const completedTimes = done.map((entry) => entry.completedAt);
-	const bugTimes = tasks
-		.filter((task) => task.kind === "bug")
-		.map((task) => task.createdAt);
-	const completedDaily = buildDailySeries(completedTimes, days, now);
-	const bugsDaily = buildDailySeries(bugTimes, days, now);
-
-	const countByProject = new Map<string, number>();
-	for (const { task } of doneNow) {
-		countByProject.set(
-			task.projectId,
-			(countByProject.get(task.projectId) ?? 0) + 1,
-		);
+function median(values: number[]): number | null {
+	if (values.length === 0) {
+		return null;
 	}
-	const ranked = projects
-		.map((project) => ({
-			id: project.id,
-			label: project.name,
-			value: countByProject.get(project.id) ?? 0,
-		}))
-		.filter((slice) => slice.value > 0)
-		.sort((first, second) => second.value - first.value);
-	const otherValue = ranked
-		.slice(BREAKDOWN_PARTS)
-		.reduce((sum, slice) => sum + slice.value, 0);
-	const completedByProject = [
-		...ranked.slice(0, BREAKDOWN_PARTS),
-		...(otherValue > 0
-			? [{ id: "other", label: "other", value: otherValue }]
-			: []),
-	];
+	const sorted = [...values].sort((first, second) => first - second);
+	const middle = Math.floor(sorted.length / 2);
+	const upper = sorted[middle] ?? 0;
+	return sorted.length % 2 === 1
+		? upper
+		: ((sorted[middle - 1] ?? upper) + upper) / 2;
+}
 
-	const points = (entries: typeof done) =>
-		entries.reduce((sum, entry) => sum + entry.task.estimate, 0);
-	const bugsFixed = (entries: typeof done) =>
-		entries.filter((entry) => entry.task.kind === "bug").length;
-	const cycleTimes = (entries: typeof done) =>
-		entries.flatMap((entry) => {
-			const value = cycleTimeDays(entry.task);
-			return value === null ? [] : [value];
-		});
-	// The share of the done tasks with a due day that were done by it. 0 when no done task had a due day.
-	const onTimeShare = (entries: typeof done) => {
-		const dated = entries.flatMap((entry) =>
-			entry.task.dueAt === null
-				? []
-				: [Date.parse(entry.completedAt) <= Date.parse(entry.task.dueAt)],
+// A project runs at `at` when it started before and did not end (pause or completion) before.
+function isRunningAt(project: ProjectRow, at: number): boolean {
+	return (
+		Date.parse(project.startAt) <= at &&
+		(project.endedAt === null || Date.parse(project.endedAt) > at)
+	);
+}
+
+// The overdue rule of the tracker, replayed at a past time: due before `at`, written before it, and not done by then.
+// Backlog work is never late, as in isOverdue.
+function wasOverdueAt(task: TaskRow, at: number): boolean {
+	return (
+		task.status !== "backlog" &&
+		task.dueAt !== null &&
+		Date.parse(task.dueAt) < at &&
+		Date.parse(task.createdAt) <= at &&
+		(task.completedAt === null || Date.parse(task.completedAt) > at)
+	);
+}
+
+// The calendar days from the due day to the done day. Math.round absorbs a clock change.
+function daysLate(task: TaskRow): number | null {
+	if (task.dueAt === null || task.completedAt === null) {
+		return null;
+	}
+	return Math.round(
+		(startOfLocalDay(Date.parse(task.completedAt)) -
+			startOfLocalDay(Date.parse(task.dueAt))) /
+			DAY_MS,
+	);
+}
+
+/** Before the due day is early, the due day is on time, 1 or 2 days after is late, 3 days or more is very late. */
+export function deliveryClassOf(lateDays: number): DeliveryClass {
+	if (lateDays < 0) {
+		return "early";
+	}
+	if (lateDays === 0) {
+		return "onTime";
+	}
+	return lateDays <= 2 ? "late" : "veryLate";
+}
+
+/** The figures of the last `days` full days, against the `days` days before. */
+export function buildSummary(
+	tasks: TaskRow[],
+	projects: ProjectRow[],
+	members: Member[],
+	days: PeriodDays,
+	now: number,
+): OverviewSummary {
+	const periodStart = startOfLocalDay(now) - days * DAY_MS;
+	const doneIn = (window: "current" | "previous") =>
+		tasks.filter(
+			(task) =>
+				task.completedAt !== null &&
+				periodOf(task.completedAt, days, now) === window,
 		);
-		return dated.length === 0
-			? 0
-			: dated.filter((isOnTime) => isOnTime).length / dated.length;
+	const doneNow = doneIn("current");
+	const doneBefore = doneIn("previous");
+	const sum = (rows: TaskRow[], value: (row: TaskRow) => number) =>
+		rows.reduce((total, row) => total + value(row), 0);
+
+	const weekEnd = now + 7 * DAY_MS;
+	const weekStart = now - 7 * DAY_MS;
+	// Both sides use one rule, so the change compares the same kind of task.
+	const dueNext = tasks.filter((task) =>
+		isDueBetween(task, now, weekEnd),
+	).length;
+	const dueLast = tasks.filter((task) =>
+		isDueBetween(task, weekStart, now),
+	).length;
+
+	const activeNow = projects.filter((project) =>
+		isRunningAt(project, now),
+	).length;
+	const activeBefore = projects.filter((project) =>
+		isRunningAt(project, periodStart),
+	).length;
+	const overdueNow = tasks.filter((task) => isOverdue(task, now)).length;
+	const overdueBefore = tasks.filter((task) =>
+		wasOverdueAt(task, periodStart),
+	).length;
+
+	// Minutes to hours: the KPI shows whole hours.
+	const hoursNow = sum(doneNow, (task) => task.loggedMinutes) / 60;
+	const hoursBefore = sum(doneBefore, (task) => task.loggedMinutes) / 60;
+
+	const cycleNow = median(doneNow.flatMap((task) => cycleTimeDays(task) ?? []));
+	const cycleBefore = median(
+		doneBefore.flatMap((task) => cycleTimeDays(task) ?? []),
+	);
+	const headcount = members.length;
+	const perPerson = (rows: TaskRow[]) =>
+		headcount === 0 ? 0 : sum(rows, (task) => task.estimate) / headcount;
+	const bugs = (rows: TaskRow[]) =>
+		rows.filter((task) => task.kind === "bug").length;
+
+	const pointsByMember = new Map<string, number>();
+	for (const task of doneNow) {
+		if (task.assigneeId !== null) {
+			pointsByMember.set(
+				task.assigneeId,
+				(pointsByMember.get(task.assigneeId) ?? 0) + task.estimate,
+			);
+		}
+	}
+	const contributors = members
+		.map((member) => ({
+			id: member.id,
+			name: member.name,
+			points: pointsByMember.get(member.id) ?? 0,
+		}))
+		.filter((contributor) => contributor.points > 0)
+		.sort((first, second) => second.points - first.points)
+		.slice(0, 6);
+
+	const delivery: Record<DeliveryClass, number> = {
+		early: 0,
+		onTime: 0,
+		late: 0,
+		veryLate: 0,
 	};
-	const completedTotals = periodTotals(completedTimes, days, now);
-	const bugTotals = periodTotals(bugTimes, days, now);
-	const cycleNow = median(cycleTimes(doneNow));
-	const cycleBefore = median(cycleTimes(doneBefore));
+	for (const task of doneNow) {
+		const late = daysLate(task);
+		if (late !== null) {
+			delivery[deliveryClassOf(late)] += 1;
+		}
+	}
 
 	return {
-		completedDaily,
-		bugsDaily,
-		completedByProject,
-		kpis: [
-			{
-				id: "completed",
-				value: completedTotals.current,
-				change: completedTotals.change,
-				goodWhen: "up",
-				format: {},
-			},
-			{
-				id: "bugsReported",
-				value: bugTotals.current,
-				change: bugTotals.change,
-				goodWhen: "down",
-				format: {},
-			},
-			{
-				id: "pointsShipped",
-				value: points(doneNow),
-				change: changeRatio(points(doneNow), points(doneBefore)),
-				goodWhen: "up",
-				format: {},
-			},
-			{
-				id: "cycleTime",
-				value: cycleNow,
-				change: changeRatio(cycleNow, cycleBefore),
-				goodWhen: "down",
-				format: {
-					style: "unit",
-					unit: "day",
-					unitDisplay: "long",
-					maximumFractionDigits: 1,
-				},
-			},
-			{
-				id: "bugsFixed",
-				value: bugsFixed(doneNow),
-				change: changeRatio(bugsFixed(doneNow), bugsFixed(doneBefore)),
-				goodWhen: "up",
-				format: {},
-			},
-			{
-				id: "onTime",
-				value: onTimeShare(doneNow),
-				change: changeRatio(onTimeShare(doneNow), onTimeShare(doneBefore)),
-				goodWhen: "up",
-				format: { style: "percent", maximumFractionDigits: 0 },
-			},
-		],
+		activeProjects: {
+			value: activeNow,
+			change: ratio(activeNow, activeBefore),
+		},
+		dueThisWeek: { value: dueNext, change: ratio(dueNext, dueLast) },
+		hoursLogged: { value: hoursNow, change: ratio(hoursNow, hoursBefore) },
+		overdue: { value: overdueNow, change: ratio(overdueNow, overdueBefore) },
+		headcount,
+		contributors,
+		cycleTime: {
+			value: cycleNow,
+			change:
+				cycleNow === null || cycleBefore === null
+					? null
+					: ratio(cycleNow, cycleBefore),
+		},
+		pointsPerPerson: {
+			value: perPerson(doneNow),
+			change: ratio(perPerson(doneNow), perPerson(doneBefore)),
+		},
+		bugsFixed: {
+			value: bugs(doneNow),
+			change: ratio(bugs(doneNow), bugs(doneBefore)),
+		},
+		months: lastFullMonths(tasks, now, 3),
+		delivery,
 	};
+}
+
+/** The done tasks of the last `count` full calendar months, the newest month first. The current month is not over, so it is left out. */
+export function lastFullMonths(
+	tasks: TaskRow[],
+	now: number,
+	count: number,
+): MonthTotal[] {
+	const today = new Date(now);
+	return Array.from({ length: count }, (_, index) => {
+		const start = new Date(
+			today.getFullYear(),
+			today.getMonth() - index - 1,
+			1,
+		).getTime();
+		const end = new Date(
+			today.getFullYear(),
+			today.getMonth() - index,
+			1,
+		).getTime();
+		return {
+			monthStart: start,
+			count: tasks.filter((task) => {
+				const doneAt =
+					task.completedAt === null ? null : Date.parse(task.completedAt);
+				return doneAt !== null && doneAt >= start && doneAt < end;
+			}).length,
+		};
+	});
+}
+
+/** The next open tasks with a due time from now on, the earliest first. Overdue tasks are in the bell instead. */
+export function upcomingTasks(tasks: Task[], now: number): Task[] {
+	return tasks
+		.filter(
+			(task) =>
+				task.status !== "done" &&
+				task.status !== "backlog" &&
+				task.dueAt !== null &&
+				Date.parse(task.dueAt) >= now,
+		)
+		.sort((first, second) =>
+			(first.dueAt ?? "").localeCompare(second.dueAt ?? ""),
+		);
 }

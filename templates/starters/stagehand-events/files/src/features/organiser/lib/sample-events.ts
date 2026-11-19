@@ -16,7 +16,7 @@ export const EVENT_KINDS = [
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** The sales role of a tier: the early tier sells first, the premium tier has a small quota. */
-type TierRole = "early" | "general" | "premium";
+export type TierRole = "early" | "general" | "premium";
 
 /** One ticket tier of an event. A future `ticket_tiers` row. */
 export type TicketTier = {

@@ -48,7 +48,7 @@ export type TransactionRow = {
 	amount: number;
 	/** The trading or network fee, in CURRENCY. 0 for a deposit and a reward. */
 	fee: number;
-	/** ISO time. Never after the start of the current day. */
+	/** ISO time. A generated row is never after the start of the current day. A trade of this session is. */
 	occurredAt: string;
 };
 
@@ -761,8 +761,8 @@ const EXTRA_TRANSACTIONS: ExtraTransaction[] = [
 
 // Days between two staking rewards of one asset.
 const REWARD_EVERY_DAYS = 21;
-// The trading fee of a buy and of a sell, as a share of the amount: 0.25 %.
-const TRADING_FEE_RATIO = 0.0025;
+/** The trading fee of a buy and of a sell, as a share of the amount: 0.25%. The trade mutation of the home uses it too. */
+export const TRADING_FEE_RATIO = 0.0025;
 
 function roundTo(value: number, decimals: number): number {
 	const factor = 10 ** decimals;
@@ -1038,4 +1038,12 @@ export function priceDaysAgo(
 	daysAgo: number,
 ): number {
 	return priceStepsAgo(ledger, assetId, daysAgo * STEPS_PER_DAY);
+}
+
+/**
+ * Adds a trade of the user to the ledger of today. It lasts for the browser session only: a new day or a reload drops it.
+ * Only the record-trade mutation (activity feature) calls it. A database insert replaces it later.
+ */
+export function addSampleTransaction(row: TransactionRow): void {
+	getSampleLedger().transactions.push(row);
 }

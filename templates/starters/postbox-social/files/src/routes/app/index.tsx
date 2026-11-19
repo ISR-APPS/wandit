@@ -1,29 +1,18 @@
 // The home behind login: the social overview. The /app layout checks the session first.
-// The loader fills the figures, the trend, the channel ranking, and the post list of the first period.
-// Thin: the page and its states live in the overview feature.
+// The loader fills the overview of the first period. Thin: the page and its states live in the overview feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	dailyImpressionsQueryOptions,
-	engagementsByChannelQueryOptions,
 	OverviewPage,
 	OverviewPageError,
 	OverviewPageSkeleton,
-	overviewKpisQueryOptions,
+	overviewQueryOptions,
 } from "~/features/overview";
-import { postsQueryOptions } from "~/features/posts";
 import { DEFAULT_DAYS } from "~/features/social";
 
-/** /app: impressions, engagement, followers, and the latest posts of all channels. */
+/** /app: followers, engagement, reach, the queue, and the channels of the brand. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
-		Promise.all([
-			context.queryClient.query(overviewKpisQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(
-				dailyImpressionsQueryOptions(DEFAULT_DAYS, "all"),
-			),
-			context.queryClient.query(engagementsByChannelQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(postsQueryOptions()),
-		]),
+		context.queryClient.query(overviewQueryOptions(DEFAULT_DAYS)),
 	pendingComponent: OverviewPageSkeleton,
 	errorComponent: OverviewPageError,
 	component: OverviewPage,

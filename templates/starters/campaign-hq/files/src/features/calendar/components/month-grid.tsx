@@ -1,5 +1,6 @@
-// The month grid of the calendar: a weekday header and one cell per day with up to three item chips.
-// CalendarPage renders it from the small container width. Narrower, AgendaList shows the same items.
+// The day grid of the calendar: a weekday row, then one cell per day with its item chips.
+// CalendarPage renders it for the month view (5 or 6 weeks, three chips per cell) and the week view (one week, every chip).
+// It follows the kit month view: thin rules between cells, muted cells outside the month, a round day number.
 import { fillMessage } from "~/features/marketing";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
@@ -7,26 +8,26 @@ import type { ContentItem } from "../api/calendar.queries";
 import type { MonthCell } from "../lib/month";
 import { ContentChip } from "./content-chip";
 
-// A cell shows this many chips. A "+N more" button opens the day dialog for the rest.
-const CHIPS_PER_CELL = 3;
-
 type MonthGridProps = {
-	/** The cells of the month, whole weeks from Monday. */
+	/** The cells to show, whole weeks from Monday. */
 	cells: MonthCell[];
 	/** The items of each day, keyed by YYYY-MM-DD, oldest first. */
 	itemsByDay: Map<string, ContentItem[]>;
 	/** Today as YYYY-MM-DD. Its day number gets the primary fill. */
 	today: string;
+	/** The most chips of one cell. A "+N more" button opens the day dialog for the rest. Absent: every chip. */
+	chipLimit?: number;
 	onOpenItem: (itemId: string) => void;
 	/** Opens the dialog with every item of one day (YYYY-MM-DD). */
 	onOpenDay: (day: string) => void;
 };
 
-/** The grid is a list of weeks for screen readers: each cell names its date. */
+/** The grid is a list of days for screen readers: each cell names its date. */
 export function MonthGrid({
 	cells,
 	itemsByDay,
 	today,
+	chipLimit,
 	onOpenItem,
 	onOpenDay,
 }: MonthGridProps) {
@@ -37,10 +38,13 @@ export function MonthGrid({
 	const number = new Intl.NumberFormat(locale);
 
 	return (
-		<div className="overflow-hidden rounded-control border">
-			<div className="grid grid-cols-7 border-b bg-muted text-muted-foreground text-xs">
+		<div>
+			<div className="grid grid-cols-7 border-b">
 				{cells.slice(0, 7).map((cell) => (
-					<div key={cell.day} className="px-2 py-2 font-medium">
+					<div
+						key={cell.day}
+						className="py-2 text-center text-muted-foreground text-sm"
+					>
 						{weekday.format(new Date(cell.startMs))}
 					</div>
 				))}
@@ -48,35 +52,33 @@ export function MonthGrid({
 			<ul className="grid grid-cols-7">
 				{cells.map((cell, index) => {
 					const items = itemsByDay.get(cell.day) ?? [];
-					const hidden = items.length - CHIPS_PER_CELL;
-					const isToday = cell.day === today;
+					const shown =
+						chipLimit === undefined ? items : items.slice(0, chipLimit);
+					const hidden = items.length - shown.length;
 					const date = new Date(cell.startMs);
 					return (
 						<li
 							key={cell.day}
 							aria-label={fullDay.format(date)}
 							className={cn(
-								"grid min-h-32 min-w-0 content-start gap-1 border-b p-1.5",
-								// The last column has no end rule: the frame draws it.
+								"flex min-w-0 flex-col gap-1 border-b p-1",
+								// A month cell holds three chips. A week cell holds every chip of the day.
+								chipLimit === undefined ? "min-h-96" : "min-h-32",
+								// The last column has no end rule and the last week no bottom rule: the panel frame draws them.
 								index % 7 !== 6 && "border-e",
-								// The last week has no bottom rule: the frame draws it.
 								index >= cells.length - 7 && "border-b-0",
-								!cell.inMonth && "bg-muted/60",
+								!cell.inMonth && "bg-muted/25 text-muted-foreground",
 							)}
 						>
 							<span
 								className={cn(
-									"flex size-6 items-center justify-center justify-self-start rounded-full text-xs tabular-nums",
-									isToday
-										? "bg-primary font-semibold text-primary-foreground"
-										: cell.inMonth
-											? "text-foreground"
-											: "text-muted-foreground",
+									"inline-flex size-6 items-center justify-center self-start rounded-full text-sm tabular-nums",
+									cell.day === today && "bg-primary text-primary-foreground",
 								)}
 							>
 								{dayNumber.format(date)}
 							</span>
-							{items.slice(0, CHIPS_PER_CELL).map((item) => (
+							{shown.map((item) => (
 								<ContentChip key={item.id} item={item} onOpen={onOpenItem} />
 							))}
 							{hidden > 0 ? (
@@ -94,7 +96,7 @@ export function MonthGrid({
 											day: fullDay.format(date),
 										},
 									)}
-									className="justify-self-start rounded-sm px-1.5 py-0.5 font-medium text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground"
+									className="flex h-6 items-center self-stretch rounded-sm px-1 text-muted-foreground text-xs hover:bg-muted/50 hover:text-foreground sm:px-2"
 								>
 									{fillMessage(t("calendar.more"), {
 										count: number.format(hidden),

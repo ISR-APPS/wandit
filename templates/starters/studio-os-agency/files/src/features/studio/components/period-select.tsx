@@ -1,0 +1,50 @@
+// The period control of a page header: a select of 7, 30, or 90 days with a calendar icon.
+// The headers of the home, Team, and Invoices pages render it, and the hours card of the home.
+// The parent keeps the value: in the URL, in page state, or in card state.
+import { CalendarBlankIcon } from "@phosphor-icons/react";
+import { useT } from "~/shared/i18n";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "~/shared/ui/select";
+import { fillMessage } from "../lib/fill-message";
+import { PERIOD_DAYS, type PeriodDays } from "../lib/period";
+
+type PeriodSelectProps = {
+	/** The chosen period, in days. */
+	days: PeriodDays;
+	/** Gets the new period when the user picks one. */
+	onDaysChange: (days: PeriodDays) => void;
+};
+
+/** Each choice reads "Last 30 days". */
+export function PeriodSelect({ days, onDaysChange }: PeriodSelectProps) {
+	const { t, locale } = useT();
+	const number = new Intl.NumberFormat(locale);
+	return (
+		<Select
+			value={String(days)}
+			onValueChange={(value) => {
+				const next = PERIOD_DAYS.find((period) => String(period) === value);
+				if (next) {
+					onDaysChange(next);
+				}
+			}}
+		>
+			<SelectTrigger aria-label={t("period.label")} className="w-auto gap-2">
+				<CalendarBlankIcon className="size-4 text-muted-foreground" />
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent align="end">
+				{PERIOD_DAYS.map((period) => (
+					<SelectItem key={period} value={String(period)}>
+						{fillMessage(t("period.last"), { days: number.format(period) })}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}

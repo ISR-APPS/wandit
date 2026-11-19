@@ -1,5 +1,5 @@
 // The delta line of a figure: an arrow, a signed percent, and a text for screen readers.
-// FigureStrip renders it under a value. It follows the KPI form "strip" of the app-dashboard skill.
+// FigureStrip, the KPI cards, and the tracker card of the home render it. It follows the KPI form "strip" of the app-dashboard skill.
 import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";

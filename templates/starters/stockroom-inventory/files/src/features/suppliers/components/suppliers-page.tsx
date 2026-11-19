@@ -1,157 +1,297 @@
-// The supplier page behind login: a search, a sort, a grid of supplier cards, and the supplier panel.
+// The supplier list behind login, in the anatomy of the kit user list: the title row,
+// a toolbar (search, Status, Family, and Order day filters, Columns), and a table with checkboxes, a row menu, and pages.
 // The /app/suppliers route renders it after its loader. The route also uses the skeleton and the error below.
-// The open panel lives in the URL (?supplier=<id>), so other pages can link to one supplier.
+// The filters stay in the page state. The row menu links to the item and order lists of the supplier.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
-import { LoadError, moneyFormat, pluralForm } from "~/features/stock";
-import { useT } from "~/shared/i18n";
-import { Card, CardContent } from "~/shared/ui/card";
-import { MagnifyingGlassIcon } from "~/shared/ui/icons";
-import { Input } from "~/shared/ui/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	type CsvColumn,
+	copyToClipboard,
+	dayCountFormat,
+	downloadCsv,
+	InitialsTile,
+	LoadError,
+	STOCK_CATEGORIES,
+	toCsv,
+} from "~/features/stock";
+import { useT } from "~/shared/i18n";
+import { Badge } from "~/shared/ui/badge";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { type Supplier, suppliersQueryOptions } from "../api/suppliers.queries";
-import { SupplierCard } from "./supplier-card";
-import { SupplierSheet } from "./supplier-sheet";
+import {
+	SUPPLIER_STATUSES,
+	type Supplier,
+	type SupplierStatus,
+	suppliersQueryOptions,
+} from "../api/suppliers.queries";
 
-/** The sort choices of the grid. Ordered value first: the biggest accounts matter most to a buyer. */
-const SORTS = ["value", "onTime", "name"] as const;
+// Red for a late order, amber for a weak on-time rate, green for the rest. The label always names the status.
+const STATUS_VARIANT = {
+	late: "destructive",
+	watch: "warning",
+	onTrack: "success",
+} satisfies Record<SupplierStatus, "destructive" | "warning" | "success">;
 
-type Sort = (typeof SORTS)[number];
+// The weekly order run is on a weekday from 1 (Monday) to 5 (Friday).
+const ORDER_WEEKDAYS = [1, 2, 3, 4, 5];
+// Ten rows per page, as the kit user list shows.
+const PAGE_SIZE = 10;
 
-// One compare function per sort. A supplier with no delivery sorts last on the on-time rate.
-const COMPARE: Record<Sort, (first: Supplier, second: Supplier) => number> = {
-	value: (first, second) => second.orderedValue - first.orderedValue,
-	onTime: (first, second) =>
-		(second.onTimeRate ?? -1) - (first.onTimeRate ?? -1),
-	name: (first, second) => first.name.localeCompare(second.name),
-};
-
-/** The grid of suppliers. The search matches the name, the city, the contact, and the email. */
+/** The list page. The filters apply first; RecordTable then searches, sorts, selects, and pages. */
 export function SuppliersPage() {
 	const { t, locale } = useT();
 	const { data: suppliers } = useSuspenseQuery(suppliersQueryOptions());
-	const search = useSearch({ from: "/app/suppliers" });
-	const navigate = useNavigate({ from: "/app/suppliers" });
-	const [query, setQuery] = useState("");
-	const [sort, setSort] = useState<Sort>("value");
+	const [status, setStatus] = useState<string | null>(null);
+	const [category, setCategory] = useState<string | null>(null);
+	const [orderDay, setOrderDay] = useState<string | null>(null);
+	const dayCount = dayCountFormat(locale);
+	const percent = new Intl.NumberFormat(locale, {
+		style: "percent",
+		maximumFractionDigits: 0,
+	});
+	const weekday = new Intl.DateTimeFormat(locale, { weekday: "long" });
+	// 1 January 2024 is a Monday, so day N of that month names weekday N (1 = Monday, 5 = Friday).
+	const weekdayName = (day: number) => weekday.format(new Date(2024, 0, day));
 
-	const number = new Intl.NumberFormat(locale);
-	const money = moneyFormat(locale, true);
-	const needle = query.trim().toLocaleLowerCase(locale);
-	const shown = suppliers
-		.filter((supplier) =>
-			`${supplier.name} ${supplier.city} ${supplier.contactName} ${supplier.email}`
-				.toLocaleLowerCase(locale)
-				.includes(needle),
-		)
-		.sort(COMPARE[sort]);
-	const openOrders = suppliers.reduce(
-		(sum, supplier) => sum + supplier.openOrders,
-		0,
+	const rows = suppliers.filter(
+		(supplier) =>
+			(status === null || supplier.status === status) &&
+			(category === null ||
+				supplier.categories.some((entry) => entry === category)) &&
+			(orderDay === null || String(supplier.orderWeekday) === orderDay),
 	);
-	const orderedValue = suppliers.reduce(
-		(sum, supplier) => sum + supplier.orderedValue,
-		0,
-	);
-	const selected =
-		suppliers.find((supplier) => supplier.id === search.supplier) ?? null;
+
+	const csvColumns: CsvColumn<Supplier>[] = [
+		{ header: t("suppliers.name"), value: (supplier) => supplier.name },
+		{
+			header: t("suppliers.contact"),
+			value: (supplier) => supplier.contactName,
+		},
+		{ header: t("suppliers.email"), value: (supplier) => supplier.email },
+		{ header: t("suppliers.phone"), value: (supplier) => supplier.phone },
+		{ header: t("suppliers.city"), value: (supplier) => supplier.city },
+		{
+			header: t("suppliers.leadTime"),
+			value: (supplier) => dayCount.format(supplier.leadTimeDays),
+		},
+		{
+			header: t("suppliers.orderDay"),
+			value: (supplier) => weekdayName(supplier.orderWeekday),
+		},
+		{
+			header: t("suppliers.onTimeRate"),
+			value: (supplier) =>
+				supplier.onTimeRate === null ? "" : percent.format(supplier.onTimeRate),
+		},
+		{
+			header: t("suppliers.status"),
+			value: (supplier) => t(`suppliers.statuses.${supplier.status}`),
+		},
+	];
+
+	function exportRows(fileName: string, selected: Supplier[]) {
+		downloadCsv(fileName, toCsv(selected, csvColumns));
+	}
+
+	const columns: RecordColumn<Supplier>[] = [
+		{
+			id: "name",
+			header: t("suppliers.name"),
+			sortValue: (supplier) => supplier.name,
+			cell: (supplier) => (
+				<span className="flex items-center gap-3">
+					<InitialsTile name={supplier.name} className="rounded-full" />
+					<Link
+						to="/app/purchase-orders"
+						search={{ supplier: supplier.id }}
+						className="font-medium hover:underline"
+						dir="auto"
+					>
+						{supplier.name}
+					</Link>
+				</span>
+			),
+		},
+		{
+			id: "contact",
+			header: t("suppliers.contact"),
+			hideable: true,
+			sortValue: (supplier) => supplier.contactName,
+			cell: (supplier) => supplier.contactName,
+		},
+		{
+			id: "lead-time",
+			header: t("suppliers.leadTime"),
+			hideable: true,
+			sortValue: (supplier) => supplier.leadTimeDays,
+			cell: (supplier) => (
+				<span className="whitespace-nowrap tabular-nums">
+					{dayCount.format(supplier.leadTimeDays)}
+				</span>
+			),
+		},
+		{
+			id: "email",
+			header: t("suppliers.email"),
+			hideable: true,
+			cell: (supplier) => supplier.email,
+		},
+		{
+			id: "city",
+			header: t("suppliers.city"),
+			hideable: true,
+			sortValue: (supplier) => supplier.city,
+			cell: (supplier) => supplier.city,
+		},
+		{
+			id: "on-time",
+			header: t("suppliers.onTimeRate"),
+			hideable: true,
+			// A supplier with no delivery yet sorts first.
+			sortValue: (supplier) => supplier.onTimeRate ?? -1,
+			cell: (supplier) => (
+				<span className="tabular-nums">
+					{supplier.onTimeRate === null
+						? "–"
+						: percent.format(supplier.onTimeRate)}
+				</span>
+			),
+		},
+		{
+			id: "status",
+			header: t("suppliers.status"),
+			sortValue: (supplier) => SUPPLIER_STATUSES.indexOf(supplier.status),
+			cell: (supplier) => (
+				<Badge variant={STATUS_VARIANT[supplier.status]}>
+					{t(`suppliers.statuses.${supplier.status}`)}
+				</Badge>
+			),
+		},
+	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("suppliers.title")}
-				description={`${number.format(suppliers.length)} ${t(`suppliers.countLabel.${pluralForm(suppliers.length, locale)}`)} · ${number.format(openOrders)} ${t(`suppliers.openOrders.${pluralForm(openOrders, locale)}`)} · ${money.format(orderedValue)} ${t("suppliers.orderedLabel")}`}
-			/>
-			<div className="flex flex-wrap items-center gap-2">
-				<div className="relative w-full sm:max-w-xs">
-					<MagnifyingGlassIcon className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-					<Input
-						type="search"
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						placeholder={t("table.search")}
-						aria-label={t("table.search")}
-						className="ps-8"
-					/>
-				</div>
-				<Select
-					value={sort}
-					onValueChange={(value) =>
-						setSort(SORTS.find((option) => option === value) ?? "value")
-					}
-				>
-					<SelectTrigger
-						aria-label={t("suppliers.sort")}
-						className="w-full sm:w-52"
+				actions={
+					<Button
+						type="button"
+						onClick={() => exportRows("suppliers.csv", rows)}
 					>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{SORTS.map((option) => (
-							<SelectItem key={option} value={option}>
-								{t(`suppliers.sorts.${option}`)}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</div>
-			{shown.length === 0 ? (
-				<Card>
-					<CardContent className="py-6 text-center text-muted-foreground text-sm">
-						{t("suppliers.noResults")}
-					</CardContent>
-				</Card>
-			) : (
-				<div className="grid @2xl/main:grid-cols-2 @4xl/main:grid-cols-3 grid-cols-1 gap-4">
-					{shown.map((supplier) => (
-						<SupplierCard key={supplier.id} supplier={supplier} />
-					))}
-				</div>
-			)}
-			<SupplierSheet
-				supplier={selected}
-				onClose={() =>
-					navigate({
-						search: (previous) => ({ ...previous, supplier: undefined }),
-						replace: true,
-					})
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
 				}
 			/>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(supplier) =>
+					`${supplier.name} ${supplier.contactName} ${supplier.email} ${supplier.city}`
+				}
+				searchPlaceholder={t("suppliers.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("suppliers.status")}
+							options={SUPPLIER_STATUSES.map((entry) => ({
+								value: entry,
+								label: t(`suppliers.statuses.${entry}`),
+							}))}
+							value={status}
+							onValueChange={setStatus}
+						/>
+						<RecordFilter
+							label={t("suppliers.family")}
+							options={STOCK_CATEGORIES.map((entry) => ({
+								value: entry,
+								label: t(`categories.${entry}`),
+							}))}
+							value={category}
+							onValueChange={setCategory}
+						/>
+						<RecordFilter
+							label={t("suppliers.orderDay")}
+							options={ORDER_WEEKDAYS.map((day) => ({
+								value: String(day),
+								label: weekdayName(day),
+							}))}
+							value={orderDay}
+							onValueChange={setOrderDay}
+						/>
+					</>
+				}
+				rowMenu={(supplier) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link
+								to="/app/purchase-orders"
+								search={{ supplier: supplier.id }}
+							>
+								{t("suppliers.viewOrders")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link to="/app/items" search={{ supplier: supplier.id }}>
+								{t("suppliers.viewItems")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(supplier.email, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("suppliers.copyEmail")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() => exportRows("suppliers-selected.csv", selected)}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("suppliers.noResults")}
+			/>
 		</div>
 	);
 }
 
-// Placeholder cards of the skeleton. Fixed keys, because the cards never reorder.
-const SKELETON_CARDS = ["1", "2", "3", "4", "5", "6"];
-
-/** Placeholder while the supplier loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the loader runs. The route sets it as pendingComponent. */
 export function SuppliersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-48" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Skeleton className="h-9 w-full sm:max-w-md" />
-			<div className="grid @2xl/main:grid-cols-2 @4xl/main:grid-cols-3 grid-cols-1 gap-4">
-				{SKELETON_CARDS.map((key) => (
-					<Skeleton key={key} className="h-56 rounded-surface" />
-				))}
-			</div>
+			<Skeleton className="h-9 w-full max-w-2xl" />
+			<Skeleton className="h-128" />
 		</div>
 	);
 }
 
-/** Error state of the supplier page when its loader fails. */
+/** Error state when the loader fails. */
 export function SuppliersPageError() {
 	const { t } = useT();
 	return <LoadError message={t("suppliers.loadError")} />;

@@ -1,6 +1,6 @@
 // The square mark of a file: the icon of its kind on a tint of its category.
 // File name cells, grid cards, the file page, and the feed render it. It reads FILE_KIND_ICONS and the category.
-// Each category uses the chart token of its series in the uploads chart, so a color means one type everywhere.
+// Each category uses one chart token, the same as its card on the home.
 import {
 	FileArchiveIcon,
 	FileAudioIcon,
@@ -35,19 +35,19 @@ const FILE_KIND_ICONS = {
 	audio: FileAudioIcon,
 } satisfies Record<FileKind, KitIcon>;
 
-// The tint of each category: chart-1 to chart-5 in the stack order of FILE_CATEGORIES.
-// chart-5 is too light for an icon, so "other" keeps the muted text color on its tint.
+// The tint of each category: chart-1 to chart-4 in the order of FILE_CATEGORIES.
+// The home type cards use the same chart token, so a color means one type everywhere.
+// chart-3 and chart-4 are too light for a thin icon, so they draw the icon in a darker ink of the same hue.
 const CATEGORY_TINTS = {
 	documents: "bg-chart-1/12 text-chart-1",
 	images: "bg-chart-2/15 text-chart-2",
-	// chart-3 is too light for a thin icon, so video draws the icon in primary, the same hue.
 	video: "bg-chart-3/25 text-primary",
-	design: "bg-chart-4/15 text-chart-4",
-	other: "bg-chart-5/25 text-muted-foreground",
+	other: "bg-chart-4/20 text-muted-foreground",
 } satisfies Record<FileCategory, string>;
 
-// Box and icon size per use: a table row, a dialog, the header of the file page, and the preview of a grid card.
+// Box and icon size per use: an inline mark, a table row, a dialog, the header of the file page, and a large preview.
 const TILE_SIZES = {
+	xs: "size-6 rounded-sm [&_svg]:size-3.5",
 	sm: "size-8 rounded-md [&_svg]:size-4.5",
 	md: "size-10 rounded-lg [&_svg]:size-5.5",
 	lg: "size-24 rounded-xl [&_svg]:size-12",

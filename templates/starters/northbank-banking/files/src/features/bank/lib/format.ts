@@ -56,7 +56,7 @@ export function moneyFormat(
 	});
 }
 
-/** A short formatter for the money ticks of a chart axis, for example "$12K". It takes currency units. */
+/** A short money formatter, for example "$12.4K", for the total in the donut hole. It takes currency units. */
 export function compactMoneyFormat(locale: string): Intl.NumberFormat {
 	return new Intl.NumberFormat(locale, {
 		style: "currency",
@@ -101,4 +101,17 @@ export function relativeDayLabel(
 		daysBetween(today, day),
 		"day",
 	);
+}
+
+/**
+ * Up to two initials for an avatar: "Cedar Ridge Timber Supply" gives "CR", "Northbank" gives "N".
+ * Words that start with no letter, such as "&" or "••4417", give no initial.
+ */
+export function initialsOf(name: string): string {
+	return name
+		.split(/\s+/)
+		.filter((word) => /^\p{L}/u.test(word))
+		.slice(0, 2)
+		.map((word) => Array.from(word)[0]?.toLocaleUpperCase() ?? "")
+		.join("");
 }

@@ -1,28 +1,52 @@
-// The profile of one employee: the job facts and the time-off history, and a rail with the
-// vacation balance, the manager, the direct reports, and the career timeline.
-// The /app/employees/$employeeId route renders it after its loader. A request row opens the time-off dialog.
-import { ArrowLeftIcon, EnvelopeSimpleIcon } from "@phosphor-icons/react";
+// The profile of one employee. It follows the kit profile page: a title row, tabs, then a 1/3 + 2/3 grid.
+// The left column holds the profile card, the vacation meter, and the contract badges.
+// The right column holds the career timeline, then the time-off history beside the team.
+// The /app/employees/$employeeId route renders it after its loader. The Time off and Team tabs show the full lists.
+import {
+	AirplaneTiltIcon,
+	ArrowLeftIcon,
+	BuildingsIcon,
+	CalendarBlankIcon,
+	ClockIcon,
+	EnvelopeSimpleIcon,
+	type Icon,
+	MapPinIcon,
+	SealCheckIcon,
+	SignOutIcon,
+	TrendUpIcon,
+	UserPlusIcon,
+} from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { PageHeader } from "~/features/app-shell";
 import {
-	CARD_TITLE_CLASS,
+	type CareerEventRow,
 	dayKeyToMs,
 	EMPLOYEE_STATUS_BADGE,
+	fillMessage,
+	formatDayRange,
 	PersonAvatar,
 	TIME_OFF_STATUS_BADGE,
 	TimeOffTypeMark,
 } from "~/features/people";
+import {
+	RequestTable,
+	type TimeOffRequest,
+	timeOffRequestsQueryOptions,
+} from "~/features/time-off";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
+import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
 import {
 	Table,
@@ -32,357 +56,519 @@ import {
 	TableHeader,
 	TableRow,
 } from "~/shared/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import {
 	type EmployeeProfile,
 	employeeQueryOptions,
+	type PersonLink,
 } from "../api/employees.queries";
-import { LeaveBalanceCard } from "./leave-balance-card";
-import { PersonRow } from "./person-row";
 
 const routeApi = getRouteApi("/app/employees/$employeeId");
 
-// Three layouts. A wide main area (56rem) has a main column and a 20rem rail. Below it the two
-// columns melt into one grid ("contents"). From 42rem (a 1024 px screen) that grid has two columns:
-// the wide cards take both, and the balance sits beside the manager. On a phone it is one list.
-// The orders put the balance and the manager before the long time-off list. The wide layout keeps the source order.
-const ORDER = {
-	facts:
-		"order-1 @2xl/main:col-span-2 @4xl/main:order-none @4xl/main:col-span-1",
-	balance: "order-2 @4xl/main:order-none",
-	manager: "order-3 @4xl/main:order-none",
-	reports:
-		"order-3 @2xl/main:col-span-2 @4xl/main:order-none @4xl/main:col-span-1",
-	timeOff:
-		"order-4 @2xl/main:col-span-2 @4xl/main:order-none @4xl/main:col-span-1",
-	career:
-		"order-5 @2xl/main:col-span-2 @4xl/main:order-none @4xl/main:col-span-1",
-};
-// A column wrapper: no box of its own below 56rem, a stack of cards on a wide main area.
-const COLUMN = "contents @4xl/main:grid @4xl/main:gap-6";
+/** The three tabs of the page. */
+const PROFILE_TABS = ["overview", "timeOff", "team"] as const;
+type ProfileTab = (typeof PROFILE_TABS)[number];
+
+// The overview cards show the latest few rows. The tabs show every row.
+const OVERVIEW_REQUESTS = 5;
+const OVERVIEW_TEAM = 5;
+// Rows per page of the time-off tab.
+const TIME_OFF_PAGE_SIZE = 10;
+
+// One icon per career event in the timeline circle.
+const CAREER_ICON = {
+	joined: UserPlusIcon,
+	probation_passed: SealCheckIcon,
+	promoted: TrendUpIcon,
+	notice_given: SignOutIcon,
+	leave_started: AirplaneTiltIcon,
+} satisfies Record<CareerEventRow["kind"], Icon>;
 
 /** The profile page. An id with no row shows the not-found state, with a link back to the list. */
 export function EmployeeProfilePage() {
 	const { employeeId } = routeApi.useParams();
 	const { data: profile } = useSuspenseQuery(employeeQueryOptions(employeeId));
+	const { data: requests } = useSuspenseQuery(timeOffRequestsQueryOptions());
 	if (!profile) {
 		return <EmployeeNotFound />;
 	}
-	return <ProfileContent profile={profile} />;
+	return (
+		<ProfileContent
+			profile={profile}
+			requests={requests
+				.filter((request) => request.employeeId === profile.employee.id)
+				.sort((first, second) =>
+					second.startDate.localeCompare(first.startDate),
+				)}
+		/>
+	);
 }
 
-// The page of a profile that exists.
-function ProfileContent({ profile }: { profile: EmployeeProfile }) {
-	const { t, locale } = useT();
-	const { employee } = profile;
-	const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
-	const number = new Intl.NumberFormat(locale);
-	const dayCount = new Intl.NumberFormat(locale, {
-		style: "unit",
-		unit: "day",
-		unitDisplay: "long",
-	});
-	const formatDay = (day: string) =>
-		dateFormat.format(new Date(dayKeyToMs(day)));
+type ProfileContentProps = {
+	profile: EmployeeProfile;
+	/** The time-off requests of this employee, the latest first day first. */
+	requests: TimeOffRequest[];
+};
 
-	const facts = [
-		{ label: t("employees.employeeId"), value: employee.id },
-		{
-			label: t("employees.department"),
-			value: t(`departments.${employee.department}`),
-		},
-		{
-			label: t("employees.location"),
-			value: t(`locations.${employee.location}`),
-		},
-		{
-			label: t("employees.contract"),
-			value: t(`contracts.${employee.contract}`),
-		},
-		{
-			label: t("employees.weeklyHours"),
-			value: new Intl.NumberFormat(locale, {
-				style: "unit",
-				unit: "hour",
-				unitDisplay: "long",
-			}).format(employee.weeklyHours),
-		},
-		{ label: t("employees.started"), value: formatDay(employee.startDate) },
-		...(employee.endDate
-			? [{ label: t("employees.lastDay"), value: formatDay(employee.endDate) }]
+// The page of a profile that exists. The tab is state of the page.
+function ProfileContent({ profile, requests }: ProfileContentProps) {
+	const { t } = useT();
+	const [tab, setTab] = useState<ProfileTab>("overview");
+	// The manager first, then the direct reports, then the peers.
+	const team: TeamMember[] = [
+		...(profile.manager
+			? [{ person: profile.manager, relation: "manager" as const }]
 			: []),
+		...profile.reports.map((person) => ({
+			person,
+			relation: "report" as const,
+		})),
+		...profile.peers.map((person) => ({ person, relation: "peer" as const })),
 	];
 
 	return (
-		<div className="grid gap-6">
-			<Link
-				to="/app/employees"
-				className="inline-flex w-fit items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+		<div className="grid gap-4">
+			<PageHeader
+				title={t("employees.profileTitle")}
+				actions={
+					<>
+						<Button asChild variant="outline">
+							<Link to="/app/employees">
+								<ArrowLeftIcon className="rtl:rotate-180" />
+								{t("employees.allEmployees")}
+							</Link>
+						</Button>
+						<Button asChild>
+							<a href={`mailto:${profile.employee.email}`}>
+								<EnvelopeSimpleIcon />
+								{t("employees.sendEmail")}
+							</a>
+						</Button>
+					</>
+				}
+			/>
+			<Tabs
+				value={tab}
+				onValueChange={(value) =>
+					setTab(PROFILE_TABS.find((option) => option === value) ?? "overview")
+				}
 			>
-				<ArrowLeftIcon className="size-4 rtl:rotate-180" aria-hidden />
-				{t("employees.backToList")}
-			</Link>
-			<header className="flex flex-col gap-4 sm:flex-row sm:items-center">
-				<div className="flex min-w-0 flex-1 items-center gap-4">
-					<PersonAvatar name={profile.name} className="size-14 text-lg" />
-					<div className="grid min-w-0 flex-1 gap-1">
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-							<h1
-								className="font-(--heading-weight) font-display text-3xl tracking-(--heading-tracking)"
-								dir="auto"
-							>
-								{profile.name}
-							</h1>
+				<TabsList>
+					{PROFILE_TABS.map((option) => (
+						<TabsTrigger key={option} value={option}>
+							{t(`employees.tabs.${option}`)}
+						</TabsTrigger>
+					))}
+				</TabsList>
+			</Tabs>
+			{tab === "overview" ? (
+				<div className="grid items-start gap-4 xl:grid-cols-3">
+					<div className="grid gap-4">
+						<ProfileCard profile={profile} />
+						<VacationCard profile={profile} />
+						<ContractCard profile={profile} />
+					</div>
+					<div className="grid min-w-0 gap-4 xl:col-span-2">
+						<CareerCard events={profile.careerEvents} />
+						<div className="grid items-start gap-4 xl:grid-cols-2">
+							<TimeOffHistoryCard
+								requests={requests.slice(0, OVERVIEW_REQUESTS)}
+								onViewAll={() => setTab("timeOff")}
+							/>
+							<TeamCard
+								team={team.slice(0, OVERVIEW_TEAM)}
+								onViewAll={() => setTab("team")}
+							/>
+						</div>
+					</div>
+				</div>
+			) : tab === "timeOff" ? (
+				<RequestTable
+					requests={requests}
+					variant="list"
+					pageSize={TIME_OFF_PAGE_SIZE}
+					searchable={false}
+					noResults={t("employees.noRequests")}
+				/>
+			) : (
+				<TeamCard team={team} />
+			)}
+		</div>
+	);
+}
+
+// The kit profile card: the avatar and the name, a strip of three figures, then the contact lines.
+function ProfileCard({ profile }: { profile: EmployeeProfile }) {
+	const { t, locale } = useT();
+	const { employee, balance } = profile;
+	const number = new Intl.NumberFormat(locale);
+	const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const figures = [
+		{ label: t("employees.vacationLeft"), value: balance.remaining },
+		{ label: t("employees.daysTaken"), value: balance.taken },
+		{ label: t("employees.reports"), value: profile.reports.length },
+	];
+	const lines = [
+		{
+			id: "email",
+			icon: EnvelopeSimpleIcon,
+			text: (
+				<a href={`mailto:${employee.email}`} className="hover:underline">
+					{employee.email}
+				</a>
+			),
+		},
+		{
+			id: "location",
+			icon: MapPinIcon,
+			text: t(`locations.${employee.location}`),
+		},
+		{
+			id: "department",
+			icon: BuildingsIcon,
+			text: t(`departments.${employee.department}`),
+		},
+		{
+			id: "start",
+			icon: CalendarBlankIcon,
+			text: fillMessage(t("employees.startedOn"), {
+				date: dateFormat.format(dayKeyToMs(employee.startDate)),
+			}),
+		},
+	];
+
+	return (
+		<Card>
+			<CardContent className="grid gap-8">
+				<div className="grid justify-items-center gap-4 text-center">
+					<PersonAvatar name={profile.name} className="size-20 text-2xl" />
+					<div className="grid gap-1">
+						<h2 className="flex flex-wrap items-center justify-center gap-2 font-semibold text-xl">
+							<span dir="auto">{profile.name}</span>
 							<Badge variant={EMPLOYEE_STATUS_BADGE[employee.status]}>
 								{t(`employeeStatuses.${employee.status}`)}
 							</Badge>
-						</div>
-						<p className="text-muted-foreground" dir="auto">
-							{`${employee.title} · ${t(`departments.${employee.department}`)}`}
+						</h2>
+						<p className="text-muted-foreground text-sm" dir="auto">
+							{employee.title}
 						</p>
 					</div>
 				</div>
-				<Button asChild variant="outline" className="self-start sm:self-auto">
-					<a href={`mailto:${employee.email}`}>
-						<EnvelopeSimpleIcon aria-hidden />
-						{t("employees.sendEmail")}
-					</a>
-				</Button>
-			</header>
+				<dl className="grid grid-cols-3 divide-x rounded-md border bg-muted text-center *:py-3 rtl:divide-x-reverse">
+					{figures.map((figure) => (
+						<div key={figure.label} className="grid gap-0.5 px-1">
+							<dt className="text-muted-foreground text-xs">{figure.label}</dt>
+							{/* The figure shows above its label, as in the kit; the markup keeps dt first. */}
+							<dd className="order-first font-semibold text-lg tabular-nums">
+								{number.format(figure.value)}
+							</dd>
+						</div>
+					))}
+				</dl>
+				<ul className="grid gap-4 text-sm">
+					{lines.map((line) => (
+						<li key={line.id} className="flex items-center gap-3">
+							<line.icon
+								className="size-4 shrink-0 text-muted-foreground"
+								aria-hidden
+							/>
+							<span className="min-w-0 truncate">{line.text}</span>
+						</li>
+					))}
+				</ul>
+			</CardContent>
+		</Card>
+	);
+}
 
-			{/* Below 56rem the cards of one row stretch to one height, so the balance and the manager line up. */}
-			<div className="grid @2xl/main:grid-cols-2 @4xl/main:grid-cols-[minmax(0,1fr)_20rem] @4xl/main:items-start gap-6">
-				<div className={COLUMN}>
-					<Card className={ORDER.facts}>
-						<CardHeader>
-							<CardTitle className={CARD_TITLE_CLASS}>
-								{t("employees.factsTitle")}
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<dl className="grid @3xl/main:grid-cols-3 gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
-								{facts.map((fact) => (
-									<div key={fact.label} className="grid gap-1">
-										<dt className="text-muted-foreground">{fact.label}</dt>
-										<dd className="font-medium tabular-nums">{fact.value}</dd>
-									</div>
-								))}
-								<div className="grid gap-1">
-									<dt className="text-muted-foreground">
-										{t("employees.email")}
-									</dt>
-									<dd className="truncate font-medium">
-										<a
-											className="hover:underline"
-											href={`mailto:${employee.email}`}
-										>
-											{employee.email}
-										</a>
-									</dd>
-								</div>
-							</dl>
-						</CardContent>
-					</Card>
+// The kit progress card: the share of the vacation allowance that is taken or booked.
+function VacationCard({ profile }: { profile: EmployeeProfile }) {
+	const { t, locale } = useT();
+	const { balance } = profile;
+	const number = new Intl.NumberFormat(locale);
+	const used = balance.taken + balance.booked;
+	// A person who joined today can have an allowance of 0. The bar then shows empty.
+	const share = balance.allowance > 0 ? used / balance.allowance : 0;
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>{t("employees.vacationUsedTitle")}</CardTitle>
+				<CardDescription>
+					{fillMessage(t("employees.vacationUsedDescription"), {
+						used: number.format(used),
+						allowance: number.format(balance.allowance),
+						pending: number.format(balance.pending),
+					})}
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="flex items-center gap-4">
+				<Progress value={used} max={balance.allowance} />
+				<span className="text-muted-foreground text-sm tabular-nums">
+					{new Intl.NumberFormat(locale, {
+						style: "percent",
+						maximumFractionDigits: 0,
+					}).format(share)}
+				</span>
+			</CardContent>
+		</Card>
+	);
+}
 
-					<Card className={ORDER.timeOff}>
-						<CardHeader>
-							<CardTitle className={CARD_TITLE_CLASS}>
-								{t("employees.timeOffTitle")}
-							</CardTitle>
-							<CardDescription>
-								{t("employees.timeOffDescription")}
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							{profile.requests.length === 0 ? (
-								<p className="text-muted-foreground text-sm">
-									{t("employees.timeOffEmpty")}
-								</p>
-							) : (
-								<>
-									{/* A phone gets a two-line list: the four table columns need about 28rem. */}
-									<ul className="grid @md/main:hidden divide-y divide-border">
-										{profile.requests.map((request) => (
-											<li key={request.id}>
-												<Link
-													to="/app/time-off"
-													search={{ request: request.id }}
-													className="grid gap-1 py-3 text-sm"
-												>
-													<span className="flex items-center justify-between gap-3">
-														<TimeOffTypeMark type={request.type} />
-														<Badge
-															variant={TIME_OFF_STATUS_BADGE[request.status]}
-														>
-															{t(`timeOffStatuses.${request.status}`)}
-														</Badge>
-													</span>
-													<span className="flex flex-wrap gap-x-2 text-muted-foreground tabular-nums">
-														<span>
-															{dateFormat.formatRange(
-																new Date(dayKeyToMs(request.startDate)),
-																new Date(dayKeyToMs(request.endDate)),
-															)}
-														</span>
-														<span aria-hidden>·</span>
-														<span>{dayCount.format(request.days)}</span>
-													</span>
-												</Link>
-											</li>
-										))}
-									</ul>
-									<div className="@md/main:block hidden">
-										<Table>
-											<TableHeader>
-												<TableRow>
-													<TableHead>{t("timeOff.type")}</TableHead>
-													<TableHead>{t("timeOff.dates")}</TableHead>
-													<TableHead className="text-end">
-														{t("timeOff.days")}
-													</TableHead>
-													<TableHead>{t("timeOff.status")}</TableHead>
-												</TableRow>
-											</TableHeader>
-											<TableBody>
-												{profile.requests.map((request) => (
-													<TableRow key={request.id}>
-														<TableCell className="whitespace-nowrap">
-															<TimeOffTypeMark type={request.type} />
-														</TableCell>
-														<TableCell className="whitespace-nowrap tabular-nums">
-															<Link
-																to="/app/time-off"
-																search={{ request: request.id }}
-																className="hover:underline"
-															>
-																{dateFormat.formatRange(
-																	new Date(dayKeyToMs(request.startDate)),
-																	new Date(dayKeyToMs(request.endDate)),
-																)}
-															</Link>
-														</TableCell>
-														<TableCell className="text-end tabular-nums">
-															{number.format(request.days)}
-														</TableCell>
-														<TableCell>
-															<Badge
-																variant={TIME_OFF_STATUS_BADGE[request.status]}
-															>
-																{t(`timeOffStatuses.${request.status}`)}
-															</Badge>
-														</TableCell>
-													</TableRow>
-												))}
-											</TableBody>
-										</Table>
-									</div>
-								</>
-							)}
-						</CardContent>
-					</Card>
-				</div>
+// The kit skills card: the contract facts as outline badges.
+function ContractCard({ profile }: { profile: EmployeeProfile }) {
+	const { t, locale } = useT();
+	const { employee } = profile;
+	const number = new Intl.NumberFormat(locale);
+	const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const badges = [
+		employee.id,
+		t(`contracts.${employee.contract}`),
+		fillMessage(t("employees.hoursPerWeek"), {
+			hours: number.format(employee.weeklyHours),
+		}),
+		fillMessage(t("employees.allowancePerYear"), {
+			days: number.format(employee.annualAllowance),
+		}),
+		...(employee.endDate
+			? [
+					fillMessage(t("employees.endsOn"), {
+						date: dateFormat.format(dayKeyToMs(employee.endDate)),
+					}),
+				]
+			: []),
+	];
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>{t("employees.contractTitle")}</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<ul className="flex flex-wrap gap-2">
+					{badges.map((text) => (
+						<li key={text}>
+							<Badge variant="outline">{text}</Badge>
+						</li>
+					))}
+				</ul>
+			</CardContent>
+		</Card>
+	);
+}
 
-				<div className={COLUMN}>
-					<LeaveBalanceCard
-						balance={profile.balance}
-						className={ORDER.balance}
-					/>
-					<Card className={ORDER.manager}>
-						<CardHeader>
-							<CardTitle className={CARD_TITLE_CLASS}>
-								{t("employees.managerTitle")}
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{profile.manager ? (
-								<PersonRow person={profile.manager} />
-							) : (
-								<p className="text-muted-foreground text-sm">
-									{t("employees.noManager")}
-								</p>
-							)}
-						</CardContent>
-					</Card>
-					{profile.reports.length > 0 ? (
-						<Card className={ORDER.reports}>
-							<CardHeader>
-								<CardTitle
-									className={cn(
-										CARD_TITLE_CLASS,
-										"flex items-baseline justify-between gap-3",
-									)}
+// The kit activity card: the career events on a vertical rule, the newest first.
+function CareerCard({ events }: { events: CareerEventRow[] }) {
+	const { t, locale } = useT();
+	const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "long" });
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>{t("employees.careerTitle")}</CardTitle>
+				<CardDescription>{t("employees.careerDescription")}</CardDescription>
+			</CardHeader>
+			<CardContent className="ps-9">
+				<ol className="relative border-s">
+					{events.map((event, index) => {
+						const EventIcon = CAREER_ICON[event.kind];
+						return (
+							<li
+								key={event.id}
+								className={
+									index === events.length - 1
+										? "ms-6 grid gap-2"
+										: "ms-6 mb-8 grid gap-2"
+								}
+							>
+								<span className="absolute -start-3 flex size-6 items-center justify-center rounded-full border bg-muted">
+									<EventIcon className="size-3 text-primary" aria-hidden />
+								</span>
+								<h3 className="flex flex-wrap items-center gap-2 font-semibold">
+									{t(`careerEvents.${event.kind}`)}
+									{index === 0 ? (
+										<Badge variant="outline">{t("employees.latest")}</Badge>
+									) : null}
+								</h3>
+								<time
+									dateTime={event.day}
+									className="flex items-center gap-1.5 text-muted-foreground text-sm leading-none"
 								>
-									{t("employees.reportsTitle")}
-									<span className="font-numeric text-muted-foreground tabular-nums">
-										{number.format(profile.reports.length)}
-									</span>
-								</CardTitle>
-							</CardHeader>
-							<CardContent>
-								{/* The card spans two columns from 42rem, so the people sit in two columns there. */}
-								<ul className="grid @2xl/main:grid-cols-2 @4xl/main:grid-cols-1 gap-3">
-									{profile.reports.map((person) => (
-										<li key={person.id}>
-											<PersonRow person={person} />
-										</li>
-									))}
-								</ul>
-							</CardContent>
-						</Card>
-					) : null}
-					<Card className={ORDER.career}>
-						<CardHeader>
-							<CardTitle className={CARD_TITLE_CLASS}>
-								{t("employees.careerTitle")}
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<ol className="grid">
-								{profile.careerEvents.map((event, index) => {
-									const isLast = index === profile.careerEvents.length - 1;
-									return (
-										<li
-											key={event.id}
-											className="grid grid-cols-[1rem_1fr] gap-x-3 text-sm"
+									<ClockIcon className="size-3" aria-hidden />
+									{dateFormat.format(dayKeyToMs(event.day))}
+								</time>
+								{event.title ? (
+									<p className="text-muted-foreground text-sm" dir="auto">
+										{event.previousTitle
+											? fillMessage(t("employees.promotedFrom"), {
+													from: event.previousTitle,
+													to: event.title,
+												})
+											: event.title}
+									</p>
+								) : null}
+							</li>
+						);
+					})}
+				</ol>
+			</CardContent>
+		</Card>
+	);
+}
+
+type TimeOffHistoryCardProps = {
+	/** The latest requests of the employee, the latest first day first. */
+	requests: TimeOffRequest[];
+	/** Opens the Time off tab. */
+	onViewAll: () => void;
+};
+
+// The kit transaction card: a short table of the latest requests. A date range opens the request dialog.
+function TimeOffHistoryCard({ requests, onViewAll }: TimeOffHistoryCardProps) {
+	const { t, locale } = useT();
+	const number = new Intl.NumberFormat(locale);
+	return (
+		<Card className="min-w-0">
+			<CardHeader>
+				<CardTitle>{t("employees.timeOffTitle")}</CardTitle>
+				<CardAction>
+					<Button
+						type="button"
+						variant="link"
+						size="sm"
+						className="h-auto p-0 text-muted-foreground"
+						onClick={onViewAll}
+					>
+						{t("common.viewAll")}
+					</Button>
+				</CardAction>
+			</CardHeader>
+			<CardContent>
+				{requests.length === 0 ? (
+					<p className="text-muted-foreground text-sm">
+						{t("employees.noRequests")}
+					</p>
+				) : (
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>{t("timeOff.type")}</TableHead>
+								<TableHead>{t("timeOff.dates")}</TableHead>
+								<TableHead>{t("timeOff.status")}</TableHead>
+								<TableHead className="text-end">{t("timeOff.days")}</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{requests.map((request) => (
+								<TableRow key={request.id}>
+									<TableCell>
+										<TimeOffTypeMark type={request.type} />
+									</TableCell>
+									<TableCell className="whitespace-nowrap tabular-nums">
+										<Link
+											to="/app/time-off"
+											search={{ request: request.id }}
+											className="hover:underline"
 										>
-											<span className="flex flex-col items-center">
-												<span
-													className={cn(
-														"mt-1.5 size-2.5 shrink-0 rounded-full",
-														index === 0
-															? "bg-primary"
-															: "bg-muted-foreground/40",
-													)}
-													aria-hidden
-												/>
-												{isLast ? null : (
-													<span className="w-px flex-1 bg-border" aria-hidden />
-												)}
-											</span>
-											<div className={cn("grid gap-0.5", !isLast && "pb-5")}>
-												<span className="font-medium">
-													{t(`careerEvents.${event.kind}`)}
-												</span>
-												{event.title ? (
-													<span dir="auto">{event.title}</span>
-												) : null}
-												{event.previousTitle ? (
-													<span className="text-muted-foreground" dir="auto">
-														{t("employees.promotedFrom")} {event.previousTitle}
-													</span>
-												) : null}
-												<span className="text-muted-foreground tabular-nums">
-													{formatDay(event.day)}
-												</span>
-											</div>
-										</li>
-									);
-								})}
-							</ol>
-						</CardContent>
-					</Card>
-				</div>
-			</div>
-		</div>
+											{formatDayRange(
+												request.startDate,
+												request.endDate,
+												locale,
+											)}
+										</Link>
+									</TableCell>
+									<TableCell>
+										<Badge variant={TIME_OFF_STATUS_BADGE[request.status]}>
+											{t(`timeOffStatuses.${request.status}`)}
+										</Badge>
+									</TableCell>
+									<TableCell className="text-end font-medium tabular-nums">
+										{number.format(request.days)}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+// One row of the team card. The relation picks the label above the job title.
+type TeamMember = {
+	person: PersonLink;
+	relation: "manager" | "report" | "peer";
+};
+
+type TeamCardProps = {
+	/** The manager first, then the direct reports, then the peers. */
+	team: TeamMember[];
+	/** Opens the Team tab. The Team tab itself passes nothing, so the card has no "View all". */
+	onViewAll?: () => void;
+};
+
+// The kit connections card: one row per person, with an outline button to the profile.
+function TeamCard({ team, onViewAll }: TeamCardProps) {
+	const { t } = useT();
+	return (
+		<Card className="min-w-0">
+			<CardHeader>
+				<CardTitle>{t("employees.teamTitle")}</CardTitle>
+				{onViewAll ? (
+					<CardAction>
+						<Button
+							type="button"
+							variant="link"
+							size="sm"
+							className="h-auto p-0 text-muted-foreground"
+							onClick={onViewAll}
+						>
+							{t("common.viewAll")}
+						</Button>
+					</CardAction>
+				) : null}
+			</CardHeader>
+			<CardContent>
+				{team.length === 0 ? (
+					<p className="text-muted-foreground text-sm">
+						{t("employees.noTeam")}
+					</p>
+				) : (
+					<ul className="grid gap-4">
+						{team.map(({ person, relation }) => (
+							<li
+								key={person.id}
+								className="flex items-center justify-between gap-3"
+							>
+								<div className="flex min-w-0 items-center gap-3">
+									<PersonAvatar name={person.name} className="size-9" />
+									<div className="grid min-w-0 justify-items-start">
+										<span className="truncate font-medium" dir="auto">
+											{person.name}
+										</span>
+										{/* The relation and a long job title wrap: a single line runs under the View button. */}
+										<span className="text-muted-foreground text-xs" dir="auto">
+											{fillMessage(t(`employees.relations.${relation}`), {
+												title: person.title,
+											})}
+										</span>
+									</div>
+								</div>
+								<Button asChild variant="outline" size="sm">
+									<Link
+										to="/app/employees/$employeeId"
+										params={{ employeeId: person.id }}
+										aria-label={fillMessage(t("employees.viewProfileOf"), {
+											name: person.name,
+										})}
+									>
+										{t("employees.view")}
+									</Link>
+								</Button>
+							</li>
+						))}
+					</ul>
+				)}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -398,36 +584,32 @@ function EmployeeNotFound() {
 				{t("employees.notFoundDescription")}
 			</p>
 			<Button asChild variant="outline">
-				<Link to="/app/employees">{t("employees.backToList")}</Link>
+				<Link to="/app/employees">{t("employees.allEmployees")}</Link>
 			</Button>
 		</div>
 	);
 }
 
-// Placeholder blocks of the main column. Fixed keys, because the blocks never reorder.
-const SKELETON_BLOCKS = ["facts", "time-off"];
-
 /** Placeholder while the profile loader runs. The route sets it as pendingComponent. */
 export function EmployeeProfileSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<Skeleton className="h-4 w-32" />
-			<div className="flex items-center gap-4">
-				<Skeleton className="size-14 rounded-full" />
-				<div className="grid gap-2">
-					<Skeleton className="h-8 w-56" />
-					<Skeleton className="h-4 w-40" />
-				</div>
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-3">
+				<Skeleton className="h-8 w-48" />
+				<Skeleton className="h-9 w-64 max-w-full" />
 			</div>
-			<div className="grid @4xl/main:grid-cols-[minmax(0,1fr)_20rem] items-start gap-6">
-				<div className="grid gap-6">
-					{SKELETON_BLOCKS.map((key) => (
-						<Skeleton key={key} className="h-48 rounded-surface" />
-					))}
+			<Skeleton className="h-9 w-64" />
+			<div className="grid items-start gap-4 xl:grid-cols-3">
+				<div className="grid gap-4">
+					<Skeleton className="h-112" />
+					<Skeleton className="h-32" />
 				</div>
-				<div className="grid gap-6">
-					<Skeleton className="h-72 rounded-surface" />
-					<Skeleton className="h-48 rounded-surface" />
+				<div className="grid gap-4 xl:col-span-2">
+					<Skeleton className="h-72" />
+					<div className="grid gap-4 xl:grid-cols-2">
+						<Skeleton className="h-64" />
+						<Skeleton className="h-64" />
+					</div>
 				</div>
 			</div>
 		</div>

@@ -10,7 +10,7 @@ import {
 	type Transaction,
 } from "~/features/ledger";
 
-/** The months that the page can show. The ledger keeps 90 days, so the month before is always complete. */
+/** The months that the page can show. The ledger keeps 186 days, so the month before is always complete. */
 export const BUDGET_MONTHS = ["current", "previous"] as const;
 
 /** One month choice. Its label is the name of the month. */

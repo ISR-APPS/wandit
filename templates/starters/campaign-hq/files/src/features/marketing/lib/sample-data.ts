@@ -100,7 +100,7 @@ export const CAMPAIGN_EVENT_KINDS = [
 	"ended",
 ] as const;
 
-/** One kind of campaign event. Its text is the message key `events.<kind>`. */
+/** One kind of campaign event. Its text is the message key `eventsHere.<kind>`. */
 export type CampaignEventKind = (typeof CAMPAIGN_EVENT_KINDS)[number];
 
 /** One event on the timeline of a campaign. Every event is in the past. */
@@ -164,6 +164,7 @@ type AudienceSeed = {
 	engagementRate: number;
 };
 
+// The seeds stay grouped by client, in the order of CLIENTS: the table lists them in this order.
 const AUDIENCES: AudienceSeed[] = [
 	{
 		client: "kestrel",
@@ -196,6 +197,26 @@ const AUDIENCES: AudienceSeed[] = [
 		engagementRate: 0.023,
 	},
 	{
+		client: "kestrel",
+		name: "Newsletter subscribers",
+		type: "customer_list",
+		definition:
+			"People who opted in to the training tips email, from the store sign-up form.",
+		size: 88_400,
+		growth: 0.029,
+		engagementRate: 0.058,
+	},
+	{
+		client: "kestrel",
+		name: "Race page visitors, 30 days",
+		type: "retargeting",
+		definition:
+			"Visitors of a race shoe page in the last 30 days who did not buy.",
+		size: 23_600,
+		growth: -0.018,
+		engagementRate: 0.044,
+	},
+	{
 		client: "tidewell",
 		name: "Pool and open-water swimmers",
 		type: "interest",
@@ -214,6 +235,36 @@ const AUDIENCES: AudienceSeed[] = [
 		size: 7_900,
 		growth: -0.064,
 		engagementRate: 0.048,
+	},
+	{
+		client: "tidewell",
+		name: "Past buyers, 12 months",
+		type: "customer_list",
+		definition:
+			"Customers with an order in the last 12 months, from the store export of each Monday.",
+		size: 31_900,
+		growth: 0.024,
+		engagementRate: 0.066,
+	},
+	{
+		client: "tidewell",
+		name: "Lookalike of past buyers, 1%",
+		type: "lookalike",
+		definition:
+			"The 1% of adults in the market who are most like the past buyers list.",
+		size: 1_980_000,
+		growth: 0.003,
+		engagementRate: 0.019,
+	},
+	{
+		client: "tidewell",
+		name: "Swim school parents",
+		type: "interest",
+		definition:
+			"Parents who follow swim lessons, kids sports clubs, or water safety topics.",
+		size: 540_000,
+		growth: 0.031,
+		engagementRate: 0.024,
 	},
 	{
 		client: "saltmarsh",
@@ -236,6 +287,36 @@ const AUDIENCES: AudienceSeed[] = [
 		engagementRate: 0.089,
 	},
 	{
+		client: "saltmarsh",
+		name: "Lookalike of trade buyers, 2%",
+		type: "lookalike",
+		definition:
+			"The 2% of adults in the market who are most like the bar and restaurant buyers.",
+		size: 1_640_000,
+		growth: 0.005,
+		engagementRate: 0.018,
+	},
+	{
+		client: "saltmarsh",
+		name: "Site visitors, 30 days",
+		type: "retargeting",
+		definition:
+			"Every visitor of the online shop in the last 30 days, except buyers of the last 7 days.",
+		size: 19_200,
+		growth: 0.067,
+		engagementRate: 0.039,
+	},
+	{
+		client: "saltmarsh",
+		name: "Gift buyers, last season",
+		type: "customer_list",
+		definition:
+			"Customers who sent a gift box in the last winter season, from the order export.",
+		size: 8_700,
+		growth: -0.012,
+		engagementRate: 0.061,
+	},
+	{
 		client: "brightfold",
 		name: "Stationery and planner fans",
 		type: "interest",
@@ -254,6 +335,36 @@ const AUDIENCES: AudienceSeed[] = [
 		size: 58_400,
 		growth: 0.118,
 		engagementRate: 0.037,
+	},
+	{
+		client: "brightfold",
+		name: "Past buyers, 12 months",
+		type: "customer_list",
+		definition:
+			"Customers with an order in the last 12 months, from the store export of each Monday.",
+		size: 24_100,
+		growth: 0.036,
+		engagementRate: 0.069,
+	},
+	{
+		client: "brightfold",
+		name: "Lookalike of past buyers, 1%",
+		type: "lookalike",
+		definition:
+			"The 1% of adults in the market who are most like the past buyers list.",
+		size: 2_040_000,
+		growth: 0.004,
+		engagementRate: 0.021,
+	},
+	{
+		client: "brightfold",
+		name: "Students and teachers",
+		type: "interest",
+		definition:
+			"People who follow study tips, school supplies, or classroom organization.",
+		size: 1_380_000,
+		growth: 0.058,
+		engagementRate: 0.023,
 	},
 	{
 		client: "verano",
@@ -276,6 +387,36 @@ const AUDIENCES: AudienceSeed[] = [
 		engagementRate: 0.018,
 	},
 	{
+		client: "verano",
+		name: "Past buyers, 24 months",
+		type: "customer_list",
+		definition:
+			"Customers with an order in the last 24 months, from the store export of each Monday.",
+		size: 38_500,
+		growth: 0.019,
+		engagementRate: 0.062,
+	},
+	{
+		client: "verano",
+		name: "Cart abandoners, 14 days",
+		type: "retargeting",
+		definition:
+			"Visitors who put an item in the cart and left without an order in the last 14 days.",
+		size: 11_300,
+		growth: -0.048,
+		engagementRate: 0.046,
+	},
+	{
+		client: "verano",
+		name: "Garden and patio fans",
+		type: "interest",
+		definition:
+			"People who follow garden design, patio furniture, or outdoor cooking.",
+		size: 1_560_000,
+		growth: 0.022,
+		engagementRate: 0.017,
+	},
+	{
 		client: "quillby",
 		name: "Book club members",
 		type: "customer_list",
@@ -296,6 +437,36 @@ const AUDIENCES: AudienceSeed[] = [
 		engagementRate: 0.022,
 	},
 	{
+		client: "quillby",
+		name: "Lookalike of club members, 1%",
+		type: "lookalike",
+		definition:
+			"The 1% of adults in the market who are most like the book club members.",
+		size: 1_870_000,
+		growth: 0.007,
+		engagementRate: 0.02,
+	},
+	{
+		client: "quillby",
+		name: "Cart abandoners, 7 days",
+		type: "retargeting",
+		definition:
+			"Visitors who put a book in the cart and left without an order in the last 7 days.",
+		size: 4_600,
+		growth: -0.035,
+		engagementRate: 0.051,
+	},
+	{
+		client: "quillby",
+		name: "Parents of young readers",
+		type: "interest",
+		definition:
+			"Parents who follow picture books, reading lists for children, or school libraries.",
+		size: 820_000,
+		growth: 0.026,
+		engagementRate: 0.025,
+	},
+	{
 		client: "oakline",
 		name: "Commuter cyclists",
 		type: "interest",
@@ -314,6 +485,36 @@ const AUDIENCES: AudienceSeed[] = [
 		size: 41_300,
 		growth: 0.092,
 		engagementRate: 0.041,
+	},
+	{
+		client: "oakline",
+		name: "Past buyers, 24 months",
+		type: "customer_list",
+		definition:
+			"Customers with a bike or a service order in the last 24 months, from the shop system.",
+		size: 14_800,
+		growth: 0.017,
+		engagementRate: 0.073,
+	},
+	{
+		client: "oakline",
+		name: "Lookalike of past buyers, 1%",
+		type: "lookalike",
+		definition:
+			"The 1% of adults in the market who are most like the past buyers list.",
+		size: 1_720_000,
+		growth: 0.003,
+		engagementRate: 0.019,
+	},
+	{
+		client: "oakline",
+		name: "Gravel and touring riders",
+		type: "interest",
+		definition:
+			"People who follow gravel races, bike packing, or long touring routes.",
+		size: 430_000,
+		growth: 0.049,
+		engagementRate: 0.022,
 	},
 	{
 		client: "mirelle",
@@ -344,6 +545,26 @@ const AUDIENCES: AudienceSeed[] = [
 		size: 12_400,
 		growth: -0.021,
 		engagementRate: 0.052,
+	},
+	{
+		client: "mirelle",
+		name: "Clean beauty followers",
+		type: "interest",
+		definition:
+			"People who follow clean beauty creators, ingredient guides, or skin care routines.",
+		size: 2_870_000,
+		growth: 0.033,
+		engagementRate: 0.02,
+	},
+	{
+		client: "mirelle",
+		name: "Lapsed subscribers, 90 days",
+		type: "customer_list",
+		definition:
+			"Customers who stopped a refill subscription in the last 90 days, from the billing export.",
+		size: 5_300,
+		growth: 0.014,
+		engagementRate: 0.038,
 	},
 ];
 
@@ -384,7 +605,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.6, search: 0.4 },
 		pace: 0.93,
 		owner: 2,
-		audiences: [12],
+		audiences: [26, 25, 27, 29, 28],
 		brief:
 			"Staff picks from independent presses, with a short review for each title.",
 		topics: [],
@@ -399,7 +620,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, search: 0.3, email: 0.2 },
 		pace: 0.95,
 		owner: 0,
-		audiences: [5],
+		audiences: [10, 11, 12, 13, 14],
 		brief:
 			"Tour bookings at the distillery, with a tasting of three gins at the end.",
 		topics: [],
@@ -414,7 +635,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.4, email: 0.2 },
 		pace: 0.96,
 		owner: 1,
-		audiences: [9, 10],
+		audiences: [20, 21, 22, 24, 23],
 		brief: "Garden chairs, lanterns, and outdoor textiles at 20% off.",
 		topics: [],
 	},
@@ -428,7 +649,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, email: 0.2, partners: 0.3 },
 		pace: 0.94,
 		owner: 2,
-		audiences: [0, 2],
+		audiences: [0, 2, 1, 3, 4],
 		brief: "Four new colorways of the road shoe, shown by club runners.",
 		topics: [],
 	},
@@ -442,7 +663,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, video: 0.6 },
 		pace: 0.92,
 		owner: 4,
-		audiences: [13],
+		audiences: [30, 31, 32, 34, 33],
 		brief: "A video series of weekend gravel routes, filmed with local riders.",
 		topics: [],
 	},
@@ -456,7 +677,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.45, search: 0.3, partners: 0.25 },
 		pace: 0.97,
 		owner: 1,
-		audiences: [16, 17],
+		audiences: [36, 37, 35, 38, 39],
 		brief:
 			"A routine of four fragrance-free products, explained by a dermatology nurse.",
 		topics: [],
@@ -471,7 +692,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, email: 0.3, partners: 0.2 },
 		pace: 0.9,
 		owner: 3,
-		audiences: [7],
+		audiences: [15, 16, 17, 19, 18],
 		brief: "Prompts for one letter a day, with free envelope templates.",
 		topics: [],
 	},
@@ -485,7 +706,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.35, search: 0.5, email: 0.15 },
 		pace: 0.95,
 		owner: 0,
-		audiences: [3, 4],
+		audiences: [5, 6, 7, 8, 9],
 		brief: "Two pairs of goggles and a case for the price of one pair.",
 		topics: [],
 	},
@@ -499,7 +720,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.3, email: 0.2, video: 0.5 },
 		pace: 0.91,
 		owner: 4,
-		audiences: [11, 12],
+		audiences: [25, 26, 27, 28, 29],
 		brief: "Short filmed interviews with six authors of the spring list.",
 		topics: [],
 	},
@@ -513,7 +734,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, search: 0.2, partners: 0.3 },
 		pace: 0.96,
 		owner: 2,
-		audiences: [5],
+		audiences: [10, 12, 13, 14, 11],
 		brief: "A pairing card for each gin, with three tonics and a garnish.",
 		topics: [
 			"Three tonics, one gin",
@@ -533,7 +754,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, email: 0.2, partners: 0.4 },
 		pace: 0.94,
 		owner: 5,
-		audiences: [10],
+		audiences: [21, 20, 22, 23, 24],
 		brief: "A limited table set made with a studio potter, in 400 pieces.",
 		topics: [
 			"Studio visit with the potter",
@@ -553,7 +774,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.2, search: 0.5, email: 0.3 },
 		pace: 0.97,
 		owner: 3,
-		audiences: [7, 8],
+		audiences: [15, 16, 18, 19, 17],
 		brief: "Sign-ups for a refill every quarter, with the first one free.",
 		topics: [
 			"First refill free",
@@ -573,7 +794,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.3, email: 0.15, partners: 0.15 },
 		pace: 1.02,
 		owner: 0,
-		audiences: [0, 1],
+		audiences: [0, 1, 2, 3, 4],
 		brief: "A free 16-week plan by email, with coach videos for the long runs.",
 		topics: [
 			"Long-run plan",
@@ -596,7 +817,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.35, email: 0.25 },
 		pace: 1.12,
 		owner: 1,
-		audiences: [15, 17],
+		audiences: [35, 37, 36, 38, 39],
 		brief: "Refill pouches that use 70% less plastic than a new bottle.",
 		topics: [
 			"Refill in 30 seconds",
@@ -619,7 +840,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.3, search: 0.2, video: 0.5 },
 		pace: 0.86,
 		owner: 4,
-		audiences: [13, 14],
+		audiences: [30, 31, 32, 33, 34],
 		brief:
 			"Riders show their daily route and the time that they save against the car.",
 		topics: [
@@ -643,7 +864,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.45, email: 0.15 },
 		pace: 1,
 		owner: 0,
-		audiences: [3, 4],
+		audiences: [5, 6, 8, 9, 7],
 		brief: "The new training range: suits, caps, and a mesh bag.",
 		topics: [
 			"New training suits",
@@ -663,7 +884,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, search: 0.25, email: 0.25 },
 		pace: 0.99,
 		owner: 3,
-		audiences: [11],
+		audiences: [25, 26, 27, 28, 29],
 		brief: "A monthly box of two books and a tea, chosen by the shop staff.",
 		topics: [
 			"This month's box",
@@ -686,7 +907,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.35, search: 0.45, video: 0.2 },
 		pace: 1.04,
 		owner: 1,
-		audiences: [9],
+		audiences: [20, 21, 23, 24, 22],
 		brief:
 			"A free guide to furnish a first home room by room, in exchange for an email.",
 		topics: [
@@ -710,7 +931,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.2, video: 0.45, partners: 0.35 },
 		pace: 1.15,
 		owner: 2,
-		audiences: [5, 6],
+		audiences: [10, 11, 12, 13, 14],
 		brief: "Five bartenders make their signature drink with the coastal gin.",
 		topics: [
 			"Signature serve",
@@ -733,7 +954,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.45, search: 0.3, partners: 0.25 },
 		pace: 0.97,
 		owner: 5,
-		audiences: [7, 8],
+		audiences: [15, 16, 17, 18, 19],
 		brief:
 			"Pre-orders of next year's planner, with a free pen for the first 2,000.",
 		topics: [
@@ -757,7 +978,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.35, search: 0.45, email: 0.2 },
 		pace: 1.01,
 		owner: 0,
-		audiences: [13],
+		audiences: [30, 31, 33, 34, 32],
 		brief: "Bookings of a free 30-minute test ride at the three city stores.",
 		topics: [
 			"Book a 30-minute ride",
@@ -780,7 +1001,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.15, video: 0.15, partners: 0.3 },
 		pace: 1,
 		owner: 1,
-		audiences: [15, 16],
+		audiences: [35, 36, 37, 39, 38],
 		brief:
 			"The launch of the barrier serum, with before-and-after results from 40 testers.",
 		topics: [
@@ -804,7 +1025,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.45, search: 0.25, video: 0.15, partners: 0.15 },
 		pace: 0.88,
 		owner: 2,
-		audiences: [0, 2],
+		audiences: [0, 2, 1, 3, 4],
 		brief: "The trail shoe range and a route guide for six regional parks.",
 		topics: [
 			"Six-park route guide",
@@ -828,7 +1049,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, video: 0.6 },
 		pace: 0.93,
 		owner: 4,
-		audiences: [3],
+		audiences: [5, 6, 7, 9, 8],
 		brief: "Films of four open-water swims, with safety tips from a coach.",
 		topics: [
 			"The harbor swim",
@@ -849,7 +1070,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.55, search: 0.45 },
 		pace: 1,
 		owner: 3,
-		audiences: [12],
+		audiences: [26, 25, 28, 29, 27],
 		brief: "Three crime novels for the price of two, all month.",
 		topics: [
 			"Three for two on crime",
@@ -870,7 +1091,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, search: 0.3, email: 0.2 },
 		pace: 0.9,
 		owner: 5,
-		audiences: [5, 6],
+		audiences: [10, 11, 12, 14, 13],
 		brief: "The botanicals of the new gin, from the shore where they grow.",
 		topics: [
 			"From the shore",
@@ -890,7 +1111,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, email: 0.5 },
 		pace: 1,
 		owner: 3,
-		audiences: [1],
+		audiences: [1, 0, 2, 3, 4],
 		brief: "Members bring a friend to a club run, and both get socks.",
 		topics: [
 			"Bring a friend run",
@@ -910,7 +1131,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { search: 0.6, email: 0.4 },
 		pace: 1,
 		owner: 0,
-		audiences: [14],
+		audiences: [31, 30, 32, 33, 34],
 		brief: "A yearly service plan with two tune-ups and free brake pads.",
 		topics: [
 			"Two tune-ups a year",
@@ -930,7 +1151,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, search: 0.3, partners: 0.2 },
 		pace: 1,
 		owner: 5,
-		audiences: [8],
+		audiences: [16, 15, 17, 18, 19],
 		brief: "Desk sets for students and new office starters.",
 		topics: [
 			"Student desk set",
@@ -953,7 +1174,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.5, email: 0.2, partners: 0.3 },
 		pace: 1,
 		owner: 2,
-		audiences: [10],
+		audiences: [21, 20, 22, 23, 24],
 		brief: "Washed linen bedding in six colors, shown in real homes.",
 		topics: [
 			"Washed linen, six colors",
@@ -973,7 +1194,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.6, search: 0.4 },
 		pace: 1,
 		owner: 1,
-		audiences: [16],
+		audiences: [36, 35, 37, 38, 39],
 		brief:
 			"A five-question quiz that gives a routine and a sample code by email.",
 		topics: [
@@ -994,7 +1215,7 @@ const CAMPAIGNS: CampaignSeed[] = [
 		mix: { paid_social: 0.4, search: 0.35, video: 0.25 },
 		pace: 1,
 		owner: 0,
-		audiences: [3, 4],
+		audiences: [5, 6, 7, 8, 9],
 		brief: "The launch of the Lane Two suit for club and masters swimmers.",
 		topics: [
 			"Lane Two first look",

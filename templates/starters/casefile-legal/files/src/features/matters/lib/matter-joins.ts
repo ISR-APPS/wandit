@@ -1,5 +1,5 @@
 // Joins of the sample tables for the matter pages: one summary row per matter, and the full file of one matter.
-// matters.queries.ts calls these functions in its queryFn. The board and the client pages reuse the summaries.
+// matters.queries.ts calls these functions in its queryFn. The dashboard and the client pages reuse the summaries.
 // A later database does the same joins in a SQL view; the shapes stay.
 import {
 	buildMatterLedgers,
@@ -9,6 +9,7 @@ import {
 	ledgerOf,
 	type MatterLedger,
 	type MatterRow,
+	type PaymentRow,
 	type SampleTables,
 	type StageChangeRow,
 	type TimeEntryRow,
@@ -23,6 +24,8 @@ export type MatterSummary = MatterRow & {
 	nextDeadline: DeadlineRow | null;
 	/** Hours and money of the matter, the same sums on every page. */
 	ledger: MatterLedger;
+	/** Names of the people who work on the matter: the lead first, then each person who logged time on it. */
+	teamNames: string[];
 };
 
 /** One time entry with the name of the person who logged it. */
@@ -50,6 +53,8 @@ export type MatterFile = {
 	entries: TimeEntryLine[];
 	/** Newest first. */
 	invoices: InvoiceRow[];
+	/** The payments of the invoices of the matter, newest first. */
+	payments: PaymentRow[];
 	/** The lead first, then by hours. */
 	team: TeamMember[];
 };
@@ -71,6 +76,12 @@ export function buildMatterSummaries(tables: SampleTables): MatterSummary[] {
 			nextDeadline.set(deadline.matterId, deadline);
 		}
 	}
+	const teamIds = new Map<string, Set<string>>(
+		tables.matters.map((matter) => [matter.id, new Set([matter.leadId])]),
+	);
+	for (const entry of tables.timeEntries) {
+		teamIds.get(entry.matterId)?.add(entry.attorneyId);
+	}
 	return tables.matters
 		.map((matter) => ({
 			...matter,
@@ -78,6 +89,10 @@ export function buildMatterSummaries(tables: SampleTables): MatterSummary[] {
 			leadName: attorneyName.get(matter.leadId) ?? "",
 			nextDeadline: nextDeadline.get(matter.id) ?? null,
 			ledger: ledgerOf(ledgers, matter.id),
+			// A Set keeps the order of insertion, so the lead stays first.
+			teamNames: [...(teamIds.get(matter.id) ?? [])].map(
+				(attorneyId) => attorneyName.get(attorneyId) ?? "",
+			),
 		}))
 		.sort(
 			(first, second) =>
@@ -135,6 +150,10 @@ export function buildMatterFile(
 				Number(second.isLead) - Number(first.isLead) ||
 				second.hours - first.hours,
 		);
+	const invoices = tables.invoices
+		.filter((invoice) => invoice.matterId === matterId)
+		.sort((first, second) => second.issuedAt.localeCompare(first.issuedAt));
+	const invoiceIds = new Set(invoices.map((invoice) => invoice.id));
 	return {
 		matter,
 		client,
@@ -145,9 +164,10 @@ export function buildMatterFile(
 			.filter((deadline) => deadline.matterId === matterId)
 			.sort((first, second) => first.dueAt.localeCompare(second.dueAt)),
 		entries,
-		invoices: tables.invoices
-			.filter((invoice) => invoice.matterId === matterId)
-			.sort((first, second) => second.issuedAt.localeCompare(first.issuedAt)),
+		invoices,
+		payments: tables.payments
+			.filter((payment) => invoiceIds.has(payment.invoiceId))
+			.sort((first, second) => second.paidAt.localeCompare(first.paidAt)),
 		team,
 	};
 }

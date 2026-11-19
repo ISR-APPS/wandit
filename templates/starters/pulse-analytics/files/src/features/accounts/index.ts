@@ -1,9 +1,9 @@
 export {
 	type Account,
-	accountActivityQueryOptions,
 	accountQueryOptions,
 	accountsQueryOptions,
 } from "./api/accounts.queries";
+export { alertsQueryOptions } from "./api/alerts.queries";
 export {
 	AccountDetailPage,
 	AccountDetailPageSkeleton,
@@ -13,4 +13,3 @@ export {
 	AccountsPageError,
 	AccountsPageSkeleton,
 } from "./components/accounts-page";
-export { ACCOUNT_STATUS_BADGE } from "./lib/account-status";

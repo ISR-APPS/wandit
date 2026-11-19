@@ -11,5 +11,4 @@ export {
 	ReservationsPage,
 	ReservationsPageError,
 	ReservationsPageSkeleton,
-	type ReservationsView,
 } from "./components/reservations-page";

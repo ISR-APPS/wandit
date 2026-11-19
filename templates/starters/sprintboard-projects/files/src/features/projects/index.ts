@@ -1,4 +1,5 @@
 export {
+	type Project,
 	projectQueryOptions,
 	projectsQueryOptions,
 } from "./api/projects.queries";
@@ -11,4 +12,6 @@ export {
 	ProjectsPageError,
 	ProjectsPageSkeleton,
 } from "./components/projects-page";
-export { projectsSearchSchema } from "./lib/projects-search";
+export { projectCsvColumns } from "./lib/project-csv";
+export { progressOf } from "./lib/project-progress";
+export { projectSearchSchema } from "./lib/project-search";

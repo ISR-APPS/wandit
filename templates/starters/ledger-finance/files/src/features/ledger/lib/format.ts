@@ -87,3 +87,12 @@ export function monthFormat(locale: string): Intl.DateTimeFormat {
 		timeZone: "UTC",
 	});
 }
+
+/** A formatter for a count of days, for example "30 days". The period controls and the period lines use it. */
+export function dayCountFormat(locale: string): Intl.NumberFormat {
+	return new Intl.NumberFormat(locale, {
+		style: "unit",
+		unit: "day",
+		unitDisplay: "long",
+	});
+}

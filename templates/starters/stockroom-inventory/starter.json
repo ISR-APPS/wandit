@@ -14,7 +14,7 @@
 			"mode": "light",
 			"primary": "look",
 			"font": "look",
-			"displayFont": "look",
+			"displayFont": "schibsted-grotesk",
 			"scale": "sm",
 			"radius": "sm",
 			"border": "1",
@@ -28,7 +28,7 @@
 			"activeItem": "bar",
 			"header": "bar",
 			"userMenu": "sidebar-footer",
-			"frame": "flat",
+			"frame": "outlined",
 			"icons": "regular",
 			"navIcon": "plain"
 		}

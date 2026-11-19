@@ -46,6 +46,18 @@ export const UNIT_DIRECTION = {
 	reward: 1,
 } satisfies Record<TransactionType, 1 | -1>;
 
+/**
+ * Badge variant per transaction type, beside the asset name of an activity row.
+ * The word always shows, so the tint only helps the eye: a buy and a sell never share a tint.
+ */
+export const TRANSACTION_TYPE_BADGE = {
+	buy: "warning",
+	sell: "info",
+	deposit: "success",
+	withdrawal: "outline",
+	reward: "success",
+} satisfies Record<TransactionType, BadgeVariant>;
+
 /** The statuses of a transaction. Only a confirmed transaction changes a position. */
 export const TRANSACTION_STATUSES = ["confirmed", "pending", "failed"] as const;
 

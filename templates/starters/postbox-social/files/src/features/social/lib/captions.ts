@@ -7,6 +7,7 @@ import type { Pillar } from "./post-vocabulary";
 export type PostCopy = {
 	title: string;
 	caption: string;
+	/** Each tag with its leading "#", for example "#cityguide". */
 	hashtags: string[];
 };
 

@@ -15,16 +15,6 @@ export function parsePeriodDays(value: string): PeriodDays {
 	return PERIOD_DAYS.find((days) => String(days) === value) ?? DEFAULT_DAYS;
 }
 
-/** One day of a trend, oldest first in a list. */
-export type DailyPoint = {
-	/** YYYY-MM-DD in the browser time zone. */
-	day: string;
-	/** The value of that day. */
-	current: number;
-	/** The value of the same day one period earlier. */
-	previous: number;
-};
-
 /** Change against an earlier value, as a ratio: 0.12 is +12 %. null when the earlier value is 0: no delta shows. */
 export function changeRatio(current: number, previous: number): number | null {
 	return previous === 0 ? null : (current - previous) / previous;

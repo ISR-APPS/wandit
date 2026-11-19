@@ -15,7 +15,7 @@ export const TICKET_STATUSES = [
 /** One status. "pending" waits for the customer, so its SLA clock stops. */
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
-/** The statuses that the team still works on. The queue, the header counts, and the late count use them. */
+/** The statuses that the team still works on. The home figures, the bell, and the late count use them. */
 export const OPEN_STATUSES = ["new", "open", "pending"] as const;
 
 /** True for a ticket that is in the queue. Solved and closed tickets are done. */

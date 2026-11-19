@@ -1,6 +1,7 @@
 export {
 	courseQueryOptions,
 	coursesQueryOptions,
+	featuredCourseId,
 } from "./api/courses.queries";
 export {
 	CourseDetailPage,

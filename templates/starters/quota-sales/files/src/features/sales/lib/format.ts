@@ -1,4 +1,4 @@
-// The number and text formats of the board: money, percent, initials, axis tops, plural forms, and messages with values.
+// The number and text formats of the board: money, percent, day counts, initials, plural forms, and messages with values.
 // Every page formats amounts through these functions, so the currency is set in one place.
 // The format functions take the locale of useT().
 
@@ -31,6 +31,15 @@ export const MONEY_OPTIONS: Intl.NumberFormatOptions = {
 	maximumFractionDigits: 0,
 };
 
+/** A count of days, for example "30 days". The period select and the page descriptions use it. */
+export function dayCountFormat(locale: string): Intl.NumberFormat {
+	return new Intl.NumberFormat(locale, {
+		style: "unit",
+		unit: "day",
+		unitDisplay: "long",
+	});
+}
+
 /** A ratio as a whole percent, for example 0.873 as "87%". */
 export function percentFormat(locale: string): Intl.NumberFormat {
 	return new Intl.NumberFormat(locale, {
@@ -45,19 +54,6 @@ export function initialsOf(name: string): string {
 	const first = parts[0]?.[0] ?? "";
 	const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
 	return `${first}${last}`.toLocaleUpperCase();
-}
-
-// Each step splits into 4 round ticks: 120 gives 30, 60, 90; 160 gives 40, 80, 120.
-const NICE_STEPS = [1, 1.2, 1.6, 2, 2.4, 3.2, 4, 6, 8, 10];
-
-/** The smallest round number at or above `value`, for the top of a chart axis with 5 ticks. 0 or less gives 1. */
-export function niceCeiling(value: number): number {
-	if (value <= 0) {
-		return 1;
-	}
-	const magnitude = 10 ** Math.floor(Math.log10(value));
-	const step = NICE_STEPS.find((candidate) => candidate * magnitude >= value);
-	return (step ?? 10) * magnitude;
 }
 
 /**

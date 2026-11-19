@@ -4,3 +4,4 @@ export {
 	InvoicesPageError,
 	InvoicesPageSkeleton,
 } from "./components/invoices-page";
+export { invoiceCsvColumns } from "./lib/invoice-csv";

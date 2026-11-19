@@ -1,16 +1,12 @@
-// The trend card of the activities page: one bar per day, two views of the same counts, and a period control.
-// ActivitiesPage renders it and holds the period. The card reads the daily series of that period itself,
-// because the period changes after a click. It follows the chart form "bars" of the app-dashboard skill.
+// The trend card of the Activities page: three totals of the period, then an area chart per day or as a running total.
+// ActivitiesPage renders it with the period of the page header. The card reads the daily series of that period itself.
+// The chart file loads with React.lazy. While a new period loads, the card keeps the last period, so the plot does not jump.
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { lazy, Suspense, useState } from "react";
 import {
 	ChangeLine,
 	type DailyPoint,
-	dayCountFormat,
 	dayToDate,
-	fillMessage,
-	PERIOD_DAYS,
 	type PeriodDays,
 	totalsOf,
 } from "~/features/crm";
@@ -24,38 +20,22 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import {
-	type ChartConfig,
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "~/shared/ui/chart";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
-import { type AppThemeFile, useAppTheme } from "~/styles/theme";
 import { dailyActivitiesQueryOptions } from "../api/activities.queries";
 
-/** Bar corner in px for each radius of the theme. recharts takes a number, not a CSS variable. */
-const BAR_RADIUS_PX = {
-	none: 0,
-	sm: 2,
-	md: 2,
-	lg: 4,
-	xl: 4,
-} satisfies Record<AppThemeFile["selection"]["radius"], number>;
+// The chart file holds the chart library. A lazy import keeps it out of the first script of the app.
+const ActivityAreaChart = lazy(() =>
+	import("./activity-area-chart").then((module) => ({
+		default: module.ActivityAreaChart,
+	})),
+);
 
 /** The two views of the plot: the count of each day, or the sum since the first day. */
 const TREND_VIEWS = ["perDay", "runningTotal"] as const;
 type TrendView = (typeof TREND_VIEWS)[number];
 
-// Adds the days one by one, so the last bar is the total of the period.
+// Adds the days one by one, so the last point is the total of the period.
 function toRunningTotal(points: DailyPoint[]): DailyPoint[] {
 	let total = 0;
 	return points.map((point) => {
@@ -65,102 +45,59 @@ function toRunningTotal(points: DailyPoint[]): DailyPoint[] {
 }
 
 type ActivityTrendCardProps = {
-	/** The period of the plot, in days. ActivitiesPage holds it. */
+	/** The period of the page header, in days. */
 	days: PeriodDays;
-	/** Runs when the user picks another period. */
-	onDaysChange: (days: PeriodDays) => void;
 };
 
-/** While a new period loads, the card keeps the bars of the last period, so the plot does not jump. */
-export function ActivityTrendCard({
-	days,
-	onDaysChange,
-}: ActivityTrendCardProps) {
-	const { t, locale, dir } = useT();
+/** The change of the total compares with the period before, of the same length. */
+export function ActivityTrendCard({ days }: ActivityTrendCardProps) {
+	const { t, locale } = useT();
 	const trend = useQuery({
 		...dailyActivitiesQueryOptions(days),
 		placeholderData: keepPreviousData,
 	});
 	const [view, setView] = useState<TrendView>("perDay");
-	const barRadius = BAR_RADIUS_PX[useAppTheme().selection.radius];
-
 	const number = new Intl.NumberFormat(locale);
-	const compact = new Intl.NumberFormat(locale, { notation: "compact" });
+	const average = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
 	const dayFormat = new Intl.DateTimeFormat(locale, {
 		day: "numeric",
 		month: "short",
 		timeZone: "UTC",
 	});
-	const dayCount = dayCountFormat(locale);
-	const chartConfig = {
-		current: { label: t("activities.title"), color: "var(--chart-1)" },
-	} satisfies ChartConfig;
 
 	const points = trend.data ?? [];
 	const totals = totalsOf(points);
-	const plotted = view === "perDay" ? points : toRunningTotal(points);
-	const lastPoint = points.at(-1);
-	const isRtl = dir === "rtl";
+	// The first busiest day wins a tie. reduce keeps the earlier point when the values are equal.
+	const busiest = points.reduce<DailyPoint | null>(
+		(best, point) => (best && best.current >= point.current ? best : point),
+		null,
+	);
 
 	return (
-		<Card>
+		<Card className="@4xl/main:col-span-2">
 			<CardHeader>
 				<CardTitle>{t("activities.trendTitle")}</CardTitle>
-				<CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-					{trend.data ? (
-						<>
-							<span>
-								<span className="font-numeric font-semibold text-foreground text-lg tabular-nums">
-									{number.format(totals.current)}
-								</span>{" "}
-								{t("activities.trendUnit")}
-							</span>
-							<ChangeLine change={totals.change} goodWhen="up" />
-						</>
-					) : (
-						<Skeleton className="h-7 w-40" />
-					)}
-				</CardDescription>
+				<CardDescription>{t("activities.trendDescription")}</CardDescription>
 				<CardAction>
-					<Select
-						value={String(days)}
-						onValueChange={(value) => {
-							const next = PERIOD_DAYS.find(
-								(period) => String(period) === value,
-							);
-							if (next) {
-								onDaysChange(next);
-							}
-						}}
+					<Tabs
+						value={view}
+						onValueChange={(value) =>
+							setView(
+								TREND_VIEWS.find((option) => option === value) ?? "perDay",
+							)
+						}
 					>
-						<SelectTrigger aria-label={t("chart.period")} className="w-32">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent align="end">
-							{PERIOD_DAYS.map((period) => (
-								<SelectItem key={period} value={String(period)}>
-									{dayCount.format(period)}
-								</SelectItem>
+						<TabsList>
+							{TREND_VIEWS.map((option) => (
+								<TabsTrigger key={option} value={option}>
+									{t(`chart.${option}`)}
+								</TabsTrigger>
 							))}
-						</SelectContent>
-					</Select>
+						</TabsList>
+					</Tabs>
 				</CardAction>
 			</CardHeader>
-			<CardContent className="grid gap-4">
-				<Tabs
-					value={view}
-					onValueChange={(value) =>
-						setView(TREND_VIEWS.find((option) => option === value) ?? "perDay")
-					}
-				>
-					<TabsList>
-						{TREND_VIEWS.map((option) => (
-							<TabsTrigger key={option} value={option}>
-								{t(`chart.${option}`)}
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</Tabs>
+			<CardContent className="grid gap-6">
 				{trend.isError ? (
 					<div className="grid h-80 content-center justify-items-center gap-3 text-center">
 						<p className="text-sm" role="alert">
@@ -177,74 +114,58 @@ export function ActivityTrendCard({
 					</div>
 				) : trend.data === undefined ? (
 					<Skeleton className="h-80 w-full" />
-				) : totals.current === 0 && totals.previous === 0 ? (
-					<p className="grid h-80 content-center text-center text-muted-foreground text-sm">
-						{t("chart.empty")}
-					</p>
 				) : (
-					<ChartContainer
-						config={chartConfig}
-						className="aspect-auto h-80 w-full"
-						role="img"
-						aria-label={
-							lastPoint
-								? fillMessage(t("activities.trendLabel"), {
-										day: dayFormat.format(dayToDate(lastPoint.day)),
-										count: number.format(lastPoint.current),
-									})
-								: t("activities.trendTitle")
-						}
-					>
-						<BarChart
-							data={plotted}
-							// The margin on the axis side keeps the ticks off the edge of the plot.
-							margin={{
-								top: 4,
-								bottom: 0,
-								left: isRtl ? 0 : 4,
-								right: isRtl ? 4 : 0,
-							}}
-						>
-							<CartesianGrid vertical={false} />
-							<XAxis
-								dataKey="day"
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								minTickGap={24}
-								reversed={isRtl}
-								tickFormatter={(day: string) =>
-									dayFormat.format(dayToDate(day))
-								}
-							/>
-							<YAxis
-								width="auto"
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								allowDecimals={false}
-								orientation={isRtl ? "right" : "left"}
-								tick={{ textAnchor: "end" }}
-								tickFormatter={(value: number) => compact.format(value)}
-							/>
-							<ChartTooltip
-								cursor={false}
-								content={
-									<ChartTooltipContent
-										labelFormatter={(day) =>
-											dayFormat.format(dayToDate(String(day)))
-										}
-									/>
-								}
-							/>
-							<Bar
-								dataKey="current"
-								fill="var(--color-current)"
-								radius={[barRadius, barRadius, 0, 0]}
-								isAnimationActive={false}
-							/>
-						</BarChart>
-					</ChartContainer>
+					<>
+						<dl className="grid @xl/main:grid-cols-3 grid-cols-1 @xl/main:divide-x divide-y @xl/main:divide-y-0 rounded-md border rtl:divide-x-reverse">
+							<div className="grid gap-1 px-4 py-3">
+								<dt className="text-muted-foreground text-xs">
+									{t("activities.logged")}
+								</dt>
+								<dd className="flex flex-wrap items-baseline gap-x-2">
+									<span className="font-numeric font-semibold text-2xl tabular-nums">
+										{number.format(totals.current)}
+									</span>
+									<ChangeLine change={totals.change} goodWhen="up" />
+								</dd>
+							</div>
+							<div className="grid gap-1 px-4 py-3">
+								<dt className="text-muted-foreground text-xs">
+									{t("activities.dailyAverage")}
+								</dt>
+								<dd className="font-numeric font-semibold text-2xl tabular-nums">
+									{average.format(
+										points.length === 0 ? 0 : totals.current / points.length,
+									)}
+								</dd>
+							</div>
+							<div className="grid gap-1 px-4 py-3">
+								<dt className="text-muted-foreground text-xs">
+									{t("activities.busiestDay")}
+								</dt>
+								<dd className="flex flex-wrap items-baseline gap-x-2">
+									<span className="font-numeric font-semibold text-2xl tabular-nums">
+										{number.format(busiest?.current ?? 0)}
+									</span>
+									{busiest && busiest.current > 0 ? (
+										<span className="text-muted-foreground text-sm">
+											{dayFormat.format(dayToDate(busiest.day))}
+										</span>
+									) : null}
+								</dd>
+							</div>
+						</dl>
+						{totals.current === 0 && totals.previous === 0 ? (
+							<p className="grid h-64 content-center text-center text-muted-foreground text-sm">
+								{t("chart.empty")}
+							</p>
+						) : (
+							<Suspense fallback={<Skeleton className="h-64 w-full" />}>
+								<ActivityAreaChart
+									points={view === "perDay" ? points : toRunningTotal(points)}
+								/>
+							</Suspense>
+						)}
+					</>
 				)}
 			</CardContent>
 		</Card>

@@ -69,8 +69,6 @@ export type MatterRow = {
 	/** The fee estimate agreed with the client, in USD. null on a flat matter. */
 	budget: number | null;
 	openedAt: string;
-	/** When the matter entered its current stage. The board counts the age in the stage from it. */
-	stageChangedAt: string;
 	/** When the matter was closed or declined. null while it is open. */
 	closedAt: string | null;
 };
@@ -1328,7 +1326,6 @@ function buildMatters(today: number, random: () => number) {
 			flatFee: flatFee ?? null,
 			budget: null,
 			openedAt: iso(openedAt),
-			stageChangedAt: iso(lastChange),
 			closedAt: isEnded ? iso(lastChange) : null,
 		};
 		windows.push({
@@ -1375,7 +1372,11 @@ function buildDeadlines(
 		}
 		const templates =
 			matter.stage === "intake" ? INTAKE_DEADLINES : DEADLINES[matter.area];
-		const count = matter.stage === "intake" ? 1 : between(random, 2, 3);
+		// Four or five dates fill the deadline card of the matter page. The cap keeps each title once per matter.
+		const count =
+			matter.stage === "intake"
+				? 1
+				: Math.min(between(random, 4, 5), templates.length);
 		// Spread over four weeks, so only about one matter in four has a deadline in the next 7 days.
 		let daysAhead = between(random, 0, 28);
 		const firstTemplate = between(random, 0, templates.length - 1);

@@ -1,20 +1,29 @@
-// The rows of the patient list: each file with its practitioner, its last visit, and its next appointment.
+// The rows of the patient list: each file with its practitioner, its last visit, its next appointment, and its status.
 // patients.queries.ts calls `buildPatientRows` with the sample rows. The list and the detail page take the types.
 // The function is pure: the same rows and the same `now` give the same result.
 import {
 	type AppointmentRow,
 	ageInYears,
+	type BadgeVariant,
 	DAY_MS,
 	isComing,
 	type Patient,
 	type Practitioner,
 } from "~/features/clinic";
 
-/** The tabs of the patient list, in order. "all" has no filter. */
-export const PATIENT_SEGMENTS = ["all", "booked", "new", "recall"] as const;
+/** The statuses of a patient file, in the order of the filter. The label is the message key `patients.statuses.<status>`. */
+export const PATIENT_STATUSES = ["new", "booked", "active", "recall"] as const;
 
-/** One tab of the patient list. */
-export type PatientSegment = (typeof PATIENT_SEGMENTS)[number];
+/** One status. "recall": no booking and no visit for 60 days, so the front desk calls the patient. */
+export type PatientStatus = (typeof PATIENT_STATUSES)[number];
+
+/** Badge variant per status. Only a recall asks the front desk to act. */
+export const PATIENT_STATUS_BADGE = {
+	new: "info",
+	booked: "success",
+	active: "outline",
+	recall: "warning",
+} satisfies Record<PatientStatus, BadgeVariant>;
 
 // A file is "new" for 30 days.
 const NEW_FILE_DAYS = 30;
@@ -82,21 +91,15 @@ export function buildPatientRows(
 	});
 }
 
-/** The rows of one tab. */
-export function rowsOfSegment(
-	rows: readonly PatientRow[],
-	segment: PatientSegment,
-): PatientRow[] {
-	switch (segment) {
-		case "all":
-			return [...rows];
-		case "booked":
-			return rows.filter((row) => row.nextAppointment !== null);
-		case "new":
-			return rows.filter((row) => row.isNew);
-		case "recall":
-			return rows.filter((row) => row.isRecallDue);
+/** The one status of a file. A new file wins over a booking, and a booking wins over a recall. */
+export function patientStatusOf(row: PatientRow): PatientStatus {
+	if (row.isNew) {
+		return "new";
 	}
+	if (row.nextAppointment !== null) {
+		return "booked";
+	}
+	return row.isRecallDue ? "recall" : "active";
 }
 
 // The age for a label: months under 2 years, else years.

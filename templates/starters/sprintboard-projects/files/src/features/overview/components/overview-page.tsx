@@ -1,266 +1,332 @@
-// The home of the app: the overview of the product team, in three tabs (Overview, Tasks, Bugs).
-// The /app route renders it after its loader. The route also uses the skeleton and the error below.
-// It follows the home "tabbed" of the app-dashboard skill, with the kpi form "delta" and the chart form "compare".
-import { BugIcon, CheckSquareOffsetIcon } from "@phosphor-icons/react";
+// The home behind login: the title with the period and the export menu, then the tabs Overview and Reports.
+// Overview: four KPI cards, the work chart beside the team card, the reminders, the monthly and on-time cards,
+// and the recent projects table. Reports: the table of every project. The /app route renders it after its loader.
+// The page holds the period. The KPIs, the team card, and the on-time card read the summary of that period.
+import {
+	BriefcaseIcon,
+	CalendarCheckIcon,
+	ClockCountdownIcon,
+	DownloadSimpleIcon,
+	WarningCircleIcon,
+} from "@phosphor-icons/react";
 import {
 	keepPreviousData,
 	useQuery,
 	useSuspenseQuery,
 } from "@tanstack/react-query";
-import { getRouteApi, useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
-import { projectsQueryOptions } from "~/features/projects";
 import {
-	DEFAULT_DAYS,
+	type Project,
+	projectCsvColumns,
+	projectsQueryOptions,
+} from "~/features/projects";
+import { taskCsvColumns } from "~/features/tasks";
+import {
 	dayCountFormat,
+	downloadCsv,
 	fillMessage,
-	membersQueryOptions,
 	type PeriodDays,
-	PeriodTabs,
-	type Task,
-	TaskDialog,
+	PeriodSelect,
+	periodOf,
 	tasksQueryOptions,
+	toCsv,
 } from "~/features/tracker";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "~/shared/ui/dropdown-menu";
+import { RecordTable } from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
-import { overviewQueryOptions } from "../api/overview.queries";
-import type { KpiId, KpiItem } from "../lib/overview-data";
+import {
+	OVERVIEW_DEFAULT_DAYS,
+	overviewSummaryQueryOptions,
+} from "../api/overview.queries";
+import type { OverviewSummary } from "../lib/overview-data";
 import { overviewTabSchema } from "../lib/overview-search";
-import { CompletedByProjectCard } from "./completed-by-project-card";
-import { DeliveryFiguresCard } from "./delivery-figures-card";
-import { EntityRow } from "./entity-row";
-import { EntityTrendCard } from "./entity-trend-card";
-import { TaskListCard } from "./task-list-card";
+import { KpiCard } from "./kpi-card";
+import { MonthlyDoneCard } from "./monthly-done-card";
+import { OnTimeCard } from "./on-time-card";
+import { ProjectRowMenu, projectColumns } from "./project-columns";
+import { RemindersCard } from "./reminders-card";
+import { TeamHighlightsCard } from "./team-highlights-card";
+import { WorkChartCard } from "./work-chart-card";
 
-const routeApi = getRouteApi("/app/");
+/** The recent projects card shows this many rows per page, as the kit home table. */
+const RECENT_PAGE_SIZE = 6;
 
-// The entity tabs list the newest rows of their entity, 8 at most.
-const LIST_ROWS = 8;
-
-/** The tab lives in the URL (?tab=). The period is one state for every tab. */
+/** The tab lives in the URL. One column on a phone; the bands open to their kit spans from the 4xl container. */
 export function OverviewPage() {
 	const { t, locale } = useT();
-	const { tab } = routeApi.useSearch();
-	const navigate = routeApi.useNavigate();
-	const [days, setDays] = useState<PeriodDays>(DEFAULT_DAYS);
-	const [openTask, setOpenTask] = useState<Task | null>(null);
-	const { data: tasks } = useSuspenseQuery(tasksQueryOptions());
+	const { tab } = useSearch({ from: "/app/" });
+	const navigate = useNavigate({ from: "/app/" });
+	const [days, setDays] = useState<PeriodDays>(OVERVIEW_DEFAULT_DAYS);
 	const { data: projects } = useSuspenseQuery(projectsQueryOptions());
-	const { data: members } = useSuspenseQuery(membersQueryOptions());
-	// The period changes after a click, so the overview reads with useQuery and keeps the last numbers while it loads.
-	const overview = useQuery({
-		...overviewQueryOptions(days),
+	const { data: tasks } = useSuspenseQuery(tasksQueryOptions());
+	// The loader fills the default period. Another period loads here and keeps the old numbers until it is ready.
+	const summary = useQuery({
+		...overviewSummaryQueryOptions(days),
 		placeholderData: keepPreviousData,
 	});
+	const now = Date.now();
+	const period = dayCountFormat(locale).format(days);
+	const today = new Intl.DateTimeFormat(locale, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	});
+	const recent = [...projects].sort((first, second) =>
+		second.startAt.localeCompare(first.startAt),
+	);
+	const columns = projectColumns(t, locale);
 
-	const number = new Intl.NumberFormat(locale);
-	const activeIds = new Set(
-		projects
-			.filter((project) => project.status === "active")
-			.map((project) => project.id),
-	);
-	// The tab counts take only active projects, like the header of the Projects page, so both pages agree.
-	const openTasks = tasks.filter(
-		(task) => task.status !== "done" && activeIds.has(task.projectId),
-	);
-	const openBugs = openTasks.filter((task) => task.kind === "bug");
-	const periodLabel = fillMessage(t("overview.periodLabel"), {
-		period: dayCountFormat(locale).format(days),
-	});
-	const withLabel = (item: KpiItem) => ({
-		...item,
-		label: t(`kpi.${item.id}`),
-	});
-	const kpi = (id: KpiId) => overview.data?.kpis.find((item) => item.id === id);
-	const completed = kpi("completed");
-	const bugsReported = kpi("bugsReported");
-	const figures = (
-		["pointsShipped", "cycleTime", "onTime", "bugsFixed"] as const
-	).flatMap((id) => {
-		const item = kpi(id);
-		return item ? [{ ...withLabel(item), hint: t(`kpiHint.${id}`) }] : [];
-	});
-	const tabs = [
-		{ id: "overview", label: t("overview.tabOverview"), count: null },
-		{ id: "tasks", label: t("overview.tabTasks"), count: openTasks.length },
-		{ id: "bugs", label: t("overview.tabBugs"), count: openBugs.length },
-	] as const;
+	function exportProjects() {
+		downloadCsv("projects.csv", toCsv(projects, projectCsvColumns(t, locale)));
+	}
+
+	function exportDoneTasks() {
+		const done = tasks.filter(
+			(task) =>
+				task.completedAt !== null &&
+				periodOf(task.completedAt, days, now) === "current",
+		);
+		downloadCsv(
+			`tasks-done-${days}-days.csv`,
+			toCsv(done, taskCsvColumns(t, locale)),
+		);
+	}
 
 	return (
-		<Tabs
-			value={tab}
-			onValueChange={(value) =>
-				navigate({
-					search: { tab: overviewTabSchema.catch("overview").parse(value) },
-					replace: true,
-				})
-			}
-			className="gap-6"
-		>
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("overview.title")}
 				description={fillMessage(t("overview.description"), {
-					projects: number.format(activeIds.size),
-					people: number.format(members.length),
+					period,
+					today: today.format(now),
 				})}
 				actions={
-					// At 375 px the strip scrolls sideways and never wraps.
-					<div className="max-w-full overflow-x-auto">
-						<TabsList className="max-md:group-data-[orientation=horizontal]/tabs:h-11">
-							{tabs.map((entry) => (
-								<TabsTrigger key={entry.id} value={entry.id} className="px-3">
-									{entry.label}
-									{entry.count === null ? null : (
-										<span className="text-muted-foreground tabular-nums">
-											{number.format(entry.count)}
-										</span>
-									)}
-								</TabsTrigger>
-							))}
-						</TabsList>
-					</div>
+					<>
+						<PeriodSelect days={days} onDaysChange={setDays} />
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button variant="outline" aria-label={t("overview.export")}>
+									<DownloadSimpleIcon />
+									<span className="hidden lg:inline">
+										{t("overview.export")}
+									</span>
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem onSelect={exportProjects}>
+									{t("overview.exportProjects")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={exportDoneTasks}>
+									{fillMessage(t("overview.exportDone"), { period })}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</>
 				}
 			/>
-
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<p className="text-muted-foreground text-sm">
-					{fillMessage(t("overview.periodNote"), {
-						period: dayCountFormat(locale).format(days),
-					})}
-				</p>
-				<PeriodTabs days={days} onDaysChange={setDays} />
-			</div>
-
-			{overview.isError ? (
-				<div className="grid justify-items-start gap-3 rounded-surface border border-dashed p-6">
-					<p role="alert" className="text-sm">
-						{t("overview.periodError")}
-					</p>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						onClick={() => overview.refetch()}
-					>
-						{t("common.retry")}
-					</Button>
-				</div>
-			) : overview.data === undefined || !completed || !bugsReported ? (
-				<OverviewTabSkeleton />
-			) : (
-				// The numbers of the last period stay, a little faded, while a new period loads.
-				<div
-					className={cn(
-						"transition-opacity",
-						overview.isPlaceholderData && "opacity-60",
+			<Tabs
+				value={tab}
+				onValueChange={(value) => {
+					const next = overviewTabSchema.safeParse(value);
+					if (next.success) {
+						navigate({ search: { tab: next.data }, replace: true });
+					}
+				}}
+				className="gap-4"
+			>
+				<TabsList>
+					<TabsTrigger value="overview">
+						{t("overview.tabOverview")}
+					</TabsTrigger>
+					<TabsTrigger value="reports">{t("overview.tabReports")}</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview" className="grid gap-4">
+					{summary.isError ? (
+						<div className="grid justify-items-start gap-3 rounded-surface border p-6">
+							<p className="text-sm" role="alert">
+								{t("overview.summaryError")}
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={() => summary.refetch()}
+							>
+								{t("common.retry")}
+							</Button>
+						</div>
+					) : summary.data === undefined ? (
+						<SummarySkeleton />
+					) : (
+						<SummaryBands summary={summary.data} period={period} />
 					)}
-				>
-					<TabsContent value="overview" className="grid @3xl/main:gap-6 gap-4">
-						<div className="grid gap-3">
-							<EntityRow
-								tab="tasks"
-								name={t("overview.tabTasks")}
-								icon={CheckSquareOffsetIcon}
-								item={withLabel(completed)}
-								points={overview.data.completedDaily}
+					<div className="grid @4xl/main:grid-cols-2 @[96rem]/main:grid-cols-4 gap-4">
+						<RemindersCard tasks={tasks} now={now} />
+						{summary.data === undefined ? null : (
+							<>
+								<MonthlyDoneCard months={summary.data.months} />
+								<OnTimeCard counts={summary.data.delivery} period={period} />
+							</>
+						)}
+					</div>
+					<Card>
+						<CardHeader>
+							<CardTitle>{t("overview.recentTitle")}</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<RecordTable<Project>
+								rows={recent}
+								columns={[
+									columns.name,
+									columns.lead,
+									columns.start,
+									columns.target,
+									columns.status,
+									columns.progress,
+								]}
+								searchText={(project) =>
+									`${project.name} ${project.key} ${project.leadName}`
+								}
+								searchPlaceholder={t("overview.filterProjects")}
+								rowMenu={(project) => <ProjectRowMenu project={project} />}
+								selectable
+								pageSize={RECENT_PAGE_SIZE}
+								noResults={t("projects.noResults")}
 							/>
-							<EntityRow
-								tab="bugs"
-								name={t("overview.tabBugs")}
-								icon={BugIcon}
-								item={withLabel(bugsReported)}
-								points={overview.data.bugsDaily}
-							/>
-						</div>
-						<div className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4">
-							<CompletedByProjectCard
-								slices={overview.data.completedByProject}
-								periodLabel={periodLabel}
-							/>
-							<DeliveryFiguresCard items={figures} periodLabel={periodLabel} />
-						</div>
-					</TabsContent>
-					<TabsContent
-						value="tasks"
-						className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4"
-					>
-						<EntityTrendCard
-							title={t("overview.completedTrend")}
-							points={overview.data.completedDaily}
-						/>
-						<TaskListCard
-							title={t("overview.newestTasks")}
-							description={t("overview.newestTasksNote")}
-							tasks={tasks.slice(0, LIST_ROWS)}
-							emptyText={t("overview.noTasks")}
-							onOpenTask={setOpenTask}
-						/>
-					</TabsContent>
-					<TabsContent
-						value="bugs"
-						className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4"
-					>
-						<EntityTrendCard
-							title={t("overview.bugsTrend")}
-							points={overview.data.bugsDaily}
-						/>
-						<TaskListCard
-							title={t("overview.openBugs")}
-							description={fillMessage(t("overview.openBugsNote"), {
-								count: number.format(openBugs.length),
-							})}
-							tasks={openBugs.slice(0, LIST_ROWS)}
-							emptyText={t("overview.noBugs")}
-							onOpenTask={setOpenTask}
-						/>
-					</TabsContent>
-				</div>
-			)}
-			<TaskDialog task={openTask} onOpenChange={() => setOpenTask(null)} />
-		</Tabs>
-	);
-}
-
-// Placeholder entity rows. Fixed keys, because they never reorder.
-const SKELETON_ROWS = ["tasks", "bugs"];
-
-/** The overview tab in its final shape: two entity rows and the bottom row. */
-function OverviewTabSkeleton() {
-	return (
-		<div className="grid @3xl/main:gap-6 gap-4">
-			<div className="grid gap-3">
-				{SKELETON_ROWS.map((key) => (
-					<Skeleton key={key} className="h-32 rounded-surface" />
-				))}
-			</div>
-			<div className="grid @4xl/main:grid-cols-2 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<Skeleton className="h-80 rounded-surface" />
-				<Skeleton className="h-80 rounded-surface" />
-			</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+				<TabsContent value="reports">
+					<RecordTable<Project>
+						rows={projects}
+						columns={[
+							columns.key,
+							columns.name,
+							columns.lead,
+							columns.status,
+							columns.start,
+							columns.target,
+							columns.points,
+							columns.progress,
+						]}
+						searchText={(project) =>
+							`${project.name} ${project.key} ${project.leadName}`
+						}
+						searchPlaceholder={t("overview.searchProjects")}
+						pageSize={15}
+						noResults={t("projects.noResults")}
+					/>
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }
 
-/** Placeholder while the loader runs: the header with the tabs, the period row, and the overview tab. */
+type SummaryBandsProps = {
+	summary: OverviewSummary;
+	/** The page period in words, for example "30 days". */
+	period: string;
+};
+
+// The KPI row and the middle row of the dashboard tab.
+function SummaryBands({ summary, period }: SummaryBandsProps) {
+	const { t, locale } = useT();
+	const number = new Intl.NumberFormat(locale);
+	const hours = new Intl.NumberFormat(locale, {
+		style: "unit",
+		unit: "hour",
+		unitDisplay: "narrow",
+		maximumFractionDigits: 0,
+	});
+	const vsBefore = fillMessage(t("overview.vsBefore"), { period });
+	return (
+		<>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				<KpiCard
+					label={t("overview.activeProjects")}
+					value={number.format(summary.activeProjects.value)}
+					change={summary.activeProjects.change}
+					goodWhen="up"
+					context={fillMessage(t("overview.sinceStart"), { period })}
+					icon={BriefcaseIcon}
+				/>
+				<KpiCard
+					label={t("overview.dueThisWeek")}
+					value={number.format(summary.dueThisWeek.value)}
+					change={summary.dueThisWeek.change}
+					goodWhen="down"
+					context={t("overview.vsLastWeek")}
+					icon={CalendarCheckIcon}
+				/>
+				<KpiCard
+					label={t("overview.hoursLogged")}
+					value={hours.format(summary.hoursLogged.value)}
+					change={summary.hoursLogged.change}
+					goodWhen="up"
+					context={vsBefore}
+					icon={ClockCountdownIcon}
+				/>
+				<KpiCard
+					label={t("overview.overdueTasks")}
+					value={number.format(summary.overdue.value)}
+					change={summary.overdue.change}
+					goodWhen="down"
+					context={fillMessage(t("overview.sinceStart"), { period })}
+					icon={WarningCircleIcon}
+				/>
+			</div>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<div className="@4xl/main:col-span-2 min-w-0">
+					<WorkChartCard />
+				</div>
+				<TeamHighlightsCard summary={summary} />
+			</div>
+		</>
+	);
+}
+
+// Placeholder keys of the KPI row. Fixed keys, because the cards never reorder.
+const SKELETON_KPIS = ["1", "2", "3", "4"];
+
+// The KPI row and the middle row while the summary loads.
+function SummarySkeleton() {
+	return (
+		<>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_KPIS.map((key) => (
+					<Skeleton key={key} className="h-36" />
+				))}
+			</div>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<Skeleton className="@4xl/main:col-span-2 h-96" />
+				<Skeleton className="h-96" />
+			</div>
+		</>
+	);
+}
+
+/** Placeholder while the loader runs. The route sets it as pendingComponent. */
 export function OverviewPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<div className="flex flex-wrap items-end justify-between gap-3">
-				<div className="grid gap-2">
-					<Skeleton className="h-8 w-36" />
-					<Skeleton className="h-4 w-64 max-w-full" />
-				</div>
+				<Skeleton className="h-8 w-48" />
 				<Skeleton className="h-9 w-64 max-w-full" />
 			</div>
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<Skeleton className="h-4 w-72 max-w-full" />
-				<Skeleton className="h-9 w-40" />
-			</div>
-			<OverviewTabSkeleton />
+			<Skeleton className="h-9 w-48" />
+			<SummarySkeleton />
+			<Skeleton className="h-96" />
 		</div>
 	);
 }

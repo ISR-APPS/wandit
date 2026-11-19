@@ -1,8 +1,4 @@
-export {
-	dailyActivePeopleQueryOptions,
-	featureAdoptionQueryOptions,
-	overviewKpisQueryOptions,
-} from "./api/overview.queries";
+export { overviewQueryOptions } from "./api/overview.queries";
 export {
 	OverviewPage,
 	OverviewPageError,

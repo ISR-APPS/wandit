@@ -1,24 +1,19 @@
-// Reads of employees: the directory, one profile with its leave and career, and the figures of the list page.
+// Reads of employees: the directory, and one profile with its manager, reports, peers, career, and vacation balance.
 // The employee routes prefetch them in their loaders. The pages read them with useSuspenseQuery.
 // Each queryFn reads the sample tables of the people feature. A later turn replaces it with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	type CareerEventRow,
-	changeRatio,
 	type EmployeeRow,
 	type EmployeeStatus,
 	fullName,
 	isWeekend,
-	type KpiItem,
 	type LeaveBalance,
 	leaveBalance,
 	readPeopleTables,
-	shiftDays,
-	type TimeOffRequestRow,
 	type TimeOffType,
 	toDayKey,
 } from "~/features/people";
-import type { TranslationKey } from "~/shared/i18n";
 
 /** One employee as the directory shows it. */
 export type EmployeeListItem = EmployeeRow & {
@@ -58,11 +53,12 @@ export function employeesQueryOptions() {
 	});
 }
 
-/** A short card of another person on the profile: the manager or a direct report. */
+/** A short card of another person on the profile: the manager, a direct report, or a peer. */
 export type PersonLink = {
 	id: string;
 	name: string;
 	title: string;
+	email: string;
 	status: EmployeeStatus;
 };
 
@@ -73,8 +69,8 @@ export type EmployeeProfile = {
 	manager: PersonLink | null;
 	/** The people who report to this employee, by name. */
 	reports: PersonLink[];
-	/** The time-off requests of the employee, the latest first day first. */
-	requests: TimeOffRequestRow[];
+	/** The other people with the same manager, by name. Empty when the employee has no manager. */
+	peers: PersonLink[];
 	/** The career events, newest first. */
 	careerEvents: CareerEventRow[];
 	balance: LeaveBalance;
@@ -86,6 +82,7 @@ function toPersonLink(employee: EmployeeRow): PersonLink {
 		id: employee.id,
 		name: fullName(employee),
 		title: employee.title,
+		email: employee.email,
 		status: employee.status,
 	};
 }
@@ -102,6 +99,8 @@ export function employeeQueryOptions(employeeId: string) {
 				return null;
 			}
 			const manager = employees.find((row) => row.id === employee.managerId);
+			const byName = (first: PersonLink, second: PersonLink) =>
+				first.name.localeCompare(second.name);
 			return {
 				employee,
 				name: fullName(employee),
@@ -109,85 +108,20 @@ export function employeeQueryOptions(employeeId: string) {
 				reports: employees
 					.filter((row) => row.managerId === employee.id)
 					.map(toPersonLink)
-					.sort((first, second) => first.name.localeCompare(second.name)),
-				requests: requests
-					.filter((request) => request.employeeId === employee.id)
-					.sort((first, second) =>
-						second.startDate.localeCompare(first.startDate),
-					),
+					.sort(byName),
+				peers: manager
+					? employees
+							.filter(
+								(row) => row.managerId === manager.id && row.id !== employee.id,
+							)
+							.map(toPersonLink)
+							.sort(byName)
+					: [],
 				careerEvents: careerEvents
 					.filter((event) => event.employeeId === employee.id)
 					.sort((first, second) => second.day.localeCompare(first.day)),
 				balance: leaveBalance(employee, requests, dayStart),
 			};
-		},
-	});
-}
-
-/** One figure before translation. The page turns `labelKey` into the `label` of KpiItem with t(). */
-export type EmployeesKpi = Omit<KpiItem, "label" | "note"> & {
-	labelKey: TranslationKey;
-	/** The key of the scope line of a figure with no delta. The page turns it into `note`. */
-	noteKey?: TranslationKey;
-};
-
-// The figures of the directory compare the last 90 days with the 90 days before.
-const KPI_PERIOD_DAYS = 90;
-
-/** The four figures of the directory: headcount, joiners, people on probation, and leavers. */
-export function employeesKpisQueryOptions() {
-	return queryOptions({
-		queryKey: ["employees", "kpis"],
-		queryFn: async (): Promise<EmployeesKpi[]> => {
-			const { employees, dayStart } = readPeopleTables();
-			const periodStart = toDayKey(shiftDays(dayStart, -KPI_PERIOD_DAYS));
-			const previousStart = toDayKey(shiftDays(dayStart, -2 * KPI_PERIOD_DAYS));
-			const headcountBefore = employees.filter(
-				(employee) => employee.startDate < periodStart,
-			).length;
-			const joiners = employees.filter(
-				(employee) => employee.startDate >= periodStart,
-			).length;
-			const joinersBefore = employees.filter(
-				(employee) =>
-					employee.startDate >= previousStart &&
-					employee.startDate < periodStart,
-			).length;
-			return [
-				{
-					id: "headcount",
-					labelKey: "employees.kpiHeadcount",
-					value: employees.length,
-					change: changeRatio(employees.length, headcountBefore),
-					goodWhen: "up",
-				},
-				{
-					id: "joiners",
-					labelKey: "employees.kpiJoiners",
-					value: joiners,
-					change: changeRatio(joiners, joinersBefore),
-					goodWhen: "up",
-				},
-				// The database keeps no history of these two statuses, so they show no delta.
-				{
-					id: "probation",
-					labelKey: "employees.kpiProbation",
-					noteKey: "employees.kpiProbationNote",
-					value: employees.filter((employee) => employee.status === "probation")
-						.length,
-					change: null,
-					goodWhen: "up",
-				},
-				{
-					id: "leavers",
-					labelKey: "employees.kpiLeavers",
-					noteKey: "employees.kpiLeaversNote",
-					value: employees.filter((employee) => employee.status === "notice")
-						.length,
-					change: null,
-					goodWhen: "down",
-				},
-			];
 		},
 	});
 }

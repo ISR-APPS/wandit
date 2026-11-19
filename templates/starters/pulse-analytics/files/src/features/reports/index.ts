@@ -1,9 +1,7 @@
 export {
-	DEFAULT_FUNNEL_DAYS,
-	funnelQueryOptions,
-	platformPeopleQueryOptions,
-	retentionQueryOptions,
-	signUpsByChannelQueryOptions,
+	notesQueryOptions,
+	reportsQueryOptions,
+	schedulesQueryOptions,
 } from "./api/reports.queries";
 export {
 	ReportsPage,

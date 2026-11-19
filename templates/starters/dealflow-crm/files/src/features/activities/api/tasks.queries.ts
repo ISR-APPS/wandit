@@ -1,8 +1,12 @@
 // Reads of the open follow-up tasks: every task of the team, and the tasks of one deal.
-// The activities route and the deal route prefetch them. The follow-up cards read them from the cache.
+// The /app route, the activities route, and the deal route prefetch them. The follow-up cards read them from the cache.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
-import { getSampleTables, type SampleTables } from "~/features/crm";
+import {
+	getSampleTables,
+	type SampleTables,
+	type TaskPriority,
+} from "~/features/crm";
 
 /** One open follow-up task with the names that a list shows. */
 export type Task = {
@@ -10,6 +14,7 @@ export type Task = {
 	title: string;
 	/** ISO time. The day decides the state: overdue, due today, or upcoming. */
 	dueAt: string;
+	priority: TaskPriority;
 	/** The rep that must do the task. */
 	assigneeName: string;
 	/** The deal that the task moves forward. */
@@ -29,6 +34,7 @@ function withNames(rows: SampleTables["tasks"], tables: SampleTables): Task[] {
 				id: row.id,
 				title: row.title,
 				dueAt: row.dueAt,
+				priority: row.priority,
 				assigneeName: reps.get(row.assigneeId)?.name ?? "",
 				deal: { id: row.dealId, name: deal?.name ?? "" },
 				companyName: companies.get(deal?.companyId ?? "")?.name ?? "",
@@ -37,7 +43,7 @@ function withNames(rows: SampleTables["tasks"], tables: SampleTables): Task[] {
 		.sort((first, second) => first.dueAt.localeCompare(second.dueAt));
 }
 
-/** Every open task of the team, the most urgent first. Feeds the follow-up card of the activities page. */
+/** Every open task of the team, the most urgent first. Feeds the follow-up card of the home and the follow-up table of the Activities page. */
 export function openTasksQueryOptions() {
 	return queryOptions({
 		queryKey: ["tasks", "open"],

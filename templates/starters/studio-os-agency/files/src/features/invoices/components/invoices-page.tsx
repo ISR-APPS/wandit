@@ -1,247 +1,120 @@
-// The invoice list behind login: four money figures, the status tabs, and the searchable table.
+// The invoice list behind login, on the anatomy of the kit transactions page: a header with the period
+// and a download button, the tabs Latest and Upcoming, and one card of rows (day, invoice and status, amount, open).
 // The /app/invoices route renders it after its loader, and also uses the skeleton and the error below.
-// An invoice number opens the invoice dialog with its lines.
+// The open button of a row opens the invoice dialog with its lines. Each tab shows 20 rows per page.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
-	daysFromToday,
-	type Figure,
-	FigureBand,
-	INVOICE_STATUSES,
-	InvoiceBadge,
+	downloadCsv,
+	fillMessage,
 	type InvoiceRow,
-	type InvoiceStatus,
 	isInLastDays,
 	PageError,
+	type PeriodDays,
+	PeriodSelect,
+	toCsv,
 	useFormatters,
 } from "~/features/studio";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
-import { useSidebar } from "~/shared/ui/sidebar";
+import { Button } from "~/shared/ui/button";
+import { Card } from "~/shared/ui/card";
+import { CaretRightIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { invoicesQueryOptions } from "../api/invoices.queries";
+import { invoiceCsvColumns } from "../lib/invoice-csv";
 import { InvoiceDialog } from "./invoice-dialog";
 
-// The "Collected" figure sums the payments of the last 30 days.
-const COLLECTED_DAYS = 30;
+// Rows per page, as on the other list pages.
+const PAGE_SIZE = 20;
 
-/** The list page. The status tab filters the rows; then DataTable searches, sorts, and pages them. */
+// The page opens on three months, so the Latest tab holds more than one payment cycle.
+const DEFAULT_INVOICE_DAYS: PeriodDays = 90;
+
+/** The color of each amount: green when paid, red when overdue, plain otherwise. The status word shows too. */
+const AMOUNT_CLASS = {
+	draft: "text-muted-foreground",
+	sent: "text-foreground",
+	overdue: "text-destructive",
+	paid: "text-success",
+} satisfies Record<InvoiceRow["status"], string>;
+
+/** Latest: invoices sent in the period, the newest first. Upcoming: the drafts, the next issue day first. */
 export function InvoicesPage() {
-	const { t, locale } = useT();
-	const format = useFormatters();
+	const { t } = useT();
 	const { data: invoices } = useSuspenseQuery(invoicesQueryOptions());
-	// A phone shows the invoice and the amount. The client and the status move under them.
-	const { isMobile } = useSidebar();
-	const [status, setStatus] = useState<InvoiceStatus | "all">("all");
+	const [days, setDays] = useState<PeriodDays>(DEFAULT_INVOICE_DAYS);
+	const [tab, setTab] = useState("latest");
 	// The dialog keeps the last invoice while it fades out, so it never closes empty.
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-	const number = new Intl.NumberFormat(locale);
-	const rows =
-		status === "all"
-			? invoices
-			: invoices.filter((invoice) => invoice.status === status);
-	const sumOf = (list: InvoiceRow[]) =>
-		list.reduce((sum, invoice) => sum + invoice.amount, 0);
-	const withStatus = (value: InvoiceStatus) =>
-		invoices.filter((invoice) => invoice.status === value);
-	const figures: Figure[] = [
-		{
-			id: "outstanding",
-			label: t("invoices.figures.outstanding"),
-			value: format.money(
-				sumOf([...withStatus("sent"), ...withStatus("overdue")]),
-			),
-		},
-		{
-			id: "overdue",
-			label: t("invoices.figures.overdue"),
-			value: format.money(sumOf(withStatus("overdue"))),
-			isBad: withStatus("overdue").length > 0,
-		},
-		{
-			id: "collected",
-			label: t("invoices.figures.collected"),
-			value: format.money(
-				sumOf(
-					invoices.filter(
-						(invoice) =>
-							invoice.paidDay !== null &&
-							isInLastDays(invoice.paidDay, COLLECTED_DAYS),
-					),
-				),
-			),
-		},
-		{
-			id: "drafts",
-			label: t("invoices.figures.drafts"),
-			value: format.money(sumOf(withStatus("draft"))),
-		},
-	];
+	const latest = invoices
+		.filter(
+			(invoice) =>
+				invoice.status !== "draft" && isInLastDays(invoice.issueDay, days),
+		)
+		.sort((first, second) => second.issueDay.localeCompare(first.issueDay));
+	const upcoming = invoices
+		.filter((invoice) => invoice.status === "draft")
+		.sort((first, second) => first.issueDay.localeCompare(second.issueDay));
 
-	const columns: DataTableColumn<InvoiceRow>[] = [
-		{
-			id: "number",
-			header: t("invoices.invoice"),
-			sortValue: (row) => row.number ?? "",
-			cell: (row) => (
-				<div className="grid justify-items-start">
-					<button
-						type="button"
-						onClick={() => {
-							setOpenId(row.id);
-							setIsDialogOpen(true);
-						}}
-						// min-h-11 gives the button a 44 px touch area on a phone.
-						className={cn(
-							"inline-flex min-h-11 items-center font-medium tabular-nums hover:underline md:min-h-0",
-							row.number === null && "text-muted-foreground",
-						)}
-					>
-						{row.number ?? t("invoices.draftNumber")}
-					</button>
-					{isMobile ? (
-						<span className="text-muted-foreground text-xs">
-							{row.clientName}
-						</span>
-					) : null}
-				</div>
-			),
-		},
-		{
-			id: "amount",
-			header: t("invoices.amount"),
-			align: "end",
-			sortValue: (row) => row.amount,
-			cell: (row) => (
-				<div className="grid justify-items-end gap-1">
-					<span className="font-medium">{format.money(row.amount)}</span>
-					{isMobile ? <InvoiceBadge status={row.status} /> : null}
-				</div>
-			),
-		},
-		{
-			id: "status",
-			header: t("invoices.status"),
-			sortValue: (row) => INVOICE_STATUSES.indexOf(row.status),
-			cell: (row) => <InvoiceBadge status={row.status} />,
-		},
-		{
-			id: "project",
-			header: t("invoices.project"),
-			sortValue: (row) => row.projectName,
-			// The client sits under the project, so the six columns fit a 1024 px screen.
-			cell: (row) => (
-				<div className="grid justify-items-start">
-					<Link
-						to="/app/projects/$projectId"
-						params={{ projectId: row.projectId }}
-						className="hover:underline"
-					>
-						{row.projectName}
-					</Link>
-					<span className="text-muted-foreground text-xs">
-						{row.clientName}
-					</span>
-				</div>
-			),
-		},
-		{
-			id: "issued",
-			header: t("invoices.issued"),
-			sortValue: (row) => daysFromToday(row.issueDay),
-			// A draft is not sent yet. Its issue day is the planned day, so it reads "Planned".
-			cell: (row) =>
-				row.status === "draft" ? (
-					<span className="text-muted-foreground">
-						{t("invoices.plannedOn").replace(
-							"{day}",
-							format.shortDate(row.issueDay),
-						)}
-					</span>
-				) : (
-					format.shortDate(row.issueDay)
-				),
-		},
-		{
-			id: "due",
-			header: t("invoices.due"),
-			sortValue: (row) => daysFromToday(row.dueDay),
-			cell: (row) =>
-				row.paidDay ? (
-					<span className="text-muted-foreground">
-						{t("invoices.paidOn").replace(
-							"{day}",
-							format.shortDate(row.paidDay),
-						)}
-					</span>
-				) : (
-					<span
-						className={cn(
-							row.status === "overdue" && "font-medium text-destructive",
-						)}
-					>
-						{format.relativeDay(row.dueDay)}
-					</span>
-				),
-		},
-	];
+	function openInvoice(invoiceId: string) {
+		setOpenId(invoiceId);
+		setIsDialogOpen(true);
+	}
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("invoices.title")}
 				description={t("invoices.description")}
+				actions={
+					<>
+						<PeriodSelect days={days} onDaysChange={setDays} />
+						<Button
+							size="icon"
+							aria-label={t("invoices.export")}
+							onClick={() =>
+								downloadCsv(
+									"invoices.csv",
+									toCsv(
+										tab === "latest" ? latest : upcoming,
+										invoiceCsvColumns(t),
+									),
+								)
+							}
+						>
+							<DownloadSimpleIcon />
+						</Button>
+					</>
+				}
 			/>
-			<FigureBand figures={figures} />
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={isMobile ? columns.slice(0, 2) : columns}
-						searchText={(row) =>
-							`${row.number ?? ""} ${row.clientName} ${row.projectName}`
-						}
-						noResults={t("invoices.noResults")}
-						toolbar={
-							<Tabs
-								value={status}
-								onValueChange={(value) =>
-									setStatus(
-										INVOICE_STATUSES.find((option) => option === value) ??
-											"all",
-									)
-								}
-								className="max-w-full overflow-x-auto"
-							>
-								{/* A phone wraps the tabs onto two lines, so no tab is cut at the edge. */}
-								<TabsList className="max-md:h-auto! max-md:flex-wrap max-md:justify-start max-md:*:flex-none">
-									<TabsTrigger value="all">
-										{t("invoices.all")}
-										<span className="tabular-nums opacity-60">
-											{number.format(invoices.length)}
-										</span>
-									</TabsTrigger>
-									{INVOICE_STATUSES.map((value) => (
-										<TabsTrigger key={value} value={value}>
-											{t(`codes.invoices.${value}`)}
-											<span className="tabular-nums opacity-60">
-												{number.format(withStatus(value).length)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
-						}
+			<Tabs value={tab} onValueChange={setTab} className="gap-4">
+				<TabsList>
+					<TabsTrigger value="latest">{t("invoices.tabs.latest")}</TabsTrigger>
+					<TabsTrigger value="upcoming">
+						{t("invoices.tabs.upcoming")}
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent value="latest">
+					<InvoiceList
+						rows={latest}
+						empty={t("invoices.emptyLatest")}
+						onOpen={openInvoice}
 					/>
-				</CardContent>
-			</Card>
+				</TabsContent>
+				<TabsContent value="upcoming">
+					<InvoiceList
+						rows={upcoming}
+						empty={t("invoices.emptyUpcoming")}
+						onOpen={openInvoice}
+					/>
+				</TabsContent>
+			</Tabs>
 			<InvoiceDialog
 				invoice={invoices.find((invoice) => invoice.id === openId) ?? null}
 				open={isDialogOpen}
@@ -251,31 +124,119 @@ export function InvoicesPage() {
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+type InvoiceListProps = {
+	rows: InvoiceRow[];
+	/** The sentence of an empty tab. */
+	empty: string;
+	/** Opens the dialog of one invoice. */
+	onOpen: (invoiceId: string) => void;
+};
 
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** One card with a row per invoice, then the range and the Previous and Next buttons. */
+function InvoiceList({ rows, empty, onOpen }: InvoiceListProps) {
+	const { t, locale } = useT();
+	const { longDate, money } = useFormatters();
+	const [page, setPage] = useState(1);
+	if (rows.length === 0) {
+		return <p className="text-muted-foreground text-sm">{empty}</p>;
+	}
+	const number = new Intl.NumberFormat(locale);
+	const pageCount = Math.ceil(rows.length / PAGE_SIZE);
+	// A shorter period can shrink the list below the current page, so clamp here.
+	const currentPage = Math.min(page, pageCount);
+	const firstIndex = (currentPage - 1) * PAGE_SIZE;
+	const pageRows = rows.slice(firstIndex, firstIndex + PAGE_SIZE);
+	return (
+		<Card className="gap-0 py-0">
+			<ul className="divide-y">
+				{pageRows.map((invoice) => (
+					<li
+						key={invoice.id}
+						className="flex flex-wrap items-center gap-x-6 gap-y-1 px-6 py-3"
+					>
+						{/* Below sm the date takes its own line, so the client and the status keep the full width. */}
+						<span className="basis-full text-sm tabular-nums sm:w-28 sm:shrink-0 sm:basis-auto">
+							{longDate(invoice.issueDay)}
+						</span>
+						<span className="grid min-w-0 flex-1">
+							<span className="truncate text-sm">
+								{`${invoice.number ?? t("invoices.draftNumber")} · ${invoice.clientName}`}
+							</span>
+							<span className="truncate text-muted-foreground text-sm">
+								{`${t(`codes.invoices.${invoice.status}`)} · ${invoice.projectName}`}
+							</span>
+						</span>
+						<span
+							className={cn(
+								"ms-auto text-sm tabular-nums",
+								AMOUNT_CLASS[invoice.status],
+							)}
+						>
+							{money(invoice.amount)}
+						</span>
+						<Button
+							variant="outline"
+							size="icon"
+							className="size-8"
+							aria-label={t("invoices.open")}
+							onClick={() => onOpen(invoice.id)}
+						>
+							<CaretRightIcon className="rtl:rotate-180" />
+						</Button>
+					</li>
+				))}
+			</ul>
+			<div className="flex items-center gap-2 border-t px-6 py-3">
+				<p className="flex-1 text-muted-foreground text-sm tabular-nums">
+					{fillMessage(t("table.range"), {
+						from: number.format(firstIndex + 1),
+						to: number.format(firstIndex + pageRows.length),
+						count: number.format(rows.length),
+					})}
+				</p>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={currentPage === 1}
+					onClick={() => setPage(currentPage - 1)}
+				>
+					{t("table.previous")}
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={currentPage === pageCount}
+					onClick={() => setPage(currentPage + 1)}
+				>
+					{t("table.next")}
+				</Button>
+			</div>
+		</Card>
+	);
+}
+
+// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
+const SKELETON_ROWS = ["a", "b", "c", "d", "e", "f", "g"];
+
+/** Placeholder while the loader runs: the header, the tabs, and seven rows. */
 export function InvoicesPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-4">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+				<Skeleton className="h-9 w-48" />
 			</div>
-			<Skeleton className="h-20 rounded-surface" />
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-md" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-48" />
+			<div className="grid gap-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-14" />
+				))}
+			</div>
 		</div>
 	);
 }
 
-/** Error state of the list when the loader fails. Try again runs the loader again. */
+/** Error state of the Invoices page when the loader fails. Try again runs the loader again. */
 export function InvoicesPageError() {
 	const { t } = useT();
 	return <PageError message={t("invoices.loadError")} />;

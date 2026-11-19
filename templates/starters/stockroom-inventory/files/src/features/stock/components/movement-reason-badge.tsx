@@ -1,5 +1,5 @@
 // The badge of a stock movement kind: receipt, pick, count, or damage.
-// The movement tables of the home and of the item page render it.
+// The movement table and the timeline of the item page render it.
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import { MOVEMENT_REASON_BADGE, type MovementReason } from "../lib/statuses";

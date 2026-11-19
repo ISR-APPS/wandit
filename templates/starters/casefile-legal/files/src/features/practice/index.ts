@@ -1,7 +1,17 @@
+export { type Alert, alertsQueryOptions } from "./api/alerts.queries";
 export { ChangeLine } from "./components/change-line";
 export { InvoiceStatusBadge } from "./components/invoice-status-badge";
 export { MatterStageBadge } from "./components/matter-stage-badge";
+export { PeriodSelect } from "./components/period-select";
 export { PersonAvatar } from "./components/person-avatar";
+export { PriorityBadge } from "./components/priority-badge";
+export { copyToClipboard } from "./lib/clipboard";
+export { type CsvColumn, downloadCsv, toCsv } from "./lib/csv";
+export {
+	DEADLINE_PRIORITIES,
+	type DeadlinePriority,
+	deadlinePriority,
+} from "./lib/deadline";
 export {
 	CURRENCY,
 	dayCountFormat,
@@ -24,6 +34,7 @@ export {
 	PRACTICE_AREAS,
 	type PracticeArea,
 	STAGE_PATH,
+	stageStep,
 } from "./lib/matter-stage";
 export {
 	type AttorneyRole,
@@ -39,21 +50,18 @@ export {
 } from "./lib/sample-data";
 export {
 	BAR_RADIUS_PX,
-	type BreakdownSlice,
 	buildDailySeries,
 	changeRatio,
 	type DailyPoint,
-	type KpiItem,
 	PERIOD_DAYS,
 	type PeriodDays,
-	totalsOf,
 } from "./lib/series";
 export {
 	addLocalDays,
 	calendarDaysUntil,
+	DAY_MS,
 	dayKeyOf,
 	dayToDate,
-	formatAge,
 	formatRelativeTime,
 	startOfLocalDay,
 } from "./lib/time";

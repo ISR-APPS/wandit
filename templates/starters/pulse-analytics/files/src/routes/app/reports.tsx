@@ -1,25 +1,23 @@
 // The Reports page behind login. The /app layout checks the session first.
-// The loader fills the four reports. Thin: the page and its states live in the reports feature.
+// The loader fills the reports of the default period, the schedules, and the notes. Thin: the page lives in the reports feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	DEFAULT_FUNNEL_DAYS,
-	funnelQueryOptions,
-	platformPeopleQueryOptions,
+	notesQueryOptions,
 	ReportsPage,
 	ReportsPageError,
 	ReportsPageSkeleton,
-	retentionQueryOptions,
-	signUpsByChannelQueryOptions,
+	reportsQueryOptions,
+	schedulesQueryOptions,
 } from "~/features/reports";
+import { DEFAULT_DAYS } from "~/features/tracking";
 
-/** /app/reports: retention, the activation funnel, sign-ups by channel, and platforms. */
+/** /app/reports: sign-ups, retention, active users, recent sign-ups, email schedules, and team notes. */
 export const Route = createFileRoute("/app/reports")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(retentionQueryOptions()),
-			context.queryClient.query(funnelQueryOptions(DEFAULT_FUNNEL_DAYS)),
-			context.queryClient.query(signUpsByChannelQueryOptions()),
-			context.queryClient.query(platformPeopleQueryOptions()),
+			context.queryClient.query(reportsQueryOptions(DEFAULT_DAYS)),
+			context.queryClient.query(schedulesQueryOptions()),
+			context.queryClient.query(notesQueryOptions()),
 		]),
 	pendingComponent: ReportsPageSkeleton,
 	errorComponent: ReportsPageError,

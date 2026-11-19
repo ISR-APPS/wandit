@@ -1,4 +1,4 @@
-// Small text helpers of the desk pages: the money format, initials, and message templates.
+// Small text helpers of the desk pages: the money format, day counts, initials, and message templates.
 // The pages and the cards of every feature call them. They use only Intl and string methods.
 
 /** ISO 4217 code of every amount in the sample customers. A later database gives the currency of the business. */
@@ -10,6 +10,15 @@ export function moneyFormat(locale: string): Intl.NumberFormat {
 		style: "currency",
 		currency: CURRENCY,
 		maximumFractionDigits: 0,
+	});
+}
+
+/** A count of days in words: "30 days", "1 day". The period select and the page descriptions use it. */
+export function dayCountFormat(locale: string): Intl.NumberFormat {
+	return new Intl.NumberFormat(locale, {
+		style: "unit",
+		unit: "day",
+		unitDisplay: "long",
 	});
 }
 

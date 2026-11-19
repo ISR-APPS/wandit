@@ -9,7 +9,7 @@ import {
 	customersSearchSchema,
 } from "~/features/customers";
 
-/** /app/customers: every customer company. `?plan=` opens a plan tab, `?customer=` opens the sheet of one customer. */
+/** /app/customers: every customer company. `?plan=` filters a plan, `?customer=` opens the sheet of one customer. */
 export const Route = createFileRoute("/app/customers")({
 	validateSearch: customersSearchSchema,
 	loader: ({ context }) => context.queryClient.query(customersQueryOptions()),

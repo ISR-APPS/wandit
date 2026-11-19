@@ -1,5 +1,5 @@
 // The side panel of one purchase order: its badges, its supplier, its dates, its lines, and its history.
-// The order list opens it from the `po` search param, so the home and the item page can link to one order.
+// The order list opens it from the `po` search param, so the home, the item page, and the bell can link to one order.
 import { Link } from "@tanstack/react-router";
 import { moneyFormat, OrderStatusBadge, unitWord } from "~/features/stock";
 import { useT } from "~/shared/i18n";
@@ -81,8 +81,9 @@ export function PurchaseOrderSheet({
 								lateDays={order.lateDays}
 							/>
 							<SheetDescription>
+								{/* The supplier name opens the items of the supplier. */}
 								<Link
-									to="/app/suppliers"
+									to="/app/items"
 									search={{ supplier: order.supplierId }}
 									className="inline-flex min-h-11 items-center font-medium text-foreground hover:underline"
 								>

@@ -7,12 +7,13 @@ import {
 	type DealStage,
 	dayCountFormat,
 	isOpenStage,
+	isStalledDeal,
 	WINNING_PATH,
 } from "~/features/crm";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import type { DealDetail } from "../api/deals.queries";
-import { daysInStage, isStalled } from "../lib/deal-attention";
+import { daysInStage } from "../lib/deal-attention";
 
 type DealStagePathProps = {
 	deal: DealDetail;
@@ -33,7 +34,7 @@ export function DealStagePath({ deal, now }: DealStagePathProps) {
 		deal.stage === "lost"
 			? deal.stageHistory.map((change) => change.stage)
 			: WINNING_PATH;
-	const stalled = isStalled(deal, now);
+	const stalled = isStalledDeal(deal, now);
 
 	return (
 		<ol className="grid @2xl/main:auto-cols-fr @2xl/main:grid-flow-col @2xl/main:gap-2 gap-3">

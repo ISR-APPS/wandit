@@ -1,4 +1,4 @@
-// Small text helpers of the social pages: day counts, shares, and message templates.
+// Small text helpers of the social pages: day counts, shares, count forms, and message templates.
 // The cards of every feature call them. They use only Intl and string methods.
 
 /** A count of days in words: "30 days", "1 day". The period controls use it. */
@@ -25,6 +25,14 @@ export function rateFormat(locale: string): Intl.NumberFormat {
 		minimumFractionDigits: 1,
 		maximumFractionDigits: 1,
 	});
+}
+
+/**
+ * Picks the form of a count message: "one" for a singular count, else "other".
+ * Intl.PluralRules holds the rule of the language. In English, only 1 is "one".
+ */
+export function countForm(locale: string, count: number): "one" | "other" {
+	return new Intl.PluralRules(locale).select(count) === "one" ? "one" : "other";
 }
 
 /**

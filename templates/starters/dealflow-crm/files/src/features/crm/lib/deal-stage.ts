@@ -1,6 +1,7 @@
 // The fixed lists of a deal: its stages in the order of the sales work, its sources, and its lost reasons.
 // The sample tables, the pipeline board, the deal pages, and the stage badge read this file.
 // A later database keeps the same values in the check constraints of the deals table.
+import { calendarDaysFromNow } from "./relative-time";
 
 /** Every stage. A deal moves from lead to negotiation, then ends as won or lost. */
 export const DEAL_STAGES = [
@@ -48,6 +49,20 @@ export const STALLED_AFTER_DAYS = 14;
 /** True for lead, qualified, proposal, and negotiation. It narrows the stage for STAGE maps of open deals. */
 export function isOpenStage(stage: DealStage): stage is OpenStage {
 	return stage !== "won" && stage !== "lost";
+}
+
+/**
+ * True when an open deal sits in one stage for STALLED_AFTER_DAYS calendar days or more. A closed deal never stalls.
+ * `stageChangedAt` is ISO, `now` is milliseconds since 1970. The board, the lists, and the alerts share this rule.
+ */
+export function isStalledDeal(
+	deal: { stage: DealStage; stageChangedAt: string },
+	now: number,
+): boolean {
+	return (
+		isOpenStage(deal.stage) &&
+		-calendarDaysFromNow(deal.stageChangedAt, now) >= STALLED_AFTER_DAYS
+	);
 }
 
 /** Where a deal comes from. Its label is the message key `deals.sources.<source>`. */

@@ -1,15 +1,10 @@
-// The search params of the overview: the open tab and the period live in the URL, as /app?tab=team&days=90.
-// The /app route validates the URL with this schema. The entity rows link to a tab with it.
+// The search params of the home: the open tab and the period live in the URL, as /app?tab=reports&days=90.
+// The /app route validates the URL with this schema. OverviewPage writes both with navigate().
 import { z } from "zod";
 import { periodDaysSchema } from "~/features/studio";
 
-/** The tabs of the overview: the summary first, then one tab per entity. */
-export const overviewTabSchema = z.enum([
-	"overview",
-	"projects",
-	"team",
-	"invoices",
-]);
+/** The tabs of the home: the dashboard bands, then the project budget report. */
+export const overviewTabSchema = z.enum(["overview", "reports"]);
 
 /** One tab id. */
 export type OverviewTab = z.infer<typeof overviewTabSchema>;

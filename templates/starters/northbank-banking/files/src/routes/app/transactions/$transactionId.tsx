@@ -1,9 +1,9 @@
 // The detail page of one entry. The /app layout checks the session first.
 // Thin: the page lives in the transactions feature. A failed load shows the error state of the list.
 import { createFileRoute } from "@tanstack/react-router";
+import { DetailPageSkeleton } from "~/features/bank";
 import {
 	TransactionDetailPage,
-	TransactionDetailPageSkeleton,
 	TransactionsPageError,
 	transactionDetailQueryOptions,
 } from "~/features/transactions";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/app/transactions/$transactionId")({
 		context.queryClient.query(
 			transactionDetailQueryOptions(params.transactionId),
 		),
-	pendingComponent: TransactionDetailPageSkeleton,
+	pendingComponent: DetailPageSkeleton,
 	errorComponent: TransactionsPageError,
 	component: TransactionDetailRoute,
 });

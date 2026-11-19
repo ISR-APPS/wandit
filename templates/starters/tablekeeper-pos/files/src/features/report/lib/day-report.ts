@@ -1,30 +1,44 @@
-// The math of the day report: figures, sales per hour, payments, categories, servers, VAT, and voids.
-// dayReportQueryOptions calls buildDayReport with the checks of the day. The report panels read its parts.
-// Every part counts the same lines as the floor and the menu, so each part adds up to the gross sales.
-import { changeRatio, type KpiItem, totalsOfToday } from "~/features/floor";
+// The math of the day report: the figures, the hours, the payments, the categories, and the serve times.
+// dayReportQueryOptions calls buildDayReport with the checks of the day. The report cards read its parts.
+// Every money part counts the same lines as the home and the menu, so each part adds up to the gross sales.
 import {
+	changeRatio,
 	isCountedOrder,
 	lineTotalCents,
-	lineVatCents,
 	MENU_CATEGORIES,
 	type MenuCategory,
 	type Order,
 	orderSubtotalCents,
 	type PaymentMethod,
 	type TodayTotals,
+	totalsOfToday,
 } from "~/features/restaurant";
 
-/** Sales of one clock hour. A till reports a sale when it is taken: a paid check in the hour of its payment. */
+/** One clock hour of the day. A till reports a sale when it is taken: a paid check in the hour of its payment. */
 export type HourPoint = {
 	/** ISO time of the start of the hour, in the browser time zone. */
 	hourStart: string;
-	/** Sales of the checks paid in this hour, open checks in their opening hour. In cents, VAT included. */
-	salesCents: number;
-	/** The checks of salesCents, voids excluded. */
+	/** Sales of the kitchen lines in this hour, in cents, VAT included. */
+	kitchenCents: number;
+	/** Sales of the bar lines in this hour, in cents, VAT included. */
+	barCents: number;
+	/** The checks that count in this hour. Voids excluded. */
 	checks: number;
+	/** The guests of these checks. */
+	covers: number;
 };
 
-/** One row of the payments panel. "open" is the checks that are still on the floor. */
+/** One figure card of the first band. Its label is the message key `report.<id>`. */
+export type ReportFigure = {
+	id: "grossSales" | "checks" | "averageCheck";
+	/** Cents for the money figures, a count for the checks. */
+	value: number;
+	isMoney: boolean;
+	/** Ratio against the same weekday last week at this time: 0.12 is +12 %. null with no week to compare. */
+	change: number | null;
+};
+
+/** One slice of the payments donut. "open" is the checks that are still on the floor. */
 export type PaymentRow = {
 	method: PaymentMethod | "open";
 	checks: number;
@@ -40,47 +54,51 @@ export type CategoryRow = {
 	salesCents: number;
 };
 
-/** The work of one server today. */
-export type ServerRow = {
-	/** The server id. Also the React key. */
-	id: string;
-	name: string;
+/** The 5 serve-time ranges, in minutes from "sent to the kitchen" to "served". Labels: `report.serveBuckets.<id>`. */
+export const SERVE_BUCKETS = [
+	{ id: "under10", maxMinutes: 10 },
+	{ id: "from10to15", maxMinutes: 15 },
+	{ id: "from15to20", maxMinutes: 20 },
+	{ id: "from20to30", maxMinutes: 30 },
+	{ id: "over30", maxMinutes: Number.POSITIVE_INFINITY },
+] as const;
+
+/** The checks that reached the table in one serve-time range. */
+export type ServeBucket = {
+	id: (typeof SERVE_BUCKETS)[number]["id"];
 	checks: number;
-	covers: number;
-	salesCents: number;
-	/** Card tips on the paid checks of this server, in cents. */
-	tipsCents: number;
 };
 
-/** The VAT inside the sales at one rate. gross = net + VAT. */
-export type VatRow = {
-	/** 0.1 or 0.2. */
-	rate: number;
-	grossCents: number;
-	vatCents: number;
-	netCents: number;
+/** The kitchen speed of the day: the time from "sent" to "served" on each served check. */
+export type ServeTimes = {
+	/** Average in whole minutes. null before the first served check. */
+	averageMinutes: number | null;
+	/** The 5 ranges, the fastest first. They add up to the served checks. */
+	buckets: ServeBucket[];
+	/** The served check with the shortest time, and that time in whole minutes. null before the first served check. */
+	fastest: { order: Order; minutes: number } | null;
 };
 
 /** Everything that the day report shows. All amounts are whole cents. */
 export type DayReport = {
 	/** ISO time when the first check of the day opened. null before the first check. */
 	openedAt: string | null;
-	/** The 4 figures of the band: sales, checks, covers, and the average check. */
-	figures: KpiItem[];
+	/** The 3 figure cards: gross sales, checks, and the average check. */
+	figures: ReportFigure[];
 	grossCents: number;
-	tipsCents: number;
+	covers: number;
+	/** Covers against the same weekday last week at this time, as a ratio. null with no week to compare. */
+	coversChange: number | null;
+	/** One point per clock hour from the first check, oldest first. */
 	hours: HourPoint[];
 	payments: PaymentRow[];
 	/** Every category in menu order, with zero rows kept. */
 	categories: CategoryRow[];
-	/** The servers, the highest sales first. */
-	servers: ServerRow[];
-	/** The VAT rates, the lowest rate first. */
-	vat: VatRow[];
-	voids: { checks: number; cents: number };
+	serveTimes: ServeTimes;
 };
 
 const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
 
 /**
  * The report of the business day so far. `orders` are the checks of the day, newest first.
@@ -102,59 +120,50 @@ export function buildDayReport(
 			? lastWeek.salesCents / lastWeek.checks
 			: undefined;
 
-	const figures: KpiItem[] = [
-		{
-			id: "gross-sales",
-			labelKey: "report.grossSales",
-			value: today.salesCents,
-			isMoney: true,
-			change: compare(today.salesCents, lastWeek?.salesCents),
-			goodWhen: "up",
-		},
-		{
-			id: "checks",
-			labelKey: "report.checks",
-			value: today.checks,
-			isMoney: false,
-			change: compare(today.checks, lastWeek?.checks),
-			goodWhen: "up",
-		},
-		{
-			id: "covers",
-			labelKey: "report.covers",
-			value: today.covers,
-			isMoney: false,
-			change: compare(today.covers, lastWeek?.covers),
-			goodWhen: "up",
-		},
-		{
-			id: "average-check",
-			labelKey: "report.averageCheck",
-			value: averageCents,
-			isMoney: true,
-			change: compare(averageCents, lastWeekAverage),
-			goodWhen: "up",
-		},
-	];
-
 	const firstOrder = orders.at(-1);
 	return {
 		openedAt: firstOrder?.openedAt ?? null,
-		figures,
+		figures: [
+			{
+				id: "grossSales",
+				value: today.salesCents,
+				isMoney: true,
+				change: compare(today.salesCents, lastWeek?.salesCents),
+			},
+			{
+				id: "checks",
+				value: today.checks,
+				isMoney: false,
+				change: compare(today.checks, lastWeek?.checks),
+			},
+			{
+				id: "averageCheck",
+				value: averageCents,
+				isMoney: true,
+				change: compare(averageCents, lastWeekAverage),
+			},
+		],
 		grossCents: today.salesCents,
-		tipsCents: counted.reduce((sum, order) => sum + order.tipCents, 0),
+		covers: today.covers,
+		coversChange: compare(today.covers, lastWeek?.covers),
 		hours: firstOrder ? buildHours(counted, firstOrder.openedAt, now) : [],
 		payments: buildPayments(counted),
 		categories: buildCategories(counted),
-		servers: buildServers(counted),
-		vat: buildVat(counted),
-		voids: {
-			checks: orders.length - counted.length,
-			cents: orders
-				.filter((order) => !isCountedOrder(order))
-				.reduce((sum, order) => sum + orderSubtotalCents(order), 0),
-		},
+		serveTimes: buildServeTimes(counted),
 	};
+}
+
+/** The hour with the highest sales. undefined while no hour has a sale. */
+export function busiestHour(hours: HourPoint[]): HourPoint | undefined {
+	return hours.reduce<HourPoint | undefined>((best, point) => {
+		const sales = point.kitchenCents + point.barCents;
+		if (sales === 0) {
+			return best;
+		}
+		return best === undefined || sales > best.kitchenCents + best.barCents
+			? point
+			: best;
+	}, undefined);
 }
 
 // One point per clock hour from the hour of the first check to the last sale. A quiet hour shows 0.
@@ -177,13 +186,17 @@ function buildHours(
 			const time = saleTime(order);
 			return time >= hour && time < hour + HOUR_MS;
 		});
+		const lines = inHour.flatMap((order) => order.lines);
+		const stationCents = (station: "kitchen" | "bar") =>
+			lines
+				.filter((line) => line.station === station)
+				.reduce((sum, line) => sum + lineTotalCents(line), 0);
 		hours.push({
 			hourStart: new Date(hour).toISOString(),
-			salesCents: inHour.reduce(
-				(sum, order) => sum + orderSubtotalCents(order),
-				0,
-			),
+			kitchenCents: stationCents("kitchen"),
+			barCents: stationCents("bar"),
 			checks: inHour.length,
+			covers: inHour.reduce((sum, order) => sum + order.covers, 0),
 		});
 	}
 	return hours;
@@ -223,43 +236,47 @@ function buildCategories(counted: Order[]): CategoryRow[] {
 	});
 }
 
-// One row per server who had a check today, the highest sales first.
-function buildServers(counted: Order[]): ServerRow[] {
-	const rows = new Map<string, ServerRow>();
-	for (const order of counted) {
-		const row = rows.get(order.serverId) ?? {
-			id: order.serverId,
-			name: order.serverName,
-			checks: 0,
-			covers: 0,
-			salesCents: 0,
-			tipsCents: 0,
-		};
-		row.checks += 1;
-		row.covers += order.covers;
-		row.salesCents += orderSubtotalCents(order);
-		row.tipsCents += order.tipCents;
-		rows.set(order.serverId, row);
-	}
-	return [...rows.values()].sort(
-		(first, second) => second.salesCents - first.salesCents,
+// Only a served check has a serve time: the kitchen still works on the others.
+function buildServeTimes(counted: Order[]): ServeTimes {
+	const served = counted.flatMap((order) =>
+		order.servedAt === null
+			? []
+			: [
+					{
+						order,
+						minutes: Math.round(
+							(Date.parse(order.servedAt) - Date.parse(order.sentAt)) /
+								MINUTE_MS,
+						),
+					},
+				],
 	);
-}
-
-// The sales and the VAT inside them per rate. Net is the sales minus the VAT.
-function buildVat(counted: Order[]): VatRow[] {
-	const rows = new Map<number, VatRow>();
-	for (const line of counted.flatMap((order) => order.lines)) {
-		const row = rows.get(line.vatRate) ?? {
-			rate: line.vatRate,
-			grossCents: 0,
-			vatCents: 0,
-			netCents: 0,
+	// A check falls in the first range whose upper limit is above its time.
+	const buckets = SERVE_BUCKETS.map((bucket, index) => {
+		// The first range starts at 0. Each other range starts at the limit of the range before it.
+		const minMinutes = SERVE_BUCKETS[index - 1]?.maxMinutes ?? 0;
+		return {
+			id: bucket.id,
+			checks: served.filter(
+				(entry) =>
+					entry.minutes >= minMinutes && entry.minutes < bucket.maxMinutes,
+			).length,
 		};
-		row.grossCents += lineTotalCents(line);
-		row.vatCents += lineVatCents(line);
-		row.netCents = row.grossCents - row.vatCents;
-		rows.set(line.vatRate, row);
-	}
-	return [...rows.values()].sort((first, second) => first.rate - second.rate);
+	});
+	const fastest = served.reduce<ServeTimes["fastest"]>(
+		(best, entry) =>
+			best === null || entry.minutes < best.minutes ? entry : best,
+		null,
+	);
+	return {
+		averageMinutes:
+			served.length === 0
+				? null
+				: Math.round(
+						served.reduce((sum, entry) => sum + entry.minutes, 0) /
+							served.length,
+					),
+		buckets,
+		fastest,
+	};
 }

@@ -1,4 +1,4 @@
-// The score of a candidate as five stars, from the last interviewer. The board cards and the candidate dialog show it.
+// The score of a candidate as five stars, from the last interviewer. The candidate table and the candidate dialog show it.
 import { StarIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";

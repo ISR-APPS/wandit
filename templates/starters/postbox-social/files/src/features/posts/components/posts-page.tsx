@@ -1,6 +1,7 @@
-// The post list behind login: the status tabs, a channel filter, and the searchable table.
-// The /app/posts route renders it after its loader. The route also uses the skeleton and the error below.
-// The channel filter runs first, so each tab count equals the rows that the tab shows.
+// The post list, on the layout of the kit "orders" page: the title and the export, status tabs,
+// then the table with a filter field, Channel and Format filters, a column menu, checkboxes, and pages.
+// The /app/posts route renders it after its loader. The tab and the two filters are state of the page.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -9,263 +10,298 @@ import {
 	CHANNEL_IDS,
 	type ChannelId,
 	ChannelMark,
+	type CsvColumn,
+	channelProfile,
+	copyToClipboard,
+	downloadCsv,
 	LoadError,
+	POST_FORMATS,
 	POST_STATUSES,
 	type Post,
+	type PostFormat,
 	type PostStatus,
 	PostStatusBadge,
-	rateFormat,
-	TAB_TOUCH_AREA,
-	TOUCH_AREA,
+	toCsv,
 } from "~/features/social";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { postsQueryOptions } from "../api/posts.queries";
 
-/** The list page. The channel Select and the status tab filter the rows; then DataTable searches, sorts, and pages them. */
+// The kit list shows ten rows per page.
+const PAGE_SIZE = 10;
+
+/** The tab of the list: every post, or one status. */
+type StatusTab = PostStatus | "all";
+
+/** The list of the last 90 days, the queue, and the drafts. Every control filters the rows in the browser. */
 export function PostsPage() {
 	const { t, locale } = useT();
 	const { data: posts } = useSuspenseQuery(postsQueryOptions());
-	// The list opens on the published posts: they have numbers. The queue has its own tab and the Schedule page.
-	const [status, setStatus] = useState<PostStatus | "all">("published");
-	const [channel, setChannel] = useState<ChannelId | "all">("all");
-
+	const [tab, setTab] = useState<StatusTab>("all");
+	const [channel, setChannel] = useState<string | null>(null);
+	const [format, setFormat] = useState<string | null>(null);
 	const number = new Intl.NumberFormat(locale);
-	const rate = rateFormat(locale);
-	const day = new Intl.DateTimeFormat(locale, {
-		month: "short",
-		day: "numeric",
+	const dateTime = new Intl.DateTimeFormat(locale, {
+		dateStyle: "medium",
+		timeStyle: "short",
 	});
-	const time = new Intl.DateTimeFormat(locale, {
-		hour: "numeric",
-		minute: "2-digit",
-	});
-	const channelPosts =
-		channel === "all"
-			? posts
-			: posts.filter((row) => row.channelId === channel);
-	// A tab shows only for a status that has rows under the chosen channel.
-	const tabs = POST_STATUSES.map((value) => ({
-		value,
-		count: channelPosts.filter((row) => row.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	// A channel change can empty the chosen tab. Its tab then disappears, so the list shows all rows.
-	const activeStatus = tabs.some((tab) => tab.value === status)
-		? status
-		: "all";
-	const rows =
-		activeStatus === "all"
-			? channelPosts
-			: channelPosts.filter((row) => row.status === activeStatus);
-	const hasNumbers = (row: Post) => row.status === "published";
+	const formatWhen = (post: Post) =>
+		post.publishAt
+			? dateTime.format(new Date(post.publishAt))
+			: t("posts.noSlot");
 
-	const columns: DataTableColumn<Post>[] = [
+	const filtered = posts.filter(
+		(post) =>
+			(tab === "all" || post.status === tab) &&
+			(channel === null || post.channelId === channel) &&
+			(format === null || post.format === format),
+	);
+	// The "All" tab opens on the posts that went out, newest first, as the kit list opens on past orders.
+	// The queue and the drafts follow them. The Scheduled and Draft tabs show them alone.
+	const isQueued = (post: Post) =>
+		post.status === "scheduled" || post.status === "draft";
+	const rows =
+		tab === "all"
+			? [
+					...filtered.filter((post) => !isQueued(post)),
+					...filtered.filter(isQueued),
+				]
+			: filtered;
+
+	const csvColumns: CsvColumn<Post>[] = [
+		{ header: "ID", value: (post) => post.id },
+		{ header: t("posts.post"), value: (post) => post.title },
+		{
+			header: t("posts.channel"),
+			value: (post) => t(`channels.names.${post.channelId}`),
+		},
+		{ header: t("posts.date"), value: formatWhen },
+		{ header: t("posts.format"), value: (post) => t(`formats.${post.format}`) },
+		{
+			header: t("posts.status"),
+			value: (post) => t(`posts.statuses.${post.status}`),
+		},
+		{
+			header: t("metrics.impressions"),
+			value: (post) => String(post.impressions),
+		},
+		{
+			header: t("metrics.engagements"),
+			value: (post) => String(post.engagements),
+		},
+	];
+
+	const columns: RecordColumn<Post>[] = [
+		{
+			id: "id",
+			header: "#",
+			cell: (post) => (
+				<Link
+					to="/app/posts/$postId"
+					params={{ postId: post.id }}
+					className="text-muted-foreground tabular-nums hover:text-foreground hover:underline"
+				>
+					{post.id}
+				</Link>
+			),
+			sortValue: (post) => post.id,
+		},
 		{
 			id: "post",
 			header: t("posts.post"),
-			sortValue: (row) => row.title,
-			// The channel mark and name sit in this cell, so the table needs no channel column and fits a 1024 px screen.
-			// A fixed track under the 5xl container width keeps the table inside its card, so a long title truncates.
-			// The track is narrower on a phone, so the status stays in view next to the title.
-			// justify-items-start: each line is as wide as its text. Then dir="auto" text sits at the start side in Arabic too.
-			cell: (row) => (
-				<div className="flex @5xl/main:w-auto @xl/main:w-60 w-48 @5xl/main:max-w-md items-center gap-3">
-					<ChannelMark channelId={row.channelId} size="sm" />
-					<div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] justify-items-start gap-0.5">
-						<Link
-							to="/app/posts/$postId"
-							params={{ postId: row.id }}
-							className={cn(
-								"max-w-full font-medium hover:underline",
-								TOUCH_AREA,
-							)}
-							dir="auto"
-						>
-							<span className="block truncate">{row.title}</span>
-						</Link>
-						<span className="max-w-full truncate text-muted-foreground text-xs">
-							{`${t(`channels.names.${row.channelId}`)} · ${t(`formats.${row.format}`)}`}
-						</span>
-					</div>
+			cell: (post) => (
+				<div className="flex min-w-56 items-center gap-4">
+					<ChannelMark channelId={post.channelId} size="lg" />
+					<Link
+						to="/app/posts/$postId"
+						params={{ postId: post.id }}
+						className="max-w-72 whitespace-normal hover:underline"
+					>
+						{post.title}
+					</Link>
 				</div>
 			),
 		},
 		{
-			id: "status",
-			header: t("posts.status"),
-			sortValue: (row) => POST_STATUSES.indexOf(row.status),
-			cell: (row) => <PostStatusBadge status={row.status} />,
+			id: "impressions",
+			header: t("metrics.impressions"),
+			cell: (post) =>
+				post.status === "published" ? number.format(post.impressions) : "–",
+			sortValue: (post) => post.impressions,
+			hideable: true,
+		},
+		{
+			id: "channel",
+			header: t("posts.channel"),
+			cell: (post) => (
+				<div className="grid gap-1">
+					<span className="font-semibold">
+						{t(`channels.names.${post.channelId}`)}
+					</span>
+					<span className="text-muted-foreground">
+						{channelProfile(post.channelId).handle}
+					</span>
+				</div>
+			),
+			sortValue: (post) => t(`channels.names.${post.channelId}`),
+			hideable: true,
 		},
 		{
 			id: "date",
 			header: t("posts.date"),
-			sortValue: (row) => Date.parse(row.publishAt ?? row.createdAt),
-			// The day and the time on two lines, the same height as the post cell, so the column stays narrow.
-			cell: (row) =>
-				row.publishAt ? (
-					<span className="grid whitespace-nowrap tabular-nums">
-						<span>{day.format(new Date(row.publishAt))}</span>
-						<span className="text-muted-foreground text-xs">
-							{time.format(new Date(row.publishAt))}
-						</span>
-					</span>
-				) : (
-					<span className="block whitespace-normal text-muted-foreground">
-						{t("posts.noSlot")}
-					</span>
-				),
+			cell: (post) => (
+				<span className="whitespace-nowrap tabular-nums">
+					{formatWhen(post)}
+				</span>
+			),
+			// A draft has no slot: it sorts by its creation time.
+			sortValue: (post) => Date.parse(post.publishAt ?? post.createdAt),
+			hideable: true,
 		},
 		{
-			id: "impressions",
-			header: t("metrics.impressions"),
-			align: "end",
-			sortValue: (row) => row.impressions,
-			cell: (row) =>
-				hasNumbers(row) ? (
-					number.format(row.impressions)
-				) : (
-					<span className="text-muted-foreground">–</span>
-				),
+			id: "format",
+			header: t("posts.format"),
+			cell: (post) => t(`formats.${post.format}`),
+			hideable: true,
 		},
 		{
-			id: "rate",
-			header: t("metrics.engagementRateShort"),
-			align: "end",
-			sortValue: (row) =>
-				row.impressions === 0 ? -1 : row.engagements / row.impressions,
-			cell: (row) =>
-				hasNumbers(row) && row.impressions > 0 ? (
-					rate.format(row.engagements / row.impressions)
-				) : (
-					<span className="text-muted-foreground">–</span>
-				),
+			id: "status",
+			header: t("posts.status"),
+			cell: (post) => <PostStatusBadge status={post.status} />,
+			sortValue: (post) => POST_STATUSES.indexOf(post.status),
+			hideable: true,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("posts.title")}
 				description={t("posts.description")}
+				actions={
+					<Button
+						type="button"
+						onClick={() =>
+							downloadCsv("postbox-posts.csv", toCsv(rows, csvColumns))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("posts.exportCsv")}
+					</Button>
+				}
 			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(row) =>
-							`${row.title} ${row.caption} ${row.hashtags.join(" ")} ${row.author}`
+			<Tabs
+				value={tab}
+				onValueChange={(value) =>
+					setTab(POST_STATUSES.find((status) => status === value) ?? "all")
+				}
+			>
+				<TabsList className="max-w-full overflow-x-auto">
+					<TabsTrigger value="all">{t("posts.all")}</TabsTrigger>
+					{POST_STATUSES.map((status) => (
+						<TabsTrigger key={status} value={status}>
+							{t(`posts.statuses.${status}`)}
+						</TabsTrigger>
+					))}
+				</TabsList>
+			</Tabs>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(post) =>
+					`${post.id} ${post.title} ${post.caption} ${post.hashtags.join(" ")}`
+				}
+				searchPlaceholder={t("posts.searchPlaceholder")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("posts.channel")}
+							options={CHANNEL_IDS.map((id: ChannelId) => ({
+								value: id,
+								label: t(`channels.names.${id}`),
+							}))}
+							value={channel}
+							onValueChange={setChannel}
+						/>
+						<RecordFilter
+							label={t("posts.format")}
+							options={POST_FORMATS.map((id: PostFormat) => ({
+								value: id,
+								label: t(`formats.${id}`),
+							}))}
+							value={format}
+							onValueChange={setFormat}
+						/>
+					</>
+				}
+				rowMenu={(post) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link to="/app/posts/$postId" params={{ postId: post.id }}>
+								{t("posts.open")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(post.id, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("posts.copyId")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"postbox-posts-selected.csv",
+								toCsv(selected, csvColumns),
+							)
 						}
-						noResults={t("posts.noResults")}
-						toolbar={
-							<>
-								<Select
-									value={channel}
-									onValueChange={(value) =>
-										setChannel(
-											CHANNEL_IDS.find((option) => option === value) ?? "all",
-										)
-									}
-								>
-									<SelectTrigger
-										className="@xl/main:w-44 w-full"
-										aria-label={t("posts.channelFilter")}
-									>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="all">
-											{t("posts.allChannels")}
-										</SelectItem>
-										{CHANNEL_IDS.map((id) => (
-											<SelectItem key={id} value={id}>
-												{t(`channels.names.${id}`)}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								<Tabs
-									value={activeStatus}
-									onValueChange={(value) =>
-										setStatus(
-											POST_STATUSES.find((option) => option === value) ?? "all",
-										)
-									}
-									className="max-w-full"
-								>
-									{/* A narrow main area wraps the tabs, so every status stays in view. The "!" wins over the kit h-9. */}
-									<TabsList className="@max-xl/main:h-auto! @max-xl/main:flex-wrap @max-xl/main:justify-start">
-										<TabsTrigger
-											value="all"
-											className={cn("@max-xl/main:h-9 px-3", TAB_TOUCH_AREA)}
-										>
-											{t("posts.all")}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(channelPosts.length)}
-											</span>
-										</TabsTrigger>
-										{tabs.map((tab) => (
-											<TabsTrigger
-												key={tab.value}
-												value={tab.value}
-												className={cn("@max-xl/main:h-9 px-3", TAB_TOUCH_AREA)}
-											>
-												{t(`posts.statuses.${tab.value}`)}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(tab.count)}
-												</span>
-											</TabsTrigger>
-										))}
-									</TabsList>
-								</Tabs>
-							</>
-						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("posts.noResults")}
+			/>
 		</div>
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
-
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Loading state of the post list: the header, the tabs, the toolbar, and ten rows. */
 export function PostsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
 				<Skeleton className="h-8 w-32" />
-				<Skeleton className="h-4 w-80 max-w-full" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<div className="flex flex-wrap gap-2">
-						<Skeleton className="h-9 w-full sm:max-w-xs" />
-						<Skeleton className="h-9 w-44" />
-						<Skeleton className="h-9 w-80 max-w-full" />
-					</div>
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-96 max-w-full" />
+			<Skeleton className="h-9 w-full" />
+			<Skeleton className="h-160 w-full" />
 		</div>
 	);
 }
 
-/** Error state of the list and of a post page when the loader fails. */
+/** Error state of the post pages when a loader fails. Try again runs the loader again. */
 export function PostsPageError() {
 	const { t } = useT();
 	return <LoadError message={t("posts.loadError")} />;

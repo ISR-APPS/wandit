@@ -1,7 +1,6 @@
 // Shapes of the chart data, and the pure functions that cut a period out of a day table.
 // The query files build the series and the totals with these functions. The chart cards take the types.
 // A day table is a list of numbers with one entry per day: the index is "days ago", and index 1 is yesterday.
-import type { TranslationKey } from "~/shared/i18n";
 import { dayKeyOf, startOfDayAgo } from "./time";
 
 /** The period choices of the pages, in complete days. The sample tables hold two periods of the longest one. */
@@ -30,23 +29,6 @@ export type DailyPoint = {
 
 /** A total of the period and the total of the period of the same length just before. */
 export type PeriodTotals = { current: number; previous: number };
-
-/** One figure of a page. The delta pill reads `change` and `goodWhen`. */
-export type KpiItem = {
-	/** Stable id, also the React key, for example "sign-ups". */
-	id: string;
-	/** Message key of the label. The figure block translates it with t(). */
-	labelKey: TranslationKey;
-	/** Message key of one muted line that says what the figure counts. */
-	hintKey: TranslationKey;
-	value: number;
-	/** Intl options of the value, for example { style: "percent" }. A plain number when absent. */
-	format?: Intl.NumberFormatOptions;
-	/** Ratio against the previous period of the same length: 0.12 is +12 %. null hides the delta. */
-	change: number | null;
-	/** "down" for a figure where a fall is good news. */
-	goodWhen: "up" | "down";
-};
 
 /** Change against the previous period, as a ratio. null when the previous value is 0: no delta shows. */
 export function changeRatio(current: number, previous: number): number | null {

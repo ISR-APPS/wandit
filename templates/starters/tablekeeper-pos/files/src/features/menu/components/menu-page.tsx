@@ -1,36 +1,74 @@
-// The menu behind login: every dish and drink with its price, its sales today, and its availability.
-// The /app/menu route renders it after its loader. Category tabs and the search filter the table.
-// A dish name opens MenuItemDialog. The route also uses the skeleton and the error below.
-// On a phone the tabs wrap, and the price cell also shows the sales today, because the table cuts the later columns.
+// The menu behind login, in the anatomy of the kit product list.
+// The header with "New order", 4 figure cards with a badge, then RecordTable with a search, 3 filter buttons,
+// a column menu, row checkboxes, and a row menu. A dish name or "View details" opens MenuItemDialog.
+// The /app/menu route renders it after its loader. The route also uses the skeleton and the error below.
+import { PlusIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
+	changeFormat,
+	changeRatio,
+	copyToClipboard,
+	countLabel,
+	dayTotalsQueryOptions,
+	downloadCsv,
 	fillMessage,
 	formatCents,
+	isGoodChange,
 	MENU_CATEGORIES,
-	type MenuCategory,
+	MENU_CATEGORY_ICON,
 	menuQueryOptions,
 	moneyFormat,
 	ordersQueryOptions,
+	toCsv,
 } from "~/features/restaurant";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import {
+	Card,
+	CardAction,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { buildMenuRows, type MenuRow } from "../lib/menu-sales";
 import { MenuItemDialog } from "./menu-item-dialog";
 
-/** The list page. The category tab filters the rows; then DataTable searches, sorts, and pages them. */
+// 10 rows per page, as the kit product list.
+const PAGE_SIZE = 10;
+
+/** The value of the status filter. Its label is the message key `menu.<status>`. */
+type ItemStatus = "available" | "soldOut";
+
+/** One figure card. `badge` is the small text at the end of the head. */
+type MenuFigure = {
+	id: string;
+	label: string;
+	value: string;
+	badge: string | null;
+	/** "success" and "destructive" for a delta, "outline" for a plain context. */
+	badgeVariant: "success" | "destructive" | "outline";
+};
+
+/** The filters cut the rows; then RecordTable searches, sorts, selects, and pages them. */
 export function MenuPage() {
 	const { t, locale } = useT();
 	const { data: items } = useSuspenseQuery(menuQueryOptions());
 	const { data: orders } = useSuspenseQuery(ordersQueryOptions());
-	const [category, setCategory] = useState<MenuCategory | "all">("all");
+	const { data: totals } = useSuspenseQuery(dayTotalsQueryOptions());
+	const [status, setStatus] = useState<string | null>(null);
+	const [category, setCategory] = useState<string | null>(null);
+	const [station, setStation] = useState<string | null>(null);
 	const [openItemId, setOpenItemId] = useState<string | null>(null);
 	// The dialog keeps the last item while it closes, so its content does not vanish mid-animation.
 	const [shownItemId, setShownItemId] = useState<string | null>(null);
@@ -38,15 +76,14 @@ export function MenuPage() {
 	const money = moneyFormat(locale);
 	const number = new Intl.NumberFormat(locale);
 	const menuRows = buildMenuRows(items, orders);
-	const soldOut = menuRows.filter((row) => !row.isAvailable).length;
-	const tabs = MENU_CATEGORIES.map((value) => ({
-		value,
-		count: menuRows.filter((row) => row.category === value).length,
-	})).filter((tab) => tab.count > 0);
-	const rows =
-		category === "all"
-			? menuRows
-			: menuRows.filter((row) => row.category === category);
+	const statusOf = (row: MenuRow): ItemStatus =>
+		row.isAvailable ? "available" : "soldOut";
+	const rows = menuRows.filter(
+		(row) =>
+			(status === null || statusOf(row) === status) &&
+			(category === null || row.category === category) &&
+			(station === null || row.station === station),
+	);
 	const shownRow = menuRows.find((row) => row.id === shownItemId);
 	const categorySalesCents = shownRow
 		? menuRows
@@ -54,138 +91,281 @@ export function MenuPage() {
 				.reduce((sum, row) => sum + row.salesTodayCents, 0)
 		: 0;
 
+	const salesCents = menuRows.reduce(
+		(sum, row) => sum + row.salesTodayCents,
+		0,
+	);
+	const portions = menuRows.reduce((sum, row) => sum + row.soldToday, 0);
+	const soldOut = menuRows.filter((row) => !row.isAvailable).length;
+	const salesChange = totals.lastWeek
+		? changeRatio(totals.today.salesCents, totals.lastWeek.salesCents)
+		: null;
+	const figures: MenuFigure[] = [
+		{
+			id: "sales",
+			label: t("menu.salesToday"),
+			value: formatCents(money, salesCents),
+			badge:
+				salesChange === null ? null : changeFormat(locale).format(salesChange),
+			badgeVariant:
+				salesChange === null || isGoodChange(salesChange, "up")
+					? "success"
+					: "destructive",
+		},
+		{
+			id: "portions",
+			label: t("menu.portionsSold"),
+			value: number.format(portions),
+			badge:
+				totals.today.checks === 0
+					? null
+					: fillMessage(t("menu.perCheck"), {
+							count: new Intl.NumberFormat(locale, {
+								maximumFractionDigits: 1,
+							}).format(portions / totals.today.checks),
+						}),
+			badgeVariant: "outline",
+		},
+		{
+			id: "average",
+			label: t("menu.averagePrice"),
+			value: formatCents(
+				money,
+				portions === 0 ? 0 : Math.round(salesCents / portions),
+			),
+			badge: countLabel(
+				menuRows.length,
+				t("counts.dishes.one"),
+				t("counts.dishes.other"),
+				locale,
+			),
+			badgeVariant: "outline",
+		},
+		{
+			id: "soldOut",
+			label: t("menu.soldOut"),
+			value: number.format(soldOut),
+			badge: fillMessage(t("menu.ofDishes"), {
+				count: number.format(menuRows.length),
+			}),
+			badgeVariant: soldOut > 0 ? "destructive" : "outline",
+		},
+	];
+
 	function openItem(id: string) {
 		setShownItemId(id);
 		setOpenItemId(id);
 	}
 
-	// The phone sees the dish and its price first. The category comes last: the tabs already name it.
-	const columns: DataTableColumn<MenuRow>[] = [
+	const columns: RecordColumn<MenuRow>[] = [
 		{
 			id: "dish",
 			header: t("menu.dish"),
+			cell: (row) => {
+				const CategoryIcon = MENU_CATEGORY_ICON[row.category];
+				return (
+					<button
+						type="button"
+						onClick={() => openItem(row.id)}
+						className="flex items-center gap-4 text-start hover:underline"
+					>
+						{/* The app has no food photos: the category icon stands in for the kit product image. */}
+						<span
+							aria-hidden="true"
+							className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+						>
+							<CategoryIcon className="size-5" />
+						</span>
+						<span dir="auto">{row.name}</span>
+					</button>
+				);
+			},
 			sortValue: (row) => row.name,
-			cell: (row) => (
-				<button
-					type="button"
-					onClick={() => openItem(row.id)}
-					aria-label={fillMessage(t("menu.details"), { name: row.name })}
-					className="grid min-w-44 justify-items-start whitespace-normal text-start outline-none hover:underline focus-visible:underline"
-				>
-					<span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-						<span className="font-medium">{row.name}</span>
-						{row.isAvailable ? null : (
-							<Badge variant="warning">{t("menu.soldOut")}</Badge>
-						)}
-					</span>
-					<span className="text-muted-foreground text-xs">
-						{row.description}
-					</span>
-				</button>
-			),
 		},
 		{
 			id: "price",
 			header: t("menu.price"),
-			align: "end",
+			cell: (row) => formatCents(money, row.priceCents),
 			sortValue: (row) => row.priceCents,
-			cell: (row) => (
-				<span className="grid justify-items-end">
-					<span className="font-medium">
-						{formatCents(money, row.priceCents)}
-					</span>
-					<span className="@md/main:hidden text-muted-foreground text-xs">
-						{fillMessage(t("menu.soldCount"), {
-							count: number.format(row.soldToday),
-						})}
-					</span>
-				</span>
-			),
-		},
-		{
-			id: "sold",
-			header: t("menu.soldToday"),
-			align: "end",
-			sortValue: (row) => row.soldToday,
-			cell: (row) => number.format(row.soldToday),
+			hideable: true,
 		},
 		{
 			id: "category",
 			header: t("menu.category"),
+			cell: (row) => t(`menuCategories.${row.category}`),
 			sortValue: (row) => MENU_CATEGORIES.indexOf(row.category),
+			hideable: true,
+		},
+		{
+			id: "sold",
+			header: t("menu.soldToday"),
 			cell: (row) => (
-				<span className="text-muted-foreground">
-					{t(`menuCategories.${row.category}`)}
+				<span className="tabular-nums">{number.format(row.soldToday)}</span>
+			),
+			sortValue: (row) => row.soldToday,
+			hideable: true,
+		},
+		{
+			id: "station",
+			header: t("menu.station"),
+			cell: (row) => t(`stations.${row.station}`),
+			hideable: true,
+		},
+		{
+			id: "sales",
+			header: t("menu.sales"),
+			cell: (row) => (
+				<span className="tabular-nums">
+					{formatCents(money, row.salesTodayCents)}
 				</span>
 			),
+			hideable: true,
+		},
+		{
+			id: "status",
+			header: t("menu.status"),
+			cell: (row) => (
+				<Badge variant={row.isAvailable ? "success" : "destructive"}>
+					{t(row.isAvailable ? "menu.available" : "menu.soldOut")}
+				</Badge>
+			),
+			sortValue: (row) => (row.isAvailable ? 0 : 1),
+			hideable: true,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("menu.title")}
 				description={fillMessage(t("menu.description"), {
-					count: number.format(menuRows.length),
+					items: countLabel(
+						menuRows.length,
+						t("counts.items.one"),
+						t("counts.items.other"),
+						locale,
+					),
 					soldOut: number.format(soldOut),
 				})}
 				actions={
 					<Button asChild>
-						<Link to="/app/order">{t("menu.newOrder")}</Link>
+						<Link to="/app/order">
+							<PlusIcon />
+							{t("menu.newOrder")}
+						</Link>
 					</Button>
 				}
 			/>
-			{menuRows.length === 0 ? (
-				<Card>
-					<CardContent className="py-10 text-center text-muted-foreground text-sm">
-						{t("menu.empty")}
-					</CardContent>
-				</Card>
-			) : (
-				<Card>
-					<CardContent>
-						<DataTable
-							rows={rows}
-							columns={columns}
-							searchText={(row) => `${row.name} ${row.description}`}
-							noResults={t("menu.noResults")}
-							toolbar={
-								<Tabs
-									value={category}
-									onValueChange={(value) =>
-										setCategory(
-											MENU_CATEGORIES.find((option) => option === value) ??
-												"all",
-										)
-									}
-									className="max-w-full"
-								>
-									<TabsList className="h-auto flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
-										<TabsTrigger value="all" className="h-8 flex-none">
-											{t("menu.all")}
-											<span className="tabular-nums opacity-70">
-												{number.format(menuRows.length)}
-											</span>
-										</TabsTrigger>
-										{tabs.map((tab) => (
-											<TabsTrigger
-												key={tab.value}
-												value={tab.value}
-												className="h-8 flex-none"
-											>
-												{t(`menuCategories.${tab.value}`)}
-												<span className="tabular-nums opacity-70">
-													{number.format(tab.count)}
-												</span>
-											</TabsTrigger>
-										))}
-									</TabsList>
-								</Tabs>
-							}
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{figures.map((figure) => (
+					<Card key={figure.id}>
+						<CardHeader>
+							<CardDescription>{figure.label}</CardDescription>
+							<CardTitle className="font-normal font-numeric @4xl/main:text-3xl text-2xl tabular-nums">
+								{figure.value}
+							</CardTitle>
+							{figure.badge ? (
+								<CardAction>
+									<Badge variant={figure.badgeVariant}>
+										{/* dir="ltr" keeps "+3.6%" in this order in an Arabic page. */}
+										<bdi dir="ltr">{figure.badge}</bdi>
+									</Badge>
+								</CardAction>
+							) : null}
+						</CardHeader>
+					</Card>
+				))}
+			</div>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) => row.name}
+				searchPlaceholder={t("menu.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("menu.status")}
+							options={(["available", "soldOut"] as const).map((value) => ({
+								value,
+								label: t(`menu.${value}`),
+							}))}
+							value={status}
+							onValueChange={setStatus}
 						/>
-					</CardContent>
-				</Card>
-			)}
+						<RecordFilter
+							label={t("menu.category")}
+							options={MENU_CATEGORIES.map((value) => ({
+								value,
+								label: t(`menuCategories.${value}`),
+							}))}
+							value={category}
+							onValueChange={setCategory}
+						/>
+						<RecordFilter
+							label={t("menu.station")}
+							options={(["kitchen", "bar"] as const).map((value) => ({
+								value,
+								label: t(`stations.${value}`),
+							}))}
+							value={station}
+							onValueChange={setStation}
+						/>
+					</>
+				}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"menu-selected.csv",
+								toCsv(selected, [
+									{ header: t("menu.dish"), value: (row) => row.name },
+									{
+										header: t("menu.category"),
+										value: (row) => t(`menuCategories.${row.category}`),
+									},
+									// A plain number with a dot, so every spreadsheet reads it as a number. Cents become euros here.
+									{
+										header: t("menu.price"),
+										value: (row) => (row.priceCents / 100).toFixed(2),
+									},
+									{
+										header: t("menu.soldToday"),
+										value: (row) => String(row.soldToday),
+									},
+								]),
+							)
+						}
+					>
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem onSelect={() => openItem(row.id)}>
+							{t("menu.viewDetails")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.name, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("menu.copyName")}
+						</DropdownMenuItem>
+					</>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={
+					menuRows.length === 0 ? t("menu.empty") : t("menu.noResults")
+				}
+			/>
 			<MenuItemDialog
 				row={shownRow}
 				categorySalesCents={categorySalesCents}
@@ -200,28 +380,21 @@ export function MenuPage() {
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+// Placeholder cards and rows of the skeleton. Fixed keys, because they never reorder.
+const SKELETON_FIGURES = ["1", "2", "3", "4"];
 
 /** Placeholder while the menu loader runs. The route sets it as pendingComponent. */
 export function MenuPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="flex flex-wrap items-end justify-between gap-3">
-				<div className="grid gap-2">
-					<Skeleton className="h-8 w-32" />
-					<Skeleton className="h-4 w-60" />
-				</div>
-				<Skeleton className="h-9 w-32" />
+		<div className="grid gap-4">
+			<Skeleton className="h-8 w-32" />
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_FIGURES.map((key) => (
+					<Skeleton key={key} className="h-28 rounded-surface" />
+				))}
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xl" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full max-w-xl" />
+			<Skeleton className="h-96 w-full" />
 		</div>
 	);
 }

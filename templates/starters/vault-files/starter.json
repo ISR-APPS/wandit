@@ -14,7 +14,7 @@
 			"mode": "light",
 			"primary": "look",
 			"font": "look",
-			"displayFont": "look",
+			"displayFont": "satoshi",
 			"scale": "md",
 			"radius": "md",
 			"border": "0.5",
@@ -29,7 +29,7 @@
 			"header": "plain",
 			"userMenu": "header",
 			"frame": "outlined",
-			"icons": "thin",
+			"icons": "light",
 			"navIcon": "plain"
 		}
 	}

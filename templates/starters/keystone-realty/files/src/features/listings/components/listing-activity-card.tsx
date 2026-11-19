@@ -1,102 +1,119 @@
-// The market activity of one listing: the days on the market, then the path from a portal visit to an offer.
-// ListingDetailPage renders it with the listing of the detail query. The counts equal the rows of the lists below.
-import type { ListingRow } from "~/features/agency";
-import { fillMessage } from "~/features/agency";
+// The history card of a listing detail page: a line timeline of the dated steps of the home, newest first,
+// each with an icon, its text, its date, and how long ago it was. ListingDetailPage renders it in the wide column.
+// It shows 3 steps. "View all" shows every step: a state of the card.
+import {
+	CalendarPlusIcon,
+	ChatCircleDotsIcon,
+	ClockIcon,
+	DoorOpenIcon,
+	HandshakeIcon,
+	HouseLineIcon,
+	KeyIcon,
+	SignatureIcon,
+	TagIcon,
+	XCircleIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
+import {
+	fillMessage,
+	formatRelativeTime,
+	moneyFormat,
+} from "~/features/agency";
 import { useT } from "~/shared/i18n";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import { Badge } from "~/shared/ui/badge";
+import { Button } from "~/shared/ui/button";
+import {
+	Card,
+	CardAction,
+	CardContent,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import type { KitIcon } from "~/shared/ui/icons";
+import type { TimelineKind, TimelineStep } from "../lib/listing-timeline";
+
+// Three steps keep the card short. "View all" shows the rest.
+const SHOWN_STEPS = 3;
+
+const STEP_ICON = {
+	instructed: SignatureIcon,
+	launch_planned: CalendarPlusIcon,
+	listed: HouseLineIcon,
+	first_enquiry: ChatCircleDotsIcon,
+	first_viewing: DoorOpenIcon,
+	price_reduced: TagIcon,
+	offer_accepted: HandshakeIcon,
+	sold: KeyIcon,
+	withdrawn: XCircleIcon,
+} satisfies Record<TimelineKind, KitIcon>;
 
 type ListingActivityCardProps = {
-	/** The listing of the page, with its counts of enquiries, viewings, viewers, and offers. */
-	listing: ListingRow;
+	/** The dated steps of the listing, newest first. */
+	steps: TimelineStep[];
 };
 
-/**
- * Each step after the portal visits shows its share of the leads of the step before. A step before of 0 shows no share.
- */
-export function ListingActivityCard({ listing }: ListingActivityCardProps) {
+/** The newest step carries a "Latest" badge. */
+export function ListingActivityCard({ steps }: ListingActivityCardProps) {
 	const { t, locale } = useT();
-	const number = new Intl.NumberFormat(locale);
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		maximumFractionDigits: 1,
-	});
-	const shareOf = (part: number, whole: number, of: string) =>
-		whole === 0
-			? null
-			: fillMessage(t("listings.activity.shareOf"), {
-					share: percent.format(part / whole),
-					of,
-				});
-	const cells = [
-		{
-			id: "days",
-			label: t("listings.daysOnMarket"),
-			value: listing.daysOnMarket,
-			note: null,
-		},
-		{
-			id: "views",
-			label: t("listings.activity.views"),
-			value: listing.portalViews,
-			note: null,
-		},
-		{
-			id: "enquiries",
-			label: t("listings.enquiries"),
-			value: listing.enquiryCount,
-			note: shareOf(
-				listing.enquiryCount,
-				listing.portalViews,
-				t("listings.activity.ofViews"),
-			),
-		},
-		{
-			id: "viewings",
-			label: t("listings.viewings"),
-			value: listing.viewingCount,
-			// The share counts leads, not visits: a lead with two visits counts once, so it never passes 100%.
-			note: shareOf(
-				listing.viewerCount,
-				listing.enquiryCount,
-				t("listings.activity.ofEnquiriesBooked"),
-			),
-		},
-		{
-			id: "offers",
-			label: t("listings.activity.offers"),
-			value: listing.offerCount,
-			note: shareOf(
-				listing.offerCount,
-				listing.viewerCount,
-				t("listings.activity.ofViewers"),
-			),
-		},
-	];
+	const [showAll, setShowAll] = useState(false);
+	const money = moneyFormat(locale);
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "long" });
+	const now = Date.now();
+	const shown = showAll ? steps : steps.slice(0, SHOWN_STEPS);
+
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>{t("listings.activity.title")}</CardTitle>
-			</CardHeader>
-			<CardContent>
-				{/* Each cell spans 3 rows of one subgrid: a label on two lines does not push its value below the others. */}
-				<dl className="grid @2xl/main:grid-cols-5 grid-cols-2 gap-x-6 gap-y-5">
-					{cells.map((cell) => (
-						<div
-							key={cell.id}
-							className="row-span-3 grid grid-rows-subgrid gap-y-1"
+				<CardTitle>{t("listings.timeline.title")}</CardTitle>
+				{steps.length > SHOWN_STEPS ? (
+					<CardAction>
+						<Button
+							type="button"
+							variant="link"
+							size="sm"
+							className="h-auto px-0 text-muted-foreground"
+							onClick={() => setShowAll((current) => !current)}
 						>
-							<dt className="label-text self-end text-muted-foreground text-sm">
-								{cell.label}
-							</dt>
-							<dd className="font-numeric text-2xl tabular-nums leading-none">
-								{number.format(cell.value)}
-							</dd>
-							{cell.note === null ? null : (
-								<dd className="text-muted-foreground text-xs">{cell.note}</dd>
-							)}
-						</div>
-					))}
-				</dl>
+							{showAll ? t("listings.showFewer") : t("common.viewAll")}
+						</Button>
+					</CardAction>
+				) : null}
+			</CardHeader>
+			<CardContent className="ps-9">
+				<ol className="relative grid gap-8 border-s">
+					{shown.map((step, index) => {
+						const StepIcon = STEP_ICON[step.kind];
+						return (
+							<li key={`${step.kind}-${step.at}`} className="ms-6 grid gap-2">
+								<span className="absolute -start-3 flex size-6 items-center justify-center rounded-full border bg-muted">
+									<StepIcon className="size-3 text-primary" />
+								</span>
+								<h3 className="flex flex-wrap items-center gap-2 font-semibold">
+									{fillMessage(t(`listings.timeline.${step.kind}`), {
+										person: step.person ?? "",
+										amount:
+											step.amount === null ? "" : money.format(step.amount),
+									})}
+									{index === 0 ? (
+										<Badge variant="outline">
+											{t("listings.timeline.latest")}
+										</Badge>
+									) : null}
+								</h3>
+								<time
+									dateTime={step.at}
+									className="flex items-center gap-1.5 text-muted-foreground text-sm leading-none"
+								>
+									<ClockIcon className="size-3" />
+									{date.format(new Date(step.at))}
+								</time>
+								<p className="text-muted-foreground text-sm">
+									{formatRelativeTime(step.at, now, locale)}
+								</p>
+							</li>
+						);
+					})}
+				</ol>
 			</CardContent>
 		</Card>
 	);

@@ -26,7 +26,7 @@
 			"sidebarStart": "open",
 			"sidebarTone": "canvas",
 			"activeItem": "quiet",
-			"header": "plain",
+			"header": "bar",
 			"userMenu": "sidebar-footer",
 			"frame": "outlined",
 			"icons": "light",
