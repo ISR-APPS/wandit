@@ -11,7 +11,7 @@ import {
 } from "~/features/gym";
 import { buildMemberDetail, buildMemberRows } from "../lib/member-rows";
 
-/** Every member, newest first, with the last visit and the visits of 30 days. The list page pages them. */
+/** Every member, newest first, with the last visit, the visits of 30 days, and the at-risk flag. */
 export function membersQueryOptions() {
 	return queryOptions({
 		queryKey: ["members", "list"],
@@ -22,12 +22,13 @@ export function membersQueryOptions() {
 				membersOfDay(todayStart),
 				checkInsUntil(activityOfDay(todayStart), now),
 				todayStart,
+				now,
 			);
 		},
 	});
 }
 
-/** One member with the visits, the attendance, and the classes ahead. null for an unknown id. */
+/** One member with the visits, the payments, and the classes ahead. null for an unknown id. */
 export function memberQueryOptions(memberId: string) {
 	return queryOptions({
 		queryKey: ["members", "detail", memberId],

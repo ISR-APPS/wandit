@@ -58,6 +58,14 @@ export class FastifyProxyReply implements LlmProxyReply {
 	end(): void {
 		this.reply.raw.end();
 	}
+
+	/**
+	 * Closes the socket without the end of the body. The app video content
+	 * route calls it when the download stops, so the app sees a failed read.
+	 */
+	destroy(): void {
+		this.reply.raw.destroy();
+	}
 }
 
 /**

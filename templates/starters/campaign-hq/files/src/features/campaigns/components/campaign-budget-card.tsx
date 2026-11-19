@@ -1,8 +1,8 @@
-// The "Budget" panel of a campaign: the spend of the approved budget, the day of the flight, and the pace.
-// CampaignDetailPage renders it first in its rail. Only a live campaign has a pace and a projection.
+// The budget card of a campaign page: the spent share of the approved budget as one bar, and the pace.
+// CampaignDetailPage renders it in its 1/3 column, under the profile card.
+// The pace shows only while the campaign is live (pacingOf in lib/pacing.ts).
 import {
-	calendarDaysFromNow,
-	dayCountFormat,
+	CAMPAIGN_STATUS_BADGE,
 	fillMessage,
 	moneyFormat,
 } from "~/features/marketing";
@@ -12,6 +12,7 @@ import {
 	Card,
 	CardAction,
 	CardContent,
+	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
@@ -22,67 +23,42 @@ import { PACING_BADGE } from "../lib/pacing";
 type CampaignBudgetCardProps = {
 	/** The campaign of the page, from campaignQueryOptions. */
 	campaign: CampaignDetail;
-	/** The time of the render, in milliseconds since 1970. */
-	now: number;
 };
 
-/** The bar is the spend against the budget. The note under it depends on the status. */
-export function CampaignBudgetCard({ campaign, now }: CampaignBudgetCardProps) {
+/** A live campaign shows its pace badge in the header. Another status shows its status color there. */
+export function CampaignBudgetCard({ campaign }: CampaignBudgetCardProps) {
 	const { t, locale } = useT();
 	const money = moneyFormat(locale);
-	const number = new Intl.NumberFormat(locale);
 	const percent = new Intl.NumberFormat(locale, { style: "percent" });
-	const { pacing } = campaign;
-	const spentLabel = fillMessage(t("campaigns.spentOf"), {
-		spent: money.format(campaign.totals.spend),
-		budget: money.format(campaign.budget),
-	});
-	const note =
-		campaign.status === "planned"
-			? fillMessage(t("campaigns.plannedBudget"), {
-					days: dayCountFormat(locale).format(
-						calendarDaysFromNow(campaign.startAt, now),
-					),
-				})
-			: pacing
-				? fillMessage(t("campaigns.projected"), {
-						amount: money.format(pacing.projectedSpend),
-					})
-				: t("campaigns.notLive");
-
+	const used =
+		campaign.budget === 0 ? 0 : campaign.totals.spend / campaign.budget;
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>{t("campaigns.pacingTitle")}</CardTitle>
-				{pacing ? (
-					<CardAction>
-						<Badge variant={PACING_BADGE[pacing.state]}>
-							{t(`pacing.${pacing.state}`)}
+				<CardDescription>
+					{fillMessage(t("campaigns.spentOf"), {
+						spent: money.format(campaign.totals.spend),
+						budget: money.format(campaign.budget),
+					})}
+				</CardDescription>
+				<CardAction>
+					{campaign.pacing ? (
+						<Badge variant={PACING_BADGE[campaign.pacing.state]}>
+							{t(`pacing.${campaign.pacing.state}`)}
 						</Badge>
-					</CardAction>
-				) : null}
+					) : (
+						<Badge variant={CAMPAIGN_STATUS_BADGE[campaign.status]}>
+							{t(`campaignStatus.${campaign.status}`)}
+						</Badge>
+					)}
+				</CardAction>
 			</CardHeader>
-			<CardContent className="grid gap-3">
-				<p className="font-numeric text-3xl tabular-nums">
-					{percent.format(campaign.totals.spend / campaign.budget)}
-				</p>
-				<Progress
-					value={campaign.totals.spend}
-					max={campaign.budget}
-					aria-label={spentLabel}
-				/>
-				<div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
-					<span className="tabular-nums">{spentLabel}</span>
-					{campaign.status === "live" ? (
-						<span className="text-muted-foreground tabular-nums">
-							{fillMessage(t("campaigns.dayOfFlight"), {
-								day: number.format(campaign.elapsedDays + 1),
-								total: number.format(campaign.flightDays),
-							})}
-						</span>
-					) : null}
-				</div>
-				<p className="text-muted-foreground text-sm">{note}</p>
+			<CardContent className="flex items-center gap-4">
+				<Progress value={used * 100} aria-label={t("campaigns.budget")} />
+				<span className="text-muted-foreground text-sm tabular-nums">
+					{percent.format(used)}
+				</span>
 			</CardContent>
 		</Card>
 	);

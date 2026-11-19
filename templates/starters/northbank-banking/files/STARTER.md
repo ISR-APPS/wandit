@@ -8,18 +8,20 @@ The sample customer is a joinery company with three accounts and seven cards. Al
 | Route | Page | Feature folder |
 |---|---|---|
 | `/` | Redirect to `/app` | `src/routes/index.tsx` |
-| `/app` | Overview: four totals, the balance strip (7, 30, 90 days), the full entry table | `src/features/overview` |
-| `/app/transactions` | Transactions: direction tabs, an account filter, search, sort | `src/features/transactions` |
-| `/app/transactions/$transactionId` | One entry: amount, facts, status steps, other entries with the same party | `src/features/transactions` |
-| `/app/cards` | Cards: status tabs, one tile per card with its monthly limit, spend by group | `src/features/cards` |
-| `/app/cards/$cardId` | One card: running spend against the period before, payments, limit, top merchants | `src/features/cards` |
-| `/app/payees` | Payees: group tabs, bank details, last payment, 90-day totals | `src/features/payees` |
-| `/app/payees/$payeeId` | One payee: bank details, payments, totals per month | `src/features/payees` |
-| `/app/statements` | Statements: one panel per account, one row per account and month | `src/features/statements` |
-| `/app/statements/$statementId` | One statement: balance through the month, the sum, the lines with a running balance | `src/features/statements` |
+| `/app` | Overview: a notice band, four KPI tiles, card limits, cash flow (In / Out tabs), spending by category, the newest entries, the balance history | `src/features/overview` |
+| `/app/transactions` | Transactions: Latest / Upcoming tabs (in the URL), a period select, CSV export, pages of 20 rows | `src/features/transactions` |
+| `/app/transactions/$transactionId` | One entry: profile card, settlement bar, labels, status timeline, other entries with the same party, same-day entries | `src/features/transactions` |
+| `/app/cards` | Cards: four KPI cards, then one table with a filter field, Status and Kind filters, columns, row selection, CSV export | `src/features/cards` |
+| `/app/cards/$cardId` | One card: profile card, monthly limit bar, spend groups, latest payments, payment table, other cards | `src/features/cards` |
+| `/app/payees` | Payees: one table with a filter field, Status, Group, and Method filters, columns, row selection, CSV export | `src/features/payees` |
+| `/app/payees/$payeeId` | One payee: profile card, share of payee payments, labels, latest payments, payment table, other payees of the group | `src/features/payees` |
+| `/app/statements` | Statements: account tabs, one tile per month with "money out of money in", the closing balance, and the status | `src/features/statements` |
+| `/app/statements/$statementId` | One statement: profile card, money out of money in, categories, key moments, newest lines, other months, CSV export | `src/features/statements` |
 | `/app/profile` | Profile (from the base template) | `src/features/profile` |
 
-The nav is in `src/features/app-shell/lib/nav-items.ts`. The texts are in `src/shared/i18n/messages.ts`. The home follows the `app-dashboard` skill: home `ledger`, KPI form `number`, chart form `compare`.
+The nav is in `src/features/app-shell/lib/nav-items.ts`: a "Banking" group with Overview, a "Money" parent (Transactions, Payees, Statements), and Cards, then an "Account" group.
+The texts are in `src/shared/i18n/messages.ts`. The bell in the header reads `alertsQueryOptions` in `src/features/bank/api/alerts.queries.ts`.
+The detail pages share the profile cards of `src/features/bank/components/` (`detail-*.tsx`, `entry-history-card.tsx`, `related-list-card.tsx`).
 
 ## Where the sample content is
 
@@ -50,12 +52,13 @@ Each `queryFn` calls a list function of `~/features/bank` and a pure build funct
    Keep the method, status, and category values of the sample modules as `check` constraints. Keep amounts in cents.
 2. Replace the body of each `queryFn` with a Supabase call. Parse the rows with a zod schema.
 3. Totals, balances, card spend, and statements: write SQL read functions (`data.md`, section 3).
-   The math to copy is in `overview-kpis.ts`, `card-spend.ts`, `payee-summary.ts`, and `statements.ts`.
+   The math to copy is in `overview.ts`, `card-spend.ts`, `payee-summary.ts`, `statements.ts`, and `alerts.queries.ts`.
 4. More than 1,000 entries: use server paging (`tables-paging.md` of the skill).
 5. When every query reads the database, delete the `sample-*.ts` files and `seeded-random.ts`.
 
 ## What does not exist yet
 
-- No page writes data. No form exists: no transfer, no new payee, no card freeze, no statement download.
+- No page writes data. No form exists: no transfer, no new payee, no card freeze. The exports are CSV files made in the browser.
+- The notice band on the overview closes for the current visit only. The table filters, the account tab of the statements page, and the period select are page state: a reload resets them.
 - Good first writes: freeze a card, change a card limit, add a payee. Use `api/<entity>.mutations.ts` and a dialog (`tables.md`).
 - The currency is `BANK_CURRENCY` and the customer name is `CUSTOMER_NAME`, both in `sample-accounts.ts`.

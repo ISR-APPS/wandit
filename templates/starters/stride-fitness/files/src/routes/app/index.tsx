@@ -1,33 +1,26 @@
-// The home behind login: the briefing of the gym day. The /app layout checks the session first.
-// The loader fills the profile, the week of classes, the figures, and the check-ins of the first period.
-// Thin: the page and its states live in the today feature.
+// The home behind login: the dashboard of the gym. The /app layout checks the session first.
+// The loader fills the summary of the default period, the member list, and the classes ahead.
+// Thin: the page and its states live in the dashboard feature.
 import { createFileRoute } from "@tanstack/react-router";
 import { classSessionsQueryOptions } from "~/features/classes";
-import { profileQueryOptions } from "~/features/profile";
 import {
-	DEFAULT_DAYS,
-	dailyCheckInsQueryOptions,
-	TodayPage,
-	TodayPageError,
-	TodayPageSkeleton,
-	weekKpisQueryOptions,
-} from "~/features/today";
+	DASHBOARD_DEFAULT_DAYS,
+	DashboardPage,
+	DashboardPageError,
+	DashboardPageSkeleton,
+	dashboardQueryOptions,
+} from "~/features/dashboard";
+import { membersQueryOptions } from "~/features/members";
 
-/** /app. `context.session` comes from the /app layout guard. */
+/** /app. */
 export const Route = createFileRoute("/app/")({
 	loader: ({ context }) =>
 		Promise.all([
-			context.queryClient.query(profileQueryOptions(context.session.user.id)),
+			context.queryClient.query(dashboardQueryOptions(DASHBOARD_DEFAULT_DAYS)),
+			context.queryClient.query(membersQueryOptions()),
 			context.queryClient.query(classSessionsQueryOptions()),
-			context.queryClient.query(weekKpisQueryOptions()),
-			context.queryClient.query(dailyCheckInsQueryOptions(DEFAULT_DAYS)),
 		]),
-	pendingComponent: TodayPageSkeleton,
-	errorComponent: TodayPageError,
-	component: TodayRoute,
+	pendingComponent: DashboardPageSkeleton,
+	errorComponent: DashboardPageError,
+	component: DashboardPage,
 });
-
-function TodayRoute() {
-	const { session } = Route.useRouteContext();
-	return <TodayPage session={session} />;
-}

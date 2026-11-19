@@ -1,5 +1,5 @@
 // One change of a ticket in its conversation: taken by an agent, set to pending, solved, or closed.
-// ConversationCard renders one per event, between the messages, as a quiet line with an icon.
+// TicketThread renders one per event, between the bubbles, as a quiet centered line with an icon.
 import {
 	CheckCircleIcon,
 	HourglassMediumIcon,
@@ -28,7 +28,7 @@ type ConversationEventProps = {
 	agentName: string | null;
 	/** The time of the change, as ISO. */
 	at: string;
-	/** Milliseconds since 1970, read one time by the card. */
+	/** Milliseconds since 1970, read one time by the thread. */
 	now: number;
 };
 
@@ -42,7 +42,7 @@ export function ConversationEvent({
 	const { t, locale } = useT();
 	const Icon = EVENT_ICON[event];
 	return (
-		<p className="flex flex-wrap items-center gap-x-2 gap-y-1 ps-2.5 text-muted-foreground text-xs">
+		<p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 			<Icon className="size-4 shrink-0" />
 			<span>
 				{fillMessage(t(`tickets.events.${event}`), { agent: agentName ?? "" })}

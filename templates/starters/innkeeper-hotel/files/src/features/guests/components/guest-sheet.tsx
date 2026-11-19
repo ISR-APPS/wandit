@@ -154,7 +154,7 @@ export function GuestSheet({ guest, open, onClose }: GuestSheetProps) {
 														{`${date.format(dayToDate(stay.checkIn))} – ${date.format(dayToDate(stay.checkOut))}`}
 													</span>
 													<span className="text-muted-foreground text-xs tabular-nums">
-														{`${stay.code} · ${fillMessage(t("roomPanel.title"), { number: stay.roomNumber })} · ${countLabel(stay.nights, t("units.nightOne"), t("units.nightOther"), locale)}`}
+														{`${stay.code} · ${fillMessage(t("reservations.roomNumber"), { number: stay.roomNumber })} · ${countLabel(stay.nights, t("units.nightOne"), t("units.nightOther"), locale)}`}
 													</span>
 												</span>
 												<span className="grid shrink-0 justify-items-end gap-1">

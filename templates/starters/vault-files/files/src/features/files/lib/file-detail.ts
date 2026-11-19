@@ -1,9 +1,10 @@
-// Builds the data of the file page: the file, its versions newest first, its shares, its feed, and its folder.
+// Builds the data of the file page: the file, its versions newest first, its editors, its shares, its feed, its folder, and its totals.
 // fileQueryOptions calls it on the workspace of now. It is pure, so a later SQL read can return the same shape.
 import type {
 	ActivityItem,
 	FileItem,
 	FolderRow,
+	MemberRow,
 	ShareItem,
 	Workspace,
 } from "~/features/workspace";
@@ -28,12 +29,13 @@ export type FileDetail = {
 	activity: ActivityItem[];
 	/** The folder of the file, or null at the top of the workspace. */
 	folder: FolderRow | null;
-	/** Up to 5 other live files of the same folder, newest change first. */
-	neighbors: FileItem[];
+	/** Bytes of all live files in the same folder, this file included. The page shows the share of this file. */
+	folderBytes: number;
+	/** Opens of the file through all its shares, expired ones too. */
+	shareViews: number;
+	/** Each team member who uploaded a version, once, by the newest upload first. */
+	editors: MemberRow[];
 };
-
-// The rail lists a few neighbors only. The folder page lists all of them.
-const NEIGHBOR_COUNT = 5;
 
 /** The detail of `fileId`, or null when no live file has this id (unknown, or in the trash). */
 export function buildFileDetail(
@@ -45,25 +47,28 @@ export function buildFileDetail(
 	if (!file) {
 		return null;
 	}
-	const memberName = new Map(
-		workspace.members.map((row) => [row.id, row.name]),
-	);
+	const memberById = new Map(workspace.members.map((row) => [row.id, row]));
+	const uploads = workspace.uploads
+		.filter((upload) => upload.fileId === fileId)
+		.sort((first, second) => second.versionNumber - first.versionNumber);
+	const editorIds = [...new Set(uploads.map((upload) => upload.uploaderId))];
 	return {
 		file,
-		versions: workspace.uploads
-			.filter((upload) => upload.fileId === fileId)
-			.map((upload) => ({
-				number: upload.versionNumber,
-				uploadedAt: upload.at,
-				uploaderName: memberName.get(upload.uploaderId) ?? "",
-				sizeBytes: upload.sizeBytes,
-			}))
-			.sort((first, second) => second.number - first.number),
+		versions: uploads.map((upload) => ({
+			number: upload.versionNumber,
+			uploadedAt: upload.at,
+			uploaderName: memberById.get(upload.uploaderId)?.name ?? "",
+			sizeBytes: upload.sizeBytes,
+		})),
+		editors: editorIds.flatMap((id) => memberById.get(id) ?? []),
 		shares: workspace.shares.filter((share) => share.fileId === fileId),
 		activity: activity.filter((item) => item.fileId === fileId),
 		folder: workspace.folders.find((row) => row.id === file.folderId) ?? null,
-		neighbors: workspace.files
-			.filter((item) => item.folderId === file.folderId && item.id !== fileId)
-			.slice(0, NEIGHBOR_COUNT),
+		folderBytes: workspace.files
+			.filter((item) => item.folderId === file.folderId)
+			.reduce((sum, item) => sum + item.sizeBytes, 0),
+		shareViews: workspace.shares
+			.filter((share) => share.fileId === fileId)
+			.reduce((sum, share) => sum + share.views, 0),
 	};
 }

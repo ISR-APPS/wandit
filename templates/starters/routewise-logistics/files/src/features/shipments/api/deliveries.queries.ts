@@ -1,5 +1,5 @@
-// Reads of the delivery figures: closed shipments per day and outcome, the figures of a period, and late deliveries by reason.
-// The loader of the home prefetches them. The deliveries panel and the reasons panel of the home read them.
+// Reads of the delivery figures: closed shipments per day and outcome, and the figures of a period.
+// The loader of the home prefetches them. The volume card, the KPI cards, and the tracker card of the home read them.
 // Each queryFn reads the sample shipments. A later turn replaces its body with one rpc call to a SQL read function.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -10,7 +10,6 @@ import {
 } from "~/features/logistics";
 import type { TranslationKey } from "~/shared/i18n";
 import {
-	buildLateByReason,
 	buildOutcomeSeries,
 	buildPeriodTotals,
 	onTimeRate,
@@ -75,17 +74,6 @@ export function deliveryFiguresQueryOptions(days: PeriodDays) {
 			return buildDeliveryFigures(
 				buildPeriodTotals(tables.shipments, days, tables.dayStart),
 			);
-		},
-	});
-}
-
-/** Late deliveries of the last `days` full days by reason, the largest part first. Feeds the breakdown panel. */
-export function lateByReasonQueryOptions(days: PeriodDays) {
-	return queryOptions({
-		queryKey: ["deliveries", "late-by-reason", days],
-		queryFn: async () => {
-			const tables = getSampleTables();
-			return buildLateByReason(tables.shipments, days, tables.dayStart);
 		},
 	});
 }

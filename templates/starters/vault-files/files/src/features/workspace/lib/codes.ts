@@ -48,19 +48,18 @@ export const KIND_OF_EXTENSION = {
 /** One extension of KIND_OF_EXTENSION, without the dot. */
 export type FileExtension = keyof typeof KIND_OF_EXTENSION;
 
-/** The type filter and the stacked chart group the kinds into these 5 categories, in stack order. */
+/** The type filter and the home type cards group the kinds into these 4 categories, in card order. */
 export const FILE_CATEGORIES = [
 	"documents",
 	"images",
 	"video",
-	"design",
 	"other",
 ] as const;
 
 /** One category. Its label is the message key `fileCategories.<category>`. */
 export type FileCategory = (typeof FILE_CATEGORIES)[number];
 
-/** The category of each kind. Office files, PDFs, and code are documents; archives and audio are other. */
+/** The category of each kind. Office files, PDFs, and code are documents; design files go with images. */
 export const CATEGORY_OF_KIND = {
 	document: "documents",
 	pdf: "documents",
@@ -69,7 +68,7 @@ export const CATEGORY_OF_KIND = {
 	code: "documents",
 	image: "images",
 	video: "video",
-	design: "design",
+	design: "images",
 	archive: "other",
 	audio: "other",
 } as const satisfies Record<FileKind, FileCategory>;
@@ -124,3 +123,11 @@ export const SHARE_ACCESS_BADGE = {
 	comment: "secondary",
 	edit: "info",
 } satisfies Record<ShareAccess, BadgeVariant>;
+
+/** Badge variant per feed action. A delete reads as a warning; a share reaches people outside the team. */
+export const ACTIVITY_BADGE = {
+	uploaded: "success",
+	updated: "secondary",
+	shared: "info",
+	deleted: "warning",
+} satisfies Record<ActivityAction, BadgeVariant>;

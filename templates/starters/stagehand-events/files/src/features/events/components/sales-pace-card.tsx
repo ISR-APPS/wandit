@@ -1,5 +1,5 @@
-// The sales panel of one event: four figures and the running total of tickets against the capacity.
-// EventDetailPage renders it in the main column. An event that is not on sale yet shows an empty frame.
+// The ticket sales card of one event: the running total of tickets against the capacity, per day.
+// EventDetailPage loads it with React.lazy at the top of the main column. An event not on sale yet shows an empty frame.
 import { useId } from "react";
 import {
 	Area,
@@ -9,11 +9,7 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
-import {
-	type EventSummary,
-	fillMessage,
-	moneyFormat,
-} from "~/features/organiser";
+import { type EventSummary, fillMessage } from "~/features/organiser";
 import { useT } from "~/shared/i18n";
 import {
 	Card,
@@ -45,17 +41,12 @@ export function SalesPaceCard({ event, points }: SalesPaceCardProps) {
 	} satisfies ChartConfig;
 	const number = new Intl.NumberFormat(locale);
 	const compact = new Intl.NumberFormat(locale, { notation: "compact" });
-	const money = moneyFormat(locale);
 	const dayLabel = new Intl.DateTimeFormat(locale, {
 		day: "numeric",
 		month: "short",
 		timeZone: "UTC",
 	});
 	const longDate = new Intl.DateTimeFormat(locale, { dateStyle: "long" });
-	const shortDate = new Intl.DateTimeFormat(locale, {
-		day: "numeric",
-		month: "short",
-	});
 	// `day` is YYYY-MM-DD with no time. Midnight UTC, shown in UTC, keeps the same calendar day.
 	const formatDay = (day: string) =>
 		dayLabel.format(new Date(`${day}T00:00:00Z`));
@@ -67,53 +58,6 @@ export function SalesPaceCard({ event, points }: SalesPaceCardProps) {
 		Math.round(event.capacity * share),
 	);
 
-	// A cancelled event refunds every order. Its figures count the sales before the cancellation, as the chart does.
-	const soldTickets = isCancelled
-		? event.sold + event.refundedTickets
-		: event.sold;
-	const soldGross = isCancelled
-		? event.gross + event.refundedGross
-		: event.gross;
-	const figures = [
-		{
-			id: "sold",
-			label: isCancelled
-				? t("events.soldBeforeCancellation")
-				: t("events.sold"),
-			value: `${number.format(soldTickets)} / ${number.format(event.capacity)}`,
-		},
-		isCancelled
-			? {
-					id: "refunded",
-					label: t("events.refundedAmount"),
-					value: money.format(event.refundedGross),
-				}
-			: {
-					id: "gross",
-					label: t("events.gross"),
-					value: money.format(event.gross),
-				},
-		{
-			id: "average",
-			label: t("events.averageTicket"),
-			value: soldTickets === 0 ? "–" : money.format(soldGross / soldTickets),
-		},
-		isCancelled
-			? {
-					id: "cancelled-on",
-					label: t("events.cancelledOn"),
-					value:
-						event.cancelledAt === null
-							? "–"
-							: shortDate.format(event.cancelledAt),
-				}
-			: {
-					id: "left",
-					label: t("events.ticketsLeft"),
-					value: number.format(Math.max(event.capacity - event.sold, 0)),
-				},
-	];
-
 	return (
 		<Card>
 			<CardHeader>
@@ -122,19 +66,7 @@ export function SalesPaceCard({ event, points }: SalesPaceCardProps) {
 					{isCancelled ? t("events.salesHintCancelled") : t("events.salesHint")}
 				</CardDescription>
 			</CardHeader>
-			<CardContent className="grid gap-6">
-				<dl className="grid @xl/main:grid-cols-4 grid-cols-2 gap-x-6 gap-y-4">
-					{figures.map((figure) => (
-						<div key={figure.id} className="grid gap-1">
-							<dt className="label-text text-muted-foreground text-xs">
-								{figure.label}
-							</dt>
-							<dd className="font-numeric text-2xl tabular-nums">
-								{figure.value}
-							</dd>
-						</div>
-					))}
-				</dl>
+			<CardContent>
 				{points.length === 0 ? (
 					<div className="grid h-56 place-items-center rounded-control border border-dashed px-6 text-center">
 						<p className="max-w-sm text-muted-foreground text-sm">

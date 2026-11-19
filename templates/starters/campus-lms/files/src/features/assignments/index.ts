@@ -1,6 +1,7 @@
 export {
-	dueNextQueryOptions,
+	dueAssignmentsQueryOptions,
 	submissionsQueryOptions,
+	type UpcomingAssignment,
 } from "./api/submissions.queries";
 export {
 	AssignmentsPage,

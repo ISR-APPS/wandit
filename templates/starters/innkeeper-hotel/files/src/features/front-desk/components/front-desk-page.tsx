@@ -1,107 +1,117 @@
-// The home page behind login: the wall of room tiles with a live status, then the check-ins panel,
-// the alerts, and the arrivals to come.
-// The /app route renders it after its loader. The route also uses the skeleton and the error below.
-// The `room` search param of the URL opens the side panel of one room.
+// The home behind login: the front desk of the hotel. The /app route renders it after its loader.
+// It follows the hotel page of the kit, band by band: the header with two actions, four tinted KPI tiles,
+// the reservations donut beside the occupancy chart (1/3 + 2/3), a row of three cards
+// (recent activity, revenue, bookings by channel), and the table of the arrivals and departures.
+// The route also uses the skeleton and the error state below.
+import { CalendarDotsIcon, ClipboardTextIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useRouter } from "@tanstack/react-router";
 import { PageHeader } from "~/features/app-shell";
-import { fillMessage } from "~/features/hotel";
+import { downloadCsv, fillMessage, toCsv } from "~/features/hotel";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import { Skeleton } from "~/shared/ui/skeleton";
-import {
-	checkInsByChannelQueryOptions,
-	frontDeskKpisQueryOptions,
-	roomBoardQueryOptions,
-} from "../api/front-desk.queries";
-import {
-	arrivalsTomorrow,
-	pendingArrivals,
-	roomAlerts,
-} from "../lib/room-board";
-import { ArrivalsList, ArrivalsListSkeleton } from "./arrivals-list";
-import { AttentionList, AttentionListSkeleton } from "./attention-list";
-import { CheckInsPanel, CheckInsPanelSkeleton } from "./check-ins-panel";
-import { RoomSheet } from "./room-sheet";
-import { RoomStatusLine } from "./room-status-line";
-import { RoomWall, RoomWallSkeleton } from "./room-wall";
+import { frontDeskQueryOptions } from "../api/front-desk.queries";
+import { ChannelCard } from "./channel-card";
+import { DeskActivityCard } from "./desk-activity-card";
+import { KpiTiles } from "./kpi-tiles";
+import { MovementsCard, movementCsvColumns } from "./movements-card";
+import { OccupancyCard } from "./occupancy-card";
+import { ReservationsCard } from "./reservations-card";
+import { RevenueCard } from "./revenue-card";
 
-type FrontDeskPageProps = {
-	/** The door number in the `room` search param, for example "204". undefined when no panel is open. */
-	openRoomNumber: string | undefined;
-};
-
-/** The status-board home: the counts per status in the header line, one wall per floor, then the bottom row. */
-export function FrontDeskPage({ openRoomNumber }: FrontDeskPageProps) {
+/** The summary query refetches every minute, so the tiles and the table follow the arrivals of the day. */
+export function FrontDeskPage() {
 	const { t, locale } = useT();
-	const navigate = useNavigate();
-	const board = useSuspenseQuery(roomBoardQueryOptions());
-	const { data: kpis } = useSuspenseQuery(frontDeskKpisQueryOptions());
-	const { data: channels } = useSuspenseQuery(checkInsByChannelQueryOptions());
-	// The last open room stays in the panel while it slides out. It is view state, not server data.
-	const [shownRoomNumber, setShownRoomNumber] = useState(openRoomNumber);
-	if (openRoomNumber !== undefined && openRoomNumber !== shownRoomNumber) {
-		setShownRoomNumber(openRoomNumber);
-	}
-	const shownEntry = board.data.find(
-		(entry) => entry.room.number === shownRoomNumber,
-	);
-	const time = new Intl.DateTimeFormat(locale, { timeStyle: "short" });
+	const { data } = useSuspenseQuery(frontDeskQueryOptions());
+	const number = new Intl.NumberFormat(locale);
+	const today = new Intl.DateTimeFormat(locale, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	});
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("frontDesk.title")}
-				description={<RoomStatusLine board={board.data} />}
+				description={fillMessage(t("frontDesk.description"), {
+					date: today.format(new Date(data.now)),
+					rooms: number.format(data.kpis.inHouse.rooms),
+					total: number.format(data.kpis.inHouse.sellableRooms),
+				})}
 				actions={
-					<p className="text-muted-foreground text-sm tabular-nums">
-						{fillMessage(t("frontDesk.updated"), {
-							time: time.format(new Date(board.dataUpdatedAt)),
-						})}
-					</p>
+					<>
+						<Button asChild aria-label={t("frontDesk.schedule")}>
+							<Link to="/app/reservations">
+								<CalendarDotsIcon />
+								<span className="hidden lg:inline">
+									{t("frontDesk.schedule")}
+								</span>
+							</Link>
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							aria-label={t("frontDesk.export")}
+							onClick={() =>
+								downloadCsv(
+									"arrivals-and-departures.csv",
+									toCsv(data.movements, movementCsvColumns(t, locale)),
+								)
+							}
+						>
+							<ClipboardTextIcon />
+							<span className="hidden lg:inline">{t("frontDesk.export")}</span>
+						</Button>
+					</>
 				}
 			/>
-			<RoomWall board={board.data} />
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<CheckInsPanel kpis={kpis} channels={channels} />
-				{/* The second card of the rail takes the height that is left, so both columns end on one line. */}
-				<div className="grid grid-rows-[auto_1fr] @3xl/main:gap-6 gap-4">
-					<AttentionList alerts={roomAlerts(board.data)} />
-					<ArrivalsList
-						arrivals={pendingArrivals(board.data)}
-						tomorrow={arrivalsTomorrow(board.data, board.dataUpdatedAt)}
-					/>
-				</div>
+			<KpiTiles kpis={data.kpis} />
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<ReservationsCard mix={data.mix} />
+				<OccupancyCard className="@4xl/main:col-span-2" />
 			</div>
-			<RoomSheet
-				entry={shownEntry}
-				open={
-					openRoomNumber !== undefined &&
-					shownEntry?.room.number === openRoomNumber
-				}
-				onClose={() => navigate({ to: "/app", search: {} })}
-			/>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<DeskActivityCard events={data.events} now={data.now} />
+				<RevenueCard />
+				<ChannelCard splits={data.channels} />
+			</div>
+			<MovementsCard rows={data.movements} />
 		</div>
 	);
 }
 
-/** Placeholder while the home loader runs. The route sets it as pendingComponent. */
+// Placeholder blocks of the bands. Fixed keys, because they never reorder.
+const KPI_KEYS = ["1", "2", "3", "4"];
+const ROW_KEYS = ["1", "2", "3"];
+
+/** Placeholder while the home loader runs, band by band. The route sets it as pendingComponent. */
 export function FrontDeskPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-32" />
-				<Skeleton className="h-4 w-80 max-w-full" />
-			</div>
-			<RoomWallSkeleton />
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<CheckInsPanelSkeleton />
-				<div className="grid grid-rows-[auto_1fr] @3xl/main:gap-6 gap-4">
-					<AttentionListSkeleton />
-					<ArrivalsListSkeleton />
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-3">
+				<div className="grid gap-2">
+					<Skeleton className="h-8 w-40" />
+					<Skeleton className="h-4 w-72 max-w-full" />
 				</div>
+				<Skeleton className="h-9 w-56" />
 			</div>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{KPI_KEYS.map((key) => (
+					<Skeleton key={key} className="h-44 rounded-surface" />
+				))}
+			</div>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<Skeleton className="h-96 rounded-surface" />
+				<Skeleton className="@4xl/main:col-span-2 h-96 rounded-surface" />
+			</div>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				{ROW_KEYS.map((key) => (
+					<Skeleton key={key} className="h-96 rounded-surface" />
+				))}
+			</div>
+			<Skeleton className="h-96 rounded-surface" />
 		</div>
 	);
 }

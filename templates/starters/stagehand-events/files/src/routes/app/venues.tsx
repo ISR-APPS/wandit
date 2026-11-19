@@ -1,11 +1,12 @@
 // The venues page behind login. The /app layout checks the session first.
-// The loader fills the venue list. Thin: the page and its states live in the venues feature.
+// The loader fills the venue list and the KPI row. Thin: the page and its states live in the venues feature.
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import {
 	VenuesPage,
 	VenuesPageError,
 	VenuesPageSkeleton,
+	venueKpisQueryOptions,
 	venuesQueryOptions,
 } from "~/features/venues";
 
@@ -17,7 +18,11 @@ const venuesSearchSchema = z.object({
 /** /app/venues. `?venue=v-lantern` opens the side panel of that venue. */
 export const Route = createFileRoute("/app/venues")({
 	validateSearch: venuesSearchSchema,
-	loader: ({ context }) => context.queryClient.query(venuesQueryOptions()),
+	loader: ({ context }) =>
+		Promise.all([
+			context.queryClient.query(venuesQueryOptions()),
+			context.queryClient.query(venueKpisQueryOptions()),
+		]),
 	pendingComponent: VenuesPageSkeleton,
 	errorComponent: VenuesPageError,
 	component: VenuesRoute,

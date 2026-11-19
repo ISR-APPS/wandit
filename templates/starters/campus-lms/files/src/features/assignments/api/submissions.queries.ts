@@ -1,5 +1,5 @@
 // Reads of graded work: the submission list, one submission with its history, and the assignments that are due next.
-// The /app/assignments loader prefetches the lists. The home reads the list for its grading section.
+// The /app/assignments loader prefetches the submission list. The /app loader prefetches the due assignments for the home table.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -66,6 +66,10 @@ export type UpcomingAssignment = {
 	submitted: number;
 	/** How many students are in the course. */
 	expected: number;
+	/** How many of the turned-in works wait for a grade. */
+	toGrade: number;
+	/** The id of the work that waits longest. null when nothing waits. The "Grade" button opens it. */
+	oldestWaitingId: string | null;
 };
 
 // Adds the assignment, course, and student names to submission rows. A database join does this later.
@@ -110,16 +114,20 @@ function withNames(
 	});
 }
 
-/** Every submission, newest first. The Assignments page filters, sorts, and pages them. The home counts the ones that wait. */
+/**
+ * Every submission, by its last change (the grade, else the turn-in), newest first. The Assignments page filters, sorts, and pages them.
+ * A sort by turn-in only puts all the work that waits on page 1. The last change mixes new grades and new work.
+ */
 export function submissionsQueryOptions() {
 	return queryOptions({
 		queryKey: ["submissions", "list"],
 		queryFn: async () => {
 			const now = Date.now();
 			const tables = getSampleTables(now);
+			const lastChangeOf = (row: Submission) => row.gradedAt ?? row.submittedAt;
 			// LIMIT: every submission in one read, paged in the browser. Upgrade: a limit of 1,000 with server paging (tables-paging.md of the app-dashboard skill).
 			return withNames(tables.submissions, tables, now).sort((first, second) =>
-				second.submittedAt.localeCompare(first.submittedAt),
+				lastChangeOf(second).localeCompare(lastChangeOf(first)),
 			);
 		},
 	});
@@ -171,13 +179,10 @@ export function submissionQueryOptions(id: string) {
 	});
 }
 
-// The "Due next" card shows this many assignments.
-const DUE_NEXT_COUNT = 5;
-
-/** The 5 next assignments of the running courses, by due day, with the count of work that is in. */
-export function dueNextQueryOptions() {
+/** Every assignment of the running courses that is due today or later, by due day, with the count of work that is in. */
+export function dueAssignmentsQueryOptions() {
 	return queryOptions({
-		queryKey: ["submissions", "due-next"],
+		queryKey: ["submissions", "due"],
 		queryFn: async (): Promise<UpcomingAssignment[]> => {
 			const now = Date.now();
 			const tables = getSampleTables(now);
@@ -194,6 +199,14 @@ export function dueNextQueryOptions() {
 					) {
 						return [];
 					}
+					const work = tables.submissions.filter(
+						(row) => row.assignmentId === assignment.id,
+					);
+					const waiting = work
+						.filter((row) => row.gradedAt === null)
+						.sort((first, second) =>
+							first.submittedAt.localeCompare(second.submittedAt),
+						);
 					return [
 						{
 							id: assignment.id,
@@ -202,17 +215,16 @@ export function dueNextQueryOptions() {
 							courseId: course.id,
 							courseCode: course.code,
 							dueAt: assignment.dueAt,
-							submitted: tables.submissions.filter(
-								(row) => row.assignmentId === assignment.id,
-							).length,
+							submitted: work.length,
 							expected: tables.enrollments.filter(
 								(row) => row.courseId === course.id,
 							).length,
+							toGrade: waiting.length,
+							oldestWaitingId: waiting[0]?.id ?? null,
 						},
 					];
 				})
-				.sort((first, second) => first.dueAt.localeCompare(second.dueAt))
-				.slice(0, DUE_NEXT_COUNT);
+				.sort((first, second) => first.dueAt.localeCompare(second.dueAt));
 		},
 	});
 }

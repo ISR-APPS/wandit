@@ -1,5 +1,5 @@
-// Reads of the home: the four totals and the daily balance of all accounts.
-// The loader of the home route prefetches them. OverviewPage and BalanceStrip read them from the cache.
+// Reads of the home: the figures of one period, the money in and out per month, and the balance line.
+// The loader of the home route prefetches the default period. The cards of OverviewPage read them from the cache.
 // Each queryFn reads the sample rows of ~/features/bank. A later version calls SQL read functions here.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -8,28 +8,45 @@ import {
 	type PeriodDays,
 	todayIsoDay,
 } from "~/features/bank";
-import { buildBalancePoints, buildOverviewKpis } from "../lib/overview-kpis";
+import {
+	type BalanceScope,
+	buildBalanceLine,
+	buildCashFlow,
+	buildOverviewSummary,
+} from "../lib/overview";
 
-/** The four totals of the home. The key has no period: the totals always cover 30 days. */
-export function overviewKpisQueryOptions() {
+/** The KPI figures, the card spend per day, and the spend by category of the last `days` days. */
+export function overviewSummaryQueryOptions(days: PeriodDays) {
 	return queryOptions({
-		queryKey: ["overview", "kpis"],
+		queryKey: ["overview", "summary", days],
 		queryFn: async () => {
 			const today = todayIsoDay();
-			return buildOverviewKpis(
+			return buildOverviewSummary(
 				listTransactions(today),
 				listDailyBalances(today),
 				today,
+				days,
 			);
 		},
 	});
 }
 
-/** The end-of-day balance of all accounts for the last `days` days, with the period before. Feeds the strip. */
-export function dailyBalanceQueryOptions(days: PeriodDays) {
+/** Money in and money out of the last 6 calendar months. The key has no period: the chart always shows 6 months. */
+export function cashFlowQueryOptions() {
 	return queryOptions({
-		queryKey: ["overview", "balance", days],
+		queryKey: ["overview", "cash-flow"],
+		queryFn: async () => {
+			const today = todayIsoDay();
+			return buildCashFlow(listTransactions(today), today);
+		},
+	});
+}
+
+/** The end-of-day balance of one account, or of all three, for the last `days` days. */
+export function balanceLineQueryOptions(scope: BalanceScope, days: number) {
+	return queryOptions({
+		queryKey: ["overview", "balance-line", scope, days],
 		queryFn: async () =>
-			buildBalancePoints(listDailyBalances(todayIsoDay()), days),
+			buildBalanceLine(listDailyBalances(todayIsoDay()), scope, days),
 	});
 }

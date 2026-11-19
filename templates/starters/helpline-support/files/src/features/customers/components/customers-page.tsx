@@ -1,206 +1,252 @@
-// The customers page behind login: every company with its plan, revenue, and support figures, under plan tabs.
+// The customers page behind login: every company with its main contact, plan, city, and health.
 // The /app/customers route renders it after its loader. A company name opens the customer sheet (?customer=).
-// The route also uses the skeleton and the error below.
+// The plan filter lives in the URL (?plan=). The route also uses the skeleton and the error below.
+// It follows the user list page of the kit system: filter field, filter buttons, columns, checkboxes, pages.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
+import type { VariantProps } from "class-variance-authority";
+import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
 	CUSTOMER_PLANS,
-	fillMessage,
-	moneyFormat,
-	PLAN_BADGE,
+	copyToClipboard,
+	downloadCsv,
+	PersonAvatar,
+	toCsv,
 } from "~/features/helpdesk";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Badge } from "~/shared/ui/badge";
+import { Badge, type badgeVariants } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
-import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	CUSTOMER_FIGURE_DAYS,
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
+import { Skeleton } from "~/shared/ui/skeleton";
+import {
 	type CustomerListItem,
 	customersQueryOptions,
 } from "../api/customers.queries";
+import { customerCsvColumns } from "../lib/customer-csv";
+import {
+	CUSTOMER_HEALTHS,
+	type CustomerHealth,
+	customerHealth,
+} from "../lib/customer-health";
 import { CustomerSheet } from "./customer-sheet";
 
 const route = getRouteApi("/app/customers");
 
-// Under this share of good ratings, the satisfaction cell turns red: about one bad rating in five.
-const LOW_SATISFACTION = 0.8;
+// Ten rows per page, as the user list of the kit. The 40 companies fill 4 pages.
+const CUSTOMERS_PAGE_SIZE = 10;
 
-/** The list page. The plan tab filters the rows; then DataTable searches, sorts, and pages them. */
+/** Badge look per health. At risk has no tinted kit variant, so it follows the recipe of the success variant. */
+const HEALTH_BADGE = {
+	healthy: { variant: "success", className: "" },
+	watch: { variant: "warning", className: "" },
+	at_risk: {
+		variant: "outline",
+		className: "border-destructive/25 bg-destructive/12 text-destructive",
+	},
+} satisfies Record<
+	CustomerHealth,
+	{ variant: VariantProps<typeof badgeVariants>["variant"]; className: string }
+>;
+
+/** The list page. The filter buttons narrow the rows; then RecordTable searches, sorts, and pages them. */
 export function CustomersPage() {
 	const { t, locale } = useT();
 	const { data: customers } = useSuspenseQuery(customersQueryOptions());
 	const { plan, customer: customerId } = route.useSearch();
 	const navigate = route.useNavigate();
-
-	const number = new Intl.NumberFormat(locale);
-	const plural = new Intl.PluralRules(locale);
-	const money = moneyFormat(locale);
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		maximumFractionDigits: 0,
-	});
-	const tabs = CUSTOMER_PLANS.map((value) => ({
-		value,
-		count: customers.filter((row) => row.plan === value).length,
-	})).filter((tab) => tab.count > 0);
-	const activePlan =
-		plan && tabs.some((tab) => tab.value === plan) ? plan : "all";
-	const rows =
-		activePlan === "all"
-			? customers
-			: customers.filter((row) => row.plan === activePlan);
+	const [health, setHealth] = useState<string | null>(null);
+	const [city, setCity] = useState<string | null>(null);
+	const cities = [...new Set(customers.map((row) => row.city))].sort(
+		(first, second) => first.localeCompare(second, locale),
+	);
+	const rows = customers.filter(
+		(row) =>
+			(plan === undefined || row.plan === plan) &&
+			(health === null || customerHealth(row) === health) &&
+			(city === null || row.city === city),
+	);
 	const selected = customers.find((row) => row.id === customerId) ?? null;
-	const totalMrr = customers.reduce((sum, row) => sum + row.mrr, 0);
 
 	const openCustomer = (id: string | undefined) =>
 		navigate({ search: (previous) => ({ ...previous, customer: id }) });
 
-	const columns: DataTableColumn<CustomerListItem>[] = [
+	const columns: RecordColumn<CustomerListItem>[] = [
 		{
 			id: "name",
 			header: t("customers.company"),
-			sortValue: (row) => row.name,
-			// The second line holds the ticket volume, so five columns fit beside the sidebar at 1024 px.
-			// On a phone the cell takes the visible card width, and its third line shows the plan and the revenue.
-			// The button covers the cell and its padding (after:-inset-2), so a tap anywhere in the cell opens the panel.
+			// The button covers the cell and its padding (after:-inset-2), so a tap anywhere in the cell opens the sheet.
 			cell: (row) => (
-				<div className="relative grid @xl/main:min-w-52 min-w-[calc(100cqi-4rem)] justify-items-start gap-0.5">
+				<span className="relative flex min-w-48 items-center gap-3">
+					<PersonAvatar name={row.name} className="size-8" />
 					<button
 						type="button"
 						onClick={() => openCustomer(row.id)}
-						className="text-start font-medium after:absolute after:-inset-2 hover:underline"
+						className="text-start after:absolute after:-inset-2 hover:underline"
+						dir="auto"
 					>
 						{row.name}
 					</button>
-					<span className="text-muted-foreground text-xs">
-						{/* PluralRules picks "1 ticket" or "33 tickets" in the app language. */}
-						{`${row.city} · ${fillMessage(
-							t(
-								plural.select(row.recentTicketCount) === "one"
-									? "customers.ticketsInDaysOne"
-									: "customers.ticketsInDays",
-							),
-							{
-								count: number.format(row.recentTicketCount),
-								days: number.format(CUSTOMER_FIGURE_DAYS),
-							},
-						)}`}
-					</span>
-					<span className="mt-1 flex @xl/main:hidden items-center gap-2 text-xs">
-						<Badge variant={PLAN_BADGE[row.plan]}>
-							{t(`customers.plans.${row.plan}`)}
-						</Badge>
-						<span className="tabular-nums">{money.format(row.mrr)}</span>
-					</span>
-				</div>
+				</span>
+			),
+		},
+		{
+			id: "contact",
+			header: t("customers.contactRole"),
+			hideable: true,
+			sortValue: (row) => row.contacts[0]?.title ?? "",
+			cell: (row) => (
+				<span className="whitespace-nowrap" dir="auto">
+					{row.contacts[0]?.title ?? "–"}
+				</span>
 			),
 		},
 		{
 			id: "plan",
 			header: t("customers.plan"),
+			hideable: true,
 			sortValue: (row) => CUSTOMER_PLANS.indexOf(row.plan),
+			cell: (row) => t(`customers.plans.${row.plan}`),
+		},
+		{
+			id: "email",
+			header: t("customers.email"),
+			hideable: true,
+			sortValue: (row) => row.contacts[0]?.email ?? "",
 			cell: (row) => (
-				<Badge variant={PLAN_BADGE[row.plan]}>
-					{t(`customers.plans.${row.plan}`)}
-				</Badge>
+				<bdi className="whitespace-nowrap">{row.contacts[0]?.email ?? "–"}</bdi>
 			),
 		},
 		{
-			id: "mrr",
-			header: t("customers.mrr"),
-			align: "end",
-			sortValue: (row) => row.mrr,
-			cell: (row) => money.format(row.mrr),
+			id: "city",
+			header: t("customers.city"),
+			hideable: true,
+			sortValue: (row) => row.city,
+			cell: (row) => row.city,
 		},
 		{
-			id: "open",
-			header: t("customers.openTickets"),
-			align: "end",
-			sortValue: (row) => row.openTickets,
-			cell: (row) => (
-				<span className={cn(row.openTickets === 0 && "text-muted-foreground")}>
-					{number.format(row.openTickets)}
-				</span>
-			),
-		},
-		{
-			id: "satisfaction",
-			header: t("customers.satisfaction"),
-			align: "end",
-			sortValue: (row) => row.satisfaction ?? -1,
-			cell: (row) =>
-				row.satisfaction === null ? (
-					<span className="text-muted-foreground">—</span>
-				) : (
-					<span
-						className={cn(
-							row.satisfaction < LOW_SATISFACTION &&
-								"font-medium text-destructive",
-						)}
+			id: "health",
+			header: t("customers.healthLabel"),
+			sortValue: (row) => CUSTOMER_HEALTHS.indexOf(customerHealth(row)),
+			cell: (row) => {
+				const value = customerHealth(row);
+				return (
+					<Badge
+						variant={HEALTH_BADGE[value].variant}
+						className={HEALTH_BADGE[value].className}
 					>
-						{percent.format(row.satisfaction)}
-					</span>
-				),
+						{t(`customers.health.${value}`)}
+					</Badge>
+				);
+			},
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("customers.title")}
-				description={fillMessage(t("customers.description"), {
-					count: number.format(customers.length),
-					mrr: money.format(totalMrr),
-				})}
-			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(row) =>
-							`${row.name} ${row.city} ${row.contacts.map((contact) => `${contact.name} ${contact.email}`).join(" ")}`
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() =>
+							downloadCsv("customers.csv", toCsv(rows, customerCsvColumns(t)))
 						}
-						noResults={t("customers.noResults")}
-						toolbar={
-							<Tabs
-								value={activePlan}
-								onValueChange={(value) =>
-									navigate({
-										search: (previous) => ({
-											...previous,
-											plan: CUSTOMER_PLANS.find((option) => option === value),
-										}),
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
+			/>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) =>
+					`${row.name} ${row.city} ${row.contacts.map((contact) => `${contact.name} ${contact.email}`).join(" ")}`
+				}
+				searchPlaceholder={t("customers.searchPlaceholder")}
+				pageSize={CUSTOMERS_PAGE_SIZE}
+				noResults={t("customers.noResults")}
+				selectable
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("customers.healthLabel")}
+							options={CUSTOMER_HEALTHS.map((value) => ({
+								value,
+								label: t(`customers.health.${value}`),
+							}))}
+							value={health}
+							onValueChange={setHealth}
+						/>
+						<RecordFilter
+							label={t("customers.plan")}
+							options={CUSTOMER_PLANS.map((value) => ({
+								value,
+								label: t(`customers.plans.${value}`),
+							}))}
+							value={plan ?? null}
+							onValueChange={(value) =>
+								navigate({
+									search: (previous) => ({
+										...previous,
+										plan: CUSTOMER_PLANS.find((option) => option === value),
+									}),
+								})
+							}
+						/>
+						<RecordFilter
+							label={t("customers.city")}
+							options={cities.map((value) => ({ value, label: value }))}
+							value={city}
+							onValueChange={setCity}
+						/>
+					</>
+				}
+				bulkActions={(selectedRows) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"customers-selected.csv",
+								toCsv(selectedRows, customerCsvColumns(t)),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem onSelect={() => openCustomer(row.id)}>
+							{t("customers.openCustomer")}
+						</DropdownMenuItem>
+						{row.contacts[0] ? (
+							<DropdownMenuItem
+								onSelect={() =>
+									copyToClipboard(row.contacts[0]?.email ?? "", {
+										done: t("table.copied"),
+										failed: t("table.copyFailed"),
 									})
 								}
-								className="max-w-full overflow-x-auto"
 							>
-								<TabsList>
-									<TabsTrigger value="all">
-										{t("customers.allPlans")}
-										<span className="text-muted-foreground tabular-nums">
-											{number.format(customers.length)}
-										</span>
-									</TabsTrigger>
-									{tabs.map((tab) => (
-										<TabsTrigger key={tab.value} value={tab.value}>
-											{t(`customers.plans.${tab.value}`)}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(tab.count)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
-						}
-					/>
-				</CardContent>
-			</Card>
+								{t("customers.copyEmail")}
+							</DropdownMenuItem>
+						) : null}
+					</>
+				)}
+			/>
 			<CustomerSheet
 				customer={selected}
 				onClose={() => openCustomer(undefined)}
@@ -210,24 +256,25 @@ export function CustomersPage() {
 }
 
 // Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 /** Placeholder while the customers loader runs. The route sets it as pendingComponent. */
 export function CustomersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-3">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-64" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-md" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<div className="flex flex-wrap gap-2">
+				<Skeleton className="h-9 w-full sm:max-w-sm" />
+				<Skeleton className="h-9 w-72" />
+			</div>
+			<div className="grid gap-2 rounded-md border p-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-12 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

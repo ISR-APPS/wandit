@@ -1,5 +1,5 @@
 // The status of a shipment as a Badge: a word and a color.
-// The queue of the home, the shipment list, the shipment page, and the driver and vehicle panels render it.
+// The tracker card of the home, the shipment list, the shipment page, and the driver and vehicle panels render it.
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import {

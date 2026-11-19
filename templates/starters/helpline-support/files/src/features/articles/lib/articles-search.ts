@@ -1,5 +1,5 @@
-// The search params of the articles page: the collection tab, and the article whose sheet is open.
-// The /app/articles route validates the URL with this schema. The ticket page links to an article with it.
+// The search params of the articles page: the collection filter, and the article whose sheet is open.
+// The /app/articles route validates the URL with this schema. The ticket thread links to an article with it.
 import { z } from "zod";
 import { ARTICLE_COLLECTIONS } from "~/features/helpdesk";
 

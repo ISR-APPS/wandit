@@ -10,6 +10,7 @@ export {
 export {
 	dealTasksQueryOptions,
 	openTasksQueryOptions,
+	type Task,
 } from "./api/tasks.queries";
 export {
 	ActivitiesPage,

@@ -6,13 +6,28 @@ import {
 	TransactionsPageError,
 	TransactionsPageSkeleton,
 	transactionsQueryOptions,
+	transactionsSearchSchema,
 } from "~/features/transactions";
 
-/** /app/transactions: every entry of the three accounts. */
+/** /app/transactions: the entries of the three accounts. `?tab=upcoming` opens the pending entries. */
 export const Route = createFileRoute("/app/transactions/")({
+	validateSearch: transactionsSearchSchema,
 	loader: ({ context }) =>
 		context.queryClient.query(transactionsQueryOptions()),
 	pendingComponent: TransactionsPageSkeleton,
 	errorComponent: TransactionsPageError,
-	component: TransactionsPage,
+	component: TransactionsRoute,
 });
+
+function TransactionsRoute() {
+	const { tab } = Route.useSearch();
+	const navigate = Route.useNavigate();
+	return (
+		<TransactionsPage
+			tab={tab ?? "latest"}
+			onTabChange={(next) =>
+				navigate({ search: { tab: next === "latest" ? undefined : next } })
+			}
+		/>
+	);
+}

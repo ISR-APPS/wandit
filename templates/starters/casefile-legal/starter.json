@@ -29,7 +29,7 @@
 			"header": "plain",
 			"userMenu": "sidebar-footer",
 			"frame": "flat",
-			"icons": "thin",
+			"icons": "light",
 			"navIcon": "plain"
 		}
 	}

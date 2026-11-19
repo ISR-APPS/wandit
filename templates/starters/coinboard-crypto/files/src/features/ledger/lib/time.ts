@@ -1,4 +1,4 @@
-// Time helpers of the app: the length of a day, the start of the local day, day keys, and relative times.
+// Time helpers of the app: the length of a day, the start of the local day, and relative times.
 // The sample data, the series functions, and the pages of every feature use them.
 // A record date (a transaction time in a detail panel) uses an absolute Intl.DateTimeFormat date instead.
 
@@ -12,24 +12,6 @@ export const DAY_MS = 24 * HOUR_MS;
 /** Midnight at the start of the local day of `ms`, in milliseconds since 1970. */
 export function startOfLocalDay(ms: number): number {
 	return new Date(ms).setHours(0, 0, 0, 0);
-}
-
-/** The local calendar day `daysAgo` days before the day of `now`, as YYYY-MM-DD. A chart point uses it as its key. */
-export function dayKey(now: number, daysAgo: number): string {
-	const date = new Date(startOfLocalDay(now));
-	// setDate keeps the calendar day across a clock change. A subtraction of 24 hours does not.
-	date.setDate(date.getDate() - daysAgo);
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-	return `${date.getFullYear()}-${month}-${day}`;
-}
-
-/**
- * The date of a day key (YYYY-MM-DD), for an axis tick or a tooltip.
- * It is midnight UTC: format it with `timeZone: "UTC"` to keep the same calendar day.
- */
-export function dayToDate(day: string): Date {
-	return new Date(`${day}T00:00:00Z`);
 }
 
 /**

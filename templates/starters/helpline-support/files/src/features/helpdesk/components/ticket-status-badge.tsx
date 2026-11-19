@@ -1,5 +1,5 @@
 // The status of a ticket as a Badge: the word and the color of TICKET_STATUS_BADGE.
-// The queue, the ticket list, the ticket page, and the customer sheet render it.
+// The ticket list, the ticket thread, and the customer and article sheets render it.
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import { TICKET_STATUS_BADGE, type TicketStatus } from "../lib/ticket-rules";

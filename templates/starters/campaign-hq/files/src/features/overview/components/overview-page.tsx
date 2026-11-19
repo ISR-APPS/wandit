@@ -1,118 +1,228 @@
-// The home behind login: a bento mosaic of the marketing results of the last 30 days.
+// The home behind login: the period and the export in the header, four stat cards, the 7-day report and
+// the content readiness donut, then two rows of three cards. It follows the kit "website analytics" page.
 // The /app route renders it after its loader. The route also uses the skeleton and the error below.
-// It follows the home "bento" of the app-dashboard skill: a figure, a breakdown, and the status counts open the page.
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { PageHeader } from "~/features/app-shell";
+// The page holds the period. The stat cards and five of the cards read the data of that period.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import {
+	keepPreviousData,
+	useQuery,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
+import { useState } from "react";
+import { PageHeader } from "~/features/app-shell";
+import { campaignsQueryOptions } from "~/features/campaigns";
+import {
+	dayCountFormat,
+	downloadCsv,
 	fillMessage,
-	moneyFormat,
 	type PeriodDays,
+	PeriodSelect,
+	toCsv,
 } from "~/features/marketing";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import { Card } from "~/shared/ui/card";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { overviewKpisQueryOptions } from "../api/overview.queries";
-import { ActivityCard } from "./activity-card";
-import { CampaignStatusCard } from "./campaign-status-card";
-import { ConversionsTrendCard } from "./conversions-trend-card";
-import { KpiFigureCard, KpiFigureCardSkeleton } from "./kpi-figure-card";
-import { SpendByChannelCard } from "./spend-by-channel-card";
+import {
+	OVERVIEW_DEFAULT_DAYS,
+	overviewQueryOptions,
+} from "../api/overview.queries";
+import { ContentReadinessCard } from "./content-readiness-card";
+import { ConversionsReportCard } from "./conversions-report-card";
+import { DailyConversionsCard } from "./daily-conversions-card";
+import { MonthlySpendCard } from "./monthly-spend-card";
+import { PeriodResultsCard } from "./period-results-card";
+import { PortfolioCard } from "./portfolio-card";
+import { RevenueSplitCard } from "./revenue-split-card";
+import { StatCard } from "./stat-card";
 import { TopCampaignsCard } from "./top-campaigns-card";
 
-/** The period of the first load of the trend, in days. The loader prefetches it. */
-export const DEFAULT_DAYS: PeriodDays = 30;
-
-// 2 columns under 56rem, 12 from 56rem. Row 1 mixes three kinds at three widths.
-// From 42rem the large figure and the breakdown share a row, so a tablet does not show one huge tile.
-// From 42rem to 56rem the status and ranked tiles share row 2, and the two small figures share a row.
-// The order-1 tiles go after them in that range only. Tiles of the same height then share each row.
-const BENTO_GRID =
-	"grid grid-cols-2 gap-4 @3xl/main:gap-6 @4xl/main:grid-cols-12";
-const LATER_IN_TWO_COLUMNS = "@2xl/main:@max-4xl/main:order-1";
-const TILE_SPANS = {
-	figureLarge: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-5",
-	breakdown: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-4",
-	status: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-3",
-	trend: `col-span-2 @4xl/main:col-span-8 @4xl/main:row-span-2 ${LATER_IN_TWO_COLUMNS}`,
-	figureSmall: `@4xl/main:col-span-2 ${LATER_IN_TWO_COLUMNS}`,
-	ranked: "col-span-2 @2xl/main:col-span-1 @4xl/main:col-span-4",
-	activity: `col-span-2 @4xl/main:col-span-12 ${LATER_IN_TWO_COLUMNS}`,
+// One column on a phone, two from 42rem, twelve from 56rem. The kit uses 12 columns on wide screens.
+// grid-cols-1 and min-w-0 stop a wide child (a chart, a table) from pushing the page past the phone width.
+const GRID =
+	"grid grid-cols-1 gap-4 @2xl/main:grid-cols-2 @4xl/main:grid-cols-12";
+const SPANS = {
+	stats:
+		"grid min-w-0 grid-cols-1 gap-4 @2xl/main:col-span-2 @4xl/main:col-span-12 @xl/main:grid-cols-2 @4xl/main:grid-cols-4",
+	report: "min-w-0 @2xl/main:col-span-2 @4xl/main:col-span-8",
+	readiness: "min-w-0 @2xl/main:col-span-2 @4xl/main:col-span-4",
+	third: "min-w-0 @4xl/main:col-span-4",
 } as const;
 
-/** The tiles keep the DOM order of the bento spec, so the grid places the small figures beside the trend. */
+/** Four bands, as in the kit: stats, 8/12 + 4/12, then two rows of 4/12 cards. */
 export function OverviewPage() {
 	const { t, locale } = useT();
-	const { data: kpis } = useSuspenseQuery(overviewKpisQueryOptions());
-	const money = moneyFormat(locale, "compact");
-	const [conversions, ...smallFigures] = kpis.items;
+	const [days, setDays] = useState<PeriodDays>(OVERVIEW_DEFAULT_DAYS);
+	const { data: campaigns } = useSuspenseQuery(campaignsQueryOptions());
+	// The loader fills the default period. Another period loads here and keeps the old numbers until it is ready.
+	const period = useQuery({
+		...overviewQueryOptions(days),
+		placeholderData: keepPreviousData,
+	});
+	const now = Date.now();
+	const dayCount = dayCountFormat(locale);
+	const today = new Intl.DateTimeFormat(locale, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	});
+	const periodLabel = fillMessage(t("period.last"), {
+		period: dayCount.format(days),
+	});
+	const liveCount = campaigns.filter(
+		(campaign) => campaign.status === "live",
+	).length;
+
+	function exportDaily() {
+		if (!period.data) {
+			return;
+		}
+		downloadCsv(
+			`results-last-${days}-days.csv`,
+			toCsv(
+				period.data.daily.map((row) => ({ id: row.day, ...row })),
+				[
+					{ header: t("overview.csvDay"), value: (row) => row.day },
+					{ header: t("metrics.spend"), value: (row) => row.spend.toFixed(2) },
+					{
+						header: t("metrics.impressions"),
+						value: (row) => String(row.impressions),
+					},
+					{ header: t("metrics.clicks"), value: (row) => String(row.clicks) },
+					{
+						header: t("metrics.conversions"),
+						value: (row) => String(row.conversions),
+					},
+					{
+						header: t("metrics.revenue"),
+						value: (row) => row.revenue.toFixed(2),
+					},
+				],
+			),
+		);
+	}
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("overview.title")}
-				description={t("overview.description")}
+				description={fillMessage(t("period.description"), {
+					period: dayCount.format(days),
+					today: today.format(now),
+				})}
+				actions={
+					<>
+						<PeriodSelect days={days} onDaysChange={setDays} />
+						<Button
+							type="button"
+							aria-label={t("common.exportCsv")}
+							disabled={!period.data}
+							onClick={exportDaily}
+						>
+							<DownloadSimpleIcon />
+							<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+						</Button>
+					</>
+				}
 			/>
-			<div className={BENTO_GRID}>
-				{conversions ? (
-					<KpiFigureCard
-						kpi={conversions}
-						size="large"
-						hint={fillMessage(t("overview.conversionsHint"), {
-							spend: money.format(kpis.spend),
-							revenue: money.format(kpis.revenue),
-						})}
-						className={TILE_SPANS.figureLarge}
-					/>
-				) : null}
-				<SpendByChannelCard className={TILE_SPANS.breakdown} />
-				<CampaignStatusCard className={TILE_SPANS.status} />
-				<ConversionsTrendCard
-					defaultDays={DEFAULT_DAYS}
-					className={TILE_SPANS.trend}
-				/>
-				{smallFigures.map((kpi) => (
-					<KpiFigureCard
-						key={kpi.id}
-						kpi={kpi}
-						size="small"
-						className={TILE_SPANS.figureSmall}
-					/>
-				))}
-				<TopCampaignsCard className={TILE_SPANS.ranked} />
-				<ActivityCard className={TILE_SPANS.activity} />
+			<div className={GRID}>
+				<div className={SPANS.stats}>
+					{period.data
+						? period.data.kpis.map((figure) => (
+								<StatCard key={figure.id} figure={figure} />
+							))
+						: [0, 1, 2, 3].map((slot) => (
+								<Skeleton key={slot} className="h-28 rounded-surface" />
+							))}
+				</div>
+				<div className={SPANS.report}>
+					<ConversionsReportCard />
+				</div>
+				<div className={SPANS.readiness}>
+					<ContentReadinessCard />
+				</div>
+				<div className={SPANS.third}>
+					<PortfolioCard />
+				</div>
+				{period.isError ? (
+					<PeriodError onRetry={() => period.refetch()} />
+				) : period.data ? (
+					<>
+						<div className={SPANS.third}>
+							<DailyConversionsCard overview={period.data} />
+						</div>
+						<div className={SPANS.third}>
+							<RevenueSplitCard overview={period.data} />
+						</div>
+						<div className={SPANS.third}>
+							<TopCampaignsCard
+								overview={period.data}
+								periodLabel={periodLabel}
+							/>
+						</div>
+						<div className={SPANS.third}>
+							<MonthlySpendCard />
+						</div>
+						<div className={SPANS.third}>
+							<PeriodResultsCard overview={period.data} liveCount={liveCount} />
+						</div>
+					</>
+				) : (
+					[0, 1, 2, 3, 4].map((slot) => (
+						<Skeleton
+							key={slot}
+							className={`h-72 rounded-surface ${SPANS.third}`}
+						/>
+					))
+				)}
 			</div>
 		</div>
 	);
 }
 
-/** Placeholder while the home loader runs: the same mosaic with the same spans. */
+type PeriodErrorProps = {
+	/** Runs the period query again. */
+	onRetry: () => void;
+};
+
+// The period data failed, but the cards outside the period still show. The error takes the place of the five cards.
+function PeriodError({ onRetry }: PeriodErrorProps) {
+	const { t } = useT();
+	return (
+		<div className="@2xl/main:col-span-2 @4xl/main:col-span-8 grid min-w-0 justify-items-start gap-3 rounded-surface border p-6">
+			<p className="text-sm" role="alert">
+				{t("overview.periodError")}
+			</p>
+			<Button type="button" variant="outline" size="sm" onClick={onRetry}>
+				{t("common.retry")}
+			</Button>
+		</div>
+	);
+}
+
+/** Placeholder while the home loader runs: the same bands with the same spans. */
 export function OverviewPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-80" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-4">
+				<div className="grid gap-2">
+					<Skeleton className="h-8 w-40" />
+					<Skeleton className="h-4 w-72" />
+				</div>
+				<Skeleton className="h-9 w-48" />
 			</div>
-			<div className={BENTO_GRID}>
-				<KpiFigureCardSkeleton
-					size="large"
-					className={TILE_SPANS.figureLarge}
-				/>
-				<Card className={`h-64 ${TILE_SPANS.breakdown}`} />
-				<Card className={`h-64 ${TILE_SPANS.status}`} />
-				<Card className={`h-96 ${TILE_SPANS.trend}`} />
-				<KpiFigureCardSkeleton
-					size="small"
-					className={TILE_SPANS.figureSmall}
-				/>
-				<KpiFigureCardSkeleton
-					size="small"
-					className={TILE_SPANS.figureSmall}
-				/>
-				<Card className={`h-56 ${TILE_SPANS.ranked}`} />
-				<Card className={`h-48 ${TILE_SPANS.activity}`} />
+			<div className={GRID}>
+				<div className={SPANS.stats}>
+					{[0, 1, 2, 3].map((slot) => (
+						<Card key={slot} className="h-28" />
+					))}
+				</div>
+				<Card className={`h-96 ${SPANS.report}`} />
+				<Card className={`h-96 ${SPANS.readiness}`} />
+				{[0, 1, 2, 3, 4, 5].map((slot) => (
+					<Card key={slot} className={`h-72 ${SPANS.third}`} />
+				))}
 			</div>
 		</div>
 	);

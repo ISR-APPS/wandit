@@ -1,3 +1,8 @@
+/**
+ * Model prices for metering: the `model_prices` row first, then the seed
+ * file. Metering, the generation flows, and the app AI gateway call it for
+ * quotes. The hourly Trigger task calls `refreshFromGateway`.
+ */
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 
@@ -19,11 +24,17 @@ import {
 	ModelPriceUnavailableError,
 	normalizeTokenUsage,
 	parseGatewayModelsResponse,
+	priceAtPromptSize,
 	pricingSnapshot,
+	speechEstimateUsdMicros,
+	speechUnitUsdMicros,
 	type TokenUsageQuote,
 	tokenUsageCostUsdMicros,
 	transcriptionEstimateUsdMicros,
 	usdMicrosToCentiCredits,
+	type VideoPriceTerms,
+	videoEstimateUsdMicros,
+	videoUnitUsdMicrosPerSecond,
 } from "../../domain/model-pricing";
 import {
 	type ModelPriceRow,
@@ -79,7 +90,11 @@ export class ModelPricingService {
 
 	constructor(
 		@Inject(ModelPricesRepository)
-		private readonly repository: ModelPricesRepository,
+		// Only these two methods, so a spec passes a fake without a cast.
+		private readonly repository: Pick<
+			ModelPricesRepository,
+			"findByModelId" | "upsertMany"
+		>,
 		@Optional()
 		@Inject(MODEL_PRICING_OPTIONS)
 		options: ModelPricingOptions = {},
@@ -131,13 +146,25 @@ export class ModelPricingService {
 		return price;
 	}
 
+	/**
+	 * Cost and credits of one token usage. Throws `ModelPriceUnavailableError`.
+	 * `promptTokens` is the prompt size of ONE upstream call. With it, the rates
+	 * come from the tier that this prompt reaches. Without it, the base rates bill.
+	 */
 	async quoteTokenUsage(
 		modelId: string,
 		usage: MeteredTokenUsage,
 		usdMicrosPerCredit = this.usdMicrosPerCredit,
+		promptTokens?: number,
 	): Promise<TokenUsageQuote> {
-		const price = await this.require(modelId);
 		const normalizedUsage = normalizeTokenUsage(usage);
+		const basePrice = await this.require(modelId);
+		// A usage can be the sum of many steps. Its token sum is not the size of
+		// one prompt, so only a caller with one call selects a tier.
+		const price =
+			promptTokens === undefined
+				? basePrice
+				: priceAtPromptSize(basePrice, promptTokens);
 		const costUsdMicros = tokenUsageCostUsdMicros(price, normalizedUsage);
 
 		return {
@@ -209,6 +236,60 @@ export class ModelPricingService {
 			price,
 			costUsdMicros,
 			price.transcriptionUsdMicrosPerSecond ?? 0,
+			usdMicrosPerCredit,
+		);
+	}
+
+	/**
+	 * Cost of one speech call. `unitUsdMicros` is the price of one input
+	 * character. Null when the model has no usable character rate.
+	 */
+	async quoteSpeechEstimate(
+		modelId: string,
+		characters: number,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		const price = await this.get(modelId);
+		const unitUsdMicros = price ? speechUnitUsdMicros(price) : null;
+		const costUsdMicros = price
+			? speechEstimateUsdMicros(price, characters)
+			: null;
+
+		if (!price || unitUsdMicros === null || costUsdMicros === null) {
+			return null;
+		}
+
+		return this.measuredEstimate(
+			price,
+			costUsdMicros,
+			unitUsdMicros,
+			usdMicrosPerCredit,
+		);
+	}
+
+	/**
+	 * Cost of one video. `unitUsdMicros` is the price of one second. Null
+	 * when no single price row or token tier matches the terms.
+	 */
+	async quoteVideoEstimate(
+		modelId: string,
+		terms: VideoPriceTerms,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		const price = await this.get(modelId);
+		const unitUsdMicros = price
+			? videoUnitUsdMicrosPerSecond(price, terms)
+			: null;
+		const costUsdMicros = price ? videoEstimateUsdMicros(price, terms) : null;
+
+		if (!price || unitUsdMicros === null || costUsdMicros === null) {
+			return null;
+		}
+
+		return this.measuredEstimate(
+			price,
+			costUsdMicros,
+			unitUsdMicros,
 			usdMicrosPerCredit,
 		);
 	}

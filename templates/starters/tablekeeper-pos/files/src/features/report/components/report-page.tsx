@@ -1,153 +1,256 @@
-// The day report: the 4 figures of the day, sales by hour, payments, categories, best sellers, servers, and tax.
+// The day report behind login, in the band layout of the kit e-commerce page.
+// Band 1: the busiest-hour card (4/12) and 3 figure cards (8/12). Band 2: two hour charts. Band 3: categories,
+// payments, and serve times. Band 4: the recent checks (7/12) and the best sellers (5/12) from @5xl/main.
 // The /app/report route renders it after its loader. The route also uses the skeleton and the error below.
-// Every panel adds up to the same gross sales, so a manager can close the till against it.
+import { ArrowRightIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { Link, useRouter } from "@tanstack/react-router";
 import { PageHeader } from "~/features/app-shell";
-import { KpiFigure } from "~/features/floor";
 import { buildMenuRows } from "~/features/menu";
 import {
+	changeFormat,
+	countLabel,
+	downloadCsv,
 	fillMessage,
+	formatCents,
 	formatClock,
+	isGoodChange,
 	menuQueryOptions,
+	moneyFormat,
+	orderCsvColumns,
 	ordersQueryOptions,
+	toCsv,
 } from "~/features/restaurant";
 import { useT } from "~/shared/i18n";
+import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent, CardHeader } from "~/shared/ui/card";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardFooter,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { dayReportQueryOptions } from "../api/day-report.queries";
-import { BestSellersPanel } from "./best-sellers-panel";
-import { CategoryPanel } from "./category-panel";
-import { PaymentsPanel } from "./payments-panel";
-import { ServersPanel } from "./servers-panel";
-import { TaxPanel } from "./tax-panel";
+import { busiestHour, type ReportFigure } from "../lib/day-report";
+import { CategorySalesCard } from "./category-sales-card";
+import { DishSalesCard } from "./dish-sales-card";
+import { HourGuestsCard, HourSalesCard } from "./hour-cards";
+import { PaymentsCard } from "./payments-card";
+import { RecentChecksCard } from "./recent-checks-card";
+import { ServeTimesCard } from "./serve-times-card";
 
-// recharts is large. The chart loads in its own chunk, so the first page load of the app stays small.
-const SalesByHourPanel = lazy(() =>
-	import("./sales-by-hour-panel").then((module) => ({
-		default: module.SalesByHourPanel,
-	})),
-);
+// "View more" of each figure opens the page that lists what the figure counts.
+const FIGURE_LINK = {
+	grossSales: "/app/orders",
+	checks: "/app/orders",
+	averageCheck: "/app/menu",
+} as const satisfies Record<ReportFigure["id"], string>;
 
-/** The figures band opens the page. Three rows of panels follow, each 2 to 1 or 1 to 2. */
+/** The page reads the cached queries of its loader. The best sellers join the menu with the checks of the day. */
 export function ReportPage() {
 	const { t, locale } = useT();
-	const { data: report, dataUpdatedAt } = useSuspenseQuery(
-		dayReportQueryOptions(),
-	);
+	const { data: report } = useSuspenseQuery(dayReportQueryOptions());
 	const { data: menu } = useSuspenseQuery(menuQueryOptions());
 	const { data: orders } = useSuspenseQuery(ordersQueryOptions());
-	const menuRows = buildMenuRows(menu, orders);
+	const money = moneyFormat(locale);
+	const number = new Intl.NumberFormat(locale);
+	const percent = new Intl.NumberFormat(locale, { style: "percent" });
+	const hourFormat = new Intl.DateTimeFormat(locale, { hour: "numeric" });
+	const dateFormat = new Intl.DateTimeFormat(locale, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	});
+	const busiest = busiestHour(report.hours);
+	const busiestCents = busiest ? busiest.kitchenCents + busiest.barCents : 0;
+	const dishes = buildMenuRows(menu, orders)
+		.filter((row) => row.soldToday > 0)
+		.sort((first, second) => second.salesTodayCents - first.salesTodayCents);
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("report.title")}
 				description={
 					report.openedAt
 						? fillMessage(t("report.description"), {
+								date: dateFormat.format(new Date()),
 								time: formatClock(report.openedAt, locale),
-								updated: formatClock(
-									new Date(dataUpdatedAt).toISOString(),
-									locale,
-								),
 							})
-						: undefined
+						: dateFormat.format(new Date())
+				}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("report.download")}
+						onClick={() =>
+							downloadCsv(
+								"day-report.csv",
+								toCsv(orders, orderCsvColumns(t, locale)),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("report.download")}</span>
+					</Button>
 				}
 			/>
-			<Card className="py-5">
-				<CardContent className="grid @3xl/main:grid-cols-4 grid-cols-2 gap-x-6 gap-y-5 @3xl/main:divide-x @3xl/main:rtl:divide-x-reverse">
-					{report.figures.map((item) => (
-						<div key={item.id} className="@3xl/main:ps-6 @3xl/main:first:ps-0">
-							<KpiFigure item={item} size="lg" />
+			<div className="grid @4xl/main:grid-cols-12 gap-4">
+				<Card className="@4xl/main:col-span-4 bg-muted">
+					<CardHeader>
+						<CardTitle className="text-2xl">
+							{busiest
+								? fillMessage(t("report.busiestHour"), {
+										hour: hourFormat.format(new Date(busiest.hourStart)),
+									})
+								: t("report.noSalesYet")}
+						</CardTitle>
+						<CardDescription>
+							{t("report.busiestHourDescription")}
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						{/* The amount column grows from 0, so the button stays beside it until the amount itself needs the room. */}
+						<div className="flex flex-wrap items-center justify-between gap-4">
+							<div className="grid flex-1 gap-1">
+								<span className="font-numeric @5xl/main:text-3xl text-2xl tabular-nums">
+									{formatCents(money, busiestCents)}
+								</span>
+								<span className="text-muted-foreground text-xs">
+									{fillMessage(t("report.shareOfDay"), {
+										share: percent.format(
+											report.grossCents === 0
+												? 0
+												: busiestCents / report.grossCents,
+										),
+										checks: countLabel(
+											busiest?.checks ?? 0,
+											t("counts.checks.one"),
+											t("counts.checks.other"),
+											locale,
+										),
+									})}
+								</span>
+							</div>
+							<Button asChild variant="outline">
+								<Link to="/app/orders">{t("report.viewChecks")}</Link>
+							</Button>
 						</div>
+					</CardContent>
+				</Card>
+				<div className="@4xl/main:col-span-8 grid @xl/main:grid-cols-3 gap-4">
+					{report.figures.map((figure) => (
+						<Card key={figure.id} className="gap-0 py-0">
+							<CardContent className="grid flex-1 content-start gap-4 p-6">
+								<div className="flex items-start justify-between gap-2">
+									<span className="truncate text-muted-foreground text-sm">
+										{t(`report.${figure.id}`)}
+									</span>
+									{figure.change === null ? null : (
+										<span
+											className={cn(
+												"font-medium text-sm",
+												isGoodChange(figure.change, "up")
+													? "text-success"
+													: "text-destructive",
+											)}
+										>
+											{/* dir="ltr" keeps "+3.6%" in this order in an Arabic page. */}
+											<bdi dir="ltr">
+												{changeFormat(locale).format(figure.change)}
+											</bdi>
+										</span>
+									)}
+								</div>
+								<span className="font-numeric font-semibold text-3xl tabular-nums">
+									{figure.isMoney
+										? formatCents(money, figure.value)
+										: number.format(figure.value)}
+								</span>
+							</CardContent>
+							<CardFooter className="justify-end border-t p-0">
+								<Link
+									to={FIGURE_LINK[figure.id]}
+									className="flex items-center px-6 py-3 font-medium text-primary text-sm hover:text-primary/90"
+								>
+									{t("report.viewMore")}
+									<ArrowRightIcon className="ms-2 size-4 rtl:rotate-180" />
+								</Link>
+							</CardFooter>
+						</Card>
 					))}
-				</CardContent>
-			</Card>
-			<p className="-mt-3 text-muted-foreground text-xs">
-				{t("report.comparedWith")}
-			</p>
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<div className="@4xl/main:col-span-2">
-					<Suspense fallback={<SalesByHourSkeleton />}>
-						<SalesByHourPanel hours={report.hours} />
-					</Suspense>
 				</div>
-				<PaymentsPanel
-					rows={report.payments}
-					grossCents={report.grossCents}
-					tipsCents={report.tipsCents}
+			</div>
+			<div className="grid @4xl/main:grid-cols-2 gap-4">
+				<HourSalesCard hours={report.hours} />
+				<HourGuestsCard
+					hours={report.hours}
+					covers={report.covers}
+					coversChange={report.coversChange}
 				/>
 			</div>
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<CategoryPanel rows={report.categories} />
-				<div className="@4xl/main:col-span-2">
-					<BestSellersPanel rows={menuRows} />
+			<div className="grid @3xl/main:grid-cols-12 gap-4">
+				<div className="@3xl/main:col-span-6 @4xl/main:col-span-4">
+					<CategorySalesCard
+						categories={report.categories}
+						grossCents={report.grossCents}
+					/>
+				</div>
+				<div className="@3xl/main:col-span-6 @4xl/main:col-span-3">
+					<PaymentsCard rows={report.payments} />
+				</div>
+				<div className="@3xl/main:col-span-12 @4xl/main:col-span-5">
+					<ServeTimesCard serveTimes={report.serveTimes} />
 				</div>
 			</div>
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<div className="@4xl/main:col-span-2">
-					<ServersPanel rows={report.servers} />
+			{/* The two tables need about 360 px each. Below @5xl/main a 5/12 column is narrower, so the band stacks. */}
+			<div className="grid @5xl/main:grid-cols-12 gap-4">
+				<div className="@5xl/main:col-span-7 min-w-0">
+					<RecentChecksCard orders={orders} />
 				</div>
-				<TaxPanel rows={report.vat} voids={report.voids} />
+				<div className="@5xl/main:col-span-5 min-w-0">
+					<DishSalesCard dishes={dishes} />
+				</div>
 			</div>
 		</div>
 	);
 }
 
-// The sales by hour panel in its final size, while its chart chunk loads.
-function SalesByHourSkeleton() {
-	return (
-		<Card className="h-full">
-			<CardHeader>
-				<Skeleton className="h-5 w-32" />
-				<Skeleton className="h-4 w-56" />
-			</CardHeader>
-			<CardContent>
-				<Skeleton className="h-64 w-full" />
-			</CardContent>
-		</Card>
-	);
-}
+// Placeholder cards of the skeleton. Fixed keys, because they never reorder.
+const SKELETON_FIGURES = ["grossSales", "checks", "averageCheck"];
+const SKELETON_BAND_THREE = ["categories", "payments", "serve"];
 
-// Placeholder figures of the skeleton. Fixed keys, because they never reorder.
-const SKELETON_FIGURES = ["1", "2", "3", "4"];
-
-/** Placeholder while the report loader runs: the header, the band, and the first row of panels. */
+/** Placeholder while the report loader runs: the header and the 4 bands. */
 export function ReportPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<div className="grid gap-2">
 				<Skeleton className="h-8 w-40" />
 				<Skeleton className="h-4 w-72 max-w-full" />
 			</div>
-			<Card className="py-5">
-				<CardContent className="grid @3xl/main:grid-cols-4 grid-cols-2 gap-6">
+			<div className="grid @4xl/main:grid-cols-12 gap-4">
+				<Skeleton className="@4xl/main:col-span-4 h-44 rounded-surface" />
+				<div className="@4xl/main:col-span-8 grid @xl/main:grid-cols-3 gap-4">
 					{SKELETON_FIGURES.map((key) => (
-						<div key={key} className="grid gap-2">
-							<Skeleton className="h-3 w-20" />
-							<Skeleton className="h-8 w-28" />
-							<Skeleton className="h-3 w-14" />
-						</div>
+						<Skeleton key={key} className="h-44 rounded-surface" />
 					))}
-				</CardContent>
-			</Card>
-			<div className="grid @4xl/main:grid-cols-3 grid-cols-1 @3xl/main:gap-6 gap-4">
-				<div className="@4xl/main:col-span-2">
-					<SalesByHourSkeleton />
 				</div>
-				<Card>
-					<CardHeader>
-						<Skeleton className="h-5 w-24" />
-					</CardHeader>
-					<CardContent className="grid gap-4">
-						<Skeleton className="h-12 w-full" />
-						<Skeleton className="h-12 w-full" />
-						<Skeleton className="h-12 w-full" />
-					</CardContent>
-				</Card>
+			</div>
+			<div className="grid @4xl/main:grid-cols-2 gap-4">
+				<Skeleton className="h-80 rounded-surface" />
+				<Skeleton className="h-80 rounded-surface" />
+			</div>
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				{SKELETON_BAND_THREE.map((key) => (
+					<Skeleton key={key} className="h-96 rounded-surface" />
+				))}
+			</div>
+			<div className="grid @5xl/main:grid-cols-12 gap-4">
+				<Skeleton className="@5xl/main:col-span-7 h-96 rounded-surface" />
+				<Skeleton className="@5xl/main:col-span-5 h-96 rounded-surface" />
 			</div>
 		</div>
 	);

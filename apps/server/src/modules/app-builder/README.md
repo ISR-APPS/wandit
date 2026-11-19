@@ -1591,7 +1591,7 @@ retry once, and the unique sha stops a second run. The schemas and
 | `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
-| `enable_ai` | user-approval | Mints the app AI gateway key when it is absent and pushes `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`. See App AI gateway. | `secret.synced` (`name`, `source`) |
+| `enable_ai` | user-approval | Mints the app AI gateway key when it is absent and pushes `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`. Answers the chat models, the media models of each kind, and the speech voices. Its description teaches the chat and media routes. See App AI gateway. | `secret.synced` (`name`, `source`) |
 
 Migration ledger: `wandit.migrations (name primary key, sha256 unique,
 applied_at)`, created on the first call. `apply_migration` sends the ledger
@@ -1818,10 +1818,14 @@ Langfuse gets the bodies; logs still never do.
 A V2 app can call AI models. The Supabase Edge Function of the app sends an
 OpenAI chat completions request to the API. The API checks the request,
 forwards it to the Vercel AI Gateway, streams the answer back, and bills the
-payer of the project (metering operation `app_ai_gateway`). The builder agent
-turns the feature on with the host tool `enable_ai`. The user sees the usage
-in the AI panel of the More view. The shared names and schemas are in
-`packages/contracts/src/v2/app-ai.ts`.
+payer of the project (metering operation `app_ai_gateway`). The same base
+URL also makes images, speech, transcripts, and videos (see Media routes).
+All kinds use the same operation. The builder agent turns the feature on
+with the host tool `enable_ai`. The user sees the usage in the AI panel of
+the More view. The shared names and schemas are in
+`packages/contracts/src/v2/app-ai.ts` (key, chat, tool, panel) and
+`packages/contracts/src/v2/app-ai-media.ts` (media models and bodies, video
+token claims).
 
 ### Key
 
@@ -1857,8 +1861,28 @@ in the AI panel of the More view. The shared names and schemas are in
 
 `POST /api/v2/ai/v1/chat/completions` is `@Public()`: no session guard runs.
 No CORS rule allows it, because a browser never calls it. The body cap is
-4 MiB (`main.ts`), for images as data URLs. `AppAiGatewayService`
-(`application/services/app-ai-gateway.service.ts`) runs these steps:
+4 MiB (`main.ts`), for images as data URLs. `APP_AI_MODELS` holds 21 chat
+models. The default (`APP_AI_DEFAULT_MODEL`) is `google/gemini-3-flash`:
+
+- Google: `google/gemini-3-flash`, `google/gemini-3.1-flash-lite`,
+  `google/gemini-4-neon`, `google/gemini-4-carbon`,
+  `google/gemini-4-hydrogen`, `google/gemini-4-argon`,
+  `google/gemini-3.8-flash`, `google/gemini-3.7-flash`.
+- OpenAI: `openai/gpt-5.4-mini`, `openai/gpt-5.4-nano`, `openai/gpt-5.4`,
+  `openai/gpt-6.1-sol`, `openai/gpt-6.2-sol`, `openai/gpt-6.2-astra`,
+  `openai/gpt-6.1-terra`.
+- Anthropic: `anthropic/claude-haiku-4.5`, `anthropic/claude-sonnet-5.5`,
+  `anthropic/claude-haiku-5.5`, `anthropic/claude-opus-5.5`.
+- Other: `deepseek/deepseek-v4.1-flash-1017`, `zai/glm-5.3`. `zai/glm-5.3`
+  takes text input only.
+
+The base input rate goes from 0.10 USD (`anthropic/claude-haiku-5.5`) to
+8 USD (`openai/gpt-6.2-astra`) for 1M tokens (seed of 2026-11-19). Thus the
+`enable_ai` text tells the agent to keep the default model unless the app
+needs a stronger one. `AppAiGatewayService`
+(`application/services/app-ai-gateway.service.ts`) runs these steps. Steps
+1, 2, 4, the upstream key, and the reserve run in the shared
+`AppAiAdmission` (see Shared admission):
 
 1. **Auth.** It parses the key, reads the `system` row of that project, and
    compares the SHA-256 digests with `timingSafeEqual`. A bad format answers
@@ -1870,17 +1894,29 @@ No CORS rule allows it, because a browser never calls it. The body cap is
    change the billed model or the price. A bad body answers 400
    `invalid_request` with the issue paths, never the values. A content part
    must be text or `image_url` (detail `auto`, `low`, or `high`): a file or
-   audio part bills a cost that the reserve cannot estimate. A model outside
-   `APP_AI_MODELS` answers 400 `model_not_allowed`. No model means
-   `APP_AI_DEFAULT_MODEL`.
+   audio part bills a cost that the reserve cannot estimate. `cache_control`
+   on a message, a content part, or a tool answers 400: an Anthropic 1-hour
+   cache write costs 2 times the input rate, and the hold and the token
+   fallback bill input at most at the 1.25 times write rate. A model
+   outside `APP_AI_MODELS` answers 400
+   `model_not_allowed`. No model means `APP_AI_DEFAULT_MODEL`.
 4. **Rate limit.** Redis fixed window `builder:rate:app-ai:<projectId>`
    (`rateLimitKey` and the `RateLimitStore` of `RedisRateLimitGuard`), 60
    requests per 60 s (ESTIMATE). Over: 429 `rate_limited` with `retry-after`. A Redis
    error answers 503 `gateway_unavailable`: a money path fails closed.
 5. **Price and key.** `ModelPricingService.quoteTokenUsage` prices the
    estimate: body bytes / 4 input tokens, plus 5,000 tokens for each image
-   part (ESTIMATE), plus the output cap. An unpriced model or no
-   `AI_GATEWAY_API_KEY` answers 503 `gateway_unavailable`.
+   part (ESTIMATE), plus the output cap. Each estimated input token bills at
+   the cache write rate when the model has one, else at the input rate.
+   `priceAtPromptSize` (`metering/domain/model-pricing.ts`) picks the tier
+   rate that the estimated prompt reaches, from the `*_tiers` lists of the
+   catalog row. For example, `anthropic/claude-haiku-5.5` costs 5 times the
+   base rate from 100,001 input tokens, and the gpt-6 models 2 times from
+   272,001. `quoteTokenUsage` uses a tier only when the caller gives the
+   prompt size of one upstream call (`promptTokens`). A usage that sums
+   many steps (a V1 chat turn, a page build) bills the base rates. The
+   hold is an estimate, not a money limit: the settle can be above it. An unpriced model or no `AI_GATEWAY_API_KEY` answers 503
+   `gateway_unavailable`.
 6. **Reserve.** `MeteringService.reserve("app_ai_gateway", ...)` for the
    payer of the project, with the key `app-ai:<requestId>`, at least 1
    centi-credit. No credits or the member credit limit answers 402
@@ -1902,12 +1938,26 @@ No CORS rule allows it, because a browser never calls it. The body cap is
    writes. It still reads the upstream to its end, so the call is billed.
    The controller closes a socket that is still open after 300 s, so a
    client that stops reading cannot keep the hold open.
-10. **Settle.** With usage, `MeteringService.settle` bills the tokens.
-    `prompt_tokens` includes the cached tokens, and `cached_tokens` is the
-    cache read part, so no token is billed twice. Zero tokens: refund. A 2xx
-    answer without usage settles the reserved credits and goes to Sentry. A
-    settle error is logged and reported. The stranded-hold sweep refunds the
-    hold after 40 min, so that call is free.
+10. **Settle.** The answer usage gives the bill (`appAiUsageFromJson`,
+    `createAppAiSseUsageParser` in `domain/app-ai-request.ts`):
+    - **Gateway cost first.** The cost is the highest of `usage.cost`,
+      `usage.market_cost`, `usage.cost_details.upstream_inference_cost`, and
+      the choice-level `provider_metadata.gateway.cost` and `marketCost`.
+      `market_cost` is the list rate, also on a provider key (BYOK). A cost
+      above 0 settles `direct` with that USD cost, rounded up to whole micros,
+      at the credit anchor of the hold. It holds the tier, the reasoning,
+      the cache write, and the provider rate.
+    - **Token fallback.** No cost above 0 sends one alert ("App AI answer had
+      no gateway cost") and settles the tokens with `quoteTokenUsage`.
+      `appAiMeteredUsage` bills `cached_tokens` at the cache read rate and the
+      rest of `prompt_tokens` at the cache write rate when the model has one.
+      Output is `completion_tokens` plus `reasoning_tokens`. The tier of
+      `prompt_tokens` (one call) applies to every token. This bill can be above the cost.
+      It is never below the catalog rate.
+    - Zero tokens and no cost: refund. A 2xx answer without usage settles the
+      reserved credits and goes to Sentry. A settle error is logged and
+      reported. The stranded-hold sweep refunds the hold after 40 min, so
+      that call is free.
 11. **Log.** One `app-ai.request` line: request id, project id, model,
     status, token counts, credits, and latency. Never a body, a key, or a
     header value.
@@ -1923,17 +1973,405 @@ limit bound the overdraft of concurrent calls. An image data URL counts
 twice: its bytes count, and its image part adds 5,000 tokens. A lost settle (a DB
 error, or an API restart during the call) becomes a free call. A client
 that stops reading can make the upstream timeout end the drain, and the call
-then costs its full hold.
+then costs its full hold. The token fallback bills the catalog base rate
+of a `varies_by_provider` model. Some providers cost more: `zai/glm-5.3` up
+to 1.24 times input, 1.32 times output, and 2.2 times cache read;
+`deepseek/deepseek-v4.1-flash-1017` only on a cache read, up to 4.3 times.
+The gateway cost bills them exactly, so only an answer without a cost can
+bill below the cost. Upgrade: pin providers with
+`providerOptions.gateway.only`, or read the cost with `GET /v1/generation`.
+
+### Shared admission
+
+`AppAiAdmission` (`application/services/app-ai-admission.ts`) holds the
+generic steps of every gateway call. The chat service and the media
+services call it in the same order:
+
+1. **Key and project.** The key check (step 1 of the chat flow) and the
+   project check (step 2).
+2. **Rate window.** A Redis fixed window of 60 s in one of three buckets
+   (`APP_AI_RATE_WINDOWS`). `app-ai`: 60 calls for each project, for chat
+   and for each media generation call (image, speech, transcription, video
+   create). `app-ai-poll`: 120 calls for each project, for the video status
+   and content routes. `app-ai-video-content`: 6 content reads for each
+   video job (key: the hold event id). A Redis error answers 503
+   `gateway_unavailable`: all buckets fail closed.
+   The video reads also take one open slot (`APP_AI_VIDEO_READ_SLOTS`,
+   `takeVideoReadSlot`): at most 4 reads in progress for each project,
+   because a read of a job with inline bytes holds the full video in memory.
+   Above the limit the read answers 429 with `retry-after: 10`. The slot frees
+   in a `finally` when the read ends, or when its 300 s window ends.
+3. **Upstream key.** No `AI_GATEWAY_API_KEY` answers 503
+   `gateway_unavailable`.
+4. **Hold.** `MeteringService.reserve("app_ai_gateway", ...)` with the key
+   `app-ai:<requestId>`. 402 `insufficient_credits` as in chat.
+   `GENERATION_BILLING_MODE=off` keeps the hold null.
+
+It also holds the answer helpers `sendFailure` and `writeWhole`, the Sentry
+`alert`, and `upstreamFailure`, which maps an upstream status to the app
+failure. The chat service keeps its body parse, its token quote, its
+forward, its stream relay, and its token settle. So the chat steps and
+their order do not change.
+
+### Media routes
+
+All routes are below `/api/v2/ai/v1`, the value of `WANDIT_AI_GATEWAY_URL`.
+Each one takes `Authorization: Bearer <WANDIT_AI_API_KEY>`. Each one is
+`@Public()` and `@SkipResponseEnvelope()`, in `AppAiGatewayController`, and
+answers errors in the OpenAI body of the chat route. The JSON routes keep
+the default body cap of 1 MiB. The multipart route has the global 15 MiB
+file cap. Each body is a zod schema of `app-ai-media.ts`. `z.object` drops
+unknown fields, so no extra field changes the price.
+
+| Route | Body | 200 answer |
+| --- | --- | --- |
+| `POST /images/generations` | JSON `model?`, `prompt` (1 to 4000), `n?` (1 to 4, default 1; 1 on a Google model), `size?` (`1K` or `2K` on a Google model with that price) | `{ created, data: [{ b64_json }] }` |
+| `POST /audio/speech` | JSON `model?`, `input` (1 to 10,000), `voice` (`/^[A-Za-z0-9_-]{1,64}$/`), `response_format?` (`mp3`) | MP3 bytes, `audio/mpeg` |
+| `POST /audio/transcriptions` | multipart `file` (one audio file; the part content type names the format) and `model?`, in any order | `{ text, language, duration }` |
+| `POST /videos` | JSON `model?`, `prompt` (1 to 2000), `seconds`, `resolution?` (default `480p`; see the capability table), `aspect_ratio?` (`16:9`, `9:16`), `audio?` (default false; Seedance only) | `{ id, status: "queued", model, seconds }` |
+| `GET /videos/status?id=<job id>` | none | `{ id, status, error? }` |
+| `GET /videos/content?id=<job id>` | none | video bytes, the upstream media type (default `video/mp4`) |
+| `POST /videos/callback?token=<billing token>` | the Vercel webhook body | 200 |
+
+The two video read routes take the job id in the query string. Fastify
+limits a path parameter to 100 characters (`maxParamLength`), and a job
+token is longer. A zod schema bounds the `id` length.
+
+Model lists (the first id of each list is the default). `enable_ai` answers
+them in `mediaModels`, and the AI panel status shows them:
+
+- Image (`APP_AI_IMAGE_MODELS`): `google/gemini-nano-banana-2.1`,
+  `google/gemini-3.1-flash-image`, `google/gemini-2.5-flash-image`,
+  `bytedance/seedream-5.5`, `meta/muse-image-1.0`. The three Google ids are
+  catalog type `language`: they bill a price for each image plus their
+  tokens (Google image flow, below). Seedream and Muse bill a flat price for
+  each image. `openai/gpt-image-*` stays out: it bills only tokens.
+- Speech (`APP_AI_SPEECH_MODELS`): `elevenlabs/eleven-flash-v2.5`,
+  `elevenlabs/eleven-v4-turbo`, `elevenlabs/eleven-v4`,
+  `elevenlabs/eleven-multilingual-v2`. Priced for each input character.
+- Transcription (`APP_AI_TRANSCRIPTION_MODELS`): `elevenlabs/scribe-v2`,
+  `openai/gpt-transcribe`. Priced for each audio second.
+- Video (`APP_AI_VIDEO_MODELS`): `heygen/heygen-video-1`,
+  `bytedance/seedance-2.5-flash`, `bytedance/seedance-2.5`,
+  `minimax/minimax-h3-max`. Priced for each output second by resolution.
+  `APP_AI_VIDEO_CAPABILITIES` holds the allowed lengths, resolutions, and
+  audio rule of each model (table below). The request schema refuses
+  another value. Every model takes `16:9` and `9:16`. The default resolution
+  is `480p` for every model: each model has it, and it is the cheapest tier.
+- Voices (`APP_AI_SPEECH_VOICES`): four ElevenLabs voice ids with a name,
+  in the `speechVoices` field of `enable_ai`. The app can send any voice
+  id that matches the pattern.
+
+Video capabilities and rates for one second (catalog of 2026-11-19, USD).
+The Seedance rates come from the token rule below:
+
+| Model | Seconds | Resolutions and rate | Audio |
+| --- | --- | --- | --- |
+| `heygen/heygen-video-1` | 5 to 14 | `480p` 0.01, `768p` 0.018, `1080p` 0.05, `2k` 0.05 | `fixed` (no flag) |
+| `bytedance/seedance-2.5-flash` | 4 to 15 | `480p` 0.069271, `720p` 0.155736 | `optional` |
+| `bytedance/seedance-2.5` | 4 to 15 | `480p` 0.105885, `720p` 0.238054, `1080p` 0.585679 | `optional` |
+| `minimax/minimax-h3-max` | 5 to 15 | `480p` 0.05, `768p` 0.08 | `fixed` (no flag) |
+
+- Seconds stop at 15 for every model. This bounds the hold and keeps a job
+  inside the 40 minute hold sweep. HeyGen stops at 14: its catalog rows for
+  clips "over 15 s" have no documented edge at exactly 15 s.
+- `fixed` means that the model decides the sound. `audio: true` answers
+  400. Audio does not change the price of any model.
+- The largest job is `bytedance/seedance-2.5` at `1080p` for 15 s:
+  8,785,185 USD micros, about 8.79 USD, or 27,454 centi-credits at
+  0.032 USD for one credit.
+
+### Media flow
+
+Image, speech, and transcription run these steps in one request:
+
+1. **Key and project.** Shared admission step 1.
+2. **Body.** The zod schema of the route. A bad body answers 400
+   `invalid_request` with the issue paths. A model outside the list of the
+   kind answers 400 `model_not_allowed` with the model list. Transcription
+   parses its multipart fields with the file, in step 4.
+3. **Rate.** Shared admission, bucket `app-ai`.
+4. **File (transcription only).** The server reads the `file` part only
+   now, so it buffers no file before the key, project, and rate checks
+   pass. `request.parts()` reads the whole form, so the `model` field can
+   come before or after `file`. The form takes one file and at most 20
+   text fields of 16 KiB. `readAudioDurationSeconds`
+   (`generation/application/services/audio-duration.ts`) reads the length
+   of WAV (`audio/wav`, `audio/x-wav`), M4A or MP4 with AAC (also the
+   fragmented MP4 of Safari MediaRecorder), and WebM or Ogg with Opus. MP3
+   and raw AAC (ADTS) answer 400. It picks the reader from the
+   content type of the `file` part, not from the file name. The reader
+   stops after 250,000 element reads for the full file
+   (`MAX_AUDIO_ELEMENTS`: boxes, EBML elements, chunks, pages, packets, and
+   sample entries), so a file of tiny elements cannot block the event loop.
+   A file above the limit has no length. An unknown length answers 400
+   `invalid_request` with the list of formats. A length above
+   `TRANSCRIPTION_MAX_DURATION_SECONDS` (5 minutes) answers 400. A file
+   above 15 MiB answers 413.
+5. **Quote.** One `ModelPricingService` method for each kind (DB row
+   first, then the seed): `quoteImageEstimate`, `quoteSpeechEstimate`,
+   `quoteTranscriptionEstimate`, `quoteVideoEstimate`. Each one returns a
+   `MeasuredCostEstimate` or null. A null quote for an allowed model sends
+   a Sentry alert and answers 503 `gateway_unavailable` before any hold.
+6. **Upstream key and hold.** Shared admission steps 3 and 4.
+7. **Call.** The AI SDK with a provider from `createGateway({ apiKey:
+   AI_GATEWAY_API_KEY, fetch: LLM_PROXY_FETCH })`, with no retry
+   (`maxRetries: 0`, or `doGenerate`). Image: two flows, picked by the
+   catalog type of the price row (see Image flows). Speech: the
+   gateway speech model with the text, the voice, and the MP3 format.
+   Transcription: `transcriptionModel(id).doGenerate` with the media type
+   of `normalizeAudioMediaType`. The timeout is 300 s. A client abort does
+   not stop the upstream call, so the call is billed. An upstream warning
+   of an image or speech call goes to Sentry, because a size or a voice
+   that the upstream ignores can make the charge wrong. The charge does not
+   change.
+8. **Upstream error.** The hold is refunded. The status rules of
+   `upstreamFailure` apply: 400, 404, 413, and 422 give `invalid_request`
+   with the upstream message (at most 500 characters). 429 gives
+   `rate_limited`. 401, 402, and 403 give 503 `gateway_unavailable` and an
+   alert. `GatewayModelNotFoundError` also gives 503 and an alert: the model
+   id comes from the Wandit allow list, so an operator must act. All others
+   give 502 `upstream_error`. The app never sees text about the Wandit
+   upstream account.
+9. **Settle.** `MeteringService.settle(eventId, { pricing: "direct", ... })`
+   with `finalCredits = usdMicrosToCentiCredits(costUsdMicros, <anchor of
+   the quote>)`, the provider `vercel-ai-gateway`, and a measured
+   `pricingSnapshot` (mode, unit, units, unit rate, cost, USD micros for
+   one credit, model id). The cost is the units times the unit rate, or
+   the full cost of a Google image. An empty answer refunds the hold and
+   answers 502. A refusal after paid work settles and answers 400: a
+   Google answer with no image, or a transcription above 5 minutes. Each path
+   after the reserve ends in exactly one settle or one refund
+   (`try`/`finally`, as in chat). A settle or refund error sends an alert
+   and never reaches the client.
+
+Billing by kind (`domain/model-pricing.ts`):
+
+| Kind | Rate | Hold | Charge |
+| --- | --- | --- | --- |
+| Image (Seedream, Muse) | Flat price for each image. No `size`. | Images asked for | Images delivered |
+| Image (Google) | Price for each image of the size, plus the token rates | One image plus the token quote of the prompt bytes and 8,192 output tokens | The gateway cost, else images x image price + token cost (with an alert) |
+| Speech | `pricing.speech_input_character_cost` (USD for one character) | `input.length` (UTF-16 units, never below the provider count) | Same as the hold |
+| Transcription | Price for each audio second | Container length | Provider `durationInSeconds` when it is a finite number above 0, else the container length. A provider length above 5 minutes bills that real length and answers 400 with no text |
+| Video | `videoUnitUsdMicrosPerSecond`: a `video_duration_pricing` row, or the Seedance 2.5 token rule | `seconds` | Same as the hold, at completion |
+
+The speech and video rates are only in `ModelPrice.raw`. zod parses them
+with named fields. A missing rate, no matching row, or more than one
+matching row gives null, so an unclear price never bills.
+
+Video rate rules (`metering/domain/model-pricing.ts`):
+
+- A `video_duration_pricing` row matches on the resolution, on the mode
+  `text_to_video` or no mode, and on audio when the row has an audio key.
+  The MiniMax row with no resolution is the provider default tier. Wandit
+  always sends a tier, so that row never matches.
+- A row with `duration_over_seconds` below the request length gives null.
+  No document says if that rate bills every second or only the seconds
+  above the edge.
+- Seedance 2.5 (`video_token_pricing`): one second costs
+  `ceil(framePixels x 24 fps x rate for 1M tokens x 1.03 / 1024 / 1,000,000)`
+  USD micros. `framePixels` is 854x480, 1280x720, or 1920x1080. The rate is
+  `no_video_input`. The 3 % margin covers the token count: the one
+  documented real count is 1.58 % above the estimate. A model outside the
+  Seedance 2.5 frame table gives null.
+
+Image size rule: a `size` must match one priced size of the model
+(`imageGenerateSizes`), case-insensitive. Another size answers 400
+`invalid_request` with the list of sizes. No `size` bills the default
+price.
+
+- Seedream and Muse: their rows have no named size, so a `size` answers
+  400.
+- Google: only `1K` and `2K`, and only when that row is not below the
+  default row. A dropped `imageSize` makes the default size, so a size must
+  never cost less than the default. Thus `512` and `4K` answer 400 before
+  any hold. `google/gemini-2.5-flash-image` has only a default row and
+  takes no size.
+
+### Image flows
+
+`createImages` reads the price row first. The catalog type picks the
+flow. The hourly price refresh can change the type; the rate checks of the
+Google flow then fail closed.
+
+1. **Image models (type `image`: Seedream, Muse).** `generateImage` with
+   `n` and no size. A `size` answers 400. The hold pays `n` images. An
+   extra image is not sent, because the hold pays only `n`.
+2. **Google models (type `language`).** `n` must be 1, else 400 before any
+   hold: Google takes no image count. `generateText` with the gateway
+   language model, `maxOutputTokens` 8,192, and `providerOptions.google`:
+   `responseModalities: ["TEXT", "IMAGE"]` (the value of the Vercel docs),
+   plus `imageConfig.imageSize` only when a size is sent. The images come
+   from `result.files`.
+   - Hold: the image price of the size, plus `quoteTokenUsage` of the prompt
+     bytes as input tokens and 8,192 output tokens.
+   - Charge: the highest of `providerMetadata.gateway.cost` and
+     `marketCost` when it is above 0. Else one alert ("App AI image answer
+     had no gateway cost"), and the image price x the images of the answer
+     plus the token cost of the usage. Without token counts, the token part
+     of the hold bills.
+   - An answer with no image settles that charge and answers 400 with the
+     finish reason. Google bills the tokens, so it is not a free refund.
+     An answer with no image and a charge of 0 is empty: refund and 502.
+   - Each image of the answer goes to the app, because Google bills each one.
+     A file with no bytes is not an image.
+
+### Video job
+
+A video takes minutes. An Edge Function must answer in 150 s. So the job
+has no table and no background task. The signed token carries the state.
+
+1. **Create.** `POST /videos` runs shared admission (bucket `app-ai`), the
+   exact quote (`seconds` times the rate of the resolution and audio), and
+   the hold. Then `experimental_startVideo` of the package `ai` starts the
+   job with prompt, `n` 1, the aspect ratio, the duration, and the tier
+   fields of `appAiVideoUpstreamFields` (`domain/app-ai-video-job.ts`).
+   A Seedance prompt with `--` answers 400: BytePlus also reads
+   `--rs`, `--dur`, and `--rt` in the prompt, and the hold bills only
+   the body fields.
+   Each provider reads the tier from another field, and a wrong field runs
+   the provider default tier at another price:
+   - Seedance: top-level `resolution` as `WIDTHxHEIGHT` (`864x480`, the key
+     of the `@ai-sdk/bytedance` tier map, for 480p; `1280x720`;
+     `1920x1080`) and `providerOptions.gateway.only: ["bytedance"]`. The
+     price is the bytedance token rate, and the pin keeps the job off the
+     `tencent` endpoint. The docs prove `only` for text models only; the
+     gateway can ignore it. Both orientations send the landscape size, and
+     `aspectRatio` sets the orientation.
+   - HeyGen: `providerOptions.heygen.resolution` (`480p` to `2k`), no
+     top-level size. HeyGen throws on a top-level size outside its frame
+     sizes.
+   - MiniMax: `providerOptions.minimax.resolution` (`480P` or `768P`). An
+     unknown value runs at 768P, which costs more than 480P.
+   - `generateAudio` goes only to a model with `audio: "optional"`
+     (Seedance), explicit, because the provider default is on.
+   An upstream warning goes to Sentry. A start error refunds the
+   hold and answers the mapped failure. A start success answers the job
+   token as `id`. The hold stays reserved while the job runs.
+2. **Job token.** The format and the key of the LLM proxy run token
+   (`llm-proxy-token.service.ts`): `base64url(json).base64url(hmac-sha256)`
+   with `LLM_PROXY_SIGNING_KEY`. The first key signs, all keys verify,
+   with `timingSafeEqual` on the base64url text of the signature. A byte
+   compare after a lenient decode would let many strings pass as one job id.
+   The claims (`appAiVideoJobClaimsSchema`) have
+   the literal `kind: "app_ai_video_job"`, so a run token or a billing
+   token never passes as a job token. They hold the project id, the event
+   id (null when billing is off), the model, the seconds, the resolution,
+   the audio flag, the USD cost of the hold, the price terms of the
+   snapshot, the opaque upstream operation (JSON, at most
+   2,048 characters), and `exp` (24 hours).
+3. **Status.** `GET /videos/status?id=` checks the key, the project, the
+   bucket `app-ai-poll`, and the token, then takes one read slot. A token of project A never works
+   with the key of project B: the route compares `claims.projectId` with
+   the project of the key. A bad, expired, or foreign job id answers 404. Then `experimental_getVideoStatus` reads the
+   operation:
+   - `pending` answers `in_progress`.
+   - `error` or `cancelled` refunds the hold (reason
+     `app_ai_video_failed`) and answers `failed` with a fixed message. The
+     upstream error text goes only to the log line `app-ai.video-failed`,
+     because it can name the Wandit upstream account.
+   - `completed` with no usable entry (no video, an empty video, or a URL
+     that is not https) also refunds and answers `failed`. Thus no bad
+     entry is billed.
+   - `completed` first settles the hold with the token values, then
+     answers `completed`. A repeated settle with the same values is a
+     no-op. When the settle throws `MeteringStateConflictError` with the
+     status `refunded`, the stale sweep refunded the hold after 40 min.
+     The answer is then `expired`, and the app gets no video. Another
+     settle error alerts and answers 503.
+4. **Content.** `GET /videos/content?id=` runs the same checks, the bucket
+   `app-ai-video-content` (6 reads of one job in 60 s), and the same
+   settle-first rule. 409 when the job is not completed or failed,
+   410 when it expired. A base64 entry is decoded. A URL entry is fetched with the
+   injected fetch over https only, with no redirect, because the URL comes
+   from the upstream JSON, and piped to the app. The app never gets the upstream
+   URL. When the download stops after the status line, the socket closes
+   without the end of the body. Thus the app sees a failed read, not a cut
+   video.
+5. **Webhook.** When the public base URL of the API is https (the base of
+   `WANDIT_AI_GATEWAY_URL`), the start passes
+   `webhookUrl = <base>/videos/callback?token=<billing token>`. The billing
+   token has the same signed claims without the operation, and the literal
+   `kind: "app_ai_video_billing"`. So the webhook can settle the hold, but
+   it cannot read the video. `POST /videos/callback` verifies the token
+   (401 on a bad token) and parses the body with zod (`{ type }`; other
+   fields drop, so a change of the `data` form never blocks a settle). On `video.generation.completed`, it settles the
+   hold with the token values. It does nothing for a failed or cancelled
+   event: the status route and the stale sweep refund those. It answers
+   200 at once. When the settle fails, it answers 503, so that the gateway
+   sends the event again (the settle is idempotent). Reason: an app that
+   never polls must still pay for a finished video.
+
+The callback token and the job id are in the query string. `main.ts`
+gives these three routes a request log serializer that keeps only the
+method and the path, so no token goes to the request log. The Nest Sentry
+setup (`packages/observability/src/nestjs.ts`) removes the query string
+of every URL from error events, transactions, spans, and breadcrumbs, on
+all routes. An unknown error of a video route answers 503
+`gateway_unavailable` in `AppAiVideoService`. Thus it never reaches the
+Nest exception filter, which logs the URL.
+
+### Media ceilings and scope
+
+Accepted ceilings (`LIMIT:` marks in the media services):
+
+- A lost webhook plus no poll for 40 minutes makes the video free: the
+  stale sweep refunds the hold. Upgrade: a Trigger.dev task that follows
+  the job.
+- A job that the webhook settled stays paid when its entry is not usable:
+  the refund fails on a settled event. Upgrade: refund a settled event, or
+  check the entry in the webhook.
+- Each media call takes the payer lock twice (reserve and settle), as
+  chat does.
+- A lost settle (a DB error, or an API restart during the call) becomes a
+  free call, as in chat.
+- The transcription charge trusts the container length when the provider
+  sends no length. A false container length then bills, and it can be
+  below the real length. Upgrade: read the length from the audio frames.
+- The image answer is fully in memory: at most 4 base64 images, or on a
+  Google model usually one image of 2K or less. Upgrade: write each image
+  to the reply when it is encoded.
+- A Google image hold pays one image, and the settle bills each image of
+  the answer. A prompt that asks for more images can take the payer below
+  0. Upgrade: hold more images, or send only the images that the hold pays.
+- The Seedance 2.5 rate is exact only for 16:9 and 9:16: it is the public
+  token estimate plus 3 %. Upgrade: settle from the real
+  `completion_tokens`.
+- Each status or content read of a job with inline bytes (base64 or
+  binary) holds the full video in memory. The 4 read slots of each project
+  bound it. Upgrade: store the video one time, or keep the completed state
+  in a job table.
+- A read slot that a killed API never released frees only when its 300 s
+  window ends. A read that outlives its window releases into the next
+  window, so the cap is soft there. Upgrade: one key for each read.
+- The rate window counts transcription starts, not uploads in progress. One
+  key can hold 60 uploads of 15 MiB each minute, each for at most 300 s,
+  before a hold (about 4.4 GiB). Upgrade: a cap on uploads in progress for
+  each project, or a Fastify `requestTimeout`.
+
+Out of scope: image edits with input images, image to video, music and
+sound effects, realtime and websocket voice, image models priced only by
+tokens (`openai/gpt-image-*`), token-priced transcription models, video
+lengths above 15 s, and media storage on Wandit. The Edge Function of
+the app stores the bytes in the Supabase Storage of the app.
 
 ### Tool and panel
 
 - `enable_ai` (`application/host-tools/backend/enable-ai.host-tool.ts`)
   needs `user-approval`: the user agrees that the app spends credits. It
   mints the key when it is absent, pushes both secrets, and answers
-  `enabled` with `defaultModel` and `models`. It never answers the key. Its
-  description teaches the agent the Edge Function rules, so old projects
-  learn them too. New projects also get the `## AI features` section of
-  the template `CLAUDE.md`.
+  `enabled` with `defaultModel`, `models`, `mediaModels` (the models of
+  each media kind), and `speechVoices`. It never answers the key. Its
+  description teaches the agent the Edge Function rules and the media
+  routes, so old projects learn them too. New projects also get the
+  `## AI features` section of the template `CLAUDE.md`. Its short
+  subsection `### Media features` tells the agent to load the template
+  skill `ai-media` (`.claude/skills/ai-media/SKILL.md` of each template).
+  The skill holds one Edge Function example for each media kind. The image
+  and video examples store the file in the private bucket `ai-media` of the
+  app and answer a signed URL. The web speech example answers the MP3
+  bytes. The mobile speech example stores the MP3 in `ai-media` and answers
+  a signed URL. The transcription examples answer the text.
 - `AppAiKeys` and `AppAiKeysService` (`application/services/app-ai-keys.service.ts`)
   hold the mint, rotate, push, and turn-off code. The tool and the panel
   routes both use them.
@@ -1952,7 +2390,32 @@ then costs its full hold.
 Env: `AI_GATEWAY_API_KEY` (the upstream key, API only),
 `V2_LLM_PROXY_PUBLIC_URL` (the host of `WANDIT_AI_GATEWAY_URL`; unset →
 `BETTER_AUTH_URL`), `REDIS_URL`, `GENERATION_BILLING_MODE`,
-`APP_SECRETS_ENCRYPTION_KEY`, and `SUPABASE_PLATFORM_TOKEN` (the push).
+`APP_SECRETS_ENCRYPTION_KEY`, `SUPABASE_PLATFORM_TOKEN` (the push), and
+`LLM_PROXY_SIGNING_KEY` (signs the video job and billing tokens; without
+it each video route answers 503).
+
+The `enable_ai` description has 4,076 characters. It holds the image and
+video rules of each model, because old projects have no `ai-media` skill.
+Claude Code 2.1.281
+cuts each MCP tool description at 2,048 characters, so
+`claude-code.harness.ts` sets `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` to
+4096. Keep the description below 4,096 characters.
+
+### Deploy
+
+`ModelPricingService.get` reads the `model_prices` row before the seed. The
+old refresh code wrote a null transcription rate for `elevenlabs/scribe-v2`
+(0.000061112 USD has more than 6 decimals). Until a new refresh, the
+default transcription model answers 503 `gateway_unavailable` with the alert
+"App AI model has no price". The chat tiers and the video rates read
+`raw` of the row, and `gatewayModelToPersistedPrice` did not change for
+the new model lists. So the lists add no step. Do these steps in this
+sequence:
+
+1. Deploy the Trigger worker first, or with the API.
+2. Run the task `model-price-refresh` one time.
+3. Deploy the API. If the API started before step 2, restart it, or wait 1
+   hour for its price cache to end.
 
 ## Preview
 

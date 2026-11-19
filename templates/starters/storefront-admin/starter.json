@@ -24,13 +24,13 @@
 			"sidebarStyle": "floating",
 			"sidebarCollapse": "icons",
 			"sidebarStart": "open",
-			"sidebarTone": "canvas",
+			"sidebarTone": "tint",
 			"activeItem": "pill",
-			"header": "plain",
+			"header": "blur",
 			"userMenu": "header",
-			"frame": "outlined",
+			"frame": "flat",
 			"icons": "duotone",
-			"navIcon": "soft"
+			"navIcon": "color"
 		}
 	}
 }

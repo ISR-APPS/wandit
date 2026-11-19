@@ -1,14 +1,9 @@
 export {
-	ITEM_DEFAULT_DAYS,
-	itemDailyPicksQueryOptions,
 	itemQueryOptions,
 	itemsQueryOptions,
+	itemsSummaryQueryOptions,
 	type StockItem,
 } from "./api/items.queries";
-export {
-	latestStockChangesQueryOptions,
-	type MovementListRow,
-} from "./api/movements.queries";
 export {
 	ItemDetailPage,
 	ItemDetailPageSkeleton,
@@ -18,4 +13,5 @@ export {
 	ItemsPageError,
 	ItemsPageSkeleton,
 } from "./components/items-page";
+export { itemCsvColumns } from "./lib/item-csv";
 export { itemsSearchSchema } from "./lib/items-search";

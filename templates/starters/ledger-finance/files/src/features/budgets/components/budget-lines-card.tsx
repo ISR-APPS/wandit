@@ -1,8 +1,14 @@
-// The list of budgets on the budgets page: one row per category, the most used first.
+// The list of budgets on the budgets page, in the kit "list with progress" form: one row per category, the most used first.
 // BudgetsPage renders it in the main column and opens the sheet of a row after a click.
 import { fillMessage } from "~/features/ledger";
 import { useT } from "~/shared/i18n";
-import { Card, CardDescription, CardHeader, CardTitle } from "~/shared/ui/card";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
 import type { BudgetLine } from "../lib/budget-report";
 import { BudgetLineRow } from "./budget-line-row";
 
@@ -27,8 +33,8 @@ export function BudgetLinesCard({
 	});
 
 	return (
-		<Card className="gap-0 overflow-hidden pb-0">
-			<CardHeader className="pb-5">
+		<Card>
+			<CardHeader>
 				<CardTitle>{t("budgets.linesTitle")}</CardTitle>
 				<CardDescription>
 					{monthShare === null
@@ -38,16 +44,18 @@ export function BudgetLinesCard({
 							})}
 				</CardDescription>
 			</CardHeader>
-			<ul className="border-t">
-				{lines.map((line) => (
-					<BudgetLineRow
-						key={line.categoryId}
-						line={line}
-						monthShare={monthShare}
-						onOpen={() => onOpen(line)}
-					/>
-				))}
-			</ul>
+			<CardContent>
+				<ul className="-mx-2 grid gap-2">
+					{lines.map((line) => (
+						<BudgetLineRow
+							key={line.categoryId}
+							line={line}
+							monthShare={monthShare}
+							onOpen={() => onOpen(line)}
+						/>
+					))}
+				</ul>
+			</CardContent>
 		</Card>
 	);
 }

@@ -1,28 +1,18 @@
-// The Events page behind login. The /app layout checks the session first.
-// The loader fills the catalog of the first period, the detail of the first event, and the stream.
+// The event log behind login. The /app layout checks the session first.
+// The loader fills the newest events of today and yesterday for every area.
 // Thin: the page and its states live in the events feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	DEFAULT_EVENT,
 	EventsPage,
 	EventsPageError,
 	EventsPageSkeleton,
-	eventCatalogQueryOptions,
-	eventDetailQueryOptions,
-	eventStreamQueryOptions,
+	eventLogQueryOptions,
 } from "~/features/events";
-import { DEFAULT_DAYS } from "~/features/tracking";
 
-/** /app/events: every tracked event, one event in depth, and the newest single events. */
+/** /app/events: the newest single events, by day, with an area filter. */
 export const Route = createFileRoute("/app/events")({
 	loader: ({ context }) =>
-		Promise.all([
-			context.queryClient.query(eventCatalogQueryOptions(DEFAULT_DAYS)),
-			context.queryClient.query(
-				eventDetailQueryOptions(DEFAULT_EVENT, DEFAULT_DAYS),
-			),
-			context.queryClient.query(eventStreamQueryOptions()),
-		]),
+		context.queryClient.query(eventLogQueryOptions("all")),
 	pendingComponent: EventsPageSkeleton,
 	errorComponent: EventsPageError,
 	component: EventsPage,

@@ -1,219 +1,313 @@
-// The patient list behind login: the page header, the tabs, and the searchable table.
+// The patient list behind login: the title and the export, then one table with a filter field,
+// status, coverage, and practitioner filters, a column menu, row checkboxes, a row menu, and pages.
 // The /app/patients route renders it after its loader. The route also uses the skeleton and the error below.
-// A name opens the patient file. The starter has no "add" form: STARTER.md says where it goes.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
-	fillMessage,
+	type CsvColumn,
+	copyToClipboard,
+	downloadCsv,
 	formatRelativeTime,
 	PersonAvatar,
+	toCsv,
 	useNow,
 } from "~/features/clinic";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { patientsQueryOptions } from "../api/patients.queries";
 import {
-	formatAge,
-	PATIENT_SEGMENTS,
+	PATIENT_STATUS_BADGE,
+	PATIENT_STATUSES,
 	type PatientRow,
-	type PatientSegment,
-	rowsOfSegment,
+	type PatientStatus,
+	patientStatusOf,
 } from "../lib/patient-rows";
 
-/** The list page. The tab filters the rows; then DataTable searches, sorts, and pages them. */
+// The coverage values of the filter, in the order of the message file.
+const COVERAGES = ["public", "private", "self_pay"] as const;
+
+/** The three filters cut the rows; then RecordTable filters by text, sorts, selects, and pages them. */
 export function PatientsPage() {
 	const { t, locale } = useT();
 	const now = useNow();
 	const { data: patients } = useSuspenseQuery(patientsQueryOptions());
-	const [segment, setSegment] = useState<PatientSegment>("all");
+	const [status, setStatus] = useState<PatientStatus | null>(null);
+	const [coverage, setCoverage] = useState<(typeof COVERAGES)[number] | null>(
+		null,
+	);
+	const [practitionerId, setPractitionerId] = useState<string | null>(null);
+	// One entry per practitioner who follows a patient, in the order of the rooms.
+	const practitioners = [
+		...new Map(
+			patients.flatMap((row) =>
+				row.primaryPractitioner
+					? [[row.primaryPractitioner.id, row.primaryPractitioner] as const]
+					: [],
+			),
+		).values(),
+	].sort((first, second) =>
+		first.room.localeCompare(second.room, locale, { numeric: true }),
+	);
+	const rows = patients.filter(
+		(row) =>
+			(status === null || patientStatusOf(row) === status) &&
+			(coverage === null || row.coverage === coverage) &&
+			(practitionerId === null || row.primaryPractitionerId === practitionerId),
+	);
 
-	const number = new Intl.NumberFormat(locale);
-	const day = new Intl.DateTimeFormat(locale, {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	});
-	const time = new Intl.DateTimeFormat(locale, { timeStyle: "short" });
-	// A tab shows only for a group that has rows.
-	const tabs = PATIENT_SEGMENTS.map((value) => ({
-		value,
-		rows: rowsOfSegment(patients, value),
-	})).filter((tab) => tab.value === "all" || tab.rows.length > 0);
-	const activeTab = tabs.find((tab) => tab.value === segment) ?? tabs[0];
-
-	const columns: DataTableColumn<PatientRow>[] = [
+	const columns: RecordColumn<PatientRow>[] = [
 		{
-			id: "patient",
-			header: t("patients.patient"),
+			id: "name",
+			header: t("patients.name"),
 			sortValue: (row) => `${row.lastName} ${row.firstName}`,
 			cell: (row) => (
-				<div className="flex items-center gap-3">
-					{/* A phone has no room for the avatar. The next appointment then fits beside the name. */}
-					<PersonAvatar name={row.fullName} className="@xl/main:flex hidden" />
-					<div className="grid justify-items-start">
-						<span className="flex items-center gap-2">
-							<Link
-								to="/app/patients/$patientId"
-								params={{ patientId: row.id }}
-								className="font-medium hover:underline"
-							>
-								{row.fullName}
-							</Link>
-							{row.isNew ? (
-								<Badge variant="info">{t("patients.new")}</Badge>
-							) : null}
-						</span>
-						<span className="text-muted-foreground text-xs tabular-nums">
-							{`${row.fileNumber} · ${formatAge(row.dateOfBirth, now, locale)} · ${t(`sexes.${row.sex}`)}`}
-						</span>
-					</div>
-				</div>
-			),
-		},
-		// The next appointment comes second, so a phone shows it beside the name.
-		{
-			id: "next",
-			// A short head keeps every column inside the card at 1024 px.
-			header: t("patients.nextVisit"),
-			// A patient with no booking sorts after every booked patient.
-			sortValue: (row) =>
-				row.nextAppointment?.startsAt ?? Number.MAX_SAFE_INTEGER,
-			cell: (row) =>
-				row.nextAppointment ? (
-					<div className="grid whitespace-nowrap tabular-nums">
-						<span>{day.format(row.nextAppointment.startsAt)}</span>
-						<span className="text-muted-foreground text-xs">
-							{time.format(row.nextAppointment.startsAt)}
-						</span>
-					</div>
-				) : row.isRecallDue ? (
-					<Badge variant="warning">{t("patients.recallDue")}</Badge>
-				) : (
-					<span className="text-muted-foreground">
-						{t("patients.noneBooked")}
+				<Link
+					to="/app/patients/$patientId"
+					params={{ patientId: row.id }}
+					className="group flex items-center gap-3 outline-none"
+				>
+					<PersonAvatar name={row.fullName} className="size-9" />
+					<span
+						className="font-medium group-hover:underline group-focus-visible:underline"
+						dir="auto"
+					>
+						{row.fullName}
 					</span>
-				),
-		},
-		{
-			id: "phone",
-			header: t("patients.phone"),
-			// A sortable head has the size of the other heads. The phone sorts by area code.
-			sortValue: (row) => row.phone,
-			cell: (row) => (
-				<span className="whitespace-nowrap tabular-nums">{row.phone}</span>
+				</Link>
 			),
 		},
 		{
 			id: "practitioner",
 			header: t("patients.practitioner"),
+			hideable: true,
 			sortValue: (row) => row.primaryPractitioner?.fullName ?? "",
-			cell: (row) => row.primaryPractitioner?.fullName ?? "",
+			cell: (row) => row.primaryPractitioner?.fullName ?? "–",
+		},
+		{
+			id: "coverage",
+			header: t("patients.coverage"),
+			hideable: true,
+			sortValue: (row) => t(`coverage.${row.coverage}`),
+			cell: (row) => t(`coverage.${row.coverage}`),
+		},
+		{
+			id: "email",
+			header: t("patients.email"),
+			hideable: true,
+			sortValue: (row) => row.email ?? "",
+			cell: (row) =>
+				row.email ? (
+					<a
+						href={`mailto:${row.email}`}
+						className="underline decoration-border underline-offset-4 hover:decoration-ring"
+						dir="ltr"
+					>
+						{row.email}
+					</a>
+				) : (
+					<span className="text-muted-foreground">{t("patients.noEmail")}</span>
+				),
 		},
 		{
 			id: "lastVisit",
 			header: t("patients.lastVisit"),
+			hideable: true,
+			// A file with no visit sorts as the oldest.
 			sortValue: (row) => row.lastVisitAt ?? 0,
-			// The count of visits sits under the date, so the table needs no sixth column.
-			cell: (row) =>
-				row.lastVisitAt === null ? (
-					<span className="text-muted-foreground">{t("patients.noVisit")}</span>
-				) : (
-					<div className="grid whitespace-nowrap">
-						<span>{formatRelativeTime(row.lastVisitAt, now, locale)}</span>
-						<span className="text-muted-foreground text-xs tabular-nums">
-							{fillMessage(t("patients.visitCount"), {
-								count: number.format(row.visitCount),
-							})}
-						</span>
-					</div>
-				),
+			cell: (row) => (
+				<span className="text-muted-foreground">
+					{row.lastVisitAt === null
+						? t("patients.noVisit")
+						: formatRelativeTime(row.lastVisitAt, now, locale)}
+				</span>
+			),
+		},
+		{
+			id: "status",
+			header: t("patients.status"),
+			sortValue: (row) => PATIENT_STATUSES.indexOf(patientStatusOf(row)),
+			cell: (row) => {
+				const rowStatus = patientStatusOf(row);
+				return (
+					<Badge variant={PATIENT_STATUS_BADGE[rowStatus]}>
+						{t(`patients.statuses.${rowStatus}`)}
+					</Badge>
+				);
+			},
+		},
+	];
+
+	const csvColumns: CsvColumn<PatientRow>[] = [
+		{ header: t("patients.fileNumber"), value: (row) => row.fileNumber },
+		{ header: t("patients.name"), value: (row) => row.fullName },
+		{ header: t("patients.dateOfBirth"), value: (row) => row.dateOfBirth },
+		{ header: t("patients.phone"), value: (row) => row.phone },
+		{ header: t("patients.email"), value: (row) => row.email ?? "" },
+		{
+			header: t("patients.practitioner"),
+			value: (row) => row.primaryPractitioner?.fullName ?? "",
+		},
+		{
+			header: t("patients.coverage"),
+			value: (row) => t(`coverage.${row.coverage}`),
+		},
+		{
+			header: t("patients.status"),
+			value: (row) => t(`patients.statuses.${patientStatusOf(row)}`),
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("patients.title")}
-				description={fillMessage(t("patients.description"), {
-					count: number.format(patients.length),
-				})}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() => downloadCsv("patients.csv", toCsv(rows, csvColumns))}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
 			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						// A new tab starts at page 1.
-						key={activeTab?.value}
-						rows={activeTab?.rows ?? []}
-						columns={columns}
-						searchText={(row) =>
-							`${row.fullName} ${row.fileNumber} ${row.phone} ${row.email ?? ""}`
-						}
-						noResults={t("patients.noResults")}
-						toolbar={
-							<Tabs
-								value={activeTab?.value}
-								onValueChange={(value) =>
-									setSegment(
-										PATIENT_SEGMENTS.find((option) => option === value) ??
-											"all",
-									)
-								}
-								className="max-w-full overflow-x-auto"
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) =>
+					`${row.fullName} ${row.fileNumber} ${row.email ?? ""} ${row.phone}`
+				}
+				searchPlaceholder={t("patients.filter")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("patients.status")}
+							options={PATIENT_STATUSES.map((value) => ({
+								value,
+								label: t(`patients.statuses.${value}`),
+							}))}
+							value={status}
+							onValueChange={(value) =>
+								setStatus(
+									PATIENT_STATUSES.find((option) => option === value) ?? null,
+								)
+							}
+						/>
+						<RecordFilter
+							label={t("patients.coverage")}
+							options={COVERAGES.map((value) => ({
+								value,
+								label: t(`coverage.${value}`),
+							}))}
+							value={coverage}
+							onValueChange={(value) =>
+								setCoverage(
+									COVERAGES.find((option) => option === value) ?? null,
+								)
+							}
+						/>
+						<RecordFilter
+							label={t("patients.practitioner")}
+							options={practitioners.map((practitioner) => ({
+								value: practitioner.id,
+								label: practitioner.fullName,
+							}))}
+							value={practitionerId}
+							onValueChange={setPractitionerId}
+						/>
+					</>
+				}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link
+								to="/app/patients/$patientId"
+								params={{ patientId: row.id }}
 							>
-								{/* The kit strip is 36 px high. A phone gets a 44 px touch area. */}
-								<TabsList className="max-md:group-data-[orientation=horizontal]/tabs:h-11">
-									{tabs.map((tab) => (
-										<TabsTrigger key={tab.value} value={tab.value}>
-											{t(`patients.segments.${tab.value}`)}
-											{/* The page header already gives the count of all files. The four tabs then fit at 375 px. */}
-											{tab.value === "all" ? null : (
-												<span className="tabular-nums opacity-70">
-													{number.format(tab.rows.length)}
-												</span>
-											)}
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
+								{t("patients.openFile")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.phone, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("dashboard.copyPhone")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.fileNumber, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("patients.copyFileNumber")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selectedRows) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"patients-selected.csv",
+								toCsv(selectedRows, csvColumns),
+							)
 						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={10}
+				noResults={t("patients.noResults")}
+			/>
 		</div>
 	);
 }
 
 // Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the loader runs: the header, the toolbar, and the rows. */
 export function PatientsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-64" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-36" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full max-w-xl" />
+			<div className="grid gap-2 rounded-md border p-3">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-10 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }
 
-/** Error state of the patient pages when a loader fails. Try again runs the loader again. */
+/** Error state of the list and detail pages when the loader fails. Try again runs the loader again. */
 export function PatientsPageError() {
 	const { t } = useT();
 	const router = useRouter();

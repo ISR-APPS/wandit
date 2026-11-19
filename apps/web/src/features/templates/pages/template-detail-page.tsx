@@ -1,11 +1,13 @@
 /**
  * Template detail page at `/templates/$templateId`. It shows the cover, the
  * screenshots, the name, the kind, the category, and the description. It
- * has one action: the "Use this template" button.
+ * has two actions: the "Use this template" button and the "Live preview" link.
  * The route file imports it by path and passes the catalog entry of the URL id.
  * The button creates a V2 project through lib/hooks.ts and opens the builder.
+ * The link opens the deployed preview of the template in a new tab.
  */
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { UserCirclePlusIcon } from "@phosphor-icons/react/UserCirclePlus";
 import { Link } from "@tanstack/react-router";
@@ -20,6 +22,7 @@ import { StarterTemplateKindBadge } from "../components/starter-template-card";
 import { StarterTemplateImage } from "../components/starter-template-image";
 import {
 	starterTemplateCoverUrl,
+	starterTemplatePreviewUrl,
 	starterTemplateShotUrls,
 } from "../lib/helpers";
 import { useStarterTemplateStart } from "../lib/hooks";
@@ -96,6 +99,27 @@ export default function TemplateDetailPage({
 							) : null}
 							{t("templates.detail.use")}
 						</KeycapButton>
+						<Button
+							asChild
+							variant="outline"
+							size="lg"
+							className="mt-3 w-full rounded-full font-grotesk"
+						>
+							{/* The preview is on another site, so the new tab gets no opener and no referrer. */}
+							<a
+								href={starterTemplatePreviewUrl(starterTemplate)}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<ArrowSquareOutIcon
+									aria-hidden
+									weight="bold"
+									className="size-4"
+								/>
+								{t("templates.detail.livePreview")}
+								<span className="sr-only">{t("templates.detail.newTab")}</span>
+							</a>
+						</Button>
 						{/* Product rule: the value of an app is behind sign-in, so the user must make an account in the preview. */}
 						{starterTemplate.kind === "app" ? (
 							<p className="mt-5 flex items-start gap-2.5 rounded-2xl bg-night/[0.04] px-3.5 py-3 text-[13px] text-night/70 leading-snug dark:bg-white/[0.05] dark:text-foreground/70">

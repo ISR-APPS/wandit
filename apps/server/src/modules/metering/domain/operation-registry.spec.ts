@@ -37,6 +37,11 @@ const REQUIRED_WORKFLOW_IDS = [
 	"connector-background",
 	"lead-scrape",
 	"transcription",
+	"app-ai-media-image",
+	"app-ai-media-google-image",
+	"app-ai-media-speech",
+	"app-ai-media-transcription",
+	"app-ai-video",
 	"legacy-worker-chat",
 	"theme-design",
 	"project-title-helper",
@@ -51,6 +56,10 @@ const PROVIDER_CALL_PATTERNS = [
 	{ name: "doGenerate", pattern: /\.doGenerate\s*\(/gu },
 	{ name: "embed", pattern: /\bembed\s*\(/gu },
 	{ name: "embedMany", pattern: /\bembedMany\s*\(/gu },
+	{
+		name: "experimental_startVideo",
+		pattern: /\bexperimental_startVideo\s*\(/gu,
+	},
 	{ name: "generateImage", pattern: /\bgenerateImage\s*\(/gu },
 	{ name: "generateObject", pattern: /\bgenerateObject\s*\(/gu },
 	{ name: "generateText", pattern: /\bgenerateText\s*\(/gu },
@@ -97,6 +106,34 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateImage",
 		source:
 			"apps/server/src/modules/image-generations/application/services/image-generator.ts",
+	},
+	{
+		// Image, speech, and transcription of the app AI gateway, billed as
+		// app_ai_gateway. The two doGenerate calls are speech and transcription.
+		count: 1,
+		name: "generateImage",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		count: 2,
+		name: "doGenerate",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		// The Google image models of the app AI gateway (language models).
+		count: 1,
+		name: "generateText",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		// The video job start of the app AI gateway, billed as app_ai_gateway.
+		count: 1,
+		name: "experimental_startVideo",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-video.service.ts",
 	},
 	{
 		count: 1,

@@ -1,21 +1,12 @@
-// Shapes of the chart data and the pure functions that build them from rows.
-// The overview queries build the daily series, the totals, and the breakdowns with these functions.
-// periodOf is the one window rule of the app, so every figure and breakdown total of a period agree.
+// The period choices, the one window rule of the app (periodOf), and the daily series of a chart.
+// The overview queries, the board, and the Team page call them, so every figure of a period agrees.
 import { calendarDaysFromNow, startOfLocalDay } from "./time";
 
-/** The period choices of the overview, in days. The sample rows cover two periods of the longest one. */
+/** The period choices of the Select controls, in days. The sample rows cover two periods of the longest one. */
 export const PERIOD_DAYS = [7, 30, 90] as const;
 
 /** One period choice. */
 export type PeriodDays = (typeof PERIOD_DAYS)[number];
-
-/** The period that the overview opens with. */
-export const DEFAULT_DAYS: PeriodDays = 30;
-
-/** The period of a value from a URL or a tab, or undefined when it is not a choice. */
-export function parsePeriodDays(value: string): PeriodDays | undefined {
-	return PERIOD_DAYS.find((days) => String(days) === value);
-}
 
 /** One working day of a trend, oldest first in a list. Zero on a day with no event. */
 export type DailyPoint = {
@@ -26,14 +17,6 @@ export type DailyPoint = {
 	/** The count of the working day at the same place in the working days before the period. */
 	previous: number;
 };
-
-/** One part of a breakdown. `label` is a project name or the code "other". */
-export type BreakdownSlice = { id: string; label: string; value: number };
-
-/** Change against the previous period, as a ratio. null when the previous value is 0: no delta shows. */
-export function changeRatio(current: number, previous: number): number | null {
-	return previous === 0 ? null : (current - previous) / previous;
-}
 
 /**
  * The window of `timestamp` (ISO) for a period of `days`: "current" for the last `days` full calendar days,
@@ -145,16 +128,4 @@ export function buildDailySeries(
 		point[slot.line] += 1;
 	}
 	return points;
-}
-
-/** The count of `timestamps` (ISO) in the current and in the previous period of `days` days, and their change ratio. */
-export function periodTotals(
-	timestamps: string[],
-	days: number,
-	now: number,
-): { current: number; previous: number; change: number | null } {
-	const periods = timestamps.map((timestamp) => periodOf(timestamp, days, now));
-	const current = periods.filter((period) => period === "current").length;
-	const previous = periods.filter((period) => period === "previous").length;
-	return { current, previous, change: changeRatio(current, previous) };
 }

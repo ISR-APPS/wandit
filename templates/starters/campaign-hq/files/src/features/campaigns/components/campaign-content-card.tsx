@@ -1,9 +1,10 @@
-// The "Content" panel of a campaign: the next items of its calendar, then the items that went out last.
-// CampaignDetailPage renders it in its main column. The header links to the calendar, filtered to this campaign.
+// The content card of a campaign page: its calendar items as a table of title, status, date, and format.
+// The short card (with `limit`) leaves out the format column, because its narrow column has room for 3 columns.
+// CampaignDetailPage renders it in the 2/3 column (the next 6 items) and in the Content tab (every item).
+// It follows the kit "transaction history" card: a plain table with a status badge.
 import { Link } from "@tanstack/react-router";
-import { fillMessage } from "~/features/marketing";
+import { ContentStatusBadge, fillMessage } from "~/features/marketing";
 import { useT } from "~/shared/i18n";
-import { Button } from "~/shared/ui/button";
 import {
 	Card,
 	CardAction,
@@ -12,81 +13,111 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "~/shared/ui/table";
 import type { CampaignDetail } from "../api/campaigns.queries";
-import { CampaignContentRow } from "./campaign-content-row";
-
-// The panel lists the next 4 items and the last 3 that went out. The calendar shows the rest.
-const NEXT_COUNT = 4;
-const PAST_COUNT = 3;
 
 type CampaignContentCardProps = {
 	/** The campaign of the page, from campaignQueryOptions. */
 	campaign: CampaignDetail;
+	/** The time of the render, in milliseconds since 1970. */
+	now: number;
+	/** Shows the items around today only: the next ones first, then the newest published ones. Absent: every item. */
+	limit?: number;
 };
 
-/** Two short lists. A campaign with no item shows one sentence. */
-export function CampaignContentCard({ campaign }: CampaignContentCardProps) {
+/** The calendar link opens the calendar filtered to this campaign. */
+export function CampaignContentCard({
+	campaign,
+	now,
+	limit,
+}: CampaignContentCardProps) {
 	const { t, locale } = useT();
-	const upcoming = campaign.content
-		.filter((item) => item.status !== "published")
-		.slice(0, NEXT_COUNT);
-	const published = campaign.content
-		.filter((item) => item.status === "published")
-		.slice(-PAST_COUNT)
-		.reverse();
-	const groups = [
-		{ id: "next", title: t("campaigns.nextContent"), items: upcoming },
-		{ id: "past", title: t("campaigns.pastContent"), items: published },
-	].filter((group) => group.items.length > 0);
-	// The hint counts the rows of the panel, so its number matches what the user sees.
-	const shownCount = upcoming.length + published.length;
+	const date = new Intl.DateTimeFormat(locale, {
+		month: "short",
+		day: "numeric",
+	});
 	const number = new Intl.NumberFormat(locale);
+	// The short list shows the work still ahead first: what goes out next matters most on this page.
+	const upcoming = campaign.content.filter(
+		(item) => Date.parse(item.scheduledAt) > now,
+	);
+	const published = campaign.content
+		.filter((item) => Date.parse(item.scheduledAt) <= now)
+		.reverse();
+	const items =
+		limit === undefined
+			? campaign.content
+			: [...upcoming, ...published].slice(0, limit);
+	const showFormat = limit === undefined;
 
 	return (
-		<Card>
+		<Card className="h-full">
 			<CardHeader>
 				<CardTitle>{t("campaigns.content")}</CardTitle>
 				<CardDescription>
-					{fillMessage(
-						t(
-							shownCount < campaign.content.length
-								? "campaigns.contentHintPart"
-								: campaign.content.length === 1
-									? "campaigns.contentHintOne"
-									: "campaigns.contentHint",
-						),
-						{
-							shown: number.format(shownCount),
-							count: number.format(campaign.content.length),
-						},
-					)}
+					{campaign.content.length === 1
+						? t("campaigns.contentHintOne")
+						: fillMessage(t("campaigns.contentHint"), {
+								count: number.format(campaign.content.length),
+							})}
 				</CardDescription>
 				<CardAction>
-					<Button asChild variant="outline" size="sm">
-						<Link to="/app/calendar" search={{ campaign: campaign.id }}>
-							{t("campaigns.openCalendar")}
-						</Link>
-					</Button>
+					<Link
+						to="/app/calendar"
+						search={{ campaign: campaign.id }}
+						className="text-muted-foreground text-sm hover:text-foreground hover:underline"
+					>
+						{t("campaigns.openCalendar")}
+					</Link>
 				</CardAction>
 			</CardHeader>
-			<CardContent className="grid gap-5">
-				{groups.length === 0 ? (
+			<CardContent>
+				{items.length === 0 ? (
 					<p className="text-muted-foreground text-sm">
 						{t("campaigns.noContent")}
 					</p>
 				) : (
-					groups.map((group) => (
-						<section key={group.id} className="grid gap-2">
-							<h2 className="label-text font-sans text-muted-foreground text-xs">
-								{group.title}
-							</h2>
-							<ul className="grid gap-2">
-								{group.items.map((item) => (
-									<CampaignContentRow key={item.id} item={item} />
-								))}
-							</ul>
-						</section>
-					))
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>{t("campaigns.item")}</TableHead>
+								<TableHead>{t("campaigns.status")}</TableHead>
+								<TableHead>{t("campaigns.date")}</TableHead>
+								{showFormat && (
+									<TableHead className="text-end">
+										{t("campaigns.format")}
+									</TableHead>
+								)}
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{items.map((item) => (
+								<TableRow key={item.id}>
+									<TableCell className="max-w-48 truncate" dir="auto">
+										{item.title}
+									</TableCell>
+									<TableCell>
+										<ContentStatusBadge status={item.status} />
+									</TableCell>
+									<TableCell className="tabular-nums">
+										{date.format(new Date(item.scheduledAt))}
+									</TableCell>
+									{showFormat && (
+										<TableCell className="text-end font-medium">
+											{t(`contentFormats.${item.format}`)}
+										</TableCell>
+									)}
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
 				)}
 			</CardContent>
 		</Card>

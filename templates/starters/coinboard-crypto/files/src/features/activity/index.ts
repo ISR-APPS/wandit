@@ -1,4 +1,8 @@
 export {
+	type TradeInput,
+	useRecordTradeMutation,
+} from "./api/transactions.mutations";
+export {
 	assetTransactionsQueryOptions,
 	type Transaction,
 	transactionsQueryOptions,

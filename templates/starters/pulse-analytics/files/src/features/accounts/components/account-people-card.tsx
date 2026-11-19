@@ -1,135 +1,97 @@
-// The people card of the account page: the most active people of the last 30 days.
-// AccountDetailPage renders it with the people that the account query returns.
-// Under 1024 px the table has two columns: the role goes under the name.
-import {
-	fillMessage,
-	formatRelativeTime,
-	NameMark,
-	useIsWideScreen,
-} from "~/features/tracking";
+// The people card of the account page: the 5 most active users with their mail address and a copy button.
+// AccountOverview renders it beside the events card. The arrow button opens the Users tab with every user.
+import { copyToClipboard, initialsOf } from "~/features/tracking";
 import { useT } from "~/shared/i18n";
-import { Badge } from "~/shared/ui/badge";
+import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
+import { Button } from "~/shared/ui/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
-	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "~/shared/ui/table";
+import { CaretRightIcon } from "~/shared/ui/icons";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/shared/ui/tooltip";
 import type { AccountPerson } from "../api/accounts.queries";
 
+// The kit card lists five people.
+const SHOWN_PEOPLE = 5;
+
 type AccountPeopleCardProps = {
-	/** The most active people, the most events first, then the last seen first. */
+	/** Every person of the account, the most events first. */
 	people: AccountPerson[];
-	/** How many people the account has in total. */
-	members: number;
+	/** Opens the Users tab of the page. */
+	onViewAll: () => void;
 };
 
-/**
- * One row per person: the name and the mail address, the role, the events, and the last event time.
- * When nobody has an event in 30 days, the card lists the people seen last instead.
- */
-export function AccountPeopleCard({ people, members }: AccountPeopleCardProps) {
-	const { t, locale } = useT();
-	const isWide = useIsWideScreen();
-	const number = new Intl.NumberFormat(locale);
-	const now = Date.now();
-	// A dormant account: ten rows of 0 events say nothing, so the card ranks by the last event.
-	const isQuiet = people.every((person) => person.events === 0);
-	const lastSeenOf = (person: AccountPerson) =>
-		person.lastSeenAt
-			? formatRelativeTime(person.lastSeenAt, now, locale)
-			: t("accounts.neverSeen");
-	const roleBadge = (person: AccountPerson) => (
-		<Badge variant={person.role === "admin" ? "info" : "outline"}>
-			{t(`roles.${person.role}`)}
-		</Badge>
-	);
-	// A dormant account has 0 events for each person, so the column hides at every width.
-	const showsEvents = !isQuiet;
-	const showsLastSeen = isWide || isQuiet;
-
+/** Each row: initials, name, mail address, and "Copy email". */
+export function AccountPeopleCard({
+	people,
+	onViewAll,
+}: AccountPeopleCardProps) {
+	const { t } = useT();
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>
-					{t(isQuiet ? "accounts.people.quietTitle" : "accounts.people.title")}
-				</CardTitle>
-				<CardDescription>
-					{fillMessage(
-						t(
-							isQuiet
-								? "accounts.people.quietDescription"
-								: "accounts.people.description",
-						),
-						{
-							shown: number.format(people.length),
-							total: number.format(members),
-						},
-					)}
-				</CardDescription>
+				<CardTitle>{t("accounts.people.title")}</CardTitle>
+				<CardAction>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="outline"
+								size="icon"
+								aria-label={t("accounts.people.viewAll")}
+								onClick={onViewAll}
+							>
+								<CaretRightIcon className="rtl:rotate-180" />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>{t("accounts.people.viewAll")}</TooltipContent>
+					</Tooltip>
+				</CardAction>
 			</CardHeader>
 			<CardContent>
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>{t("accounts.people.person")}</TableHead>
-							{isWide ? (
-								<TableHead>{t("accounts.people.role")}</TableHead>
-							) : null}
-							{showsEvents ? (
-								<TableHead className="text-end">
-									{t("accounts.people.events")}
-								</TableHead>
-							) : null}
-							{showsLastSeen ? (
-								<TableHead className="text-end">
-									{t("accounts.people.lastSeen")}
-								</TableHead>
-							) : null}
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{people.map((person) => (
-							<TableRow key={person.id}>
-								<TableCell>
-									<div className="flex items-center gap-3">
-										<NameMark name={person.name} />
-										<div className="grid justify-items-start gap-0.5">
-											<span className="font-medium">{person.name}</span>
-											{isWide ? (
-												<span className="text-muted-foreground text-xs">
-													{person.email}
-												</span>
-											) : (
-												roleBadge(person)
-											)}
-										</div>
-									</div>
-								</TableCell>
-								{isWide ? <TableCell>{roleBadge(person)}</TableCell> : null}
-								{showsEvents ? (
-									<TableCell className="text-end tabular-nums">
-										{number.format(person.events)}
-									</TableCell>
-								) : null}
-								{showsLastSeen ? (
-									<TableCell className="whitespace-nowrap text-end text-muted-foreground">
-										{lastSeenOf(person)}
-									</TableCell>
-								) : null}
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
+				{/* grid-cols-1 is minmax(0, 1fr): a long mail address then wraps and does not widen the card. */}
+				<ul className="grid grid-cols-1 gap-4">
+					{people.slice(0, SHOWN_PEOPLE).map((person) => (
+						<li
+							key={person.id}
+							className="flex items-center justify-between gap-4"
+						>
+							<div className="flex min-w-0 items-center gap-4">
+								<Avatar className="size-10">
+									<AvatarFallback>{initialsOf(person.name)}</AvatarFallback>
+								</Avatar>
+								<div className="min-w-0">
+									<p className="truncate font-medium">{person.name}</p>
+									{/* The address wraps and never clips. The line breaks after the "@".
+									    wrap-anywhere breaks inside a part only when that part alone is too long. */}
+									<p className="wrap-anywhere text-muted-foreground text-xs">
+										{person.email.slice(0, person.email.indexOf("@") + 1)}
+										<wbr />
+										{person.email.slice(person.email.indexOf("@") + 1)}
+									</p>
+								</div>
+							</div>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="shrink-0"
+								onClick={() =>
+									copyToClipboard(person.email, {
+										done: t("table.copied"),
+										failed: t("table.copyFailed"),
+									})
+								}
+							>
+								{t("accounts.people.copyEmail")}
+							</Button>
+						</li>
+					))}
+				</ul>
 			</CardContent>
 		</Card>
 	);

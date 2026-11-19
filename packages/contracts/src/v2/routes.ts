@@ -65,6 +65,12 @@ export const appBuilderRoutes = {
 	appAiBase: "/api/v2/ai/v1",
 	// POST OpenAI chat completions of a V2 app, behind its gateway key.
 	appAiChatCompletions: "/api/v2/ai/v1/chat/completions",
+	// POST video webhook of the Vercel AI Gateway, with `?token=<billing token>`.
+	appAiVideoCallback: "/api/v2/ai/v1/videos/callback",
+	// GET the state of a video job, with `?id=<job id>`.
+	appAiVideoStatus: "/api/v2/ai/v1/videos/status",
+	// GET the bytes of a finished video job, with `?id=<job id>`.
+	appAiVideoContent: "/api/v2/ai/v1/videos/content",
 	// GET the AI gateway state and the month usage of a project.
 	appAi: (projectId: string) => `/api/v2/projects/${projectId}/ai`,
 	// PUT turns the gateway on (keeps a live key); DELETE turns it off.

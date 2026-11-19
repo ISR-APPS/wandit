@@ -1,105 +1,186 @@
-// The newest receipts, counts, and damage of one item: when, what kind, the paper behind it, the units, and the balance after.
-// Picks are not in the list: the picks chart of the page shows them.
-// The kind and the paper share one column. On a phone the time joins them, so three columns stay.
-// The item page renders it under the chart. A receipt links to its purchase order.
+// The movement table of the item page: every receipt, pick, count, and damage of the item, with a type filter,
+// sort, and pages. ItemDetailPage renders it in its Movements tab, under the level chart.
+// "Export" downloads the movements of the filter as CSV.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { formatEventTime, MovementReasonBadge } from "~/features/stock";
+import { useState } from "react";
+import {
+	downloadCsv,
+	formatEventTime,
+	MOVEMENT_REASONS,
+	type MovementReason,
+	MovementReasonBadge,
+	toCsv,
+} from "~/features/stock";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import { Button } from "~/shared/ui/button";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "~/shared/ui/table";
+	Card,
+	CardAction,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import type { ItemMovement } from "../api/items.queries";
 
+// Ten rows per page, as the kit tables show.
+const PAGE_SIZE = 10;
+
 type ItemMovementsCardProps = {
-	/** Receipts, counts, and damage, newest first, at most 8. */
+	/** Every movement of the item, newest first. */
 	movements: ItemMovement[];
+	/** The SKU, for the file name of the export. */
+	sku: string;
+	/** The current time in ms, for the relative times. */
+	now: number;
 };
 
-/** A plain table: the list is short and has its own order, so it needs no search or sort. */
-export function ItemMovementsCard({ movements }: ItemMovementsCardProps) {
+/** The type filter is page state: the tab has no URL of its own. */
+export function ItemMovementsCard({
+	movements,
+	sku,
+	now,
+}: ItemMovementsCardProps) {
 	const { t, locale } = useT();
-	const signed = new Intl.NumberFormat(locale, { signDisplay: "exceptZero" });
+	const [reason, setReason] = useState<MovementReason | null>(null);
 	const number = new Intl.NumberFormat(locale);
-	const now = Date.now();
+	const signed = new Intl.NumberFormat(locale, { signDisplay: "exceptZero" });
+	const rows = reason
+		? movements.filter((movement) => movement.reason === reason)
+		: movements;
+	const columns: RecordColumn<ItemMovement>[] = [
+		{
+			id: "when",
+			header: t("itemDetail.when"),
+			sortValue: (movement) => movement.occurredAt,
+			cell: (movement) => (
+				<time
+					dateTime={movement.occurredAt}
+					className="whitespace-nowrap text-muted-foreground"
+				>
+					{formatEventTime(movement.occurredAt, now, locale)}
+				</time>
+			),
+		},
+		{
+			id: "reason",
+			header: t("itemDetail.movement"),
+			cell: (movement) => <MovementReasonBadge reason={movement.reason} />,
+		},
+		{
+			id: "reference",
+			header: t("itemDetail.reference"),
+			hideable: true,
+			cell: (movement) =>
+				movement.purchaseOrderId ? (
+					<Link
+						to="/app/purchase-orders"
+						search={{ po: movement.purchaseOrderId }}
+						className="tabular-nums hover:underline"
+					>
+						{movement.reference}
+					</Link>
+				) : (
+					<span className="tabular-nums">{movement.reference}</span>
+				),
+		},
+		{
+			id: "quantity",
+			header: t("itemDetail.quantity"),
+			align: "end",
+			sortValue: (movement) => movement.quantity,
+			cell: (movement) => (
+				<bdi dir="ltr" className={cn(movement.quantity > 0 && "text-success")}>
+					{signed.format(movement.quantity)}
+				</bdi>
+			),
+		},
+		{
+			id: "balance",
+			header: t("itemDetail.balance"),
+			align: "end",
+			hideable: true,
+			cell: (movement) => number.format(movement.balanceAfter),
+		},
+	];
+
 	return (
-		<Card className="gap-4">
+		<Card className="min-w-0">
 			<CardHeader>
-				<CardTitle>{t("itemDetail.movements")}</CardTitle>
+				<CardTitle>{t("itemDetail.movementsTitle")}</CardTitle>
+				<CardDescription>
+					{t("itemDetail.movementsDescription")}
+				</CardDescription>
+				<CardAction>
+					<Button
+						type="button"
+						variant="outline"
+						aria-label={t("common.export")}
+						onClick={() =>
+							downloadCsv(
+								`${sku.toLowerCase()}-movements.csv`,
+								toCsv(rows, [
+									{
+										header: t("itemDetail.when"),
+										value: (row) => row.occurredAt,
+									},
+									{
+										header: t("itemDetail.movement"),
+										value: (row) => t(`movementReasons.${row.reason}`),
+									},
+									{
+										header: t("itemDetail.reference"),
+										value: (row) => row.reference,
+									},
+									{
+										header: t("itemDetail.quantity"),
+										value: (row) => String(row.quantity),
+									},
+									{
+										header: t("itemDetail.balance"),
+										value: (row) => String(row.balanceAfter),
+									},
+								]),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.export")}</span>
+					</Button>
+				</CardAction>
 			</CardHeader>
 			<CardContent>
-				{movements.length === 0 ? (
-					<p className="text-muted-foreground text-sm">
-						{t("itemDetail.noMovements")}
-					</p>
-				) : (
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead className="@lg/main:table-cell hidden">
-									{t("itemDetail.when")}
-								</TableHead>
-								<TableHead>{t("itemDetail.movement")}</TableHead>
-								<TableHead className="text-end">
-									{t("itemDetail.quantity")}
-								</TableHead>
-								<TableHead className="text-end">
-									{t("itemDetail.balance")}
-								</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{movements.map((movement) => (
-								<TableRow key={movement.id} className="relative">
-									<TableCell className="@lg/main:table-cell hidden text-muted-foreground">
-										{formatEventTime(movement.occurredAt, now, locale)}
-									</TableCell>
-									<TableCell>
-										<div className="grid justify-items-start gap-1">
-											<MovementReasonBadge reason={movement.reason} />
-											<span className="font-numeric text-muted-foreground text-xs">
-												{/* A receipt row opens its order: the link covers the row, for a 44 px touch target. */}
-												{movement.purchaseOrderId ? (
-													<Link
-														to="/app/purchase-orders"
-														search={{ po: movement.purchaseOrderId }}
-														className="text-foreground after:absolute after:inset-0 hover:underline"
-													>
-														{movement.reference}
-													</Link>
-												) : (
-													movement.reference
-												)}
-											</span>
-											{/* Under 32rem the time moves here, so the row fits a phone without a scroll. */}
-											<span className="@lg/main:hidden text-muted-foreground text-xs">
-												{formatEventTime(movement.occurredAt, now, locale)}
-											</span>
-										</div>
-									</TableCell>
-									{/* dir="ltr" keeps the sign in front in an Arabic page. */}
-									<TableCell
-										className={cn(
-											"text-end font-medium tabular-nums",
-											movement.quantity > 0 && "text-success",
-										)}
-									>
-										<bdi dir="ltr">{signed.format(movement.quantity)}</bdi>
-									</TableCell>
-									<TableCell className="text-end text-muted-foreground tabular-nums">
-										{number.format(movement.balanceAfter)}
-									</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				)}
+				<RecordTable
+					rows={rows}
+					columns={columns}
+					searchText={(movement) => movement.reference}
+					searchPlaceholder={t("itemDetail.searchReference")}
+					toolbar={
+						<RecordFilter
+							label={t("itemDetail.movement")}
+							options={MOVEMENT_REASONS.map((value) => ({
+								value,
+								label: t(`movementReasons.${value}`),
+							}))}
+							value={reason}
+							onValueChange={(value) =>
+								setReason(
+									MOVEMENT_REASONS.find((candidate) => candidate === value) ??
+										null,
+								)
+							}
+						/>
+					}
+					pageSize={PAGE_SIZE}
+					noResults={t("itemDetail.noMovements")}
+				/>
 			</CardContent>
 		</Card>
 	);

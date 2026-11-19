@@ -14,9 +14,6 @@ export {
 	OrdersPageSkeleton,
 } from "./components/orders-page";
 export { ShelfStageBadge } from "./components/shelf-stage-badge";
-export {
-	shelfStageOf,
-	shipByOf,
-} from "./lib/order-progress";
+export { orderCsvColumns } from "./lib/order-csv";
 export { itemsSummaryOf, orderNumberOf } from "./lib/order-text";
 export { ordersSearchSchema } from "./lib/orders-search";

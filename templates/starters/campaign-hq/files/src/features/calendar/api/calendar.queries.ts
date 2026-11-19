@@ -1,5 +1,5 @@
 // Reads of the content calendar: every item with its campaign, its channel, and its status at the time of the read.
-// The /app/calendar loader prefetches it. The month grid, the agenda, the rail, and the item dialog read it from the cache.
+// The /app/calendar loader prefetches it. The month and week grids, the agenda, and the item dialog read it from the cache.
 // The queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {

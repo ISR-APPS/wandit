@@ -1,4 +1,7 @@
-export { productsQueryOptions } from "./api/products.queries";
+export {
+	catalogFiguresQueryOptions,
+	productsQueryOptions,
+} from "./api/products.queries";
 export {
 	ProductsPage,
 	ProductsPageError,

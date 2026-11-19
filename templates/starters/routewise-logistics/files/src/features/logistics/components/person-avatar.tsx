@@ -1,5 +1,5 @@
 // A round mark with the initials of a person. The sample people have no photo.
-// The driver table, the driver panel, and the shipment page render it beside a name.
+// The driver table, the driver panel, and the contacts card of the shipment page render it beside a name.
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
 import { initialsOf } from "../lib/format";
 

@@ -116,8 +116,24 @@ export class AppAiKeys {
  * because a Supabase Edge Function cannot reach localhost.
  */
 function appAiGatewayUrl(): string {
+	return appAiPublicUrl(appBuilderRoutes.appAiBase, env).toString();
+}
+
+/** The two env values that give the public host of the app AI gateway. */
+export type AppAiPublicUrlEnv = {
+	/** Public host of the LLM proxy; a tunnel in local dev. */
+	V2_LLM_PROXY_PUBLIC_URL?: string | undefined;
+	/** The API host; the fallback when the proxy host is not set. */
+	BETTER_AUTH_URL: string;
+};
+
+/**
+ * Absolute URL of an app AI gateway `path` on the public host. The video
+ * service uses it for the webhook URL of the Vercel AI Gateway.
+ */
+export function appAiPublicUrl(path: string, envLike: AppAiPublicUrlEnv): URL {
 	return new URL(
-		appBuilderRoutes.appAiBase,
-		env.V2_LLM_PROXY_PUBLIC_URL ?? env.BETTER_AUTH_URL,
-	).toString();
+		path,
+		envLike.V2_LLM_PROXY_PUBLIC_URL ?? envLike.BETTER_AUTH_URL,
+	);
 }

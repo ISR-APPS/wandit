@@ -14,7 +14,7 @@
 			"mode": "dark",
 			"primary": "look",
 			"font": "look",
-			"displayFont": "look",
+			"displayFont": "fredoka",
 			"scale": "md",
 			"radius": "lg",
 			"border": "1",
@@ -30,7 +30,7 @@
 			"userMenu": "sidebar-footer",
 			"frame": "outlined",
 			"icons": "duotone",
-			"navIcon": "color"
+			"navIcon": "soft"
 		}
 	}
 }

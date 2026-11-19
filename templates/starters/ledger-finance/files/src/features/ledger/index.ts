@@ -1,6 +1,8 @@
+export { type Alert, alertsQueryOptions } from "./api/alerts.queries";
 export { ChangeLine } from "./components/change-line";
 export { MoneyText } from "./components/money-text";
-export { PeriodTabs } from "./components/period-tabs";
+export { PayeeAvatar } from "./components/payee-avatar";
+export { PeriodSelect } from "./components/period-select";
 export { TransactionStatusBadge } from "./components/transaction-status-badge";
 export {
 	type Budget,
@@ -8,10 +10,14 @@ export {
 	type CategoryId,
 	listBudgets,
 } from "./lib/categories";
+export { CATEGORY_ICONS } from "./lib/category-icons";
+export { copyToClipboard } from "./lib/clipboard";
+export { type CsvColumn, downloadCsv, toCsv } from "./lib/csv";
 export {
 	centsToUnits,
 	compactMoneyFormat,
 	countLabel,
+	dayCountFormat,
 	dayFormat,
 	fillMessage,
 	moneyFormat,
@@ -27,7 +33,7 @@ export {
 	monthStartOf,
 	toIsoDay,
 } from "./lib/ledger-day";
-export { changeRatio, type PeriodDays } from "./lib/periods";
+export { changeRatio, PERIOD_DAYS, type PeriodDays } from "./lib/periods";
 export {
 	type Account,
 	type AccountId,
@@ -39,7 +45,9 @@ export {
 	type DailyBalance,
 	HISTORY_DAYS,
 	listDailyBalances,
+	listScheduledEntries,
 	listTransactions,
+	type ScheduledEntry,
 	TRANSACTION_STATUSES,
 	TRANSACTION_TYPES,
 	type Transaction,

@@ -1,240 +1,554 @@
-// The page of one channel: the period figures, impressions per day, the top posts, the formats, and the account facts.
-// The /app/channels/$channelId route renders it after its loader. The route also uses the skeleton below.
-// The period tabs change the figures, the trend, and the top posts. An unknown id shows a not-found block.
+// The page of one channel, on the layout of the kit "profile" page: the title and one action, Overview | Posts tabs,
+// then a third column (profile card, weekly goal, formats) beside two thirds (latest activity, top posts, team).
+// The /app/channels/$channelId route renders it after its loader. An unknown id shows a sentence and a link.
+// The Posts tab lists every post of the channel from the post list query.
 import {
-	keepPreviousData,
-	useQuery,
-	useSuspenseQuery,
-} from "@tanstack/react-query";
+	AtIcon,
+	CalendarCheckIcon,
+	CaretRightIcon,
+	ClockIcon,
+	NotePencilIcon,
+	TargetIcon,
+} from "@phosphor-icons/react";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
+import { postsQueryOptions } from "~/features/posts";
 import {
-	CHANNEL_TONES,
+	CHANNEL_ICONS,
 	ChannelMark,
+	countForm,
 	DAY_MS,
-	DailyAreaChart,
-	DEFAULT_DAYS,
-	dayCountFormat,
 	fillMessage,
-	type PeriodDays,
-	PeriodTabs,
-	TOUCH_AREA,
+	formatRelativeTime,
+	type Post,
+	PostStatusBadge,
+	rateFormat,
 } from "~/features/social";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
+import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
+import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { CaretLeftIcon } from "~/shared/ui/icons";
+import { Progress } from "~/shared/ui/progress";
+import { type RecordColumn, RecordTable } from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import {
-	channelPeriodQueryOptions,
-	channelQueryOptions,
-} from "../api/channels.queries";
-import { ChannelFiguresStrip } from "./channel-figures-strip";
-import { ChannelFormatsCard } from "./channel-formats-card";
-import { ChannelTopPostsCard } from "./channel-top-posts-card";
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "~/shared/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
+import { channelDetailQueryOptions } from "../api/channels.queries";
+
+// The posts tab shows ten rows per page, as the post list.
+const PAGE_SIZE = 10;
 
 type ChannelDetailPageProps = {
-	/** The `$channelId` param of the URL, for example "photo". */
+	/** The id from the URL. Any text: an unknown id shows the not-found state. */
 	channelId: string;
 };
 
-/** A 2/3 main column and a 1/3 rail from the 5xl container width. */
+// Two letters of a person name for an avatar: "Inès Duarte" gives "ID".
+function initialsOf(name: string): string {
+	return name
+		.split(" ")
+		.map((part) => part.charAt(0))
+		.join("")
+		.slice(0, 2);
+}
+
+/** One column on a phone. From the 4xl container width, a third and two thirds. */
 export function ChannelDetailPage({ channelId }: ChannelDetailPageProps) {
 	const { t, locale } = useT();
-	const [days, setDays] = useState<PeriodDays>(DEFAULT_DAYS);
-	const { data: channel } = useSuspenseQuery(channelQueryOptions(channelId));
-	const period = useQuery({
-		...channelPeriodQueryOptions(channelId, days),
-		placeholderData: keepPreviousData,
-	});
-
-	const backLink = (
-		<Button
-			asChild
-			variant="ghost"
-			size="sm"
-			className={cn("-ms-3 justify-self-start", TOUCH_AREA)}
-		>
-			<Link to="/app/channels">
-				<CaretLeftIcon className="rtl:rotate-180" />
-				{t("channels.title")}
-			</Link>
-		</Button>
+	const { data: channel } = useSuspenseQuery(
+		channelDetailQueryOptions(channelId),
 	);
+	// The Posts tab reads the post list. It loads in the background while the Overview tab shows.
+	const posts = useQuery(postsQueryOptions());
+	const [tab, setTab] = useState("overview");
+	const now = Date.now();
+
 	if (!channel) {
 		return (
-			<div className="grid gap-4">
-				{backLink}
-				<p className="text-muted-foreground text-sm">
-					{t("channels.notFound")}
-				</p>
+			<div className="grid justify-items-start gap-4">
+				<h1 className="font-(--heading-weight) font-display text-2xl tracking-(--heading-tracking)">
+					{t("channels.title")}
+				</h1>
+				<p role="alert">{t("channels.notFound")}</p>
+				<Button asChild>
+					<Link to="/app/channels">{t("channels.backToList")}</Link>
+				</Button>
 			</div>
 		);
 	}
 
-	const { profile, formats } = channel;
 	const number = new Intl.NumberFormat(locale);
-	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
-	const hour = new Intl.DateTimeFormat(locale, { hour: "numeric" });
-	const name = t(`channels.names.${profile.id}`);
-	// The connection date is a fixed number of days before today.
-	const connectedAt = Date.now() - profile.connectedDaysAgo * DAY_MS;
+	const compact = new Intl.NumberFormat(locale, {
+		notation: "compact",
+		maximumFractionDigits: 1,
+	});
+	const rate = rateFormat(locale);
+	const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const time = new Intl.DateTimeFormat(locale, { timeStyle: "short" });
+	const name = t(`channels.names.${channel.id}`);
+	const ChannelIcon = CHANNEL_ICONS[channel.id];
+	// A week over the goal shows 100% and the "goal met" sentence: 200% of a weekly goal reads as an error.
+	const isGoalMet = channel.postsThisWeek >= channel.profile.postsPerWeek;
+	const goalPercent = Math.min(
+		Math.round((channel.postsThisWeek / channel.profile.postsPerWeek) * 100),
+		100,
+	);
+	const facts = [
+		{ id: "handle", icon: AtIcon, text: channel.profile.handle },
+		{
+			id: "goal",
+			icon: TargetIcon,
+			text: fillMessage(
+				t(
+					`channels.goalLine.${countForm(locale, channel.profile.postsPerWeek)}`,
+				),
+				{
+					goal: number.format(channel.profile.postsPerWeek),
+				},
+			),
+		},
+		{
+			id: "hours",
+			icon: ClockIcon,
+			text: channel.profile.postingHours
+				.map((hour) => time.format(new Date(2024, 0, 1, hour)))
+				.join(", "),
+		},
+		{
+			id: "connected",
+			icon: CalendarCheckIcon,
+			text: fillMessage(t("channels.connectedLine"), {
+				date: dateFormat.format(
+					new Date(now - channel.profile.connectedDaysAgo * DAY_MS),
+				),
+			}),
+		},
+		{
+			id: "formats",
+			icon: NotePencilIcon,
+			text: channel.profile.formats
+				.map((format) => t(`formats.${format}`))
+				.join(", "),
+		},
+	];
+	const channelPosts = (posts.data ?? []).filter(
+		(post) => post.channelId === channel.id,
+	);
+	const dateTime = new Intl.DateTimeFormat(locale, {
+		dateStyle: "medium",
+		timeStyle: "short",
+	});
+	const postColumns: RecordColumn<Post>[] = [
+		{
+			id: "post",
+			header: t("posts.post"),
+			cell: (post) => (
+				<Link
+					to="/app/posts/$postId"
+					params={{ postId: post.id }}
+					className="line-clamp-1 max-w-96 font-medium hover:underline"
+				>
+					{post.title}
+				</Link>
+			),
+		},
+		{
+			id: "date",
+			header: t("posts.date"),
+			cell: (post) =>
+				post.publishAt
+					? dateTime.format(new Date(post.publishAt))
+					: t("posts.noSlot"),
+			sortValue: (post) => Date.parse(post.publishAt ?? post.createdAt),
+			hideable: true,
+		},
+		{
+			id: "impressions",
+			header: t("metrics.impressions"),
+			cell: (post) => number.format(post.impressions),
+			sortValue: (post) => post.impressions,
+			align: "end",
+			hideable: true,
+		},
+		{
+			id: "status",
+			header: t("posts.status"),
+			cell: (post) => <PostStatusBadge status={post.status} />,
+			hideable: true,
+		},
+	];
 
 	return (
-		<div className="grid gap-6">
-			{backLink}
+		<div className="grid gap-4">
 			<PageHeader
 				title={name}
-				description={
-					<span className="flex flex-wrap items-center gap-2">
-						<ChannelMark channelId={profile.id} size="sm" />
-						<bdi>{profile.handle}</bdi>
-						{/* The period text wraps under the handle on a narrow page. The dot then hides, so no line ends on it. */}
-						<span aria-hidden="true" className="@2xl/main:inline hidden">
-							·
-						</span>
-						{fillMessage(t("channels.periodLine"), {
-							period: dayCountFormat(locale).format(days),
-						})}
-					</span>
+				description={channel.profile.handle}
+				actions={
+					<Button asChild>
+						<Link to="/app/posts">
+							<NotePencilIcon />
+							{t("channels.allPosts")}
+						</Link>
+					</Button>
 				}
-				actions={<PeriodTabs days={days} onDaysChange={setDays} />}
 			/>
-			{period.isError ? null : period.data ? (
-				<ChannelFiguresStrip figures={period.data.figures} />
-			) : (
-				<Skeleton className="h-32" />
-			)}
-			<div className="grid @5xl/main:grid-cols-3 items-start gap-6">
-				{/* A failed period read replaces the period panels with one error card. The rail does not follow the period. */}
-				{period.isError ? (
-					<Card className="@5xl/main:col-span-2">
-						<CardContent className="grid justify-items-start gap-3">
-							<p role="alert" className="text-sm">
-								{t("channels.periodLoadError")}
-							</p>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={() => period.refetch()}
-							>
-								{t("common.retry")}
-							</Button>
-						</CardContent>
-					</Card>
-				) : (
-					<div className="@5xl/main:col-span-2 grid gap-6">
-						<Card>
-							<CardHeader>
-								<CardTitle>{t("channels.trendTitle")}</CardTitle>
-								<CardDescription>
-									{t("overview.trendDescription")}
-								</CardDescription>
-							</CardHeader>
-							<CardContent>
-								{period.data ? (
-									<DailyAreaChart
-										points={period.data.impressions}
-										seriesLabel={t("metrics.impressions")}
-										color={CHANNEL_TONES[profile.id].color}
-										className="h-72"
+			<Tabs value={tab} onValueChange={setTab} className="gap-4">
+				<TabsList>
+					<TabsTrigger value="overview">
+						{t("channels.tabOverview")}
+					</TabsTrigger>
+					<TabsTrigger value="posts">{t("channels.tabPosts")}</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview">
+					<div className="grid @4xl/main:grid-cols-3 gap-4">
+						<div className="grid content-start gap-4">
+							<Card>
+								<CardContent className="grid gap-12">
+									<div className="flex flex-col items-center gap-4">
+										<ChannelMark
+											channelId={channel.id}
+											className="size-20 rounded-full [&_svg]:size-9"
+										/>
+										<div className="text-center">
+											<p className="flex items-center justify-center gap-2 font-semibold text-xl">
+												{name}
+												<Badge
+													variant={
+														channel.status === "active" ? "info" : "warning"
+													}
+												>
+													{t(`channels.statuses.${channel.status}`)}
+												</Badge>
+											</p>
+											<p className="text-muted-foreground text-sm">
+												{channel.profile.handle}
+											</p>
+										</div>
+									</div>
+									<div className="grid grid-cols-3 divide-x rounded-md border bg-muted text-center *:py-3">
+										<div>
+											<p className="font-semibold text-lg tabular-nums">
+												{number.format(channel.figures.posts)}
+											</p>
+											<p className="text-muted-foreground text-sm">
+												{t("channels.postsShort")}
+											</p>
+										</div>
+										<div>
+											<p className="font-semibold text-lg tabular-nums">
+												{compact.format(channel.figures.followers)}
+											</p>
+											<p className="text-muted-foreground text-sm">
+												{t("metrics.followers")}
+											</p>
+										</div>
+										<div>
+											<p className="font-semibold text-lg tabular-nums">
+												{rate.format(channel.figures.engagementRate)}
+											</p>
+											<p className="text-muted-foreground text-sm">
+												{t("metrics.engagementRateShort")}
+											</p>
+										</div>
+									</div>
+									<ul className="flex flex-col gap-y-4">
+										{facts.map((fact) => (
+											<li
+												key={fact.id}
+												className="flex items-center gap-3 text-sm"
+											>
+												<fact.icon className="size-4 shrink-0 text-muted-foreground" />
+												<span className="min-w-0 truncate">{fact.text}</span>
+											</li>
+										))}
+									</ul>
+								</CardContent>
+							</Card>
+							<Card>
+								<CardHeader>
+									<CardTitle>{t("channels.weeklyGoalTitle")}</CardTitle>
+									<CardDescription>
+										{fillMessage(
+											isGoalMet
+												? t(
+														`channels.weeklyGoalMet.${countForm(locale, channel.postsThisWeek)}`,
+													)
+												: t(
+														`channels.weeklyGoalDescription.${countForm(locale, channel.profile.postsPerWeek)}`,
+													),
+											{
+												done: number.format(channel.postsThisWeek),
+												goal: number.format(channel.profile.postsPerWeek),
+											},
+										)}
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="flex items-center gap-4">
+									<Progress
+										value={goalPercent}
+										aria-label={t("channels.weeklyGoalTitle")}
 									/>
-								) : (
-									<Skeleton className="h-72" />
-								)}
-							</CardContent>
-						</Card>
-						{period.data ? (
-							<ChannelTopPostsCard posts={period.data.topPosts} />
-						) : (
-							<Skeleton className="h-72" />
-						)}
+									<span className="text-muted-foreground text-sm tabular-nums">
+										{new Intl.NumberFormat(locale, { style: "percent" }).format(
+											goalPercent / 100,
+										)}
+									</span>
+								</CardContent>
+							</Card>
+							<Card>
+								<CardHeader>
+									<CardTitle>{t("channels.formatsTitle")}</CardTitle>
+									<CardDescription>
+										{t("channels.formatsDescription")}
+									</CardDescription>
+								</CardHeader>
+								<CardContent>
+									<ul className="flex flex-wrap gap-2">
+										{channel.formats.map((score) => (
+											<li key={score.format}>
+												<Badge variant="outline">
+													{t(`formats.${score.format}`)} ·{" "}
+													<span className="tabular-nums">
+														{score.posts === 0
+															? "–"
+															: rate.format(score.engagementRate)}
+													</span>
+												</Badge>
+											</li>
+										))}
+									</ul>
+								</CardContent>
+							</Card>
+						</div>
+
+						<div className="@4xl/main:col-span-2 grid content-start gap-4">
+							<Card>
+								<CardHeader>
+									<CardTitle>{t("channels.activityTitle")}</CardTitle>
+									<CardAction>
+										<button
+											type="button"
+											onClick={() => setTab("posts")}
+											className="text-muted-foreground text-sm hover:text-foreground hover:underline"
+										>
+											{t("channels.viewAll")}
+										</button>
+									</CardAction>
+								</CardHeader>
+								<CardContent className="ps-8">
+									{channel.latest.length === 0 ? (
+										<p className="text-muted-foreground text-sm">
+											{t("channels.noActivity")}
+										</p>
+									) : (
+										<ol className="relative border-s">
+											{channel.latest.map((post, index) => (
+												<li
+													key={post.id}
+													className="ms-6 grid gap-2 pb-10 last:pb-0"
+												>
+													<span className="absolute -start-3 flex size-6 items-center justify-center rounded-full border bg-muted">
+														<ChannelIcon className="size-3 text-primary" />
+													</span>
+													<h3 className="flex flex-wrap items-center gap-2 font-semibold">
+														<Link
+															to="/app/posts/$postId"
+															params={{ postId: post.id }}
+															className="hover:underline"
+														>
+															{post.title}
+														</Link>
+														{index === 0 ? (
+															<Badge variant="outline">
+																{t("channels.latest")}
+															</Badge>
+														) : null}
+													</h3>
+													<time
+														dateTime={post.publishAt ?? post.createdAt}
+														className="flex items-center gap-1.5 text-muted-foreground text-sm leading-none"
+													>
+														<ClockIcon className="size-3" />
+														{formatRelativeTime(
+															post.publishAt ?? post.createdAt,
+															now,
+															locale,
+														)}{" "}
+														· {t(`posts.statuses.${post.status}`)}
+													</time>
+													<p className="text-muted-foreground text-sm">
+														{post.caption}
+													</p>
+													{index === 0 ? (
+														<Button
+															variant="outline"
+															className="justify-self-start"
+															asChild
+														>
+															<Link
+																to="/app/posts/$postId"
+																params={{ postId: post.id }}
+															>
+																{t("posts.open")}
+															</Link>
+														</Button>
+													) : null}
+												</li>
+											))}
+										</ol>
+									)}
+								</CardContent>
+							</Card>
+							<div className="grid @4xl/main:grid-cols-2 gap-4">
+								<Card>
+									<CardHeader>
+										<CardTitle>{t("channels.topPostsTitle")}</CardTitle>
+									</CardHeader>
+									<CardContent>
+										{channel.topPosts.length === 0 ? (
+											<p className="text-muted-foreground text-sm">
+												{t("channels.noTopPosts")}
+											</p>
+										) : (
+											<Table>
+												<TableHeader>
+													<TableRow>
+														<TableHead>{t("posts.post")}</TableHead>
+														<TableHead className="text-end">
+															{t("metrics.impressionsShort")}
+														</TableHead>
+													</TableRow>
+												</TableHeader>
+												<TableBody>
+													{channel.topPosts.map((post) => (
+														<TableRow key={post.id}>
+															{/* max-w-0 with w-full gives the title the free width. A long title wraps, so no word is hidden. */}
+															<TableCell className="w-full max-w-0">
+																<Link
+																	to="/app/posts/$postId"
+																	params={{ postId: post.id }}
+																	className="block whitespace-normal hover:underline"
+																>
+																	{post.title}
+																</Link>
+															</TableCell>
+															<TableCell className="text-end tabular-nums">
+																{compact.format(post.impressions)}
+															</TableCell>
+														</TableRow>
+													))}
+												</TableBody>
+											</Table>
+										)}
+									</CardContent>
+								</Card>
+								<Card>
+									<CardHeader>
+										<CardTitle>{t("channels.teamTitle")}</CardTitle>
+										<CardAction>
+											<Button
+												variant="outline"
+												size="icon"
+												asChild
+												aria-label={t("channels.allPosts")}
+											>
+												<Link to="/app/posts">
+													<CaretRightIcon className="rtl:rotate-180" />
+												</Link>
+											</Button>
+										</CardAction>
+									</CardHeader>
+									<CardContent>
+										<ul className="grid gap-4">
+											{channel.team.map((member) => (
+												<li
+													key={member.name}
+													className="flex items-center justify-between gap-3"
+												>
+													<div className="flex min-w-0 items-center gap-4">
+														<Avatar>
+															<AvatarFallback className="bg-muted">
+																{initialsOf(member.name)}
+															</AvatarFallback>
+														</Avatar>
+														<div className="grid min-w-0">
+															<span className="truncate font-medium">
+																{member.name}
+															</span>
+															<span className="truncate text-muted-foreground text-xs">
+																{t("channels.teamRole")}
+															</span>
+														</div>
+													</div>
+													<Badge
+														variant={member.posts > 0 ? "default" : "outline"}
+														className="tabular-nums"
+													>
+														{fillMessage(
+															t(
+																`channels.postCount.${countForm(locale, member.posts)}`,
+															),
+															{
+																count: number.format(member.posts),
+															},
+														)}
+													</Badge>
+												</li>
+											))}
+										</ul>
+									</CardContent>
+								</Card>
+							</div>
+						</div>
 					</div>
-				)}
-				<div className="grid gap-6">
-					<ChannelFormatsCard channelId={profile.id} formats={formats} />
-					<Card>
-						<CardHeader>
-							<CardTitle>{t("channels.accountTitle")}</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<dl className="grid gap-4 text-sm">
-								<div className="flex justify-between gap-4">
-									<dt className="text-muted-foreground">
-										{t("channels.handle")}
-									</dt>
-									<dd>
-										<bdi>{profile.handle}</bdi>
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-muted-foreground">
-										{t("metrics.followers")}
-									</dt>
-									<dd className="tabular-nums">
-										{number.format(profile.followers)}
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-muted-foreground">
-										{t("channels.weeklyGoalLabel")}
-									</dt>
-									<dd className="tabular-nums">
-										{fillMessage(t("channels.weeklyGoalValue"), {
-											goal: number.format(profile.postsPerWeek),
-										})}
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-muted-foreground">
-										{t("channels.postingHours")}
-									</dt>
-									<dd className="text-end tabular-nums">
-										{profile.postingHours
-											.map((value) => hour.format(new Date(2000, 0, 1, value)))
-											.join(", ")}
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-muted-foreground">
-										{t("channels.connectedSince")}
-									</dt>
-									<dd className="tabular-nums">{date.format(connectedAt)}</dd>
-								</div>
-							</dl>
-						</CardContent>
-					</Card>
-				</div>
-			</div>
+				</TabsContent>
+				<TabsContent value="posts">
+					{posts.isError ? (
+						<p role="alert">{t("posts.loadError")}</p>
+					) : posts.isPending ? (
+						<Skeleton className="h-96 w-full" />
+					) : (
+						<RecordTable
+							rows={channelPosts}
+							columns={postColumns}
+							searchText={(post) => `${post.title} ${post.caption}`}
+							searchPlaceholder={t("posts.searchPlaceholder")}
+							pageSize={PAGE_SIZE}
+							noResults={t("posts.noResults")}
+						/>
+					)}
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }
 
-/** Placeholder while the detail loader runs. The route sets it as pendingComponent. */
+/** Loading state of the channel page: the header, the tabs, and the two columns. */
 export function ChannelDetailPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<Skeleton className="h-8 w-28" />
-			<div className="flex flex-wrap items-end justify-between gap-3">
-				<div className="grid gap-2">
-					<Skeleton className="h-8 w-48" />
-					<Skeleton className="h-5 w-72 max-w-full" />
-				</div>
-				<Skeleton className="h-9 w-64" />
-			</div>
-			<Skeleton className="h-32" />
-			<div className="grid @5xl/main:grid-cols-3 items-start gap-6">
-				<Skeleton className="@5xl/main:col-span-2 h-96" />
-				<Skeleton className="h-96" />
+		<div className="grid gap-4">
+			<Skeleton className="h-8 w-48" />
+			<Skeleton className="h-9 w-48" />
+			<div className="grid @4xl/main:grid-cols-3 gap-4">
+				<Skeleton className="h-128" />
+				<Skeleton className="@4xl/main:col-span-2 h-128" />
 			</div>
 		</div>
 	);

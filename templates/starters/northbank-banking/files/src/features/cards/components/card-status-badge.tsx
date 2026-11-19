@@ -1,5 +1,5 @@
 // The status word of one card, in a Badge: active, frozen, or cancelled.
-// The card tiles and the card detail page render it.
+// The cards table, the card page, and the other-cards list render it.
 import type { VariantProps } from "class-variance-authority";
 import type { CardStatus } from "~/features/bank";
 import { useT } from "~/shared/i18n";

@@ -113,8 +113,11 @@ export type SampleTables = {
 	targets: TargetRow[];
 };
 
-/** How many quarters before the current one keep their orders and targets. The rep page shows them. */
-export const HISTORY_QUARTERS = 4;
+/**
+ * How many quarters before the current one keep their orders and targets.
+ * 5 quarters span at least 455 days, so the 90-day chart of the home has the same days one year earlier (364 days).
+ */
+export const HISTORY_QUARTERS = 5;
 
 const TERRITORIES: TerritoryRow[] = [
 	{ id: "northeast", name: "Northeast" },
@@ -453,8 +456,9 @@ const FIRST_LINE_WEIGHTS: Record<ProductLine, number> = {
 };
 
 // Mean orders of the whole team on a weekday and on a weekend day.
+// Some shops order on Saturday and Sunday too, so most weekend days hold a small bar.
 const WEEKDAY_ORDERS = 6.2;
-const WEEKEND_ORDERS = 0.4;
+const WEEKEND_ORDERS = 1.6;
 // The order numbers give each day 16 slots, so a day keeps at most 15 orders.
 const MAX_ORDERS_PER_DAY = 15;
 // 1 in 25 orders is cancelled after the booking.

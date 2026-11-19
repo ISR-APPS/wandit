@@ -1,12 +1,15 @@
 // Builds the timeline of one reservation: the booking, the payments, the arrival, and the departure.
 // reservations.queries.ts calls it for the detail page. A step in the future is not done yet.
+// stepLabel gives the text of a step for the timeline tab and the latest activity card.
 import {
 	addDays,
+	fillMessage,
 	HOUR_MS,
 	isoDayToMs,
 	type Payment,
 	type Reservation,
 } from "~/features/hotel";
+import type { TranslationKey } from "~/shared/i18n";
 
 /** One step of the timeline. Its label is the message key `timeline.<kind>`. */
 export type TimelineStep = {
@@ -114,5 +117,30 @@ export function buildStayTimeline(
 	}
 	return steps.sort(
 		(first, second) => Date.parse(first.at) - Date.parse(second.at),
+	);
+}
+
+/** The message of a step that is not done yet. Only four kinds can be in the future. */
+function plannedKey(
+	kind: TimelineStep["kind"],
+): "depositDue" | "reminder" | "arrival" | "departure" {
+	return kind === "depositDue" || kind === "reminder" || kind === "arrival"
+		? kind
+		: "departure";
+}
+
+/** The label of one step, with its amount when it is a payment. `money` formats in the hotel currency. */
+export function stepLabel(
+	step: TimelineStep,
+	t: (key: TranslationKey) => string,
+	money: Intl.NumberFormat,
+): string {
+	return fillMessage(
+		t(
+			step.isDone
+				? `timeline.${step.kind}`
+				: `timeline.planned.${plannedKey(step.kind)}`,
+		),
+		{ amount: step.amount === null ? "" : money.format(step.amount) },
 	);
 }

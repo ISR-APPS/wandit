@@ -1,43 +1,52 @@
-// The guests page behind login: the page header, the presence tabs, and the searchable table.
+// The guests page behind login: the page header with its export, and the guest table.
 // The /app/guests route renders it after its loader. The route also uses the skeleton and the error below.
-// The `guest` search param of the URL opens the side panel of one guest.
+// It follows the users page of the kit: a filter field, three filter buttons, a column menu, checkboxes,
+// sortable heads, a row menu, and pages. The `guest` search param of the URL opens the side panel of one guest.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
-import { initialsOf, moneyFormat } from "~/features/hotel";
+import {
+	type CsvColumn,
+	copyToClipboard,
+	downloadCsv,
+	initialsOf,
+	toCsv,
+} from "~/features/hotel";
 import { useT } from "~/shared/i18n";
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
-import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { guestsQueryOptions } from "../api/guests.queries";
-import { GUEST_PRESENCES, type GuestRow } from "../lib/guest-rows";
+import {
+	GUEST_KINDS,
+	GUEST_PRESENCES,
+	type GuestRow,
+	guestKindOf,
+} from "../lib/guest-rows";
 import { GuestPresenceBadge } from "./guest-presence-badge";
 import { GuestSheet } from "./guest-sheet";
-
-/** The tabs of the table. `returning` holds the guests with 2 stays or more. */
-const GUEST_TABS = ["all", "in_house", "arriving", "returning"] as const;
-type GuestTab = (typeof GUEST_TABS)[number];
-// From 2 stays, a guest is a returning guest.
-const RETURNING_STAYS = 2;
-// From 5 stays, the desk greets a guest as a regular. The name gets a badge.
-const REGULAR_STAYS = 5;
 
 type GuestsPageProps = {
 	/** The guest id in the `guest` search param, for example "guest-012". undefined when no panel is open. */
 	openGuestId: string | undefined;
 };
 
-/** The list page. The tab filters the rows; then DataTable searches, sorts, and pages them. */
+/** The filter buttons cut the rows. Then RecordTable searches, sorts, selects, and pages them, 10 per page. */
 export function GuestsPage({ openGuestId }: GuestsPageProps) {
 	const { t, locale } = useT();
 	const navigate = useNavigate();
 	const { data: guests } = useSuspenseQuery(guestsQueryOptions());
-	const [tab, setTab] = useState<GuestTab>("all");
+	const [presence, setPresence] = useState<string | null>(null);
+	const [kind, setKind] = useState<string | null>(null);
+	const [countryCode, setCountryCode] = useState<string | null>(null);
 	// The last open guest stays in the panel while it slides out. It is view state, not server data.
 	const [shownGuestId, setShownGuestId] = useState(openGuestId);
 	if (openGuestId !== undefined && openGuestId !== shownGuestId) {
@@ -45,127 +54,180 @@ export function GuestsPage({ openGuestId }: GuestsPageProps) {
 	}
 	const shownGuest = guests.find((guest) => guest.id === shownGuestId);
 
-	const number = new Intl.NumberFormat(locale);
-	const money = moneyFormat(locale);
 	const country = new Intl.DisplayNames(locale, { type: "region" });
-	const rowsOf = (value: GuestTab) =>
-		value === "all"
-			? guests
-			: value === "returning"
-				? guests.filter((guest) => guest.stayCount >= RETURNING_STAYS)
-				: guests.filter((guest) => guest.presence === value);
-	// A tab shows only when it has rows.
-	const tabs = GUEST_TABS.map((value) => ({
-		value,
-		count: rowsOf(value).length,
-	})).filter((item) => item.value === "all" || item.count > 0);
-	const activeTab = tabs.some((item) => item.value === tab) ? tab : "all";
+	const countryName = (code: string) => country.of(code) ?? code;
+	const rows = guests.filter(
+		(guest) =>
+			(presence === null || guest.presence === presence) &&
+			(kind === null || guestKindOf(guest) === kind) &&
+			(countryCode === null || guest.countryCode === countryCode),
+	);
+	// One choice per country of the guest list, in name order.
+	const countries = [...new Set(guests.map((guest) => guest.countryCode))]
+		.map((code) => ({ value: code, label: countryName(code) }))
+		.sort((first, second) => first.label.localeCompare(second.label, locale));
 
-	const columns: DataTableColumn<GuestRow>[] = [
+	const columns: RecordColumn<GuestRow>[] = [
 		{
 			id: "guest",
 			header: t("guests.guest"),
 			sortValue: (row) => row.fullName,
 			cell: (row) => (
 				<div className="flex items-center gap-3">
-					<Avatar>
-						<AvatarFallback className="text-xs">
+					<Avatar className="size-8">
+						<AvatarFallback className="bg-muted text-xs">
 							{initialsOf(row.fullName)}
 						</AvatarFallback>
 					</Avatar>
-					<div className="grid justify-items-start">
-						<span className="flex items-center gap-2">
-							<Link
-								to="/app/guests"
-								search={{ guest: row.id }}
-								className="font-medium hover:underline"
-								dir="auto"
-							>
-								{row.fullName}
-							</Link>
-							{row.stayCount >= REGULAR_STAYS ? (
-								<Badge variant="outline">{t("guests.regular")}</Badge>
-							) : null}
-						</span>
-						<span className="text-muted-foreground text-xs">{row.email}</span>
-					</div>
+					<Link
+						to="/app/guests"
+						search={{ guest: row.id }}
+						className="font-medium hover:underline"
+						dir="auto"
+					>
+						{row.fullName}
+					</Link>
 				</div>
 			),
 		},
-		// The status is the second column: at 375 px it shows beside the name with no sideways scroll.
+		{
+			id: "city",
+			header: t("guests.city"),
+			sortValue: (row) => row.city,
+			hideable: true,
+			cell: (row) => row.city,
+		},
+		{
+			id: "kind",
+			header: t("guests.kind"),
+			sortValue: (row) => GUEST_KINDS.indexOf(guestKindOf(row)),
+			hideable: true,
+			cell: (row) => t(`guests.kinds.${guestKindOf(row)}`),
+		},
+		{
+			id: "email",
+			header: t("guests.email"),
+			sortValue: (row) => row.email,
+			hideable: true,
+			cell: (row) => row.email,
+		},
+		{
+			id: "country",
+			header: t("guests.country"),
+			sortValue: (row) => countryName(row.countryCode),
+			hideable: true,
+			cell: (row) => countryName(row.countryCode),
+		},
 		{
 			id: "presence",
 			header: t("guests.status"),
 			sortValue: (row) => GUEST_PRESENCES.indexOf(row.presence),
 			cell: (row) => <GuestPresenceBadge guest={row} />,
 		},
+	];
+	const csvColumns: CsvColumn<GuestRow>[] = [
+		{ header: t("guests.guest"), value: (row) => row.fullName },
+		{ header: t("guests.email"), value: (row) => row.email },
+		{ header: t("guests.phone"), value: (row) => row.phone },
+		{ header: t("guests.city"), value: (row) => row.city },
 		{
-			id: "home",
-			header: t("guests.home"),
-			sortValue: (row) => row.countryCode,
-			cell: (row) => (
-				<div className="grid">
-					<span>{row.city}</span>
-					<span className="text-muted-foreground text-xs">
-						{country.of(row.countryCode) ?? row.countryCode}
-					</span>
-				</div>
-			),
+			header: t("guests.country"),
+			value: (row) => countryName(row.countryCode),
 		},
 		{
-			id: "stays",
-			header: t("guests.stays"),
-			align: "end",
-			sortValue: (row) => row.stayCount,
-			cell: (row) => number.format(row.stayCount),
+			header: t("guests.kind"),
+			value: (row) => t(`guests.kinds.${guestKindOf(row)}`),
 		},
-		{
-			id: "spend",
-			header: t("guests.spend"),
-			align: "end",
-			sortValue: (row) => row.lifetimeSpend,
-			cell: (row) => money.format(row.lifetimeSpend),
-		},
+		{ header: t("guests.stays"), value: (row) => String(row.stayCount) },
+		{ header: t("guests.spend"), value: (row) => String(row.lifetimeSpend) },
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("guests.title")}
-				description={t("guests.description")}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() => downloadCsv("guests.csv", toCsv(rows, csvColumns))}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
 			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rowsOf(activeTab)}
-						columns={columns}
-						searchText={(row) =>
-							`${row.fullName} ${row.email} ${row.city} ${row.phone}`
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) =>
+					`${row.fullName} ${row.email} ${row.city} ${row.phone}`
+				}
+				searchPlaceholder={t("guests.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("guests.status")}
+							options={GUEST_PRESENCES.map((value) => ({
+								value,
+								label: t(`guests.presences.${value}`),
+							}))}
+							value={presence}
+							onValueChange={setPresence}
+						/>
+						<RecordFilter
+							label={t("guests.kind")}
+							options={GUEST_KINDS.map((value) => ({
+								value,
+								label: t(`guests.kinds.${value}`),
+							}))}
+							value={kind}
+							onValueChange={setKind}
+						/>
+						<RecordFilter
+							label={t("guests.country")}
+							options={countries}
+							value={countryCode}
+							onValueChange={setCountryCode}
+						/>
+					</>
+				}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link to="/app/guests" search={{ guest: row.id }}>
+								{t("guests.open")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.email, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("guests.copyEmail")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv("guests-selected.csv", toCsv(selected, csvColumns))
 						}
-						noResults={t("guests.noResults")}
-						toolbar={
-							<Tabs
-								value={activeTab}
-								onValueChange={(value) =>
-									setTab(GUEST_TABS.find((option) => option === value) ?? "all")
-								}
-								className="max-w-full overflow-x-auto"
-							>
-								<TabsList>
-									{tabs.map((item) => (
-										<TabsTrigger key={item.value} value={item.value}>
-											{t(`guests.tabs.${item.value}`)}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(item.count)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
-						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={10}
+				noResults={t("guests.noResults")}
+			/>
 			<GuestSheet
 				guest={shownGuest}
 				open={openGuestId !== undefined && shownGuest?.id === openGuestId}
@@ -181,19 +243,20 @@ const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 /** Placeholder while the list loader runs. The route sets it as pendingComponent. */
 export function GuestsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72 max-w-full" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<div className="flex flex-wrap gap-2">
+				<Skeleton className="h-9 w-full sm:max-w-sm" />
+				<Skeleton className="h-9 w-56" />
+			</div>
+			<div className="grid gap-3">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-12 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

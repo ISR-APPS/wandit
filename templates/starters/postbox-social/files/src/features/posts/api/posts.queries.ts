@@ -6,6 +6,7 @@ import {
 	buildSocialData,
 	LIST_DAYS,
 	type Post,
+	type PostStatus,
 	startOfDayAgo,
 	startOfLocalDay,
 } from "~/features/social";
@@ -14,7 +15,10 @@ import {
 const COMPLETE_AGE_DAYS = 3;
 
 // The post page lists this many other posts of the same pillar.
-const RELATED_COUNT = 4;
+const RELATED_COUNT = 5;
+
+// The feed of the post page shows this many other posts of the same channel under the post, newest first.
+const SAME_CHANNEL_COUNT = 2;
 
 /** One post with what its page compares it to. */
 export type PostDetail = {
@@ -23,6 +27,10 @@ export type PostDetail = {
 	channelAverage: { impressions: number; engagementRate: number };
 	/** The newest published posts of the same pillar on any channel, this post excluded. */
 	related: Post[];
+	/** The newest published posts of the same channel, this post excluded. The feed shows them under the post. */
+	sameChannel: Post[];
+	/** Posts of the same channel in the list window, per status. */
+	channelCounts: Record<PostStatus, number>;
 };
 
 // The posts of the list window: published or failed from the start of the window, every scheduled post, every draft.
@@ -75,6 +83,10 @@ export function postQueryOptions(id: string) {
 				(sum, row) => sum + row.engagements,
 				0,
 			);
+			const countOf = (status: PostStatus) =>
+				posts.filter(
+					(row) => row.channelId === post.channelId && row.status === status,
+				).length;
 			return {
 				post,
 				channelAverage: {
@@ -91,6 +103,20 @@ export function postQueryOptions(id: string) {
 							row.status === "published",
 					)
 					.slice(0, RELATED_COUNT),
+				sameChannel: posts
+					.filter(
+						(row) =>
+							row.id !== post.id &&
+							row.channelId === post.channelId &&
+							row.status === "published",
+					)
+					.slice(0, SAME_CHANNEL_COUNT),
+				channelCounts: {
+					published: countOf("published"),
+					scheduled: countOf("scheduled"),
+					draft: countOf("draft"),
+					failed: countOf("failed"),
+				},
 			};
 		},
 	});

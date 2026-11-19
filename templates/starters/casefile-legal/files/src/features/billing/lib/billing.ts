@@ -1,87 +1,19 @@
-// The math of the billing page: hours per day, hours by practice area, the invoice list, the totals,
+// The math of the billing page: the KPI row of a period, the recent invoices and payments, the open invoices,
 // and the file of one invoice. billing.queries.ts calls these functions in its queryFn.
 // It is pure: every function takes the rows and "now", so a later SQL function gives the same numbers.
 import {
 	type AttorneyRole,
 	addLocalDays,
-	type BreakdownSlice,
 	buildDailySeries,
-	type DailyPoint,
+	changeRatio,
+	DAY_MS,
 	dayKeyOf,
 	type InvoiceRow,
 	type PaymentRow,
-	PRACTICE_AREAS,
-	type PracticeArea,
 	type SampleTables,
 	startOfLocalDay,
 	toTenths,
 } from "~/features/practice";
-
-/** The period of the breakdown, of the collected total, and of the first trend view. */
-export const BILLING_DAYS = 30;
-
-/** Logged hours per local day for the last `days` days, with the same days one period earlier. */
-export function hoursPerDay(
-	tables: SampleTables,
-	days: number,
-	now: number,
-): DailyPoint[] {
-	const hoursByDay = new Map<string, number>();
-	for (const entry of tables.timeEntries) {
-		hoursByDay.set(entry.day, (hoursByDay.get(entry.day) ?? 0) + entry.hours);
-	}
-	return buildDailySeries(days, now, hoursByDay).map((point) => ({
-		...point,
-		current: toTenths(point.current),
-		previous: toTenths(point.previous),
-	}));
-}
-
-/** One part of the hours breakdown. `label` is an area code, or "other" for the sum of the smaller areas. */
-export type AreaSlice = BreakdownSlice & { label: PracticeArea | "other" };
-
-// The skill rule for a breakdown: 2 to 5 parts, then one "Other" part.
-const MAX_AREA_SLICES = 5;
-
-/**
- * Logged hours by practice area in the last `days` days, the largest first. Areas with no hours are left out.
- * The areas after the fifth go into one "other" slice at the end.
- */
-export function hoursByArea(
-	tables: SampleTables,
-	days: number,
-	now: number,
-): AreaSlice[] {
-	const firstDay = dayKeyOf(addLocalDays(startOfLocalDay(now), -(days - 1)));
-	const areaOf = new Map(
-		tables.matters.map((matter) => [matter.id, matter.area]),
-	);
-	const hoursOfArea = new Map<PracticeArea, number>(
-		PRACTICE_AREAS.map((area) => [area, 0]),
-	);
-	for (const entry of tables.timeEntries) {
-		const area = areaOf.get(entry.matterId);
-		// Day keys are YYYY-MM-DD, so a text compare is a date compare.
-		if (area && entry.day >= firstDay) {
-			hoursOfArea.set(area, (hoursOfArea.get(area) ?? 0) + entry.hours);
-		}
-	}
-	const ranked: AreaSlice[] = [...hoursOfArea.entries()]
-		.filter(([, hours]) => hours > 0)
-		.sort((first, second) => second[1] - first[1])
-		.map(([area, hours]) => ({ label: area, value: toTenths(hours) }));
-	if (ranked.length <= MAX_AREA_SLICES) {
-		return ranked;
-	}
-	const rest = ranked.slice(MAX_AREA_SLICES);
-	return [
-		...ranked.slice(0, MAX_AREA_SLICES),
-		{
-			label: "other",
-			value: toTenths(rest.reduce((sum, slice) => sum + slice.value, 0)),
-		},
-	];
-}
 
 /** One invoice with the names of its client and matter. */
 export type InvoiceListItem = InvoiceRow & {
@@ -110,40 +42,165 @@ export function buildInvoiceList(tables: SampleTables): InvoiceListItem[] {
 		);
 }
 
-/** The totals of the billing header. Amounts are whole USD. */
-export type BillingTotals = {
-	/** Open balance of every invoice. */
-	outstanding: number;
-	/** Open balance of the invoices past their due date. */
-	overdue: number;
-	overdueCount: number;
-	/** Payments received in the last BILLING_DAYS days. */
-	collected: number;
+/** One figure with its change against the period before. `change` is null when the period before is 0. */
+export type Figure = { value: number; change: number | null };
+
+/** Every number of the billing KPI row for one period. Amounts are whole USD. */
+export type BillingSummary = {
+	/** Payments received in the period. */
+	collected: Figure;
+	/** Invoices issued in the period. */
+	billed: Figure;
+	/** Mean days from issue to payment, over the payments of the period. null when the period has no payment. */
+	daysToPay: { value: number | null; change: number | null };
+	/** Open balance of every invoice now, with the count of open and overdue invoices. */
+	outstanding: { value: number; openCount: number; overdueCount: number };
+	/** Amount invoiced per local day of the period, oldest first. The mini bars of the outstanding card. */
+	invoicedPerDay: { day: string; amount: number }[];
 };
 
-/** The totals of every invoice and of the payments of the last BILLING_DAYS days. */
-export function buildBillingTotals(
+/** The KPI row of the billing page for the last `days` local days up to now. */
+export function buildBillingSummary(
 	tables: SampleTables,
+	days: number,
 	now: number,
-): BillingTotals {
-	const periodStart = addLocalDays(startOfLocalDay(now), -(BILLING_DAYS - 1));
-	const overdue = tables.invoices.filter(
-		(invoice) => invoice.status === "overdue",
+): BillingSummary {
+	const today = startOfLocalDay(now);
+	const periodStart = addLocalDays(today, -(days - 1));
+	const previousStart = addLocalDays(today, -(2 * days - 1));
+	const issuedAt = new Map(
+		tables.invoices.map((invoice) => [
+			invoice.id,
+			Date.parse(invoice.issuedAt),
+		]),
 	);
-	return {
-		outstanding: tables.invoices.reduce(
-			(sum, invoice) => sum + invoice.amount - invoice.paidAmount,
-			0,
-		),
-		overdue: overdue.reduce(
-			(sum, invoice) => sum + invoice.amount - invoice.paidAmount,
-			0,
-		),
-		overdueCount: overdue.length,
-		collected: tables.payments
-			.filter((payment) => Date.parse(payment.paidAt) >= periodStart)
-			.reduce((sum, payment) => sum + payment.amount, 0),
+	const isBetween = (iso: string, start: number, end: number) => {
+		const moment = Date.parse(iso);
+		return moment >= start && moment < end;
 	};
+	const sumPayments = (start: number, end: number) =>
+		tables.payments
+			.filter((payment) => isBetween(payment.paidAt, start, end))
+			.reduce((sum, payment) => sum + payment.amount, 0);
+	const sumInvoices = (start: number, end: number) =>
+		tables.invoices
+			.filter((invoice) => isBetween(invoice.issuedAt, start, end))
+			.reduce((sum, invoice) => sum + invoice.amount, 0);
+	// The mean of whole days between the issue and the payment, rounded to one day.
+	const meanDaysToPay = (start: number, end: number): number | null => {
+		const waits = tables.payments
+			.filter((payment) => isBetween(payment.paidAt, start, end))
+			.map(
+				(payment) =>
+					(Date.parse(payment.paidAt) -
+						(issuedAt.get(payment.invoiceId) ?? 0)) /
+					DAY_MS,
+			);
+		return waits.length === 0
+			? null
+			: Math.round(waits.reduce((sum, wait) => sum + wait, 0) / waits.length);
+	};
+	const collected = sumPayments(periodStart, now + 1);
+	const billed = sumInvoices(periodStart, now + 1);
+	const daysToPay = meanDaysToPay(periodStart, now + 1);
+	const daysToPayBefore = meanDaysToPay(previousStart, periodStart);
+	const open = tables.invoices.filter(
+		(invoice) => invoice.amount > invoice.paidAmount,
+	);
+	const invoicedByDay = new Map<string, number>();
+	for (const invoice of tables.invoices) {
+		const day = dayKeyOf(Date.parse(invoice.issuedAt));
+		invoicedByDay.set(day, (invoicedByDay.get(day) ?? 0) + invoice.amount);
+	}
+	return {
+		collected: {
+			value: collected,
+			change: changeRatio(collected, sumPayments(previousStart, periodStart)),
+		},
+		billed: {
+			value: billed,
+			change: changeRatio(billed, sumInvoices(previousStart, periodStart)),
+		},
+		daysToPay: {
+			value: daysToPay,
+			change:
+				daysToPay === null || daysToPayBefore === null
+					? null
+					: changeRatio(daysToPay, daysToPayBefore),
+		},
+		outstanding: {
+			value: open.reduce(
+				(sum, invoice) => sum + invoice.amount - invoice.paidAmount,
+				0,
+			),
+			openCount: open.length,
+			overdueCount: open.filter((invoice) => invoice.status === "overdue")
+				.length,
+		},
+		invoicedPerDay: buildDailySeries(days, now, invoicedByDay).map((point) => ({
+			day: point.day,
+			amount: point.current,
+		})),
+	};
+}
+
+/** One line of the "Recent" list: an invoice that the firm issued, or a payment that a client made. */
+export type LedgerLine = {
+	/** The invoice id or the payment id. Also the React key. */
+	id: string;
+	kind: "invoice" | "payment";
+	/** ISO time of the issue or of the payment. */
+	at: string;
+	/** The invoice of the line. The row button opens its dialog. */
+	invoice: InvoiceListItem;
+	/** In whole USD: the invoice amount, or the payment amount. */
+	amount: number;
+};
+
+/** The invoices issued and the payments received in the last `days` local days, newest first. */
+export function buildRecentLines(
+	tables: SampleTables,
+	days: number,
+	now: number,
+): LedgerLine[] {
+	const periodStart = addLocalDays(startOfLocalDay(now), -(days - 1));
+	const invoices = buildInvoiceList(tables);
+	const invoiceOf = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+	const issued: LedgerLine[] = invoices
+		.filter((invoice) => Date.parse(invoice.issuedAt) >= periodStart)
+		.map((invoice) => ({
+			id: invoice.id,
+			kind: "invoice",
+			at: invoice.issuedAt,
+			invoice,
+			amount: invoice.amount,
+		}));
+	const paid: LedgerLine[] = tables.payments
+		.filter((payment) => Date.parse(payment.paidAt) >= periodStart)
+		.flatMap((payment) => {
+			const invoice = invoiceOf.get(payment.invoiceId);
+			return invoice
+				? [
+						{
+							id: payment.id,
+							kind: "payment" as const,
+							at: payment.paidAt,
+							invoice,
+							amount: payment.amount,
+						},
+					]
+				: [];
+		});
+	return [...issued, ...paid].sort((first, second) =>
+		second.at.localeCompare(first.at),
+	);
+}
+
+/** Every invoice with an open balance, the earliest due date first. Overdue invoices come at the top. */
+export function buildOpenInvoices(tables: SampleTables): InvoiceListItem[] {
+	return buildInvoiceList(tables)
+		.filter((invoice) => invoice.amount > invoice.paidAmount)
+		.sort((first, second) => first.dueAt.localeCompare(second.dueAt));
 }
 
 /** One line of a time invoice: the hours of one person at their rate. */

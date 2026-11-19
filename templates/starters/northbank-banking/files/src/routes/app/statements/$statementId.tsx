@@ -1,18 +1,24 @@
 // The page of one monthly statement. The /app layout checks the session first.
-// Thin: the page lives in the statements feature. A failed load shows the error state of the list.
+// The loader fills the statement detail and the list. Thin: the page lives in the statements feature.
 import { createFileRoute } from "@tanstack/react-router";
+import { DetailPageSkeleton } from "~/features/bank";
 import {
 	StatementDetailPage,
-	StatementDetailPageSkeleton,
 	StatementsPageError,
 	statementDetailQueryOptions,
+	statementsQueryOptions,
 } from "~/features/statements";
 
 /** /app/statements/$statementId. The id is any text from the URL; the query returns null for an unknown id. */
 export const Route = createFileRoute("/app/statements/$statementId")({
 	loader: ({ context, params }) =>
-		context.queryClient.query(statementDetailQueryOptions(params.statementId)),
-	pendingComponent: StatementDetailPageSkeleton,
+		Promise.all([
+			context.queryClient.query(
+				statementDetailQueryOptions(params.statementId),
+			),
+			context.queryClient.query(statementsQueryOptions()),
+		]),
+	pendingComponent: DetailPageSkeleton,
 	errorComponent: StatementsPageError,
 	component: StatementDetailRoute,
 });

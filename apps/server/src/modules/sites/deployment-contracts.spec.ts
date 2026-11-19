@@ -44,6 +44,12 @@ describe("reserved slugs", () => {
 		}
 	});
 
+	it("reserves every template preview host label", () => {
+		// The preview Worker route takes <id>-template.wandit.app, so a site there would never show.
+		expect(isReservedSlug("dealflow-crm-template")).toBe(true);
+		expect(isReservedSlug("templates")).toBe(false);
+	});
+
 	it("does not reserve ordinary names", () => {
 		expect(isReservedSlug("smoke-project")).toBe(false);
 	});

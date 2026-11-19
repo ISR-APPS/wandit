@@ -1,5 +1,5 @@
 // The deadline of an open ticket in words: "Late by 25 min" in red, "in 40 min", or "Paused" for a pending ticket.
-// Next up, the queue panel, and the ticket list render it. The time counts from `now`, which the page reads one time.
+// The home table and the ticket thread render it. The time counts from `now`, which the page reads one time.
 import { useT } from "~/shared/i18n";
 import { fillMessage } from "../lib/format";
 import {
@@ -22,14 +22,14 @@ export function DueLabel({ dueAt, now }: DueLabelProps) {
 	if (dueAt === null) {
 		return (
 			<span className="whitespace-nowrap text-muted-foreground">
-				{t("queue.paused")}
+				{t("tickets.paused")}
 			</span>
 		);
 	}
 	if (isLate(dueAt, now)) {
 		return (
 			<span className="whitespace-nowrap font-medium text-destructive">
-				{fillMessage(t("queue.lateBy"), {
+				{fillMessage(t("tickets.lateBy"), {
 					time: formatDuration((now - Date.parse(dueAt)) / MINUTE_MS, locale),
 				})}
 			</span>

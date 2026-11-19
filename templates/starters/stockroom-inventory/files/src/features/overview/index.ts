@@ -1,8 +1,6 @@
 export {
-	dailyPicksQueryOptions,
-	LATEST_MOVEMENT_COUNT,
-	OVERVIEW_DAYS,
-	overviewKpisQueryOptions,
+	OVERVIEW_DEFAULT_DAYS,
+	overviewQueryOptions,
 } from "./api/overview.queries";
 export {
 	OverviewPage,

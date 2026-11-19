@@ -1,10 +1,12 @@
-// Reads of accounts: the list, one account with its people, features, and timeline, and its daily activity.
-// The route loaders prefetch them. The account list, the account page, and the home read them from the cache.
+// Reads of accounts: the list, and one account with its people, features, events, and timeline.
+// The route loaders prefetch them. The account list, the account page, and the header alerts read them from the cache.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	calendarDaysAgo,
 	changeRatio,
+	EVENT_TYPES,
+	type EventKey,
 	FEATURE_AREAS,
 	getSampleTables,
 	lastSeenToday,
@@ -20,15 +22,14 @@ import {
 	type SampleTables,
 	shareOf,
 	sumPeriod,
-	toDailyPoints,
 } from "~/features/tracking";
 import { type AccountStatus, accountStatusOf } from "../lib/account-status";
 
 /** The period of every figure of the account list, in complete days. */
 export const ACCOUNT_LIST_DAYS: PeriodDays = 30;
 
-/** How many people the account page lists. */
-const TOP_PEOPLE_COUNT = 10;
+/** How many event types the account page lists. */
+const TOP_EVENT_COUNT = 6;
 
 /** One account with the figures of the last 30 complete days. The times are ISO texts. */
 export type Account = {
@@ -41,10 +42,12 @@ export type Account = {
 	industry: string;
 	region: Region;
 	plan: Plan;
-	/** How many seats the plan holds. */
+	/** How many seats the plan holds. Never below `members`. */
 	seats: number;
 	/** How many people the account has. */
 	members: number;
+	/** The mail address of the person that created the account. */
+	ownerEmail: string;
 	createdAt: string;
 	status: AccountStatus;
 	/** The people with one event or more in the last 30 days. */
@@ -78,6 +81,15 @@ export type AccountFeature = {
 	share: number;
 };
 
+/** One event type in one account, over the last 30 days. */
+export type AccountEventCount = {
+	eventKey: EventKey;
+	area: ProductArea;
+	count: number;
+	/** `count` over all events of the account in the period, from 0 to 1. */
+	share: number;
+};
+
 /** One dated moment of an account, for its timeline. */
 export type AccountMilestone = {
 	/** Stable key of the row. */
@@ -94,10 +106,12 @@ export type AccountMilestone = {
 export type AccountDetail = Account & {
 	/** The person that created the account. */
 	owner: { name: string; email: string };
-	/** The most active people of the last 30 days, the most events first. */
+	/** Every person of the account, the most events of the last 30 days first. */
 	people: AccountPerson[];
 	/** Every feature, the most used first. */
 	features: AccountFeature[];
+	/** The TOP_EVENT_COUNT most frequent event types of the last 30 days, the largest first. */
+	topEvents: AccountEventCount[];
 	/** The milestones, newest first. */
 	timeline: AccountMilestone[];
 };
@@ -127,7 +141,9 @@ function toAccount(
 	const row = tables.accounts[index];
 	const usage = tables.accountUsage[index];
 	const people = usage?.uniquePeople[periodIndexOf(ACCOUNT_LIST_DAYS)];
-	if (!row || !usage || !people) {
+	// The owner is the first person of the account.
+	const owner = tables.people[usage?.firstPersonIndex ?? -1];
+	if (!row || !usage || !people || !owner) {
 		return null;
 	}
 	const lastSeenAt = lastSeenOf(
@@ -145,6 +161,7 @@ function toAccount(
 		plan: row.plan,
 		seats: row.seats,
 		members: usage.members,
+		ownerEmail: owner.email,
 		createdAt: row.createdAt,
 		status: accountStatusOf({
 			createdDaysAgo: calendarDaysAgo(row.createdAt, now),
@@ -160,21 +177,22 @@ function toAccount(
 	};
 }
 
-/** Every account, the newest first. The list page filters, sorts, and pages them; the home shows the first rows. */
+/** Every account, the newest first. The list query and the alerts query read it. */
+export function listAccounts(): Account[] {
+	const tables = getSampleTables();
+	const now = Date.now();
+	const seenToday = lastSeenToday(tables, now).byAccount;
+	// LIMIT: every account in one read, paged in the browser. Upgrade: a limit of 1,000 with server paging (tables-paging.md of the app-dashboard skill).
+	return tables.accounts
+		.flatMap((_, index) => toAccount(tables, index, seenToday, now) ?? [])
+		.sort((first, second) => second.createdAt.localeCompare(first.createdAt));
+}
+
+/** Every account, the newest first. The list page filters, sorts, and pages them. */
 export function accountsQueryOptions() {
 	return queryOptions({
 		queryKey: ["accounts", "list"],
-		queryFn: async () => {
-			const tables = getSampleTables();
-			const now = Date.now();
-			const seenToday = lastSeenToday(tables, now).byAccount;
-			// LIMIT: every account in one read, paged in the browser. Upgrade: a limit of 1,000 with server paging (tables-paging.md of the app-dashboard skill).
-			return tables.accounts
-				.flatMap((_, index) => toAccount(tables, index, seenToday, now) ?? [])
-				.sort((first, second) =>
-					second.createdAt.localeCompare(first.createdAt),
-				);
-		},
+		queryFn: async () => listAccounts(),
 	});
 }
 
@@ -224,13 +242,18 @@ export function accountQueryOptions(id: string) {
 					(second.lastSeenAt ?? "").localeCompare(first.lastSeenAt ?? ""),
 			);
 
+			const period = periodIndexOf(ACCOUNT_LIST_DAYS);
+			const eventCounts = EVENT_TYPES.map(
+				(_, eventIndex) => usage.eventCounts[eventIndex]?.[period] ?? 0,
+			);
+			const allEvents = eventCounts.reduce((sum, count) => sum + count, 0);
 			const peopleNames = new Map(
 				tables.people.map((person) => [person.id, person.name]),
 			);
 			return {
 				...account,
 				owner: { name: owner.name, email: owner.email },
-				people: people.slice(0, TOP_PEOPLE_COUNT),
+				people,
 				features: FEATURE_AREAS.map((area) => {
 					const count = usage.areaPeople[PRODUCT_AREAS.indexOf(area)] ?? 0;
 					return {
@@ -239,6 +262,18 @@ export function accountQueryOptions(id: string) {
 						share: shareOf(count, account.activePeople),
 					};
 				}).sort((first, second) => second.people - first.people),
+				topEvents: EVENT_TYPES.map((type, eventIndex) => {
+					const count = eventCounts[eventIndex] ?? 0;
+					return {
+						eventKey: type.key,
+						area: type.area,
+						count,
+						share: shareOf(count, allEvents),
+					};
+				})
+					.filter((event) => event.count > 0)
+					.sort((first, second) => second.count - first.count)
+					.slice(0, TOP_EVENT_COUNT),
 				timeline: tables.milestones
 					.filter((milestone) => milestone.accountId === id)
 					.sort((first, second) => second.at.localeCompare(first.at))
@@ -251,29 +286,6 @@ export function accountQueryOptions(id: string) {
 							: null,
 						peopleCount: milestone.peopleCount,
 					})),
-			};
-		},
-	});
-}
-
-/** The active people of one account per day for the last `days` complete days. Feeds the chart of the account page. */
-export function accountActivityQueryOptions(id: string, days: PeriodDays) {
-	return queryOptions({
-		queryKey: ["accounts", "activity", id, days],
-		queryFn: async () => {
-			const tables = getSampleTables();
-			const index = tables.accounts.findIndex((row) => row.id === id);
-			const usage = tables.accountUsage[index];
-			const people = usage?.uniquePeople[periodIndexOf(days)];
-			if (!usage || !people) {
-				return null;
-			}
-			return {
-				points: toDailyPoints(usage.dailyPeople, days, tables.todayStart),
-				/** The people with one event or more in the period, and in the period before. */
-				people,
-				/** The events of the period, and of the period before. */
-				events: sumPeriod(usage.dailyEvents, days),
 			};
 		},
 	});

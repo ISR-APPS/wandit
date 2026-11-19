@@ -1,61 +1,270 @@
-// The channel list behind login: the total of all accounts, then one card per channel.
-// The /app/channels route renders it after its loader. The route also uses the skeleton and the error below.
+// The channel list, on the layout of the kit "users" page: the title and the export,
+// then the table with a filter field, Status and Format filters, a column menu, checkboxes, and pages.
+// The /app/channels route renders it after its loader. The two filters are state of the page.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
-import { fillMessage, LoadError } from "~/features/social";
+import {
+	ChannelMark,
+	type CsvColumn,
+	copyToClipboard,
+	countForm,
+	downloadCsv,
+	fillMessage,
+	LoadError,
+	POST_FORMATS,
+	rateFormat,
+	toCsv,
+} from "~/features/social";
 import { useT } from "~/shared/i18n";
+import { Badge } from "~/shared/ui/badge";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { channelsQueryOptions } from "../api/channels.queries";
-import { AllChannelsCard } from "./all-channels-card";
-import { ChannelCard } from "./channel-card";
+import {
+	type ChannelRow,
+	type ChannelStatus,
+	channelsQueryOptions,
+} from "../api/channels.queries";
 
-/** Six cards: the total and the five channels, in 1, 2, or 3 columns by the width of the main area. */
-const CARD_GRID =
-	"grid grid-cols-1 gap-4 @3xl/main:gap-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-3";
+// The kit list shows ten rows per page.
+const PAGE_SIZE = 10;
 
-/** The page header names the period of the cards: the last 30 days to yesterday. */
+// Every status, in the order of the filter.
+const CHANNEL_STATUSES: readonly ChannelStatus[] = ["active", "reconnect"];
+
+/** The connected accounts of the brand. Every control filters the rows in the browser. */
 export function ChannelsPage() {
 	const { t, locale } = useT();
-	const { data: summaries } = useSuspenseQuery(channelsQueryOptions());
+	const { data: channels } = useSuspenseQuery(channelsQueryOptions());
+	const [status, setStatus] = useState<string | null>(null);
+	const [format, setFormat] = useState<string | null>(null);
+	const number = new Intl.NumberFormat(locale);
+	const rate = rateFormat(locale);
+
+	const rows = channels.filter(
+		(channel) =>
+			(status === null || channel.status === status) &&
+			(format === null ||
+				channel.profile.formats.some((value) => value === format)),
+	);
+
+	const csvColumns: CsvColumn<ChannelRow>[] = [
+		{
+			header: t("channels.name"),
+			value: (row) => t(`channels.names.${row.id}`),
+		},
+		{ header: t("channels.handle"), value: (row) => row.profile.handle },
+		{
+			header: t("metrics.followers"),
+			value: (row) => String(row.figures.followers),
+		},
+		{
+			header: t("metrics.engagementRate"),
+			value: (row) => rate.format(row.figures.engagementRate),
+		},
+		{
+			header: t("channels.posts30"),
+			value: (row) => String(row.figures.posts),
+		},
+		{
+			header: t("channels.status"),
+			value: (row) => t(`channels.statuses.${row.status}`),
+		},
+	];
+
+	const columns: RecordColumn<ChannelRow>[] = [
+		{
+			id: "name",
+			header: t("channels.name"),
+			cell: (row) => (
+				<div className="flex items-center gap-4">
+					<ChannelMark channelId={row.id} className="rounded-full" />
+					<Link
+						to="/app/channels/$channelId"
+						params={{ channelId: row.id }}
+						className="font-medium hover:underline"
+					>
+						{t(`channels.names.${row.id}`)}
+					</Link>
+				</div>
+			),
+			sortValue: (row) => t(`channels.names.${row.id}`),
+		},
+		{
+			id: "handle",
+			header: t("channels.handle"),
+			cell: (row) => row.profile.handle,
+			sortValue: (row) => row.profile.handle,
+			hideable: true,
+		},
+		{
+			id: "followers",
+			header: t("metrics.followers"),
+			cell: (row) => number.format(row.figures.followers),
+			sortValue: (row) => row.figures.followers,
+			hideable: true,
+		},
+		{
+			id: "rate",
+			// The short headers keep the row menu in view at 1280 px. The page description names the 30 days.
+			header: t("metrics.engagementRateShort"),
+			cell: (row) => rate.format(row.figures.engagementRate),
+			sortValue: (row) => row.figures.engagementRate,
+			hideable: true,
+		},
+		{
+			id: "posts",
+			header: t("channels.postsShort"),
+			cell: (row) => number.format(row.figures.posts),
+			sortValue: (row) => row.figures.posts,
+			hideable: true,
+		},
+		{
+			id: "goal",
+			header: t("channels.weeklyGoalLabel"),
+			cell: (row) =>
+				fillMessage(
+					t(
+						`channels.weeklyGoalValue.${countForm(locale, row.profile.postsPerWeek)}`,
+					),
+					{
+						goal: number.format(row.profile.postsPerWeek),
+					},
+				),
+			sortValue: (row) => row.profile.postsPerWeek,
+			hideable: true,
+		},
+		{
+			id: "status",
+			header: t("channels.status"),
+			cell: (row) => (
+				<Badge variant={row.status === "active" ? "success" : "warning"}>
+					{t(`channels.statuses.${row.status}`)}
+				</Badge>
+			),
+			sortValue: (row) => CHANNEL_STATUSES.indexOf(row.status),
+			hideable: true,
+		},
+	];
+
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("channels.title")}
 				description={fillMessage(t("channels.description"), {
-					count: new Intl.NumberFormat(locale).format(summaries.length),
+					count: number.format(channels.length),
 				})}
+				actions={
+					<Button
+						type="button"
+						onClick={() =>
+							downloadCsv("postbox-channels.csv", toCsv(rows, csvColumns))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("channels.exportCsv")}
+					</Button>
+				}
 			/>
-			<div className={CARD_GRID}>
-				<AllChannelsCard summaries={summaries} />
-				{summaries.map((summary) => (
-					<ChannelCard key={summary.profile.id} summary={summary} />
-				))}
-			</div>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) =>
+					`${t(`channels.names.${row.id}`)} ${row.profile.handle}`
+				}
+				searchPlaceholder={t("channels.searchPlaceholder")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("channels.status")}
+							options={CHANNEL_STATUSES.map((value) => ({
+								value,
+								label: t(`channels.statuses.${value}`),
+							}))}
+							value={status}
+							onValueChange={setStatus}
+						/>
+						<RecordFilter
+							label={t("posts.format")}
+							options={POST_FORMATS.map((value) => ({
+								value,
+								label: t(`formats.${value}`),
+							}))}
+							value={format}
+							onValueChange={setFormat}
+						/>
+					</>
+				}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem asChild>
+							<Link
+								to="/app/channels/$channelId"
+								params={{ channelId: row.id }}
+							>
+								{t("channels.open")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.profile.handle, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("channels.copyHandle")}
+						</DropdownMenuItem>
+					</>
+				)}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"postbox-channels-selected.csv",
+								toCsv(selected, csvColumns),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("channels.noResults")}
+			/>
 		</div>
 	);
 }
 
-// Fixed keys of the six placeholder cards.
-const SKELETON_CARDS = ["1", "2", "3", "4", "5", "6"];
-
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Loading state of the channel list: the header, the toolbar, and the table. */
 export function ChannelsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-36" />
-				<Skeleton className="h-4 w-96 max-w-full" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-40" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<div className={CARD_GRID}>
-				{SKELETON_CARDS.map((key) => (
-					<Skeleton key={key} className="h-80" />
-				))}
-			</div>
+			<Skeleton className="h-9 w-full" />
+			<Skeleton className="h-80 w-full" />
 		</div>
 	);
 }
 
-/** Error state of the channel pages when a loader fails. */
+/** Error state of the channel pages when a loader fails. Try again runs the loader again. */
 export function ChannelsPageError() {
 	const { t } = useT();
 	return <LoadError message={t("channels.loadError")} />;

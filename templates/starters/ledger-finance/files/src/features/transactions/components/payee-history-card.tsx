@@ -1,15 +1,14 @@
-// The card "More from this payee" of the transaction detail page: the other entries with the same payee.
-// TransactionDetailPage renders it under the slip. Each row opens its own detail page.
+// The payee card of the transaction page, in the kit history table form: the note, the status, and the day
+// of the newest other entries with the same payee. TransactionDetailPage renders it under the status card.
+// Each note opens its entry. The "Payee history" tab of the page lists every entry.
 import { Link } from "@tanstack/react-router";
 import {
-	countLabel,
 	dayFormat,
 	dayToDate,
-	MoneyText,
+	fillMessage,
 	TransactionStatusBadge,
 } from "~/features/ledger";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
 import {
 	Card,
 	CardContent,
@@ -27,90 +26,69 @@ import {
 } from "~/shared/ui/table";
 import type { TransactionRow } from "../api/transactions.queries";
 
+// The card shows this many rows: the density of the kit history card.
+const SHOWN_ROWS = 6;
+
 type PayeeHistoryCardProps = {
-	/** The title of the card, already translated, for example "More from Juniper Café". */
-	title: string;
-	/** The other entries with this payee, newest first. It does not hold the entry of the page. */
+	/** The payee of the open entry. For a transfer: the other account. */
+	payee: string;
+	/** The other entries with the same payee, newest first. The card shows the first 6. */
 	rows: TransactionRow[];
 };
 
-/** The description gives the count and the sum of the rows, so it always equals the table under it. */
-export function PayeeHistoryCard({ title, rows }: PayeeHistoryCardProps) {
+/** No other entry: one muted sentence. */
+export function PayeeHistoryCard({ payee, rows }: PayeeHistoryCardProps) {
 	const { t, locale } = useT();
-	const day = dayFormat(locale, "long");
-	const totalCents = rows.reduce((sum, row) => sum + row.amountCents, 0);
-
+	const day = dayFormat(locale);
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>{title}</CardTitle>
-				{rows.length > 0 ? (
+				<CardTitle>
+					{fillMessage(t("transactions.payeeHistory"), { payee })}
+				</CardTitle>
+				{rows.length === 0 ? (
 					<CardDescription>
-						{countLabel(
-							rows.length,
-							t("transactions.entriesOne"),
-							t("transactions.entriesOther"),
-							locale,
-						)}
-						{" · "}
-						<MoneyText amountCents={totalCents} />
+						{t("transactions.payeeHistoryEmpty")}
 					</CardDescription>
 				) : null}
 			</CardHeader>
-			<CardContent>
-				{rows.length === 0 ? (
-					<p className="text-muted-foreground text-sm">
-						{t("transactions.payeeHistoryEmpty")}
-					</p>
-				) : (
+			{rows.length === 0 ? null : (
+				<CardContent>
 					<Table>
-						<TableHeader>
+						<TableHeader className="bg-transparent">
 							<TableRow>
-								<TableHead>{t("transactions.date")}</TableHead>
 								<TableHead>{t("transactions.memo")}</TableHead>
-								{/* The status column shows from 28rem. A phone keeps the date, the note, and the amount. */}
-								<TableHead className="@md/main:table-cell hidden">
-									{t("transactions.status")}
-								</TableHead>
+								<TableHead>{t("transactions.status")}</TableHead>
 								<TableHead className="text-end">
-									{t("transactions.amount")}
+									{t("transactions.date")}
 								</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{rows.map((row) => (
+							{rows.slice(0, SHOWN_ROWS).map((row) => (
 								<TableRow key={row.id}>
-									<TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
-										{day.format(dayToDate(row.day))}
-									</TableCell>
-									{/* The note wraps, so a phone keeps the amount on the screen. */}
-									<TableCell className="whitespace-normal">
+									<TableCell className="max-w-40 truncate">
 										<Link
 											to="/app/transactions/$transactionId"
 											params={{ transactionId: row.id }}
-											// The padding makes the touch area 44 px high. The negative margin keeps the row height.
-											className="-my-3 inline-block py-3 font-medium hover:underline"
+											className="hover:underline"
 											dir="auto"
 										>
 											{row.memo}
 										</Link>
 									</TableCell>
-									<TableCell className="@md/main:table-cell hidden">
+									<TableCell>
 										<TransactionStatusBadge status={row.status} />
 									</TableCell>
-									<TableCell className="text-end">
-										<MoneyText
-											amountCents={row.amountCents}
-											sign="always"
-											className={cn(row.type === "income" && "text-success")}
-										/>
+									<TableCell className="whitespace-nowrap text-end tabular-nums">
+										{day.format(dayToDate(row.day))}
 									</TableCell>
 								</TableRow>
 							))}
 						</TableBody>
 					</Table>
-				)}
-			</CardContent>
+				</CardContent>
+			)}
 		</Card>
 	);
 }

@@ -1,5 +1,5 @@
 // The file browser behind login. The /app layout checks the session first.
-// The search params hold the open folder, the view, the type filter, and the sort. Thin: the page lives in the files feature.
+// The search params hold the open folder and the type filter. Thin: the page lives in the files feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	FilesPage,
@@ -20,5 +20,11 @@ export const Route = createFileRoute("/app/files/")({
 
 function FilesRoute() {
 	const search = Route.useSearch();
-	return <FilesPage search={search} />;
+	// A new key per folder and type resets the search text, the selection, and the page of the browser.
+	return (
+		<FilesPage
+			key={`${search.folder ?? ""}|${search.type ?? ""}`}
+			search={search}
+		/>
+	);
 }

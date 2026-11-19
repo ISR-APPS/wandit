@@ -18,6 +18,13 @@ export const PACE_BADGE = {
 	behind: "warning",
 } satisfies Record<PaceStatus, BadgeVariant>;
 
+/** Text color per pace status, for an attainment figure. The pace word always shows beside it. */
+export const PACE_TEXT = {
+	ahead: "text-success",
+	on_pace: "text-info",
+	behind: "text-warning",
+} satisfies Record<PaceStatus, string>;
+
 // 5 % over the expected share is ahead. Under 90 % of it is behind: most teams close late in the quarter.
 const AHEAD_RATIO = 1.05;
 const BEHIND_RATIO = 0.9;

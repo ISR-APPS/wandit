@@ -18,8 +18,13 @@ export const PRODUCT_AREAS = [
 /** One product area. Its label is the message key `areas.<area>`. */
 export type ProductArea = (typeof PRODUCT_AREAS)[number];
 
-/** The areas that are product features. The adoption panels rank only these. */
-export const FEATURE_AREAS = PRODUCT_AREAS.filter((area) => area !== "account");
+/** One product area that is a feature: every area but `account`. */
+export type FeatureArea = Exclude<ProductArea, "account">;
+
+/** The areas that are product features. The home cards rank only these. */
+export const FEATURE_AREAS = PRODUCT_AREAS.filter(
+	(area): area is FeatureArea => area !== "account",
+);
 
 /** One tracked event: the name that the product sends, and its area. */
 export type EventType = {
@@ -69,9 +74,6 @@ export const FUNNEL_STEPS = [
 	"invite_sent",
 	"integration_connected",
 ] as const satisfies readonly EventKey[];
-
-/** The event of one funnel step. Its label is the message key `reports.funnel.steps.<key>`. */
-export type FunnelStepKey = (typeof FUNNEL_STEPS)[number];
 
 /** A person is "activated" at this step of FUNNEL_STEPS: the first completed task. */
 export const ACTIVATION_STEP = 2;

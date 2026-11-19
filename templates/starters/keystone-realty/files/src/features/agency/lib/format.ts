@@ -99,3 +99,8 @@ export function formatDuration(minutes: number, locale: string): string {
 		maximumFractionDigits: 1,
 	}).format(value);
 }
+
+/** Change against an earlier value, as a ratio: 0.12 is +12 %. null when the earlier value is 0, so no delta shows. */
+export function changeRatio(current: number, previous: number): number | null {
+	return previous === 0 ? null : (current - previous) / previous;
+}

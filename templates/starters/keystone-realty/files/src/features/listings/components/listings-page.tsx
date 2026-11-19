@@ -1,25 +1,29 @@
-// The listings page behind login: the page header with the agent filter, the summary strip, and the table.
-// The /app/listings route renders it after its loader. The route also uses the skeleton and the error below.
-// The agent filter applies to the strip and to the table. The status tabs filter the table only.
-import { useSuspenseQuery } from "@tanstack/react-query";
+// The listings page: the title and the export, four figure cards,
+// then the table of every home with a filter field, status, type, and price filters, a column menu,
+// row checkboxes, a row menu, and pages. The /app/listings route renders it after its loader.
+// The filters are state of this page. RecordTable holds the search, the sort, the selection, and the page.
+import { DownloadSimpleIcon, EyeIcon } from "@phosphor-icons/react";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import {
-	AGENTS,
-	addressOf,
+	compactMoneyFormat,
+	copyToClipboard,
+	downloadCsv,
 	LISTING_STATUSES,
 	type ListingRow,
 	type ListingStatus,
 	ListingStatusBadge,
 	moneyFormat,
-	PersonAvatar,
+	PROPERTY_TYPES,
 	PropertyTile,
+	toCsv,
 } from "~/features/agency";
 import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import { RecordFilter, RecordTable } from "~/shared/ui/record-table";
 import {
 	Select,
 	SelectContent,
@@ -28,259 +32,315 @@ import {
 	SelectValue,
 } from "~/shared/ui/select";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
-import { listingsQueryOptions } from "../api/listings.queries";
-import { ListingsSummary } from "./listings-summary";
+import {
+	listingFiguresQueryOptions,
+	listingsQueryOptions,
+} from "../api/listings.queries";
+import { listingCsvColumns } from "../lib/listing-csv";
+import { ListingKpiCard } from "./listing-kpi-card";
 
-// The value of the agent filter that shows the listings of every agent.
-const ALL_AGENTS = "all";
+const PRICE_BAND_IDS = ["all", "under500k", "from500kTo1m", "over1m"] as const;
 
-// On a phone the status tabs scroll sideways. The end fades, so the user sees that more tabs follow.
-// pe-12 lets the last tab leave the faded end when the strip is at the end of its scroll.
-const SCROLL_TABS =
-	"max-w-full overflow-x-auto max-sm:pe-12 max-sm:[mask-image:linear-gradient(to_right,var(--foreground)_80%,transparent)] max-sm:rtl:[mask-image:linear-gradient(to_left,var(--foreground)_80%,transparent)]";
+/** One choice of the price filter. The label is the message `listings.priceBands.<band>`. */
+type PriceBand = (typeof PRICE_BAND_IDS)[number];
 
-// The columns hide by the width of the page panel, also when the sidebar closes.
-// The numbers are the places of the columns in `columns` below. Keep them in that order.
-// Under 36rem (a phone): the home and the price stay. Under 56rem: the enquiries, the size, and the agent hide.
-const COLUMN_WIDTHS =
-	"@max-xl/main:[&_:is(th,td):is(:nth-child(2),:nth-child(4))]:hidden @max-4xl/main:[&_:is(th,td):nth-child(n+5)]:hidden";
+// The bounds of each price band, in whole currency units. A band includes its lower bound.
+const PRICE_BANDS = {
+	all: { min: 0, max: Number.POSITIVE_INFINITY },
+	under500k: { min: 0, max: 500_000 },
+	from500kTo1m: { min: 500_000, max: 1_000_000 },
+	over1m: { min: 1_000_000, max: Number.POSITIVE_INFINITY },
+} satisfies Record<PriceBand, { min: number; max: number }>;
 
-/** The list page. The agent filter and the status tab filter the rows; then DataTable searches, sorts, and pages them. */
+// Placeholder keys of the figure row. Fixed keys, because the cards never reorder.
+const SKELETON_FIGURES = ["1", "2", "3", "4"];
+
+// Rows per page. Ten rows keep one page short enough to scan.
+const PAGE_SIZE = 10;
+
+/** Every home of the agency, newest first. The figures load after the table, so the table never waits for them. */
 export function ListingsPage() {
 	const { t, locale } = useT();
 	const { data: listings } = useSuspenseQuery(listingsQueryOptions());
-	const [agentId, setAgentId] = useState(ALL_AGENTS);
-	const [status, setStatus] = useState<ListingStatus | "all">("all");
-
-	const number = new Intl.NumberFormat(locale);
+	const figures = useQuery(listingFiguresQueryOptions());
+	const [status, setStatus] = useState<ListingStatus | null>(null);
+	const [type, setType] = useState<string | null>(null);
+	const [priceBand, setPriceBand] = useState<PriceBand>("all");
 	const money = moneyFormat(locale);
-	const ofAgent =
-		agentId === ALL_AGENTS
-			? listings
-			: listings.filter((listing) => listing.agentId === agentId);
-	// A tab shows only for a status that has rows.
-	const tabs = LISTING_STATUSES.map((value) => ({
-		value,
-		count: ofAgent.filter((row) => row.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	// The agent filter can empty the chosen tab. Its tab then disappears, so the list shows all rows.
-	const activeStatus = tabs.some((tab) => tab.value === status)
-		? status
-		: "all";
-	const rows =
-		activeStatus === "all"
-			? ofAgent
-			: ofAgent.filter((row) => row.status === activeStatus);
-
-	const columns: DataTableColumn<ListingRow>[] = [
-		{
-			id: "home",
-			header: t("listings.home"),
-			sortValue: (row) => row.street,
-			cell: (row) => (
-				<div className="flex items-center gap-3">
-					<PropertyTile type={row.type} />
-					<div className="grid justify-items-start gap-0.5 whitespace-normal">
-						<Link
-							to="/app/listings/$listingId"
-							params={{ listingId: row.id }}
-							className="font-medium hover:underline"
-						>
-							{addressOf(row)}
-						</Link>
-						<span className="text-muted-foreground text-xs">
-							{`${row.neighborhood} · ${t(`agency.propertyTypes.${row.type}`)}`}
-						</span>
-						{/* On a phone the status column hides, so the status sits under the address. */}
-						<div className="@xl/main:hidden">
-							<ListingStatusBadge status={row.status} />
-						</div>
-					</div>
-				</div>
-			),
-		},
-		{
-			id: "status",
-			header: t("listings.status"),
-			sortValue: (row) => LISTING_STATUSES.indexOf(row.status),
-			cell: (row) => <ListingStatusBadge status={row.status} />,
-		},
-		{
-			id: "price",
-			header: t("listings.price"),
-			align: "end",
-			sortValue: (row) => row.askingPrice,
-			cell: (row) => (
-				<div className="grid justify-items-end">
-					<span>{money.format(row.askingPrice)}</span>
-					{row.priceReducedAt === null ? null : (
-						<span className="text-muted-foreground text-xs">
-							{t("listings.reduced")}
-						</span>
-					)}
-				</div>
-			),
-		},
-		{
-			id: "days",
-			header: t("listings.daysOnMarket"),
-			align: "end",
-			sortValue: (row) => row.daysOnMarket,
-			// A home that is not yet on the market has no days to count.
-			cell: (row) =>
-				row.status === "coming_soon" ? "–" : number.format(row.daysOnMarket),
-		},
-		{
-			id: "enquiries",
-			header: t("listings.enquiries"),
-			align: "end",
-			sortValue: (row) => row.enquiryCount,
-			cell: (row) => number.format(row.enquiryCount),
-		},
-		{
-			id: "size",
-			header: t("listings.size"),
-			align: "end",
-			sortValue: (row) => row.areaSqft,
-			cell: (row) => (
-				<div className="grid justify-items-end">
-					<span>{`${number.format(row.areaSqft)} ${t("agency.sqft")}`}</span>
-					<span className="text-muted-foreground text-xs">
-						{row.bedrooms === 0
-							? t("agency.propertyTypes.studio")
-							: `${number.format(row.bedrooms)} ${t("agency.bedShort")} · ${number.format(row.bathrooms)} ${t("agency.bathShort")}`}
-					</span>
-				</div>
-			),
-		},
-		{
-			id: "agent",
-			header: t("listings.agent"),
-			sortValue: (row) => row.agentName,
-			cell: (row) => (
-				<div className="flex items-center gap-2">
-					<PersonAvatar fullName={row.agentName} className="size-7" />
-					<span>{row.agentName}</span>
-				</div>
-			),
-		},
-	];
+	const compactMoney = compactMoneyFormat(locale);
+	const number = new Intl.NumberFormat(locale);
+	const band = PRICE_BANDS[priceBand];
+	const rows = listings.filter(
+		(listing) =>
+			(status === null || listing.status === status) &&
+			(type === null || listing.type === type) &&
+			listing.askingPrice >= band.min &&
+			listing.askingPrice < band.max,
+	);
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("listings.title")}
-				description={t("listings.description")}
 				actions={
-					<Select value={agentId} onValueChange={setAgentId}>
-						<SelectTrigger className="w-48" aria-label={t("listings.agent")}>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent align="end">
-							<SelectItem value={ALL_AGENTS}>
-								{t("listings.allAgents")}
-							</SelectItem>
-							{AGENTS.map((agent) => (
-								<SelectItem key={agent.id} value={agent.id}>
-									{agent.fullName}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() =>
+							downloadCsv("listings.csv", toCsv(rows, listingCsvColumns(t)))
+						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
 				}
 			/>
-			<ListingsSummary listings={ofAgent} />
-			{ofAgent.length === 0 ? (
-				<Card>
-					<CardContent className="grid justify-items-center gap-3 py-10 text-center">
-						<p className="text-muted-foreground text-sm">
-							{t("listings.emptyAgent")}
-						</p>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{figures.isError ? (
+					<p
+						className="@4xl/main:col-span-4 @xl/main:col-span-2 text-muted-foreground text-sm"
+						role="alert"
+					>
+						{t("listings.figuresError")}
+					</p>
+				) : figures.data === undefined ? (
+					SKELETON_FIGURES.map((key) => <Skeleton key={key} className="h-28" />)
+				) : (
+					<>
+						<ListingKpiCard
+							label={t("listings.figures.underOffer")}
+							value={figures.data.underOffer.value}
+							format={number}
+							change={figures.data.underOffer.change}
+							goodWhen="up"
+						/>
+						<ListingKpiCard
+							label={t("listings.figures.medianAskingPrice")}
+							value={figures.data.medianAskingPrice.value}
+							format={compactMoney}
+							change={figures.data.medianAskingPrice.change}
+							goodWhen="up"
+						/>
+						<ListingKpiCard
+							label={t("listings.figures.medianDaysOnMarket")}
+							value={figures.data.medianDaysOnMarket.value}
+							format={number}
+							change={figures.data.medianDaysOnMarket.change}
+							goodWhen="down"
+						/>
+						<ListingKpiCard
+							label={t("listings.figures.soldRecently")}
+							value={figures.data.soldRecently.value}
+							format={number}
+							change={figures.data.soldRecently.change}
+							goodWhen="up"
+						/>
+					</>
+				)}
+			</div>
+			<div className="pt-4">
+				<RecordTable<ListingRow>
+					rows={rows}
+					pageSize={PAGE_SIZE}
+					selectable
+					searchText={(row) => `${row.street} ${row.neighborhood} ${row.id}`}
+					searchPlaceholder={t("listings.searchPlaceholder")}
+					noResults={t("listings.noResults")}
+					toolbar={
+						<>
+							<RecordFilter
+								label={t("listings.status")}
+								options={LISTING_STATUSES.map((value) => ({
+									value,
+									label: t(`agency.listingStatuses.${value}`),
+								}))}
+								value={status}
+								onValueChange={(value) =>
+									setStatus(
+										LISTING_STATUSES.find((option) => option === value) ?? null,
+									)
+								}
+							/>
+							<RecordFilter
+								label={t("listings.type")}
+								options={PROPERTY_TYPES.map((value) => ({
+									value,
+									label: t(`agency.propertyTypes.${value}`),
+								}))}
+								value={type}
+								onValueChange={setType}
+							/>
+							<Select
+								value={priceBand}
+								onValueChange={(value) => {
+									const next = PRICE_BAND_IDS.find(
+										(option) => option === value,
+									);
+									if (next) {
+										setPriceBand(next);
+									}
+								}}
+							>
+								<SelectTrigger
+									aria-label={t("listings.price")}
+									className="h-9 w-auto gap-2"
+								>
+									<span className="text-muted-foreground">
+										{t("listings.priceLabel")}
+									</span>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{PRICE_BAND_IDS.map((option) => (
+										<SelectItem key={option} value={option}>
+											{t(`listings.priceBands.${option}`)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</>
+					}
+					bulkActions={(selected) => (
 						<Button
 							type="button"
 							variant="outline"
-							onClick={() => setAgentId(ALL_AGENTS)}
+							size="sm"
+							className="h-9"
+							onClick={() =>
+								downloadCsv(
+									"listings-selected.csv",
+									toCsv(selected, listingCsvColumns(t)),
+								)
+							}
 						>
-							{t("listings.allAgents")}
+							<DownloadSimpleIcon />
+							{t("table.exportSelected")}
 						</Button>
-					</CardContent>
-				</Card>
-			) : (
-				<Card>
-					<CardContent className={COLUMN_WIDTHS}>
-						<DataTable
-							rows={rows}
-							columns={columns}
-							searchText={(row) =>
-								`${row.id} ${addressOf(row)} ${row.neighborhood} ${row.sellerName} ${row.agentName}`
-							}
-							noResults={t("listings.noResults")}
-							toolbar={
-								<Tabs
-									value={activeStatus}
-									onValueChange={(value) =>
-										setStatus(
-											LISTING_STATUSES.find((option) => option === value) ??
-												"all",
-										)
-									}
-									className={SCROLL_TABS}
+					)}
+					rowMenu={(row) => (
+						<>
+							<DropdownMenuItem asChild>
+								<Link
+									to="/app/listings/$listingId"
+									params={{ listingId: row.id }}
 								>
-									<TabsList>
-										<TabsTrigger value="all">
-											{t("listings.all")}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(ofAgent.length)}
-											</span>
-										</TabsTrigger>
-										{tabs.map((tab) => (
-											<TabsTrigger key={tab.value} value={tab.value}>
-												{t(`agency.listingStatuses.${tab.value}`)}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(tab.count)}
-												</span>
-											</TabsTrigger>
-										))}
-									</TabsList>
-								</Tabs>
-							}
-						/>
-					</CardContent>
-				</Card>
-			)}
+									{t("listings.open")}
+								</Link>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									copyToClipboard(row.id, {
+										done: t("table.copied"),
+										failed: t("table.copyFailed"),
+									})
+								}
+							>
+								{t("listings.copyId")}
+							</DropdownMenuItem>
+						</>
+					)}
+					columns={[
+						{
+							id: "home",
+							header: t("listings.home"),
+							sortValue: (row) => row.street,
+							cell: (row) => (
+								<div className="flex items-center gap-4">
+									<PropertyTile type={row.type} className="size-12" />
+									<div className="grid min-w-48 gap-0.5">
+										<Link
+											to="/app/listings/$listingId"
+											params={{ listingId: row.id }}
+											className="truncate font-medium hover:underline"
+											dir="auto"
+										>
+											{row.street}
+										</Link>
+										<span className="truncate text-muted-foreground text-xs">
+											{row.unit === null
+												? row.neighborhood
+												: `${row.unit} · ${row.neighborhood}`}
+										</span>
+									</div>
+								</div>
+							),
+						},
+						{
+							id: "price",
+							header: t("listings.price"),
+							hideable: true,
+							sortValue: (row) => row.askingPrice,
+							cell: (row) => (
+								<span className="tabular-nums">
+									{money.format(row.askingPrice)}
+								</span>
+							),
+						},
+						{
+							id: "type",
+							header: t("listings.type"),
+							hideable: true,
+							sortValue: (row) => t(`agency.propertyTypes.${row.type}`),
+							cell: (row) => t(`agency.propertyTypes.${row.type}`),
+						},
+						{
+							id: "enquiries",
+							header: t("listings.enquiries"),
+							hideable: true,
+							sortValue: (row) => row.enquiryCount,
+							cell: (row) => (
+								<span className="tabular-nums">
+									{number.format(row.enquiryCount)}
+								</span>
+							),
+						},
+						{
+							id: "id",
+							header: t("listings.id"),
+							hideable: true,
+							cell: (row) => <span className="tabular-nums">{row.id}</span>,
+						},
+						{
+							id: "views",
+							header: t("listings.views"),
+							hideable: true,
+							cell: (row) => (
+								<span className="flex items-center gap-1.5 tabular-nums">
+									<EyeIcon className="size-4 text-muted-foreground" />
+									{number.format(row.portalViews)}
+								</span>
+							),
+						},
+						{
+							id: "status",
+							header: t("listings.status"),
+							hideable: true,
+							sortValue: (row) => LISTING_STATUSES.indexOf(row.status),
+							cell: (row) => <ListingStatusBadge status={row.status} />,
+						},
+					]}
+				/>
+			</div>
 		</div>
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
-
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the loader runs. The route sets it as pendingComponent. */
 export function ListingsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="flex flex-wrap items-end justify-between gap-3">
-				<div className="grid gap-2">
-					<Skeleton className="h-8 w-40" />
-					<Skeleton className="h-4 w-72 max-w-full" />
-				</div>
-				<Skeleton className="h-9 w-48" />
+		<div className="grid gap-4">
+			<Skeleton className="h-9 w-48" />
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_FIGURES.map((key) => (
+					<Skeleton key={key} className="h-28" />
+				))}
 			</div>
-			<Skeleton className="h-28 w-full" />
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-160" />
 		</div>
 	);
 }
 
-/** Error state of the list and of the detail page when the loader fails. Try again runs the loader again. */
+/** Error state when a loader of the listing pages fails. Try again runs the loader again. */
 export function ListingsPageError() {
 	const { t } = useT();
 	const router = useRouter();

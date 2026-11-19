@@ -26,6 +26,8 @@ export type Driver = {
 	status: DriverStatus;
 	/** The fleet number of the vehicle of today, for example "B-05". null for a driver with no run. */
 	vehicleUnit: string | null;
+	/** The largest payload of that vehicle, in kilograms. null for a driver with no run. */
+	vehicleCapacityKg: number | null;
 	/** The count of open shipments of the driver. */
 	stopCount: number;
 	/** The weight of those shipments, in kilograms. */
@@ -87,6 +89,9 @@ export function driversQueryOptions() {
 						status,
 						vehicleUnit: vehicleId
 							? (vehicles.get(vehicleId)?.unit ?? null)
+							: null,
+						vehicleCapacityKg: vehicleId
+							? (vehicles.get(vehicleId)?.capacityKg ?? null)
 							: null,
 						stopCount: run.length,
 						loadKg: run.reduce((sum, shipment) => sum + shipment.weightKg, 0),

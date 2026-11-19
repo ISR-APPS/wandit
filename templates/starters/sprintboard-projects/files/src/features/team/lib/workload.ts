@@ -1,5 +1,5 @@
 // The workload of each team member: committed story points by status, open and late tasks, and recent output.
-// TeamPage builds the rows with buildWorkload during render. The chart and the table read the same rows.
+// TeamPage builds the rows with buildWorkload during render. The table, its filters, and the side sheet read the same rows.
 import {
 	isOverdue,
 	type Member,
@@ -71,4 +71,21 @@ export function buildWorkload(
 			};
 		})
 		.sort((first, second) => second.load - first.load);
+}
+
+/** The load states of a person, from free to over capacity. The Team table filters and sorts by them. */
+export const LOAD_STATES = ["available", "busy", "over"] as const;
+
+/** One load state. */
+export type LoadState = (typeof LOAD_STATES)[number];
+
+// From 85 % of the capacity a person is busy, as the amber step of CapacityMeter.
+const BUSY_LOAD = 0.85;
+
+/** Under 85 % is available, 85 % to 100 % is busy, above 100 % is over capacity. */
+export function loadStateOf(load: number): LoadState {
+	if (load > 1) {
+		return "over";
+	}
+	return load >= BUSY_LOAD ? "busy" : "available";
 }

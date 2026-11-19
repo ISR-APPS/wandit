@@ -24,6 +24,9 @@ import { addLocalDays, DAY_MS, startOfLocalDay } from "./time";
 /** A share that ends within this many days is "expiring": the Shared page asks for a decision. */
 export const EXPIRING_SOON_DAYS = 7;
 
+/** A trashed file whose final delete comes within this many calendar days is "deleted soon": the bell and the Trash tab list it. */
+export const PURGE_SOON_DAYS = 7;
+
 /** One live file with its current version, its place, and the names of its people. */
 export type FileItem = {
 	id: string;
