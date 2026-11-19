@@ -1,3 +1,8 @@
+/**
+ * Price math of the Vercel AI Gateway catalog. It parses the model rates and
+ * gives the cost of tokens, images, transcription, speech, and video in USD
+ * micros. `ModelPricingService` and the metering flows call it. It uses zod only.
+ */
 import { z } from "zod";
 
 export const AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
@@ -264,6 +269,105 @@ export function tokenUsageCostUsdMicros(
 	return bigintToSafeNumber(divideRoundingUp(numerator, 1_000_000n));
 }
 
+// One tier of a token rate: `cost` is USD per token from `min` prompt
+// tokens up (inclusive). The catalog leaves out `min` on some first tiers.
+const tokenTierListSchema = z
+	.array(
+		z.object({
+			cost: pricingStringSchema,
+			min: z.int().nonnegative().optional(),
+		}),
+	)
+	.nullish();
+
+// The tier lists live only in `raw`: no column holds them. A row without
+// `pricing` (an old row, a spec row) has no tiers.
+const tokenTierPriceSchema = z.object({
+	pricing: z
+		.object({
+			input_tiers: tokenTierListSchema,
+			output_tiers: tokenTierListSchema,
+			input_cache_read_tiers: tokenTierListSchema,
+			input_cache_write_tiers: tokenTierListSchema,
+		})
+		.optional(),
+});
+
+/**
+ * The price row with the four token rates of the tier that a prompt of
+ * `promptTokens` reaches (cached tokens included). Every token of the call
+ * bills at that tier, as OpenAI and Anthropic bill a long prompt. The
+ * builder has the same rule in `priceUsdMicros` (app-builder llm-model-prices.ts).
+ * Throws `ModelPriceUnavailableError` on a malformed tier list (fail closed).
+ */
+export function priceAtPromptSize(
+	price: ModelPrice,
+	promptTokens: number,
+): ModelPrice {
+	const parsed = tokenTierPriceSchema.safeParse(price.raw);
+	if (!parsed.success) {
+		throw new ModelPriceUnavailableError(price.modelId, "tier");
+	}
+	const tiers = parsed.data.pricing;
+	if (tiers === undefined) {
+		return price;
+	}
+	const rateAt = (
+		baseRate: number | null,
+		list: z.infer<typeof tokenTierListSchema>,
+	) => tierRate(price.modelId, baseRate, list, promptTokens);
+
+	return {
+		...price,
+		cacheReadUsdMicrosPerMTok: rateAt(
+			price.cacheReadUsdMicrosPerMTok,
+			tiers.input_cache_read_tiers,
+		),
+		cacheWriteUsdMicrosPerMTok: rateAt(
+			price.cacheWriteUsdMicrosPerMTok,
+			tiers.input_cache_write_tiers,
+		),
+		inputUsdMicrosPerMTok: rateAt(
+			price.inputUsdMicrosPerMTok,
+			tiers.input_tiers,
+		),
+		outputUsdMicrosPerMTok: rateAt(
+			price.outputUsdMicrosPerMTok,
+			tiers.output_tiers,
+		),
+	};
+}
+
+// The highest rate of the tiers that the prompt reaches, never below the
+// base rate. A tier cost that is not a whole number of micros per 1M
+// tokens throws `ModelPriceUnavailableError`.
+function tierRate(
+	modelId: string,
+	baseRate: number | null,
+	tiers: z.infer<typeof tokenTierListSchema>,
+	promptTokens: number,
+): number | null {
+	let rate = baseRate;
+	for (const tier of tiers ?? []) {
+		if ((tier.min ?? 0) > promptTokens) {
+			continue;
+		}
+		let tierUsdMicrosPerMTok: number;
+		try {
+			tierUsdMicrosPerMTok = perTokenDollarsStringToUsdMicrosPerMTok(tier.cost);
+		} catch {
+			// Money path: a tier rate that does not convert must not bill the
+			// base rate. The error names the model and the tier.
+			throw new ModelPriceUnavailableError(modelId, "tier");
+		}
+		rate =
+			rate === null
+				? tierUsdMicrosPerMTok
+				: Math.max(rate, tierUsdMicrosPerMTok);
+	}
+	return rate;
+}
+
 export function imageUsageCostUsdMicros(
 	price: ModelPrice,
 	imageCount: number,
@@ -288,8 +392,7 @@ export function imageUnitUsdMicros(
 		const match = variants.find(
 			(variant) =>
 				variant.size?.toLowerCase() === size.toLowerCase() &&
-				variant.style === undefined &&
-				(variant.operation === undefined || variant.operation === "generate"),
+				isPlainGenerateVariant(variant),
 		);
 
 		if (match) {
@@ -298,6 +401,30 @@ export function imageUnitUsdMicros(
 	}
 
 	return price.imageUsdMicros;
+}
+
+/**
+ * Sizes with their own generate price, for example `1024x1024`. The app AI
+ * gateway accepts a subset of these sizes (see `googleImageJob`), so a size
+ * never bills the default rate.
+ */
+export function imageGenerateSizes(price: ModelPrice): string[] {
+	return (price.variantPricing?.image ?? []).flatMap((variant) =>
+		variant.size !== undefined &&
+		variant.size !== "default" &&
+		isPlainGenerateVariant(variant)
+			? [variant.size]
+			: [],
+	);
+}
+
+// A variant without a style and for the generate operation: the variant
+// that a plain text-to-image call bills.
+function isPlainGenerateVariant(variant: ImageVariantPrice): boolean {
+	return (
+		variant.style === undefined &&
+		(variant.operation === undefined || variant.operation === "generate")
+	);
 }
 
 export function imageEstimateUsdMicros(
@@ -324,6 +451,211 @@ export function transcriptionEstimateUsdMicros(
 	return price.transcriptionUsdMicrosPerSecond === null
 		? null
 		: Math.ceil(price.transcriptionUsdMicrosPerSecond * durationSeconds);
+}
+
+// The speech and video rates live only in `raw`: no column holds them.
+// zod reads the named fields. A missing or malformed rate gives null.
+const speechPriceSchema = z.object({
+	pricing: z.object({ speech_input_character_cost: pricingStringSchema }),
+});
+
+// A video entry has rows for each second, or token tiers (Seedance 2.x).
+const videoPriceSchema = z.object({
+	pricing: z.object({
+		video_duration_pricing: z
+			.array(
+				z.object({
+					audio: z.boolean().optional(),
+					cost_per_second: pricingStringSchema,
+					// A row with this key is the rate of a clip longer than this many seconds.
+					duration_over_seconds: z.number().nonnegative().optional(),
+					// For example `text_to_video` or `image_to_video` (HeyGen).
+					mode: z.string().optional(),
+					resolution: z.string().optional(),
+				}),
+			)
+			.optional(),
+		video_token_pricing: z
+			.object({
+				tiers: z.array(
+					z.object({
+						resolution: z.string(),
+						// The rate of a job with no input video: Wandit sends only text.
+						no_video_input: z.object({
+							// USD for one million video tokens, for example "10.7".
+							cost_per_million_tokens: pricingStringSchema,
+						}),
+					}),
+				),
+			})
+			.optional(),
+	}),
+});
+
+type VideoPricing = z.infer<typeof videoPriceSchema>["pricing"];
+
+// The row mode of a job with only a text prompt, the only mode Wandit sends.
+const TEXT_TO_VIDEO_MODE = "text_to_video";
+
+// Seedance 2.5 output frame in pixels for each tier, 16:9 or 9:16 (BytePlus
+// Seedance 2.5 tutorial). The Seedance 2.0 series uses other frames, so
+// it is not in the table.
+const SEEDANCE_2_5_FRAME_PIXELS = new Map<string, bigint>([
+	["480p", 854n * 480n],
+	["720p", 1280n * 720n],
+	["1080p", 1920n * 1080n],
+]);
+const SEEDANCE_2_5_MODEL_IDS: readonly string[] = [
+	"bytedance/seedance-2.5",
+	"bytedance/seedance-2.5-flash",
+];
+// BytePlus estimate: tokens = seconds x width x height x 24 fps / 1024.
+const SEEDANCE_FRAMES_PER_SECOND = 24n;
+const SEEDANCE_PIXELS_PER_TOKEN = 1024n;
+// 3 % above the estimate. The one documented real count is 1.58 % above it,
+// and one more frame at 1088 rows gives at most 1.79 %.
+const SEEDANCE_MARGIN_PERCENT = 103n;
+
+/**
+ * USD micros for one input character of a speech model. Null when the
+ * catalog entry has no rate, or a rate that is not a whole number of micros.
+ */
+export function speechUnitUsdMicros(price: ModelPrice): number | null {
+	const parsed = speechPriceSchema.safeParse(price.raw);
+
+	return parsed.success
+		? lenientUsdMicros(parsed.data.pricing.speech_input_character_cost)
+		: null;
+}
+
+/** Cost of one speech call: input characters times the character rate. */
+export function speechEstimateUsdMicros(
+	price: ModelPrice,
+	characters: number,
+): number | null {
+	assertPositiveSafeInteger(characters, "characters");
+	const unit = speechUnitUsdMicros(price);
+
+	return unit === null
+		? null
+		: bigintToSafeNumber(BigInt(unit) * BigInt(characters));
+}
+
+/** The price row a video request selects, for example `720p` for 5 s without audio. */
+export type VideoPriceTerms = {
+	/** Catalog resolution name, for example `720p`. */
+	resolution: string;
+	/** True when the request asks for generated audio. */
+	audio: boolean;
+	/** Video length in whole seconds. Some rows apply only above a length. */
+	seconds: number;
+};
+
+/**
+ * USD micros for one second of a text-to-video job. It reads the rows for
+ * each second, or else the Seedance 2.5 token tiers. No match, more than one
+ * match, or an unknown rule gives null, so an unclear price never bills.
+ */
+export function videoUnitUsdMicrosPerSecond(
+	price: ModelPrice,
+	terms: VideoPriceTerms,
+): number | null {
+	const parsed = videoPriceSchema.safeParse(price.raw);
+	if (!parsed.success) {
+		return null;
+	}
+	const { video_duration_pricing: rows, video_token_pricing: tokens } =
+		parsed.data.pricing;
+	if (rows !== undefined) {
+		return durationRowRate(rows, terms);
+	}
+	return tokens === undefined
+		? null
+		: seedanceTokenRate(price.modelId, tokens.tiers, terms.resolution);
+}
+
+// A row matches on the resolution, and on the text-to-video mode or no mode.
+// It also matches on audio when the row has an audio key. A row with no resolution
+// (MiniMax) is the price of the provider default tier. Wandit always sends
+// a tier, so that row never matches.
+function durationRowRate(
+	rows: NonNullable<VideoPricing["video_duration_pricing"]>,
+	terms: VideoPriceTerms,
+): number | null {
+	const matches = rows.filter(
+		(row) =>
+			(row.mode === undefined || row.mode === TEXT_TO_VIDEO_MODE) &&
+			row.resolution?.toLowerCase() === terms.resolution.toLowerCase() &&
+			(row.audio === undefined || row.audio === terms.audio),
+	);
+	// No document says if a rate "over N seconds" bills every second or only
+	// the seconds above N. A longer request thus gets no price.
+	if (
+		matches.some(
+			(row) =>
+				row.duration_over_seconds !== undefined &&
+				terms.seconds > row.duration_over_seconds,
+		)
+	) {
+		return null;
+	}
+	const baseRows = matches.filter(
+		(row) => row.duration_over_seconds === undefined,
+	);
+	const [row] = baseRows;
+
+	return baseRows.length === 1 && row !== undefined
+		? lenientUsdMicros(row.cost_per_second)
+		: null;
+}
+
+// Seedance 2.5 bills video tokens. One second costs ceil(frame pixels x
+// 24 x rate per 1M tokens x 1.03 / 1024 / 1,000,000), in USD micros.
+// LIMIT: exact only for 16:9 and 9:16 on the Seedance 2.5 series; the public
+// token estimate plus 3 %. Upgrade: settle from the real completion_tokens.
+function seedanceTokenRate(
+	modelId: string,
+	tiers: NonNullable<VideoPricing["video_token_pricing"]>["tiers"],
+	resolution: string,
+): number | null {
+	const framePixels = SEEDANCE_2_5_FRAME_PIXELS.get(resolution.toLowerCase());
+	if (!SEEDANCE_2_5_MODEL_IDS.includes(modelId) || framePixels === undefined) {
+		return null;
+	}
+	const matches = tiers.filter(
+		(tier) => tier.resolution.toLowerCase() === resolution.toLowerCase(),
+	);
+	const [tier] = matches;
+	const usdMicrosPerMillionTokens =
+		matches.length === 1 && tier !== undefined
+			? lenientUsdMicros(tier.no_video_input.cost_per_million_tokens)
+			: null;
+	if (usdMicrosPerMillionTokens === null) {
+		return null;
+	}
+	// BigInt: 2,073,600 x 24 x 11,700,000 x 103 is above 2^53.
+	const numerator =
+		framePixels *
+		SEEDANCE_FRAMES_PER_SECOND *
+		BigInt(usdMicrosPerMillionTokens) *
+		SEEDANCE_MARGIN_PERCENT;
+	// The rate is for 1,000,000 tokens, and the margin is in percent.
+	const denominator = SEEDANCE_PIXELS_PER_TOKEN * 1_000_000n * 100n;
+
+	return bigintToSafeNumber(divideRoundingUp(numerator, denominator));
+}
+
+/** Cost of one video: whole seconds times the per-second rate. */
+export function videoEstimateUsdMicros(
+	price: ModelPrice,
+	terms: VideoPriceTerms,
+): number | null {
+	assertPositiveSafeInteger(terms.seconds, "seconds");
+	const unit = videoUnitUsdMicrosPerSecond(price, terms);
+
+	return unit === null
+		? null
+		: bigintToSafeNumber(BigInt(unit) * BigInt(terms.seconds));
 }
 
 export function pricingSnapshot(
@@ -407,13 +739,22 @@ function variantPricing(model: GatewayModel): MediaVariantPricing | null {
 function transcriptionRate(model: GatewayModel): number | null {
 	const value = model.pricing.transcription_duration_cost_per_second;
 
-	return value === undefined ? null : lenientUsdMicros(value);
+	// LIMIT: a rate below whole micros rounds up (scribe-v2: 61.112 to 62
+	// micros per second, +1.5 %). Upgrade: a rate column with more decimals.
+	return value === undefined ? null : lenientUsdMicros(value, "up");
 }
 
-function lenientUsdMicros(value: string): number | null {
+// `up` rounds a rate with more than 6 decimals up to whole micros; `exact`
+// gives null for it.
+function lenientUsdMicros(
+	value: string,
+	rounding: DecimalRounding = "exact",
+): number | null {
 	try {
-		return dollarsStringToUsdMicros(value);
+		return decimalStringToScaledInteger(value, 6, "USD micros", rounding);
 	} catch {
+		// A malformed or out-of-range rate means "no rate": the caller fails
+		// closed or falls back to its floor.
 		return null;
 	}
 }
@@ -456,10 +797,13 @@ function requiredRate(
 	return rate;
 }
 
+type DecimalRounding = "exact" | "up";
+
 function decimalStringToScaledInteger(
 	value: string,
 	scaleDigits: number,
 	unit: string,
+	rounding: DecimalRounding = "exact",
 ): number {
 	const normalized = value.trim();
 	const match = NON_NEGATIVE_DECIMAL_PATTERN.exec(normalized);
@@ -469,11 +813,10 @@ function decimalStringToScaledInteger(
 	}
 
 	const [whole = "0", fraction = ""] = normalized.split(".");
+	const hasRemainder =
+		fraction.length > scaleDigits && /[1-9]/u.test(fraction.slice(scaleDigits));
 
-	if (
-		fraction.length > scaleDigits &&
-		/[1-9]/u.test(fraction.slice(scaleDigits))
-	) {
+	if (hasRemainder && rounding === "exact") {
 		throw new Error(
 			`${value} cannot be represented exactly as integer ${unit}`,
 		);
@@ -481,7 +824,8 @@ function decimalStringToScaledInteger(
 
 	const scaled =
 		BigInt(whole) * 10n ** BigInt(scaleDigits) +
-		BigInt((fraction.slice(0, scaleDigits) || "0").padEnd(scaleDigits, "0"));
+		BigInt((fraction.slice(0, scaleDigits) || "0").padEnd(scaleDigits, "0")) +
+		(hasRemainder ? 1n : 0n);
 
 	if (scaled > BigInt(POSTGRES_INTEGER_MAX)) {
 		throw new Error(

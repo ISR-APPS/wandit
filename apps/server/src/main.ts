@@ -109,6 +109,29 @@ async function bootstrap() {
 		if (methods.includes("POST") && route.url === mcpRoutes.endpoint) {
 			route.bodyLimit = 3 * 1024 * 1024;
 		}
+		// Security: the query of these routes holds a signed video token. The
+		// request log keeps only the method and the path.
+		const isVideoTokenRoute =
+			route.url === appBuilderRoutes.appAiVideoCallback ||
+			route.url === appBuilderRoutes.appAiVideoStatus ||
+			route.url === appBuilderRoutes.appAiVideoContent;
+		if (isVideoTokenRoute) {
+			// Fastify reads `logSerializers` on a route, but its route type does not list it.
+			Object.assign(route, {
+				logSerializers: {
+					req: (request: { method: string; url: string }) => {
+						const queryStart = request.url.indexOf("?");
+						return {
+							method: request.method,
+							url:
+								queryStart === -1
+									? request.url
+									: request.url.slice(0, queryStart),
+						};
+					},
+				},
+			});
+		}
 	});
 	// All API routes start with `/api`, for example `/api/v1/chats/...`.
 	// RFC 9728 and RFC 8414 fix the OAuth metadata paths at the origin root.

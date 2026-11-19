@@ -104,6 +104,7 @@ export * from "./v1/user-referrals";
 export * from "./v1/workspaces";
 // V2 app AI gateway contracts: the request, the key, the tool, and the panel.
 export * from "./v2/app-ai";
+export * from "./v2/app-ai-media";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
 // The V2 app theme modules (v2/app-theme*.ts) are not exported here. Import them by subpath, for example

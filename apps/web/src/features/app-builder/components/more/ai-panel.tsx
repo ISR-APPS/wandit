@@ -1,6 +1,6 @@
 /**
  * AI panel of the More view: the app AI gateway of the project. It shows the
- * On or Off state, the credits and the calls of this month, and the models.
+ * On or Off state, the credits and the calls of this month, and the models by kind.
  * It turns the gateway on, rotates the key, or turns it off, each after a
  * confirm dialog. The panel never shows the key. Rendered by more-view.tsx
  * inside PanelShell. Reads appAiStatusQuery; writes through useChangeAppAiKey.
@@ -37,6 +37,7 @@ import { appAiStatusQuery } from "../../api/app-ai.queries";
 import { CLOUD_DATE_TIME_FORMAT } from "../../lib/constants";
 import {
 	PANEL_CARD_CLASS,
+	PANEL_FIELD_LABEL_CLASS,
 	PANEL_PRIMARY_BUTTON_CLASS,
 	PANEL_SECONDARY_BUTTON_CLASS,
 	PanelChip,
@@ -47,6 +48,19 @@ import {
 const MUTED_TEXT_CLASS =
 	"font-sans text-[14px] text-night/60 leading-relaxed dark:text-foreground/60";
 
+/** Media kinds of `mediaModels`, in the order of the model card. */
+const MEDIA_KINDS = ["image", "video", "speech", "transcription"] as const;
+
+/** One titled chip list of the model card. */
+type ModelGroup = {
+	/** Key of the group title under `appBuilder.ai.modelGroups`. */
+	kind: "chat" | (typeof MEDIA_KINDS)[number];
+	/** Model ids of the gateway route for this kind. */
+	models: readonly string[];
+	/** Id that gets the Default chip. Undefined when the list is empty. */
+	defaultModel: string | undefined;
+};
+
 /** Props of AiPanel. more-view.tsx passes them. */
 export type AiPanelProps = {
 	projectId: string;
@@ -54,7 +68,7 @@ export type AiPanelProps = {
 	isActive: boolean;
 };
 
-/** The gateway card with its actions, then the model card. */
+/** The gateway card with its actions, then the model card with one chip list for each kind. */
 export function AiPanel({ projectId, isActive }: AiPanelProps) {
 	const { t, locale } = useTranslation();
 	const status = useQuery(appAiStatusQuery(projectId, isActive));
@@ -76,8 +90,24 @@ export function AiPanel({ projectId, isActive }: AiPanelProps) {
 		);
 	}
 
-	const { enabled, keyUpdatedAt, monthCredits, monthRequests, defaultModel } =
-		status.data;
+	const {
+		enabled,
+		keyUpdatedAt,
+		monthCredits,
+		monthRequests,
+		defaultModel,
+		models,
+		mediaModels,
+	} = status.data;
+	// The API puts the default media model of each kind first in its list.
+	const modelGroups: ModelGroup[] = [
+		{ kind: "chat", models, defaultModel },
+		...MEDIA_KINDS.map((kind) => ({
+			kind,
+			models: mediaModels[kind],
+			defaultModel: mediaModels[kind][0],
+		})),
+	];
 	// The API counts centi-credits; the credit formatters take whole credits.
 	const credits = centiCreditsToCredits(monthCredits);
 	const usage = [
@@ -170,21 +200,30 @@ export function AiPanel({ projectId, isActive }: AiPanelProps) {
 					{t("appBuilder.ai.models")}
 				</h2>
 				<p className={MUTED_TEXT_CLASS}>{t("appBuilder.ai.modelsHint")}</p>
-				<ul className="flex flex-wrap gap-2">
-					{status.data.models.map((model) => (
-						<li key={model}>
-							<PanelChip tone={model === defaultModel ? "ember" : "neutral"}>
-								{/* A model id reads left to right, also in Arabic. */}
-								<span dir="ltr" className="font-mono">
-									{model}
-								</span>
-								{model === defaultModel ? (
-									<span>· {t("appBuilder.ai.defaultModel")}</span>
-								) : null}
-							</PanelChip>
-						</li>
-					))}
-				</ul>
+				{modelGroups.map((group) => (
+					<div key={group.kind} className="flex flex-col gap-2">
+						<h3 className={PANEL_FIELD_LABEL_CLASS}>
+							{t(`appBuilder.ai.modelGroups.${group.kind}`)}
+						</h3>
+						<ul className="flex flex-wrap gap-2">
+							{group.models.map((model) => (
+								<li key={model}>
+									<PanelChip
+										tone={model === group.defaultModel ? "ember" : "neutral"}
+									>
+										{/* A model id reads left to right, also in Arabic. */}
+										<span dir="ltr" className="font-mono">
+											{model}
+										</span>
+										{model === group.defaultModel ? (
+											<span>· {t("appBuilder.ai.defaultModel")}</span>
+										) : null}
+									</PanelChip>
+								</li>
+							))}
+						</ul>
+					</div>
+				))}
 			</section>
 			<AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
 				<AlertDialogContent>

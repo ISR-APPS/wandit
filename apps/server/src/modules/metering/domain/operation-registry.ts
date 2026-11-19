@@ -490,6 +490,42 @@ export const AI_INVOCATION_COVERAGE = [
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
 	},
 	{
+		billing: { kind: "metered", operation: "app_ai_gateway" },
+		id: "app-ai-media-image",
+		marker: "const result = await generateImage({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		// A Google image model of the app AI gateway is a language model.
+		billing: { kind: "metered", operation: "app_ai_gateway" },
+		id: "app-ai-media-google-image",
+		marker: "const result = await generateText({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "app_ai_gateway" },
+		id: "app-ai-media-speech",
+		marker: "gateway.speechModel(request.model).doGenerate({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "app_ai_gateway" },
+		id: "app-ai-media-transcription",
+		marker: ".transcriptionModel(request.model)",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "app_ai_gateway" },
+		id: "app-ai-video",
+		marker: "const started = await experimental_startVideo({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-video.service.ts",
+	},
+	{
 		billing: { kind: "metered", operation: "chat" },
 		id: "legacy-worker-chat",
 		marker: "const result = streamText({",

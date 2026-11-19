@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
 import type { TokenUsageQuote } from "../../../metering/domain/model-pricing";
 import { mintAppAiKey } from "../../domain/app-ai-key";
 import type { PublishProjectRow } from "../../infrastructure/persistence/app-publish.repository";
 import type { RateLimitStore } from "../../presentation/http/guards/redis-rate-limit.guard";
+import { AppAiAdmission, type AppAiTrace } from "./app-ai-admission";
 import {
 	type AppAiGatewayRequest,
 	AppAiGatewayService,
@@ -25,10 +27,15 @@ const SSE_CHUNKS = [
 	'"prompt_tokens_details":{"cached_tokens":100}}}\n\ndata: [DONE]\n\n',
 ];
 
-// The metering usage of the stream above: cached tokens are not input again.
+// The metering usage of the stream above: cached tokens are not input
+// again, and the other prompt tokens bill at the cache write rate.
 const SSE_METERED_USAGE = {
 	inputTokens: 120,
-	inputTokenDetails: { cacheReadTokens: 100, noCacheTokens: 20 },
+	inputTokenDetails: {
+		cacheReadTokens: 100,
+		cacheWriteTokens: 20,
+		noCacheTokens: 0,
+	},
 	outputTokens: 17,
 };
 
@@ -107,6 +114,15 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 	};
 }
 
+// Keeps the alert messages, so a spec can check them without Sentry.
+class RecordingAdmission extends AppAiAdmission {
+	alerts: string[] = [];
+
+	override alert(message: string, _trace: AppAiTrace): void {
+		this.alerts.push(message);
+	}
+}
+
 class FakeReply implements LlmProxyReply {
 	statusCode: number | undefined;
 	chunks: Buffer[] = [];
@@ -172,6 +188,9 @@ function setup(
 		hit: async () => ({ count: 1, ttlMs: 60_000 }),
 	},
 	project: PublishProjectRow = PROJECT,
+	pricing: Pick<ModelPricingService, "quoteTokenUsage"> = {
+		quoteTokenUsage: async () => QUOTE,
+	},
 ) {
 	const secrets = { readSystemValue: vi.fn(async () => APP_KEY) };
 	const metering = {
@@ -184,16 +203,21 @@ function setup(
 		),
 	};
 	const upstreamFetch = vi.fn<typeof fetch>(async () => upstream());
-	const service = new AppAiGatewayService(
+	const admission = new RecordingAdmission(
 		secrets,
 		{ findProject: async () => project },
-		rateLimit,
-		{ quoteTokenUsage: async () => QUOTE },
+		// The chat route takes no open slot, so the release is a no-op.
+		{ ...rateLimit, release: async () => {} },
 		metering,
 		{ AI_GATEWAY_API_KEY: "upstream-key" },
+	);
+	const service = new AppAiGatewayService(
+		admission,
+		pricing,
+		metering,
 		upstreamFetch,
 	);
-	return { metering, secrets, service, upstreamFetch };
+	return { admission, metering, secrets, service, upstreamFetch };
 }
 
 describe("AppAiGatewayService", () => {
@@ -301,8 +325,10 @@ describe("AppAiGatewayService", () => {
 		expect(metering.settle).not.toHaveBeenCalled();
 	});
 
-	it("relays the stream and settles once with the parsed usage", async () => {
-		const { metering, service, upstreamFetch } = setup();
+	// Money: without a gateway cost the settle bills by tokens, and an
+	// operator sees each such answer.
+	it("relays the stream and settles once by tokens, with an alert, when the usage has no cost", async () => {
+		const { admission, metering, service, upstreamFetch } = setup();
 		const reply = new FakeReply();
 
 		await service.chatCompletions(gatewayRequest(), reply);
@@ -321,10 +347,101 @@ describe("AppAiGatewayService", () => {
 			expect.objectContaining({
 				modelId: MODEL,
 				pricing: "token",
+				// One answer is one call, so its prompt picks the tier.
+				promptTokens: 120,
 				usage: SSE_METERED_USAGE,
 			}),
 		]);
 		expect(metering.refund).not.toHaveBeenCalled();
+		expect(admission.alerts).toEqual(["App AI answer had no gateway cost"]);
+	});
+
+	// Money: the gateway cost has the reasoning, tier, and provider rate, so
+	// it is the bill. 0.00205875 USD = 2,059 micros = 7 cc at 32,000 micros per credit.
+	it("settles a JSON answer with a gateway cost at the credits of that cost", async () => {
+		const { admission, metering, service } = setup(
+			() =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "Hi" } }],
+						usage: {
+							prompt_tokens: 19,
+							completion_tokens: 124,
+							completion_tokens_details: { reasoning_tokens: 64 },
+							cost: 0.00205875,
+							market_cost: 0.00205875,
+						},
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+
+		await service.chatCompletions(gatewayRequest(), new FakeReply());
+
+		expect(metering.settle).toHaveBeenCalledOnce();
+		expect(metering.settle.mock.calls[0]).toEqual([
+			"hold_1",
+			expect.objectContaining({
+				costUsdMicros: 2_059,
+				finalCredits: 7,
+				pricing: "direct",
+				// The real counts: no cache write for a prompt without a cache.
+				usage: { cacheReadTokens: 0, inputTokens: 19, outputTokens: 188 },
+			}),
+		]);
+		expect(metering.refund).not.toHaveBeenCalled();
+		expect(admission.alerts).toEqual([]);
+	});
+
+	// Money: a prompt above the tier threshold costs 2 x input and 1.5 x
+	// output on every token. A 1,200,000-byte body estimates 300,000 tokens,
+	// above the 272,001 tier: 300,000 x 5 (cache write tier) + 8,192 x 15
+	// = 1,622,880 micros = 5,072 cc. The base rates would hold 2,131 cc.
+	it("holds a body above a tier threshold at the tier and cache write rates", async () => {
+		const model = "openai/gpt-6.1-sol";
+		const pricing = new ModelPricingService(
+			{ findByModelId: async () => null, upsertMany: async () => 0 },
+			{
+				seedResponse: {
+					generatedAt: "2026-11-17T00:00:00.000Z",
+					data: [
+						{
+							id: model,
+							owned_by: "openai",
+							type: "language",
+							pricing: {
+								input: "0.000002",
+								input_tiers: [{ cost: "0.000004", min: 272_001 }],
+								output: "0.00001",
+								output_tiers: [{ cost: "0.000015", min: 272_001 }],
+								input_cache_write: "0.0000025",
+								input_cache_write_tiers: [{ cost: "0.000005", min: 272_001 }],
+							},
+						},
+					],
+				},
+				usdMicrosPerCredit: 32_000,
+			},
+		);
+		const { metering, service } = setup(undefined, undefined, PROJECT, pricing);
+		// 72 bytes of JSON around the content.
+		const body = Buffer.from(
+			JSON.stringify({
+				model,
+				messages: [{ role: "user", content: "a".repeat(1_199_928) }],
+			}),
+			"utf8",
+		);
+
+		await service.chatCompletions(
+			{ ...gatewayRequest(), body },
+			new FakeReply(),
+		);
+
+		expect(body.length).toBe(1_200_000);
+		expect(metering.reserve.mock.calls[0]?.[2]).toMatchObject({
+			credits: 5_072,
+		});
 	});
 
 	// Money: an answer without usage still did upstream work, so it is never free.

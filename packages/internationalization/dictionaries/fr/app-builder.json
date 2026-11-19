@@ -298,6 +298,13 @@
 		"models": "Modèles",
 		"modelsHint": "L'agent choisit un de ces modèles pour chaque fonction IA.",
 		"defaultModel": "Par défaut",
+		"modelGroups": {
+			"chat": "Chat",
+			"image": "Images",
+			"video": "Vidéo",
+			"speech": "Voix",
+			"transcription": "Transcription"
+		},
 		"actions": {
 			"enable": "Activer",
 			"rotate": "Changer la clé",

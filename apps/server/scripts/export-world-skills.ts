@@ -50,8 +50,9 @@ const INDEX_DESCRIPTION_LIMIT_BYTES = 8 * 1024;
 // Skill folders written by hand in the template. The export does not write them,
 // and its stale-folder cleanup keeps them. frontend-design is Anthropic's skill
 // (Apache-2.0, LICENSE.txt in its folder). app-dashboard is the Wandit skill for
-// the area behind login; its subfolders stay with it.
-const HAND_WRITTEN_SKILLS = ["frontend-design", "app-dashboard"];
+// the area behind login; its subfolders stay with it. ai-media holds the media
+// routes of the app AI gateway.
+const HAND_WRITTEN_SKILLS = ["frontend-design", "app-dashboard", "ai-media"];
 
 interface SkillFile {
 	/** Folder name under .claude/skills. */

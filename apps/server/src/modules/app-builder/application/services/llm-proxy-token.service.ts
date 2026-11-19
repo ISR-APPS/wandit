@@ -32,7 +32,11 @@ export class LlmProxyTokenError extends Error {
 	override readonly name = "LlmProxyTokenError";
 }
 
-function signingKeys(envLike: LlmProxyEnv): [string, ...string[]] {
+/**
+ * The keys of `LLM_PROXY_SIGNING_KEY`, first key first. The app AI video
+ * tokens use them too. Throws `ServiceUnavailableException` when none is set.
+ */
+export function signingKeys(envLike: LlmProxyEnv): [string, ...string[]] {
 	const keys = (envLike.LLM_PROXY_SIGNING_KEY ?? "")
 		.split(",")
 		.map((key) => key.trim())

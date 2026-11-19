@@ -14,6 +14,7 @@ import {
 import {
 	APP_AI_DEFAULT_MODEL,
 	APP_AI_KEY_SECRET_NAME,
+	APP_AI_MEDIA_MODELS,
 	APP_AI_MODELS,
 	type AppAiStatus,
 	type BackendToolFailure,
@@ -99,6 +100,7 @@ export class AppAiKeysService {
 			defaultModel: APP_AI_DEFAULT_MODEL,
 			enabled: key !== undefined,
 			keyUpdatedAt: key?.updatedAt ?? null,
+			mediaModels: APP_AI_MEDIA_MODELS,
 			models: [...APP_AI_MODELS],
 			monthCredits: usage.credits,
 			monthRequests: usage.requests,
