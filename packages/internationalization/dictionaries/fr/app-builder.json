@@ -799,11 +799,41 @@
 		"building": "En création",
 		"planning": "En planification",
 		"model": {
-			"title": "Choisis un modèle",
-			"chip": "Modèle : {model}",
-			"default": "Modèle par défaut",
-			"price": "{input} en entrée · {output} en sortie pour 1M de jetons",
-			"fast": "Mode rapide"
+			"chip": "Modèle : {tier}",
+			"chipFast": "Modèle : {tier}, mode rapide",
+			"fast": "Mode rapide",
+			"fastUnavailable": "Le mode rapide n'est pas disponible sur {tier}.",
+			"fastWarning": "Le mode rapide répond plus tôt, mais consomme tes limites environ 2x plus vite.",
+			"nuclearDialog": {
+				"title": "Mode Nuclear",
+				"charging": "Chargement",
+				"ready": "Prêt",
+				"body": "Nuclear utilise notre modèle le plus puissant. Il consomme tes limites bien plus vite que Standard : garde-le pour tes projets les plus ambitieux.",
+				"fastBody": "Le mode rapide est aussi actif : Nuclear consommera tes limites encore environ 2x plus vite.",
+				"power": "Puissance",
+				"limits": "Limites",
+				"confirm": "Lancer Nuclear",
+				"cancel": "Pas maintenant"
+			},
+			"reset": "Revenir à {tier}",
+			"tiers": {
+				"standard": {
+					"name": "Standard",
+					"hint": "Gère environ 90 % de ce que tu construis. Ton choix au quotidien, le plus léger pour tes limites."
+				},
+				"high": {
+					"name": "High",
+					"hint": "Réfléchit un peu plus avant de construire. Idéal quand un changement touche plusieurs écrans."
+				},
+				"max": {
+					"name": "Max",
+					"hint": "Prend le temps de bien réaliser les grandes idées. Essaie-le quand High bloque."
+				},
+				"nuclear": {
+					"name": "Nuclear",
+					"hint": "Notre modèle le plus puissant, pour tes idées les plus audacieuses."
+				}
+			}
 		},
 		"cost": {
 			"line": "Coût du chat : {usd} · {credits} · {turns}",

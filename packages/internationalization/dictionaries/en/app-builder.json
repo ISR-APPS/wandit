@@ -799,11 +799,41 @@
 		"building": "Building",
 		"planning": "Planning",
 		"model": {
-			"title": "Choose a model",
-			"chip": "Model: {model}",
-			"default": "Default model",
-			"price": "{input} in · {output} out per 1M tokens",
-			"fast": "Fast mode"
+			"chip": "Model: {tier}",
+			"chipFast": "Model: {tier}, Fast mode",
+			"fast": "Fast mode",
+			"fastUnavailable": "Fast mode is not available on {tier}.",
+			"fastWarning": "Fast mode answers sooner but uses your limits about 2x faster.",
+			"nuclearDialog": {
+				"title": "Nuclear mode",
+				"charging": "Charging",
+				"ready": "Ready",
+				"body": "Nuclear runs our most powerful model. It uses your limits much faster than Standard, so save it for your most ambitious projects.",
+				"fastBody": "Fast mode is on too: Nuclear will use your limits about 2x faster again.",
+				"power": "Power",
+				"limits": "Limit use",
+				"confirm": "Launch Nuclear",
+				"cancel": "Not now"
+			},
+			"reset": "Back to {tier}",
+			"tiers": {
+				"standard": {
+					"name": "Standard",
+					"hint": "Handles about 90% of what you build. Your everyday pick, and the lightest on your limits."
+				},
+				"high": {
+					"name": "High",
+					"hint": "Thinks a bit longer before it builds. Good when a change touches many screens."
+				},
+				"max": {
+					"name": "Max",
+					"hint": "Takes its time to get big ideas right. Try it when High gets stuck."
+				},
+				"nuclear": {
+					"name": "Nuclear",
+					"hint": "Our most powerful model, for your boldest ideas."
+				}
+			}
 		},
 		"cost": {
 			"line": "Chat cost: {usd} · {credits} · {turns}",

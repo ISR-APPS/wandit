@@ -4,11 +4,12 @@
  * conversation. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
  * the Expo Go username, and the model pick. Two pair a model with its Fast
- * variant for the model menu. One copies text to the clipboard. One puts an
- * app page path on the signed preview URL. Two convert the spending limits
- * between the Settings fields and the API. One formats a USD amount of the
- * chat cost. Three serve the Thème sheet: the drop rule of its draft, the
- * brand color field, and the name rule. One fits the phone or the desktop
+ * variant for the model menu. Three serve the effort tiers of the model
+ * slider: BUILDER_TIERS, visibleBuilderTiers, and builderTierOf. One copies
+ * text to the clipboard. One puts an app page path on the signed preview URL.
+ * Two convert the spending limits between the Settings fields and the API.
+ * One formats a USD amount of the chat cost. Three serve the Thème sheet:
+ * the drop rule of its draft, the brand color field, and the name rule. One fits the phone or the desktop
  * window into its stage. One tells the build queries that a live build
  * ended. Called by the page, the More view and its nav, the Settings panel,
  * the chat cards, the Expo Go popover, the preview panel, the web preview,
@@ -216,25 +217,32 @@ export function writeExpoUsername(expoUsername: string): void {
 
 /**
  * Model of the next turn for a project, or for the next new project when
- * `projectId` is null. The stored pick wins when `list` still has it, then
- * the deploy default. Undefined sends no model: the server picks its default.
+ * `projectId` is null. The stored pick wins when it is a listed tier model or
+ * its Fast row, then the first listed tier. Undefined sends no model: the
+ * server picks its default.
  */
 export function readBuilderModel(
 	projectId: string | null,
 	list: BuilderModelsResponse,
 ): string | undefined {
-	// The API refuses an id without a price row, so only a listed id is sent.
-	const isListed = (modelId: string | null): modelId is string =>
-		modelId !== null && list.models.some((model) => model.modelId === modelId);
 	let stored: string | null;
 	try {
 		stored = window.localStorage.getItem(builderModelStorageKey(projectId));
 	} catch {
-		// Private mode can block storage. The default model then runs.
+		// Private mode can block storage. The first tier then runs.
 		stored = null;
 	}
-	if (isListed(stored)) return stored;
-	return isListed(list.defaultModel) ? list.defaultModel : undefined;
+	// The API refuses an id without a price row, so only a listed id is sent.
+	if (
+		stored !== null &&
+		list.models.some((model) => model.modelId === stored) &&
+		builderTierOf(list.models, stored) !== undefined
+	) {
+		return stored;
+	}
+	// Product rule: Standard is the base tier, so the server default (Nuclear today) never runs silently.
+	// When the server lists Nuclear as the only tier, Nuclear runs: undefined sends the same server default.
+	return visibleBuilderTiers(list.models)[0]?.modelId;
 }
 
 /** Stores the model pick of a project, or of the next new project when `projectId` is null. A storage failure is not an error for the user. */
@@ -283,6 +291,47 @@ export function baseModelIdOf(
 	return models.some((model) => model.modelId === baseModelId)
 		? baseModelId
 		: modelId;
+}
+
+/** Key of an effort tier. It picks the i18n strings and the color of the tier. */
+export type BuilderTierId = "standard" | "high" | "max" | "nuclear";
+
+/** One stop of the model slider. */
+export type BuilderTier = {
+	id: BuilderTierId;
+	/** Gateway id of the base model, a row of `GET /api/v2/models`. Its `-fast` row, when listed, is the Fast mode. */
+	modelId: string;
+};
+
+/**
+ * Stops of the model slider, from the cheapest to the strongest. Zack picks
+ * the models. The server price table must list each one, or the tier hides.
+ */
+export const BUILDER_TIERS: readonly BuilderTier[] = [
+	{ id: "standard", modelId: "deepseek/deepseek-v4.1-flash-1017" },
+	{ id: "high", modelId: "google/gemini-4-hydrogen" },
+	{ id: "max", modelId: "google/gemini-4-neon" },
+	{ id: "nuclear", modelId: "anthropic/claude-opus-5.5" },
+];
+
+/** The tiers whose model the server lists, in slider order. The slider and the pick fallback read only these. */
+export function visibleBuilderTiers(
+	models: readonly LlmModelPrice[],
+): BuilderTier[] {
+	return BUILDER_TIERS.filter((tier) =>
+		models.some((model) => model.modelId === tier.modelId),
+	);
+}
+
+/** Visible tier of a picked model id, the base row or its Fast row. Undefined for a model outside the tiers. */
+export function builderTierOf(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+): BuilderTier | undefined {
+	const baseModelId = baseModelIdOf(models, modelId);
+	return visibleBuilderTiers(models).find(
+		(tier) => tier.modelId === baseModelId,
+	);
 }
 
 /** 1 USD in the unit of the chat cost route. */

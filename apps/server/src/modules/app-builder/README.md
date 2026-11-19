@@ -319,7 +319,7 @@ upserts and answers the row. A non-`v2_app` project answers 404.
 
 `GET /api/v2/models` (`ModelsController`, behind the same guard) answers
 `BuilderModelsResponse`: `defaultModel` (`V2_DEFAULT_MODEL` or null) and
-`models`, every row of `LLM_MODEL_PRICES`. The builder dropdown reads it.
+`models`, every row of `LLM_MODEL_PRICES`. The builder model slider reads it.
 
 Wire format — the D20 envelope is unwrapped for the browser (the task
 keeps writing it on the `ui` stream): one `data:` line of JSON per frame,
@@ -1261,7 +1261,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@5"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@6"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
