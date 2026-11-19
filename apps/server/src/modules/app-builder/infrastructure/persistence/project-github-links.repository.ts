@@ -9,7 +9,7 @@ import {
 	type GithubSyncErrorCode,
 	githubSyncErrorCodeSchema,
 } from "@wandit/contracts";
-import { and, eq, isNull, lt, or } from "@wandit/db";
+import { and, eq, isNull, lt, or, type SQL, sql } from "@wandit/db";
 import { projectGithubLinks } from "@wandit/db/schema/github";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -41,6 +41,10 @@ export type ProjectGithubLinkRow = {
 	githubUserId: number;
 	/** GitHub head that the project last pushed or pulled. */
 	lastSyncedSha: string | null;
+	/** When `lastSyncedSha` last changed; null before the first sync. */
+	lastSyncedAt: Date | null;
+	/** When the status or Re-check route last claimed a GitHub head read; null before the first claim. */
+	githubCheckedAt: Date | null;
 	/** GitHub head that the worker last saw. */
 	remoteHeadSha: string | null;
 	/** GitHub head that the worker copied to the code.storage branch `github/main`. */
@@ -97,10 +101,12 @@ export class ProjectGithubLinksRepository {
 		const { link } = row;
 		return {
 			createdAt: link.createdAt,
+			githubCheckedAt: link.githubCheckedAt,
 			githubUserId: link.githubUserId,
 			id: link.id,
 			installationId: link.installationId,
 			lastError: storedErrorSchema.parse(link.lastError),
+			lastSyncedAt: link.lastSyncedAt,
 			lastSyncedSha: link.lastSyncedSha,
 			mirroredSha: link.mirroredSha,
 			projectId: link.projectId,
@@ -133,17 +139,19 @@ export class ProjectGithubLinksRepository {
 	}
 
 	/**
-	 * Claims the GitHub head check of the status route. True when no check ran
-	 * after `checkedBefore`; the row then holds the current time. It is one
-	 * conditional UPDATE, so two tabs or two API processes never both win.
+	 * Claims the GitHub head check of the status and Re-check routes. When no
+	 * check ran after `checkedBefore`, the row holds the current time, and the
+	 * method returns that time. Else it returns null. It is one conditional
+	 * UPDATE, so two tabs or two API processes never both win.
 	 */
 	async claimGithubCheck(
 		linkId: string,
 		checkedBefore: Date,
-	): Promise<boolean> {
+	): Promise<Date | null> {
+		const checkedAt = new Date();
 		const [row] = await this.db
 			.update(projectGithubLinks)
-			.set({ githubCheckedAt: new Date() })
+			.set({ githubCheckedAt: checkedAt })
 			.where(
 				and(
 					eq(projectGithubLinks.id, linkId),
@@ -154,7 +162,7 @@ export class ProjectGithubLinksRepository {
 				),
 			)
 			.returning({ id: projectGithubLinks.id });
-		return row !== undefined;
+		return row === undefined ? null : checkedAt;
 	}
 
 	/** Inserts the link and returns its id, or null when the project already has a link (unique project id). */
@@ -182,6 +190,7 @@ export class ProjectGithubLinksRepository {
 			.update(projectGithubLinks)
 			.set({
 				lastError: null,
+				lastSyncedAt: lastSyncedAtAfterWriting(sha),
 				lastSyncedSha: sha,
 				remoteHeadSha: sha,
 				updatedAt: new Date(),
@@ -210,7 +219,11 @@ export class ProjectGithubLinksRepository {
 	async markPulled(linkId: string, targetSha: string): Promise<void> {
 		await this.db
 			.update(projectGithubLinks)
-			.set({ lastSyncedSha: targetSha, updatedAt: new Date() })
+			.set({
+				lastSyncedAt: lastSyncedAtAfterWriting(targetSha),
+				lastSyncedSha: targetSha,
+				updatedAt: new Date(),
+			})
 			.where(
 				and(
 					eq(projectGithubLinks.id, linkId),
@@ -239,4 +252,10 @@ export class ProjectGithubLinksRepository {
 			})
 			.where(eq(projectGithubLinks.id, linkId));
 	}
+}
+
+// The new `last_synced_at` of a write that sets `last_synced_sha` to `sha`.
+// An equal-heads run writes the same sha again; the panel must keep the time of the real change.
+function lastSyncedAtAfterWriting(sha: string): SQL {
+	return sql`case when ${projectGithubLinks.lastSyncedSha} is distinct from ${sha} then now() else ${projectGithubLinks.lastSyncedAt} end`;
 }

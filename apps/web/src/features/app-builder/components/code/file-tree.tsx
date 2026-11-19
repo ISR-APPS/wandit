@@ -87,9 +87,9 @@ export function filterTree(
 }
 
 /**
- * True for a dot folder like `.claude`. The callers pass top-level nodes
- * only. It holds about 140 agent files, not app code, so it starts closed
- * and the file count skips it.
+ * True for a dot folder like `.github`. The callers pass top-level nodes
+ * only. It holds tool settings, not app code, so it starts closed and the
+ * file count skips it. The API never lists `.claude`.
  */
 function isToolFolder(node: CodeTreeNode): boolean {
 	return node.kind === "folder" && node.name.startsWith(".");
@@ -418,7 +418,7 @@ function TreeRow({
 					className="size-4 shrink-0 text-spark-deep dark:text-spark"
 				/>
 			)}
-			{/* A name like `.claude` must not show as `claude.` in Arabic. */}
+			{/* A name like `.github` must not show as `github.` in Arabic. */}
 			<span dir="ltr" translate="no" className="truncate">
 				{highlightMatch(node.name, needle)}
 			</span>

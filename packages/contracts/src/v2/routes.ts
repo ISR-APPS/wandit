@@ -76,6 +76,9 @@ export const appBuilderRoutes = {
 	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
 	// GET one file of the running sandbox; the caller adds `?path=<path>`.
 	codeFile: (projectId: string) => `/api/v2/projects/${projectId}/code/file`,
+	// GET the committed `main` code as one tar.gz file, for the Download button.
+	codeArchive: (projectId: string) =>
+		`/api/v2/projects/${projectId}/code/archive`,
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
@@ -104,4 +107,7 @@ export const appBuilderRoutes = {
 	// POST merges the GitHub commits into the project as one "github" commit.
 	githubPull: (projectId: string) =>
 		`/api/v2/projects/${projectId}/github/pull`,
+	// POST reads the GitHub head now (Re-check) and answers the new status. At most once per 10 s per project.
+	githubCheck: (projectId: string) =>
+		`/api/v2/projects/${projectId}/github/check`,
 } as const;

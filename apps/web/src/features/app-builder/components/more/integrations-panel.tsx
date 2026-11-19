@@ -1,15 +1,29 @@
 /**
- * Integrations panel of the More view. It holds one card: the GitHub sync of
- * the project. The card shows one of four states. The App is not set up, the
- * user is not connected, the user can create a repo, or the repo is linked.
- * A project viewer sees the status read-only: a note in place of Connect and
- * Create, and no Unlink.
+ * Integrations panel of the More view: the GitHub sync of the project, and
+ * the Download card under it. The GitHub part shows one of four states. The
+ * App is not set up, the user is not connected, the user can create a repo,
+ * or the repo is linked. The linked state has three cards: the connection
+ * table, the sync card with Re-check and Update, and the clone commands. A project viewer sees the status read-only: a note in place of
+ * Connect and Create, and no Unlink or Update. The Download card shows for
+ * every project and every role.
  * Rendered by components/more/more-view.tsx inside PanelShell. Reads
- * github.queries.ts and calls github.mutations.ts.
+ * github.queries.ts and calls github.mutations.ts. The Update pull comes from
+ * the page through more-view.tsx, so the chat banner and this panel share it.
  */
 
+import type { Icon } from "@phosphor-icons/react";
+import { ArrowCircleDownIcon } from "@phosphor-icons/react/ArrowCircleDown";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
+import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { InfoIcon } from "@phosphor-icons/react/Info";
+import { LinkBreakIcon } from "@phosphor-icons/react/LinkBreak";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -17,6 +31,7 @@ import {
 	type GithubAccountResponse,
 	type GithubAuthorizeBody,
 	type ProjectGithubLink,
+	type ProjectGithubStatusResponse,
 } from "@wandit/contracts";
 import {
 	AlertDialog,
@@ -27,9 +42,19 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-	AlertDialogTrigger,
 } from "@wandit/ui/components/alert-dialog";
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@wandit/ui/components/avatar";
 import { Button } from "@wandit/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@wandit/ui/components/dropdown-menu";
 import {
 	Field,
 	FieldDescription,
@@ -45,6 +70,20 @@ import {
 } from "@wandit/ui/components/select";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Switch } from "@wandit/ui/components/switch";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@wandit/ui/components/table";
+import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useId, useState } from "react";
 
@@ -52,9 +91,12 @@ import { hasProjectRole } from "@/features/project-sharing";
 import { slugify } from "@/features/workspace";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { relativeTime } from "@/lib/relative-time";
 import type { AppProject } from "../../api/dto";
 import {
 	useCreateGithubRepository,
+	useDownloadProjectCode,
+	useRecheckGithub,
 	useStartGithubAuthorize,
 	useUnlinkGithubRepository,
 } from "../../api/github.mutations";
@@ -62,7 +104,7 @@ import {
 	githubAccountQuery,
 	projectGithubStatusQuery,
 } from "../../api/github.queries";
-import { SHORT_SHA_LENGTH } from "../../lib/constants";
+import { copyToClipboard } from "../../lib/helpers";
 import {
 	PANEL_CARD_CLASS,
 	PANEL_CARD_ROW_CLASS,
@@ -72,19 +114,33 @@ import {
 	PANEL_INPUT_CLASS,
 	PANEL_PRIMARY_BUTTON_CLASS,
 	PANEL_SECONDARY_BUTTON_CLASS,
+	PANEL_TABS_LIST_CLASS,
+	PANEL_TABS_TRIGGER_CLASS,
 	PanelChip,
 	PanelMessage,
 } from "./panel-shell";
 
+/**
+ * The Update pull that pages/app-builder-page.tsx owns. The chat banner and
+ * this panel share it, so both buttons lock while it runs, and a success reloads the preview.
+ */
+export type GithubUpdateControl = {
+	/** True while the pull runs. The Update button stays off. */
+	isUpdating: boolean;
+	/** Starts the pull. The argument is the `headSha` of the last status answer. */
+	onUpdate: (expectedHeadSha: ProjectGithubStatusResponse["headSha"]) => void;
+};
+
 /** Props from components/more/more-view.tsx. The view renders this panel when the More nav selects "integrations". */
 export type IntegrationsPanelProps = {
-	/** The project the page reads from appProjectQuery. Its name gives the default repo name. */
+	/** The project the page reads from appProjectQuery. Its name gives the default repo name and the archive name. */
 	project: AppProject;
 	/** True while this panel is on screen: the More view is open and the code screen does not cover it. The view stays mounted, so the account query waits for it. */
 	isActive: boolean;
+	githubUpdate: GithubUpdateControl;
 };
 
-/** Repo name for a project name with no latin letters, for example an Arabic name. The user can change it. */
+/** Repo name and archive name for a project name with no latin letters, for example an Arabic name. The user can change the repo name. */
 const FALLBACK_REPO_NAME = "wandit-app";
 
 /** GitHub refuses a longer repo name. The regex of `createGithubRepositoryBodySchema` has the same limit. */
@@ -97,10 +153,29 @@ const SYNC_NOTES = [
 	"appBuilder.github.notes.workflows",
 ] as const satisfies readonly TranslationKey[];
 
-/** The GitHub card in the state of the project status, and the notes of the sync. */
+/** The GitHub part, then the Download card. The GitHub part can show a loading or error state; the Download card always shows. */
 export function IntegrationsPanel({
 	project,
 	isActive,
+	githubUpdate,
+}: IntegrationsPanelProps) {
+	return (
+		<>
+			<GithubSection
+				project={project}
+				isActive={isActive}
+				githubUpdate={githubUpdate}
+			/>
+			<DownloadCodeCard project={project} />
+		</>
+	);
+}
+
+/** The GitHub card or the linked layout in the state of the project status, and the notes of the sync. */
+function GithubSection({
+	project,
+	isActive,
+	githubUpdate,
 }: IntegrationsPanelProps) {
 	const { t } = useTranslation();
 	// The page reads the same status query for the update banner, so this read hits the cache.
@@ -139,50 +214,58 @@ export function IntegrationsPanel({
 		);
 	}
 
-	const { link } = status.data;
+	const { link, headSha } = status.data;
 	return (
 		<>
-			<section className={cn(PANEL_CARD_CLASS, "p-5")}>
-				<div className="flex items-center gap-3.5">
-					<span
-						aria-hidden
-						className="grid size-9 shrink-0 place-items-center rounded-full bg-night/[0.06] text-night dark:bg-white/[0.08] dark:text-foreground"
-					>
-						<GithubLogoIcon weight="fill" className="size-[18px]" />
-					</span>
-					<div className="min-w-0">
-						<h2 className={PANEL_CARD_TITLE_CLASS}>
-							{t("appBuilder.github.title")}
-						</h2>
-						<p className={PANEL_HINT_CLASS}>{t("appBuilder.github.hint")}</p>
+			{link !== null ? (
+				<LinkedRepository
+					projectId={project.id}
+					link={link}
+					headSha={headSha}
+					canEdit={canEdit}
+					githubUpdate={githubUpdate}
+				/>
+			) : (
+				<section className={cn(PANEL_CARD_CLASS, "p-5")}>
+					<div className="flex items-center gap-3.5">
+						<span
+							aria-hidden
+							className="grid size-9 shrink-0 place-items-center rounded-full bg-night/[0.06] text-night dark:bg-white/[0.08] dark:text-foreground"
+						>
+							<GithubLogoIcon weight="fill" className="size-[18px]" />
+						</span>
+						<div className="min-w-0">
+							<h2 className={PANEL_CARD_TITLE_CLASS}>
+								{t("appBuilder.github.title")}
+							</h2>
+							<p className={PANEL_HINT_CLASS}>{t("appBuilder.github.hint")}</p>
+						</div>
 					</div>
-				</div>
-				{link !== null ? (
-					<LinkedRepository
-						projectId={project.id}
-						link={link}
-						canUnlink={canEdit}
-					/>
-				) : !canEdit ? (
-					<p
-						className={cn(PANEL_CARD_ROW_CLASS, PANEL_HINT_CLASS, "mt-5 pt-4")}
-					>
-						{t("sharing.readOnly.editorsOnly")}
-					</p>
-				) : account.data === undefined ? (
-					account.isError ? (
-						<p className="mt-4 font-sans text-[13px] text-destructive">
-							{getApiErrorMessage(account.error)}
+					{!canEdit ? (
+						<p
+							className={cn(
+								PANEL_CARD_ROW_CLASS,
+								PANEL_HINT_CLASS,
+								"mt-5 pt-4",
+							)}
+						>
+							{t("sharing.readOnly.editorsOnly")}
 						</p>
+					) : account.data === undefined ? (
+						account.isError ? (
+							<p className="mt-4 font-sans text-[13px] text-destructive">
+								{getApiErrorMessage(account.error)}
+							</p>
+						) : (
+							<Skeleton className="mt-5 h-9 rounded-full" />
+						)
+					) : account.data.connected ? (
+						<CreateRepositoryForm project={project} account={account.data} />
 					) : (
-						<Skeleton className="mt-5 h-9 rounded-full" />
-					)
-				) : account.data.connected ? (
-					<CreateRepositoryForm project={project} account={account.data} />
-				) : (
-					<ConnectRow />
-				)}
-			</section>
+						<ConnectRow />
+					)}
+				</section>
+			)}
 			<ul className="flex flex-col gap-1.5 px-1 font-sans text-[13px] text-night/60 dark:text-foreground/60">
 				{SYNC_NOTES.map((note) => (
 					<li key={note} className="flex items-start gap-2">
@@ -418,94 +501,493 @@ function CreateRepositoryForm({
 	);
 }
 
-/** The linked repo: its link, the last synced commit, the last sync error, and Unlink with a confirm. */
+/** The linked state: the connection table, the sync card, and the clone commands. */
 function LinkedRepository({
+	projectId,
+	link,
+	headSha,
+	canEdit,
+	githubUpdate,
+}: {
+	projectId: string;
+	link: ProjectGithubLink;
+	/** `headSha` of the status answer. The Update pull sends it back as `expectedHeadSha`. */
+	headSha: ProjectGithubStatusResponse["headSha"];
+	/** False for a project viewer: no Unlink and no Update. */
+	canEdit: boolean;
+	githubUpdate: GithubUpdateControl;
+}) {
+	return (
+		<>
+			<RepositoryConnection
+				projectId={projectId}
+				link={link}
+				canUnlink={canEdit}
+			/>
+			<SyncStatusCard
+				projectId={projectId}
+				link={link}
+				headSha={headSha}
+				canUpdate={canEdit}
+				githubUpdate={githubUpdate}
+			/>
+			<CloneRepository link={link} />
+		</>
+	);
+}
+
+/** One table row: the owner avatar and the repo link, the branch, and the status menu with Open and Unlink. */
+function RepositoryConnection({
 	projectId,
 	link,
 	canUnlink,
 }: {
 	projectId: string;
 	link: ProjectGithubLink;
-	/** False for a project viewer: the Unlink button does not show. */
+	/** False for a project viewer: the menu has no Unlink. */
 	canUnlink: boolean;
 }) {
 	const { t } = useTranslation();
 	const unlink = useUnlinkGithubRepository(projectId);
+	// The menu item opens the dialog. A dialog inside the menu closes with the menu.
+	const [isUnlinkOpen, setIsUnlinkOpen] = useState(false);
 	const repoPath = `${link.repoOwner}/${link.repoName}`;
+	const hasError = link.lastError !== null;
 
 	return (
-		<div className={cn(PANEL_CARD_ROW_CLASS, "mt-5 flex flex-col gap-3 pt-4")}>
-			<div className="flex flex-wrap items-center justify-between gap-4">
-				<div className="min-w-0">
-					{/* An owner/repo path reads left to right in every locale. */}
-					<a
-						href={link.htmlUrl}
-						target="_blank"
-						rel="noreferrer"
-						dir="ltr"
-						className="block truncate font-medium font-mono text-[13.5px] text-night underline-offset-4 hover:underline dark:text-foreground"
-					>
-						{repoPath}
-					</a>
-					<p className={PANEL_HINT_CLASS}>
-						{link.lastSyncedSha === null
-							? t("appBuilder.github.neverSynced")
-							: t("appBuilder.github.lastSynced", {
-									sha: link.lastSyncedSha.slice(0, SHORT_SHA_LENGTH),
-								})}
-					</p>
-				</div>
-				{canUnlink ? (
-					<AlertDialog>
-						<AlertDialogTrigger asChild>
-							<Button
-								variant="outline"
-								size="sm"
-								className={PANEL_SECONDARY_BUTTON_CLASS}
-								disabled={unlink.isPending}
+		<section className="flex flex-col gap-2.5">
+			<h2 className={cn(PANEL_CARD_TITLE_CLASS, "px-1")}>
+				{t("appBuilder.github.connection.title")}
+			</h2>
+			<div className={cn(PANEL_CARD_CLASS, "overflow-hidden px-3")}>
+				<Table>
+					<TableHeader>
+						<TableRow className="border-night/[0.07] hover:bg-transparent dark:border-white/[0.07]">
+							<TableHead className={PANEL_FIELD_LABEL_CLASS}>
+								{t("appBuilder.github.connection.repository")}
+							</TableHead>
+							<TableHead className={PANEL_FIELD_LABEL_CLASS}>
+								<span className="flex items-center gap-1">
+									{t("appBuilder.github.connection.branch")}
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<button
+												type="button"
+												aria-label={t(
+													"appBuilder.github.connection.branchInfo",
+												)}
+												className="grid place-items-center rounded-full text-night/45 hover:text-night dark:text-foreground/45 dark:hover:text-foreground"
+											>
+												<InfoIcon aria-hidden className="size-3.5" />
+											</button>
+										</TooltipTrigger>
+										<TooltipContent side="top">
+											{t("appBuilder.github.connection.branchInfo")}
+										</TooltipContent>
+									</Tooltip>
+								</span>
+							</TableHead>
+							{/* The status column needs no head: the dot and the word say what it is. */}
+							<TableHead />
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						<TableRow className="hover:bg-transparent">
+							{/* w-full with max-w-0 lets the repo path truncate inside an auto table. */}
+							<TableCell className="w-full max-w-0 py-3">
+								<div className="flex min-w-0 items-center gap-2.5">
+									<Avatar size="sm">
+										{/* github.com/<owner>.png redirects to the avatar of the user or the org. */}
+										<AvatarImage
+											src={`https://github.com/${encodeURIComponent(link.repoOwner)}.png?size=64`}
+											alt=""
+										/>
+										<AvatarFallback className="bg-night text-paper dark:bg-white/[0.08] dark:text-foreground">
+											<GithubLogoIcon weight="fill" className="size-3.5" />
+										</AvatarFallback>
+									</Avatar>
+									{/* An owner/repo path reads left to right in every locale. */}
+									<a
+										href={link.htmlUrl}
+										target="_blank"
+										rel="noreferrer"
+										dir="ltr"
+										className="truncate font-medium font-mono text-[13.5px] text-night underline-offset-4 hover:underline dark:text-foreground"
+									>
+										{repoPath}
+									</a>
+								</div>
+							</TableCell>
+							<TableCell className="py-3">
+								{/* Product rule: only main syncs, so the branch is a fixed chip and not a picker. */}
+								<PanelChip className="font-mono">
+									<GitBranchIcon aria-hidden className="size-3.5" />
+									main
+								</PanelChip>
+							</TableCell>
+							<TableCell className="py-3 text-end">
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											variant="outline"
+											size="sm"
+											className={PANEL_SECONDARY_BUTTON_CLASS}
+										>
+											<span
+												aria-hidden
+												className={cn(
+													"size-2 rounded-full",
+													hasError ? "bg-destructive" : "bg-success",
+												)}
+											/>
+											{t(
+												hasError
+													? "appBuilder.github.connection.syncError"
+													: "appBuilder.github.connection.connected",
+											)}
+											<CaretDownIcon aria-hidden className="size-3.5" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem asChild>
+											<a href={link.htmlUrl} target="_blank" rel="noreferrer">
+												<ArrowSquareOutIcon aria-hidden />
+												{t("appBuilder.github.connection.openOnGithub")}
+											</a>
+										</DropdownMenuItem>
+										{canUnlink ? (
+											<DropdownMenuItem
+												variant="destructive"
+												disabled={unlink.isPending}
+												onSelect={() => setIsUnlinkOpen(true)}
+											>
+												<LinkBreakIcon aria-hidden />
+												{t("appBuilder.github.unlink")}
+											</DropdownMenuItem>
+										) : null}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</TableCell>
+						</TableRow>
+					</TableBody>
+				</Table>
+			</div>
+			{canUnlink ? (
+				<AlertDialog open={isUnlinkOpen} onOpenChange={setIsUnlinkOpen}>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>
+								{t("appBuilder.github.unlinkConfirmTitle", { repo: repoPath })}
+							</AlertDialogTitle>
+							<AlertDialogDescription>
+								{t("appBuilder.github.unlinkConfirmBody")}
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>
+								{t("appBuilder.github.cancel")}
+							</AlertDialogCancel>
+							<AlertDialogAction
+								variant="destructive"
+								onClick={() => unlink.mutate()}
 							>
 								{t("appBuilder.github.unlink")}
-							</Button>
-						</AlertDialogTrigger>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>
-									{t("appBuilder.github.unlinkConfirmTitle", {
-										repo: repoPath,
-									})}
-								</AlertDialogTitle>
-								<AlertDialogDescription>
-									{t("appBuilder.github.unlinkConfirmBody")}
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>
-									{t("appBuilder.github.cancel")}
-								</AlertDialogCancel>
-								<AlertDialogAction
-									variant="destructive"
-									onClick={() => unlink.mutate()}
-								>
-									{t("appBuilder.github.unlink")}
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-				) : null}
-			</div>
-			{link.lastError !== null ? (
-				<p
-					role="alert"
-					className="flex items-start gap-2 font-sans text-[13px] text-destructive"
-				>
-					<WarningCircleIcon
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			) : null}
+		</section>
+	);
+}
+
+/**
+ * The sync state, Re-check, and the last sync and check times. The states
+ * go in this order: a sync error, no first sync, GitHub ahead, in sync.
+ */
+function SyncStatusCard({
+	projectId,
+	link,
+	headSha,
+	canUpdate,
+	githubUpdate,
+}: {
+	projectId: string;
+	link: ProjectGithubLink;
+	/** `headSha` of the status answer. The Update pull sends it back as `expectedHeadSha`. */
+	headSha: ProjectGithubStatusResponse["headSha"];
+	/** Product rule: a pull needs the editor role (workspaces-sharing.md 2.2). */
+	canUpdate: boolean;
+	githubUpdate: GithubUpdateControl;
+}) {
+	const { t } = useTranslation();
+	const recheck = useRecheckGithub(projectId);
+	// relativeTime reads the clock only on a render. A poll with the same data does not render again.
+	// This 30 s tick renders the card, so "Checked just now" does not stay on screen after it is false.
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		const tickId = setInterval(() => setTick((tick) => tick + 1), 30_000);
+		return () => clearInterval(tickId);
+	}, []);
+	const isUpdateState =
+		link.lastError === null &&
+		link.lastSyncedSha !== null &&
+		link.updateAvailable;
+	// After a sync, `lastSyncedSha` equals our head. A new turn or a pull merge
+	// moves our head first, and the sync run pushes it a moment later.
+	const isPushPending =
+		headSha !== null &&
+		link.lastSyncedSha !== null &&
+		headSha !== link.lastSyncedSha;
+	const times = [
+		link.lastSyncedAt === null
+			? null
+			: t("appBuilder.github.sync.lastSynced", {
+					time: relativeTime(link.lastSyncedAt),
+				}),
+		link.githubCheckedAt === null
+			? null
+			: t("appBuilder.github.sync.checked", {
+					time: relativeTime(link.githubCheckedAt),
+				}),
+	].filter((part) => part !== null);
+
+	let state: {
+		icon: Icon;
+		/** Color of the state icon. */
+		iconClassName: string;
+		title: string;
+		text: string;
+	};
+	if (link.lastError !== null) {
+		state = {
+			icon: WarningCircleIcon,
+			iconClassName: "text-destructive",
+			title: t("appBuilder.github.connection.syncError"),
+			text: t(`appBuilder.github.syncErrors.${link.lastError}`),
+		};
+	} else if (link.lastSyncedSha === null) {
+		state = {
+			icon: ArrowsClockwiseIcon,
+			iconClassName: "text-night/55 dark:text-foreground/60",
+			title: t("appBuilder.github.sync.firstSyncTitle"),
+			text: t("appBuilder.github.sync.firstSyncText"),
+		};
+	} else if (isUpdateState) {
+		state = {
+			icon: ArrowCircleDownIcon,
+			iconClassName: "text-ember-text",
+			title: t("appBuilder.github.sync.updateTitle"),
+			text: t("appBuilder.github.sync.updateText"),
+		};
+	} else if (isPushPending) {
+		state = {
+			icon: ArrowsClockwiseIcon,
+			iconClassName: "text-night/55 dark:text-foreground/60",
+			title: t("appBuilder.github.sync.pushPendingTitle"),
+			text: t("appBuilder.github.sync.pushPendingText"),
+		};
+	} else {
+		state = {
+			icon: CheckCircleIcon,
+			iconClassName: "text-success-text",
+			title: t("appBuilder.github.sync.inSyncTitle"),
+			text: t("appBuilder.github.sync.inSyncText"),
+		};
+	}
+	const StateIcon = state.icon;
+
+	return (
+		<section className={cn(PANEL_CARD_CLASS, "flex flex-col gap-4 p-5")}>
+			<div className="flex flex-wrap items-start justify-between gap-4">
+				<div className="flex min-w-0 items-start gap-2.5">
+					<StateIcon
 						aria-hidden
 						weight="fill"
-						className="mt-px size-4 shrink-0"
+						className={cn("mt-px size-5 shrink-0", state.iconClassName)}
 					/>
-					{t(`appBuilder.github.syncErrors.${link.lastError}`)}
-				</p>
-			) : null}
-		</div>
+					<div className="min-w-0">
+						<p className={PANEL_CARD_TITLE_CLASS}>{state.title}</p>
+						<p
+							role={link.lastError !== null ? "alert" : undefined}
+							className="font-sans text-[14px] text-night/75 dark:text-foreground/75"
+						>
+							{state.text}
+						</p>
+						{times.length > 0 ? (
+							<p className={cn(PANEL_HINT_CLASS, "mt-1")}>
+								{times.join(" · ")}
+							</p>
+						) : null}
+					</div>
+				</div>
+				<div className="ms-auto flex items-center gap-2">
+					{/* Same rule as the chat banner: Update shows on `updateAvailable`, also next to a sync error. */}
+					{link.updateAvailable && canUpdate ? (
+						<Button
+							size="sm"
+							className={PANEL_PRIMARY_BUTTON_CLASS}
+							disabled={githubUpdate.isUpdating}
+							onClick={() => githubUpdate.onUpdate(headSha)}
+						>
+							{t("appBuilder.github.banner.update")}
+						</Button>
+					) : null}
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						disabled={recheck.isPending}
+						onClick={() => recheck.mutate()}
+					>
+						<ArrowsClockwiseIcon
+							aria-hidden
+							className={cn(recheck.isPending && "animate-spin")}
+						/>
+						{t("appBuilder.github.sync.recheck")}
+					</Button>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+/** Tabs of the clone card. The labels are protocol and tool names, so they read the same in every locale. */
+const CLONE_METHODS = [
+	{ value: "https", label: "HTTPS" },
+	{ value: "ssh", label: "SSH" },
+	{ value: "cli", label: "GitHub CLI" },
+] as const;
+
+/** One tab value of CLONE_METHODS. */
+type CloneMethod = (typeof CLONE_METHODS)[number]["value"];
+
+/** 2 s: the check icon of the copy button shows that long, then the copy icon comes back. */
+const COPIED_RESET_MS = 2_000;
+
+/** The clone command of the repo for one tab, as GitHub shows it on the Code button. */
+function cloneCommand(method: CloneMethod, repoPath: string): string {
+	switch (method) {
+		case "https":
+			return `https://github.com/${repoPath}.git`;
+		case "ssh":
+			return `git@github.com:${repoPath}.git`;
+		case "cli":
+			return `gh repo clone ${repoPath}`;
+	}
+}
+
+/** The HTTPS, SSH, and GitHub CLI tabs, a read-only command field, and a copy button. */
+function CloneRepository({ link }: { link: ProjectGithubLink }) {
+	const { t } = useTranslation();
+	const [method, setMethod] = useState<CloneMethod>("https");
+	const [isCopied, setIsCopied] = useState(false);
+	const command = cloneCommand(method, `${link.repoOwner}/${link.repoName}`);
+
+	useEffect(() => {
+		if (!isCopied) return;
+		const timer = window.setTimeout(() => setIsCopied(false), COPIED_RESET_MS);
+		return () => window.clearTimeout(timer);
+	}, [isCopied]);
+
+	const copyLabel = t(
+		isCopied
+			? "appBuilder.github.clone.copied"
+			: "appBuilder.github.clone.copy",
+	);
+
+	return (
+		<section className="flex flex-col gap-2.5">
+			<h2 className={cn(PANEL_CARD_TITLE_CLASS, "px-1")}>
+				{t("appBuilder.github.clone.title")}
+			</h2>
+			<div className={cn(PANEL_CARD_CLASS, "flex flex-col gap-3 p-5")}>
+				<Tabs
+					value={method}
+					onValueChange={(value) => {
+						const next = CLONE_METHODS.find((item) => item.value === value);
+						if (next) {
+							setMethod(next.value);
+							setIsCopied(false);
+						}
+					}}
+				>
+					<TabsList className={PANEL_TABS_LIST_CLASS}>
+						{CLONE_METHODS.map((item) => (
+							<TabsTrigger
+								key={item.value}
+								value={item.value}
+								className={PANEL_TABS_TRIGGER_CLASS}
+							>
+								{item.label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</Tabs>
+				{/* A command reads left to right in every locale. */}
+				<div dir="ltr" className="flex items-center gap-2">
+					<Input
+						readOnly
+						value={command}
+						aria-label={t("appBuilder.github.clone.command")}
+						className={cn(PANEL_INPUT_CLASS, "font-mono text-[13px]")}
+						onFocus={(event) => event.currentTarget.select()}
+					/>
+					<Button
+						variant="outline"
+						size="icon-lg"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						aria-label={copyLabel}
+						title={copyLabel}
+						onClick={() => {
+							void copyToClipboard(command).then(setIsCopied);
+						}}
+					>
+						{isCopied ? (
+							<CheckIcon aria-hidden className="text-success-text" />
+						) : (
+							<CopyIcon aria-hidden />
+						)}
+					</Button>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+/**
+ * The Download card. It shows for every V2 project, with or without a GitHub
+ * link. A project viewer may download too.
+ */
+function DownloadCodeCard({ project }: { project: AppProject }) {
+	const { t } = useTranslation();
+	const download = useDownloadProjectCode(
+		project.id,
+		`${slugify(project.name, FALLBACK_REPO_NAME)}.tar.gz`,
+	);
+
+	return (
+		<section
+			className={cn(
+				PANEL_CARD_CLASS,
+				"flex flex-wrap items-center justify-between gap-4 p-5",
+			)}
+		>
+			<div className="min-w-0">
+				<h2 className={PANEL_CARD_TITLE_CLASS}>
+					{t("appBuilder.code.download.title")}
+				</h2>
+				<p className={PANEL_HINT_CLASS}>{t("appBuilder.code.download.hint")}</p>
+			</div>
+			<Button
+				variant="outline"
+				className={PANEL_SECONDARY_BUTTON_CLASS}
+				disabled={download.isPending}
+				onClick={() => download.mutate()}
+			>
+				<DownloadSimpleIcon aria-hidden />
+				{t("appBuilder.code.download.button")}
+			</Button>
+		</section>
 	);
 }

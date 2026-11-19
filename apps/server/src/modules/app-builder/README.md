@@ -544,6 +544,10 @@ and the catch block refunds its hold.
   as `{ path, content, size, binary }`. Both sit behind
   `V2BuilderEnabledGuard`; read = any member, like `GET /:projectId`.
   The MCP tools `list_files` and `read_file` call the same service.
+- `GET .../code/archive` (viewer, 10 per user per minute) answers the stored `main`
+  head as `<project-slug>.tar.gz` with the top folder `<project-slug>/`, without
+  `.claude/**` and `.env*`. It never reads the sandbox. No head answers 404
+  `CODE_ARCHIVE_EMPTY`; more than 50 MB of gzip answers 413 `CODE_ARCHIVE_TOO_LARGE`.
 - Committed code first. When `app_branches` has a `main` head,
   `CodeService` reads that commit on code.storage through `GitFileReader`,
   with no sandbox call: a stopped sandbox still shows its code. The tree is
@@ -574,7 +578,9 @@ and the catch block refunds its hold.
   `git ls-files --cached --others --exclude-standard`, so ignored files
   never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
   never listed or read, also not through a symlink: the real path must stay
-  inside the worktree. A bad path answers 400 `CODE_PATH_INVALID`, a
+  inside the worktree. The agent files `.claude/`, `CLAUDE.md`,
+  `CLAUDE.local.md`, and `AGENTS.md` are hidden the same way, on both paths
+  and in the MCP `list_files` and `read_file` tools. A bad path answers 400 `CODE_PATH_INVALID`, a
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
@@ -588,7 +594,7 @@ and the catch block refunds its hold.
   with no request. On the sandbox path, one more command reads them with
   the tree. On the committed path, they come from the archive.
   `pickPrefetchPaths` picks the default file first, then `src/`, then the
-  rest, never `.claude/`, at most 300 paths. Both paths keep at most 64 KB
+  rest, at most 300 paths. Both paths keep at most 64 KB
   per file and 512 KB in total. The sandbox script uses the same path rule
   as a file read. A failed prefetch logs a warning and answers `files: []`.
   The tree answer never fails because of it. `code-scripts.linux.spec.ts`

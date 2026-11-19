@@ -70,9 +70,9 @@ const TREE: CodeTreeNode[] = [
 	},
 	{
 		kind: "folder",
-		path: ".claude",
-		name: ".claude",
-		children: [{ kind: "file", path: ".claude/CLAUDE.md", name: "CLAUDE.md" }],
+		path: ".github",
+		name: ".github",
+		children: [{ kind: "file", path: ".github/ci.yml", name: "ci.yml" }],
 	},
 	{ kind: "file", path: "package.json", name: "package.json" },
 ];
@@ -178,8 +178,8 @@ describe("FileTree", () => {
 	it("starts with a folder closed when it is not on the selected path, and a dot folder closed and out of the count", () => {
 		renderTree();
 		expect(screen.queryByText("migrations")).toBeNull();
-		expect(row(".claude").getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByText("CLAUDE.md")).toBeNull();
+		expect(row(".github").getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByText("ci.yml")).toBeNull();
 		// The count chip next to the title skips the files of the dot folder.
 		expect(
 			screen.getByRole("heading", { name: "Files" }).nextElementSibling
