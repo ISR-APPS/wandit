@@ -543,16 +543,20 @@ describe("WorkersForPlatformsClient.deleteScript", () => {
 });
 
 describe("WorkersForPlatformsClient.listScripts", () => {
-	it("filters by one tag and maps null tags to an empty list", async () => {
+	it("reads the flat items Cloudflare answers and maps null tags to an empty list", async () => {
+		// The real list answer: flat items with more keys than the client reads.
+		const realItem = {
+			compatibility_date: "2026-09-01",
+			created_on: "2026-09-20T10:00:00Z",
+			etag: "3f2a9c",
+			has_assets: true,
+			id: SCRIPT,
+			limits: { cpu_ms: 50 },
+			modified_on: "2026-09-21T10:00:00Z",
+			tags: [`project:${PROJECT_ID}`, "customer:w1"],
+		};
 		const { client, requests } = makeClient([
-			ok([
-				{
-					created_on: "2026-09-20T10:00:00Z",
-					dispatch_namespace: NAMESPACE,
-					modified_on: "2026-09-21T10:00:00Z",
-					script: { id: SCRIPT, tags: null },
-				},
-			]),
+			ok([realItem, { ...realItem, id: "app-other", tags: null }]),
 		]);
 
 		const scripts = await client.listScripts(`project:${PROJECT_ID}`);
@@ -561,7 +565,12 @@ describe("WorkersForPlatformsClient.listScripts", () => {
 			`${SCRIPTS_URL}?tags=project%3A${PROJECT_ID}%3Ayes`,
 		);
 		expect(scripts).toEqual([
-			{ createdOn: "2026-09-20T10:00:00Z", scriptName: SCRIPT, tags: [] },
+			{
+				createdOn: "2026-09-20T10:00:00Z",
+				scriptName: SCRIPT,
+				tags: [`project:${PROJECT_ID}`, "customer:w1"],
+			},
+			{ createdOn: "2026-09-20T10:00:00Z", scriptName: "app-other", tags: [] },
 		]);
 	});
 

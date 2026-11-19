@@ -2,6 +2,7 @@
  * Cloudflare custom hostnames of the wandit.app SaaS zone: find, create, read,
  * re-validate, and delete. DomainsService, the domain fulfillment steps, and
  * the Trigger runtimes call it. It calls the Cloudflare REST API with fetch.
+ * On staging it refuses every write and skips every delete (see areCustomDomainsEnabled).
  */
 import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
@@ -12,6 +13,11 @@ import type {
 } from "../../application/fulfillment/domain-fulfillment.contracts";
 import { canonicalDomainHost } from "../../domain/domain-hosts";
 import {
+	areCustomDomainsEnabled,
+	assertCustomDomainsEnabled,
+} from "../../domain/domain-provisioning-rules";
+import {
+	CustomHostnameMissingError,
 	DomainProviderError,
 	DomainsNotConfiguredError,
 } from "../../domain/errors/domain.errors";
@@ -26,10 +32,13 @@ export class CustomHostnameService {
 	 * Returns the www custom hostname of `host`, and adopts one that exists.
 	 * Cloudflare rejects a duplicate POST, so a hostname left by a detach or a
 	 * deleted project would block every new attach of the name.
+	 * Throws CustomDomainsProductionOnlyError on staging, before the lookup.
 	 */
 	async findOrCreateCustomHostname(
 		host: string,
 	): Promise<CustomHostnameResult> {
+		// Security: staging shares the SaaS zone, so an adopted hostname can belong to a production customer.
+		assertCustomDomainsEnabled();
 		const hostname = canonicalDomainHost(host);
 		const existing = await this.findCustomHostnameByName(hostname);
 
@@ -55,8 +64,10 @@ export class CustomHostnameService {
 	 * Purchased-domain apex: the bare name is registered as its own custom
 	 * hostname so Cloudflare holds a certificate for `https://{domain}` and the
 	 * edge can redirect it to www. Never canonicalized.
+	 * Rejects with CustomDomainsProductionOnlyError on staging.
 	 */
-	createApexCustomHostname(host: string): Promise<CustomHostnameResult> {
+	async createApexCustomHostname(host: string): Promise<CustomHostnameResult> {
+		assertCustomDomainsEnabled();
 		return this.requestCustomHostname("POST", "", {
 			hostname: host,
 			ssl: {
@@ -66,6 +77,7 @@ export class CustomHostnameService {
 		});
 	}
 
+	/** Throws CustomHostnameMissingError when Cloudflare deleted the hostname. */
 	async getCustomHostnameStatus(id: string): Promise<CustomHostnameResult> {
 		return this.requestCustomHostname("GET", `/${encodeURIComponent(id)}`);
 	}
@@ -95,8 +107,13 @@ export class CustomHostnameService {
 	/**
 	 * Re-sends the same SSL settings; Cloudflare treats the PATCH as a request
 	 * to re-run hostname and certificate validation immediately.
+	 * Throws CustomHostnameMissingError when Cloudflare deleted the hostname.
+	 * Rejects with CustomDomainsProductionOnlyError on staging.
 	 */
-	refreshCustomHostnameValidation(id: string): Promise<CustomHostnameResult> {
+	async refreshCustomHostnameValidation(
+		id: string,
+	): Promise<CustomHostnameResult> {
+		assertCustomDomainsEnabled();
 		return this.requestCustomHostname("PATCH", `/${encodeURIComponent(id)}`, {
 			ssl: {
 				method: "http",
@@ -105,7 +122,16 @@ export class CustomHostnameService {
 		});
 	}
 
+	/** A 404 counts as deleted. On staging it only logs a warning and makes no Cloudflare call. */
 	async deleteCustomHostname(id: string): Promise<void> {
+		// Security: on staging the hostname can belong to a production customer, so staging never deletes it.
+		if (!areCustomDomainsEnabled()) {
+			this.logger.warn(
+				`Staging skips the Cloudflare delete of custom hostname ${id}: it can belong to production`,
+			);
+			return;
+		}
+
 		await this.requestCustomHostname("DELETE", `/${encodeURIComponent(id)}`);
 	}
 
@@ -158,6 +184,11 @@ export class CustomHostnameService {
 
 		if (method === "DELETE" && response.status === 404) {
 			return {};
+		}
+
+		// Only an id path names one hostname. Its 404 means Cloudflare deleted it.
+		if (response.status === 404 && path.startsWith("/")) {
+			throw new CustomHostnameMissingError();
 		}
 
 		const payload = await this.safeJson(response);

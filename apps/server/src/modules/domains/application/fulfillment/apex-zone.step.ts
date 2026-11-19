@@ -1,3 +1,8 @@
+/**
+ * Purchase and configuration step: serves the bare apex of a domain through a
+ * Cloudflare zone in our account and an apex custom hostname (see ApexZoneStep).
+ * domain-fulfillment.runtime.ts builds it. It calls Cloudflare and the registrar through ports.
+ */
 import {
 	type DomainSource,
 	domainDnsSchema,
@@ -11,6 +16,7 @@ import {
 	nameserverRequiredDomainRecords,
 	validationRequiredDomainRecords,
 } from "../../domain/domain-provisioning-rules";
+import { CustomHostnameMissingError } from "../../domain/errors/domain.errors";
 import type {
 	CustomerZone,
 	CustomerZoneDnsRecord,
@@ -52,7 +58,9 @@ type ApexCustomHostnameProvider = {
 	findCustomHostnameByName(
 		hostname: string,
 	): Promise<CustomHostnameResult | null>;
+	/** Throws CustomHostnameMissingError when Cloudflare deleted the hostname. */
 	getCustomHostnameStatus(id: string): Promise<CustomHostnameResult>;
+	/** Throws CustomHostnameMissingError when Cloudflare deleted the hostname. */
 	refreshCustomHostnameValidation(id: string): Promise<CustomHostnameResult>;
 };
 
@@ -236,13 +244,11 @@ export class ApexZoneStep {
 				),
 			);
 
-			let hostname: CustomHostnameResult;
+			let hostname = dns.apexCustomHostnameId
+				? await this.readApexHostname(current, dns.apexCustomHostnameId)
+				: null;
 
-			if (dns.apexCustomHostnameId) {
-				hostname = await this.customHostnames.getCustomHostnameStatus(
-					dns.apexCustomHostnameId,
-				);
-			} else {
+			if (!hostname) {
 				const adopted = await this.customHostnames.findCustomHostnameByName(
 					current.name,
 				);
@@ -410,10 +416,22 @@ export class ApexZoneStep {
 			}
 
 			if (dns.apexCustomHostnameId && !dns.apexCustomHostnameNudged) {
-				const hostname =
-					await this.customHostnames.refreshCustomHostnameValidation(
+				let hostname: CustomHostnameResult;
+
+				try {
+					hostname = await this.customHostnames.refreshCustomHostnameValidation(
 						dns.apexCustomHostnameId,
 					);
+				} catch (error) {
+					if (!(error instanceof CustomHostnameMissingError)) {
+						throw error;
+					}
+
+					// Configure reads the deleted id, gets null, and creates the apex hostname again.
+					// The nudge flag stays unset, so the next pass nudges the new hostname.
+					return await this.configure(current, dns, false);
+				}
+
 				current = await this.state.persistApexDns(current, {
 					apexCustomHostnameNudged: true,
 					apexCustomHostnameStatus: hostname.status,
@@ -428,6 +446,29 @@ export class ApexZoneStep {
 			);
 
 			return current;
+		}
+	}
+
+	/**
+	 * The stored apex hostname, or `null` when Cloudflare deleted it. Cloudflare
+	 * deletes a hostname that stays pending for 7 days. The caller then creates it again.
+	 */
+	private async readApexHostname(
+		row: DomainFulfillmentRow,
+		id: string,
+	): Promise<CustomHostnameResult | null> {
+		try {
+			return await this.customHostnames.getCustomHostnameStatus(id);
+		} catch (error) {
+			if (!(error instanceof CustomHostnameMissingError)) {
+				throw error;
+			}
+
+			this.logger.warn(
+				`Cloudflare deleted apex custom hostname ${id} for domain ${row.id}; it is created again`,
+			);
+
+			return null;
 		}
 	}
 

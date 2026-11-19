@@ -9,10 +9,11 @@ name: Edge Worker
 on:
   pull_request:
     # Only changes that can break the Worker run it. That is its source,
-    # the one workspace package it imports, the lockfile, and the two
-    # deploy workflows.
+    # the two workspace packages it imports (contracts and observability),
+    # the lockfile, and the two deploy workflows.
     paths:
       - apps/edge/**
+      - packages/contracts/**
       - packages/observability/**
       - pnpm-lock.yaml
       - .github/workflows/edge-deploy.yml
@@ -22,6 +23,7 @@ on:
     # A push that does not touch the edge Worker must not redeploy it.
     paths:
       - apps/edge/**
+      - packages/contracts/**
       - packages/observability/**
       - pnpm-lock.yaml
       - .github/workflows/edge-deploy.yml

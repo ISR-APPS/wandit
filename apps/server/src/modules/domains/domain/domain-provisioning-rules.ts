@@ -1,4 +1,28 @@
+/**
+ * Pure rules of custom domain provisioning: the required DNS records, the
+ * wholesale price gate, and the staging block of custom domains.
+ * DomainsService, CustomHostnameService, and the fulfillment steps call it.
+ */
 import type { RequiredDomainRecord } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
+
+import { CustomDomainsProductionOnlyError } from "./errors/domain.errors";
+
+/**
+ * False on staging (`SITES_SLUG_SUFFIX` is "-stg"). Staging and production share
+ * the wandit.app SaaS zone. A customer host matches only the production edge
+ * route, and a staging hostname write can adopt or delete a production hostname.
+ */
+export function areCustomDomainsEnabled(): boolean {
+	return env.SITES_SLUG_SUFFIX !== "-stg";
+}
+
+/** Throws CustomDomainsProductionOnlyError on staging. Call it before any row, registrar, or Cloudflare write. */
+export function assertCustomDomainsEnabled(): void {
+	if (!areCustomDomainsEnabled()) {
+		throw new CustomDomainsProductionOnlyError();
+	}
+}
 
 export const DOMAIN_VALIDATION_RECORD_PURPOSE =
 	"ownership_or_ssl_validation" as const;

@@ -4,7 +4,9 @@ import { projectScopeFrom } from "../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import {
 	canExternalAttachReplace,
+	canRelinkPurchasedDomain,
 	DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+	type DomainAttacher,
 	type DomainNameHolder,
 	DomainsRepository,
 } from "./domains.repository";
@@ -88,15 +90,23 @@ function selectBuilder(result: unknown[] = []) {
 }
 
 describe("canExternalAttachReplace", () => {
+	const now = new Date("2026-11-19T00:00:00.000Z");
+	const personal: DomainAttacher = { organizationId: null, userId: USER_ID };
+	const orgMember: DomainAttacher = {
+		organizationId: "org_1",
+		userId: USER_ID,
+	};
 	const detachedConfiguring: DomainNameHolder = {
+		createdAt: new Date("2026-11-18T00:00:00.000Z"),
 		projectDeletedAt: null,
 		projectId: null,
+		projectOrganizationId: null,
 		source: "external",
 		status: "configuring",
 		userId: OTHER_USER_ID,
 	};
 
-	it.each<[string, boolean, Partial<DomainNameHolder>]>([
+	it.each<[string, boolean, Partial<DomainNameHolder>, DomainAttacher?]>([
 		["external configuring detached, other user", true, {}],
 		[
 			"external configuring on a soft-deleted project",
@@ -113,9 +123,28 @@ describe("canExternalAttachReplace", () => {
 		],
 		["external active detached, other user", false, { status: "active" }],
 		[
-			"external configuring on a live project, other user",
+			"external configuring on a live project, other user, 1 day old",
 			false,
 			{ projectId: PROJECT_ID },
+		],
+		[
+			"external configuring on a live project, other user, 8 days old",
+			true,
+			{
+				createdAt: new Date("2026-11-11T00:00:00.000Z"),
+				projectId: PROJECT_ID,
+			},
+		],
+		[
+			"external active on a soft-deleted project of the same org, other member",
+			true,
+			{
+				projectDeletedAt: new Date("2026-10-01T00:00:00.000Z"),
+				projectId: PROJECT_ID,
+				projectOrganizationId: "org_1",
+				status: "active",
+			},
+			orgMember,
 		],
 		[
 			"purchased active detached, same user",
@@ -127,10 +156,111 @@ describe("canExternalAttachReplace", () => {
 			true,
 			{ projectId: PROJECT_ID, status: "failed" },
 		],
-	])("%s -> %s", (_label, expected, holder) => {
+	])("%s -> %s", (_label, expected, holder, attacher = personal) => {
 		expect(
-			canExternalAttachReplace({ ...detachedConfiguring, ...holder }, USER_ID),
+			canExternalAttachReplace(
+				{ ...detachedConfiguring, ...holder },
+				attacher,
+				now,
+			),
 		).toBe(expected);
+	});
+});
+
+describe("canRelinkPurchasedDomain", () => {
+	const detachedPurchase: DomainNameHolder = {
+		createdAt: new Date("2026-01-01T00:00:00.000Z"),
+		projectDeletedAt: null,
+		projectId: null,
+		projectOrganizationId: null,
+		source: "purchased",
+		status: "active",
+		userId: USER_ID,
+	};
+	const softDeleted = {
+		projectDeletedAt: new Date("2026-10-01T00:00:00.000Z"),
+		projectId: "33333333-3333-4333-8333-333333333333",
+	};
+
+	it.each<[string, boolean, Partial<DomainNameHolder>, DomainAttacher]>([
+		[
+			"own detached purchase",
+			true,
+			{},
+			{ organizationId: null, userId: USER_ID },
+		],
+		[
+			"another account's detached purchase",
+			false,
+			{ userId: OTHER_USER_ID },
+			{ organizationId: null, userId: USER_ID },
+		],
+		[
+			"teammate purchase on a soft-deleted project of the same org",
+			true,
+			{ ...softDeleted, projectOrganizationId: "org_1", userId: OTHER_USER_ID },
+			{ organizationId: "org_1", userId: USER_ID },
+		],
+		[
+			"own purchase on another live project",
+			false,
+			{ projectId: "33333333-3333-4333-8333-333333333333" },
+			{ organizationId: null, userId: USER_ID },
+		],
+	])("%s -> %s", (_label, expected, holder, attacher) => {
+		expect(
+			canRelinkPurchasedDomain(
+				{ ...detachedPurchase, ...holder },
+				attacher,
+				PROJECT_ID,
+			),
+		).toBe(expected);
+	});
+});
+
+describe("DomainsRepository.relinkPurchasedDomain", () => {
+	it.each<[string, string | null, Record<string, string | boolean>]>([
+		[
+			"a move clears the primary mark",
+			null,
+			{ isPrimary: false, projectId: PROJECT_ID },
+		],
+		[
+			"a re-connect on the same project keeps the primary mark",
+			PROJECT_ID,
+			{ projectId: PROJECT_ID },
+		],
+	])("%s", async (_label, holderProjectId, expectedPatch) => {
+		const holder = {
+			createdAt: new Date("2026-01-01T00:00:00.000Z"),
+			id: DOMAIN_ID,
+			projectDeletedAt: null,
+			projectId: holderProjectId,
+			projectOrganizationId: null,
+			source: "purchased",
+			status: "active",
+			userId: USER_ID,
+		};
+		const lock = { for: vi.fn(async () => [holder]) };
+		const select = selectBuilder();
+		// SAFETY: lockNameHolder calls `.limit(1).for(...)`; the fake lock returns the rows.
+		select.limit.mockReturnValue(lock as never);
+		const set = vi.fn(() => ({
+			where: () => ({ returning: async () => [{ id: DOMAIN_ID }] }),
+		}));
+		const tx = { select: vi.fn(() => select), update: vi.fn(() => ({ set })) };
+		// SAFETY: relinkPurchasedDomain reads only `transaction` from the database.
+		const repository = new DomainsRepository({
+			transaction: async (run: (transaction: typeof tx) => unknown) => run(tx),
+		} as never);
+
+		await repository.relinkPurchasedDomain({
+			attacher: { organizationId: null, userId: USER_ID },
+			name: "bought.com",
+			projectId: PROJECT_ID,
+		});
+
+		expect(set).toHaveBeenCalledExactlyOnceWith(expectedPatch);
 	});
 });
 

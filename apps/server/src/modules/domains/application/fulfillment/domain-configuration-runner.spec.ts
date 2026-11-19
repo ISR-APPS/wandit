@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CustomHostnameVerificationResult } from "./custom-hostname-verification.step";
 import { DomainActivationTransientError } from "./domain-activation.step";
 import {
@@ -290,6 +290,29 @@ function setup(
 }
 
 describe("DomainConfigurationRunner", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("fails an old staging row once without a probe, so no run loops on it", async () => {
+		vi.stubEnv("SITES_SLUG_SUFFIX", "-stg");
+		const staging = setup({
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+
+		await expect(
+			staging.runner.execute({ domainId, nonce: "external" }),
+		).resolves.toEqual({
+			processed: false,
+			reason: "custom_domains_disabled",
+			terminalized: true,
+		});
+		expect(staging.probes).toEqual([]);
+		expect(domainFailureSummary(staging.terminalErrors[0])).toBe(
+			"Custom domains work only in production.",
+		);
+	});
+
 	it("uses the exact exponential delay series and 15-minute cap", () => {
 		expect(
 			Array.from({ length: 10 }, (_, attempt) =>

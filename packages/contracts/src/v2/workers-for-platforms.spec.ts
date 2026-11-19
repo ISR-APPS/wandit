@@ -7,7 +7,6 @@ import {
 	assetUploadSessionResultSchema,
 	cloudflareEnvelopeSchema,
 	cloudflareErrorBodySchema,
-	namespaceScriptSchema,
 	workerScriptUploadResultSchema,
 } from "./workers-for-platforms";
 
@@ -75,22 +74,6 @@ describe("workerScriptUploadResultSchema", () => {
 
 		expect(parsed.id).toBe("app-2b8e1d7c-4f7a-4a51-9f4e-0f7d6c1b2a3e");
 		expect(parsed.tags).toBeNull();
-	});
-});
-
-describe("namespaceScriptSchema", () => {
-	it("reads the script name and the tags of one list item", () => {
-		const parsed = namespaceScriptSchema.parse({
-			created_on: "2026-09-20T10:00:00Z",
-			dispatch_namespace: "production",
-			modified_on: "2026-09-21T10:00:00Z",
-			script: { id: "app-p1", tags: ["project:p1", "customer:w1"] },
-		});
-
-		expect(parsed.script).toEqual({
-			id: "app-p1",
-			tags: ["project:p1", "customer:w1"],
-		});
 	});
 });
 

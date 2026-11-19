@@ -5,6 +5,7 @@ import {
 	dnsPurposeKey,
 	domainLiveUrl,
 	hasTransitionalDomains,
+	normalizeDomainInput,
 	relativeDnsHost,
 	splitExternalDomainRecords,
 } from "./helpers";
@@ -19,6 +20,14 @@ describe("domainLiveUrl", () => {
 	it("keeps the apex URL for a purchased domain", () => {
 		expect(domainLiveUrl({ name: "example.com", source: "purchased" })).toBe(
 			"https://example.com",
+		);
+	});
+});
+
+describe("normalizeDomainInput", () => {
+	it("removes the scheme, the path, and one leading www", () => {
+		expect(normalizeDomainInput(" https://WWW.Example.com.dz/about ")).toBe(
+			"example.com.dz",
 		);
 	});
 });

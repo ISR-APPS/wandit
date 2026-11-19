@@ -1,3 +1,8 @@
+/**
+ * Shared types, limits, and payload parsers of the domain fulfillment pipeline.
+ * The Trigger domain tasks, the runner, the steps, and the repository use them.
+ * The parsers check the Trigger payloads and the stored cursor at the boundary.
+ */
 import type {
 	DomainDns,
 	DomainStatus,
@@ -170,10 +175,12 @@ export type DurableWait = {
 	until(input: { date: Date }): Promise<void>;
 };
 
+/** Outcome of one configuration run. `custom_domains_disabled`: staging failed the row (areCustomDomainsEnabled). */
 export type DomainConfigurationRunResult =
 	| {
 			processed: false;
 			reason:
+				| "custom_domains_disabled"
 				| "detached"
 				| "external_still_pending"
 				| "missing_cf_hostname"
