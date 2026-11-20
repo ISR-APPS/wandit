@@ -1,0 +1,33 @@
+{
+	"id": "switchyard-broadcast",
+	"removed": [],
+	"theme": {
+		"name": "Switchyard",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "minuit"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "xs",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "contrast",
+			"activeItem": "block",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

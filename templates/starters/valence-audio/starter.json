@@ -1,0 +1,35 @@
+{
+	"id": "valence-audio",
+	"removed": [],
+	"theme": {
+		"name": "Valence Audio",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f3f0e9",
+				"foreground": "#23232a",
+				"primary": "#b74218"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "space-grotesk",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

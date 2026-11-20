@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Eris Observatory",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#16182d",
+			"foreground": "#f0edf6",
+			"primary": "#bbc0f5"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "manrope",
+		"displayFont": "unbounded",
+		"scale": "md",
+		"radius": "md",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f7f8ff",
+			"foreground": "#1b1d32",
+			"card": "#ffffff",
+			"cardForeground": "#1b1d32",
+			"popover": "#ffffff",
+			"popoverForeground": "#1b1d32",
+			"primary": "#888cbf",
+			"primaryForeground": "#0f101f",
+			"secondary": "#e5e7f1",
+			"secondaryForeground": "#1b1d32",
+			"muted": "#ebedf6",
+			"mutedForeground": "#646678",
+			"accent": "#e9ebff",
+			"accentForeground": "#1b1d32",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d8dae6",
+			"input": "#c5c7d4",
+			"ring": "#888cbf",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eeeff8",
+			"shadowColor": "#1d2035"
+		},
+		"dark": {
+			"background": "#16182d",
+			"foreground": "#f0edf6",
+			"card": "#1d1f35",
+			"cardForeground": "#f0edf6",
+			"popover": "#21243a",
+			"popoverForeground": "#f0edf6",
+			"primary": "#bbc0f5",
+			"primaryForeground": "#0f101f",
+			"secondary": "#282a3f",
+			"secondaryForeground": "#f0edf6",
+			"muted": "#232439",
+			"mutedForeground": "#a8a6b4",
+			"accent": "#272841",
+			"accentForeground": "#f0edf6",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#303146",
+			"input": "#3c3c51",
+			"ring": "#bbc0f5",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0f1125",
+			"shadowColor": "#010105"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Manrope",
+				"href": "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Unbounded",
+				"href": "https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

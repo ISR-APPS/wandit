@@ -1,0 +1,122 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Sentry Access",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "carbone"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "sm",
+		"radius": "none",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "rail",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "outline",
+		"header": "plain",
+		"userMenu": "header",
+		"frame": "flat",
+		"icons": "regular",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "oklch(0.985 0 0)",
+			"foreground": "oklch(0.15 0 0)",
+			"card": "oklch(1 0 0)",
+			"cardForeground": "oklch(0.15 0 0)",
+			"popover": "oklch(1 0 0)",
+			"popoverForeground": "oklch(0.15 0 0)",
+			"primary": "oklch(0.5 0.2 295)",
+			"primaryForeground": "oklch(0.985 0 0)",
+			"secondary": "oklch(0.955 0 0)",
+			"secondaryForeground": "oklch(0.2 0 0)",
+			"muted": "oklch(0.96 0 0)",
+			"mutedForeground": "oklch(0.5 0 0)",
+			"accent": "oklch(0.95 0 0)",
+			"accentForeground": "oklch(0.15 0 0)",
+			"destructive": "oklch(0.55 0.2 25)",
+			"destructiveForeground": "oklch(0.985 0 0)",
+			"border": "oklch(0.9 0 0)",
+			"input": "oklch(0.85 0 0)",
+			"ring": "oklch(0.5 0.2 295)",
+			"success": "oklch(0.52 0.12 152)",
+			"warning": "oklch(0.55 0.119 70)",
+			"info": "oklch(0.52 0.12 250)",
+			"canvas": "oklch(0.965 0 0)",
+			"shadowColor": "oklch(0.15 0 0)",
+			"chart1": "oklch(0.5 0.2 295)",
+			"chart2": "oklch(0.42 0 0)",
+			"chart3": "oklch(0.58 0 0)",
+			"chart4": "oklch(0.72 0 0)",
+			"chart5": "oklch(0.84 0 0)",
+			"contrast": "oklch(0.15 0 0)",
+			"contrastForeground": "oklch(0.985 0 0)"
+		},
+		"dark": {
+			"background": "oklch(0.15 0 0)",
+			"foreground": "oklch(0.97 0 0)",
+			"card": "oklch(0.185 0 0)",
+			"cardForeground": "oklch(0.97 0 0)",
+			"popover": "oklch(0.21 0 0)",
+			"popoverForeground": "oklch(0.97 0 0)",
+			"primary": "oklch(0.72 0.16 295)",
+			"primaryForeground": "oklch(0.17 0 0)",
+			"secondary": "oklch(0.25 0 0)",
+			"secondaryForeground": "oklch(0.96 0 0)",
+			"muted": "oklch(0.24 0 0)",
+			"mutedForeground": "oklch(0.7 0 0)",
+			"accent": "oklch(0.26 0 0)",
+			"accentForeground": "oklch(0.97 0 0)",
+			"destructive": "oklch(0.68 0.19 25)",
+			"destructiveForeground": "oklch(0.15 0 0)",
+			"border": "oklch(0.29 0 0)",
+			"input": "oklch(0.36 0 0)",
+			"ring": "oklch(0.72 0.16 295)",
+			"success": "oklch(0.76 0.14 152)",
+			"warning": "oklch(0.8 0.13 75)",
+			"info": "oklch(0.74 0.12 250)",
+			"canvas": "oklch(0.115 0 0)",
+			"shadowColor": "oklch(0.05 0 0)",
+			"chart1": "oklch(0.72 0.16 295)",
+			"chart2": "oklch(0.78 0 0)",
+			"chart3": "oklch(0.62 0 0)",
+			"chart4": "oklch(0.48 0 0)",
+			"chart5": "oklch(0.36 0 0)",
+			"contrast": "oklch(0.115 0 0)",
+			"contrastForeground": "oklch(0.97 0 0)"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Geist",
+				"href": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Geist",
+				"href": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Readex Pro",
+				"href": "https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Readex Pro",
+				"href": "https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "tight",
+			"numerals": "sans"
+		}
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"id": "good-stem-florist",
+	"removed": [],
+	"theme": {
+		"name": "Good Stem",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f7eee0",
+				"foreground": "#452c48",
+				"primary": "#793d64"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "hanken-grotesk",
+			"displayFont": "lora",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

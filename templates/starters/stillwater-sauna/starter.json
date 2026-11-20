@@ -1,0 +1,35 @@
+{
+	"id": "stillwater-sauna",
+	"removed": [],
+	"theme": {
+		"name": "Stillwater",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#172927",
+				"foreground": "#f4eee1",
+				"primary": "#ccdfbc"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "karla",
+			"displayFont": "newsreader",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

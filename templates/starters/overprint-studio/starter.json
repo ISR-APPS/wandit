@@ -1,0 +1,35 @@
+{
+	"id": "overprint-studio",
+	"removed": [],
+	"theme": {
+		"name": "Overprint",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f5ebdb",
+				"foreground": "#22294e",
+				"primary": "#a13b26"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "ibm-plex-sans",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

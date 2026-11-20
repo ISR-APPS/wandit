@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Strata",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#141a16",
+			"foreground": "#ede8d8",
+			"primary": "#d1a968"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "ibm-plex-sans",
+		"displayFont": "cormorant-garamond",
+		"scale": "md",
+		"radius": "md",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f2fbf5",
+			"foreground": "#1b211d",
+			"card": "#ffffff",
+			"cardForeground": "#1b211d",
+			"popover": "#ffffff",
+			"popoverForeground": "#1b211d",
+			"primary": "#b18a49",
+			"primaryForeground": "#191003",
+			"secondary": "#e1eae4",
+			"secondaryForeground": "#1b211d",
+			"muted": "#e7f0ea",
+			"mutedForeground": "#626a65",
+			"accent": "#faebd3",
+			"accentForeground": "#1b211d",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d5ded8",
+			"input": "#c2cac5",
+			"ring": "#b18a49",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eaf3ed",
+			"shadowColor": "#1d231f"
+		},
+		"dark": {
+			"background": "#141a16",
+			"foreground": "#ede8d8",
+			"card": "#1b211d",
+			"cardForeground": "#ede8d8",
+			"popover": "#202622",
+			"popoverForeground": "#ede8d8",
+			"primary": "#d1a968",
+			"primaryForeground": "#191003",
+			"secondary": "#252b26",
+			"secondaryForeground": "#ede8d8",
+			"muted": "#202621",
+			"mutedForeground": "#a3a497",
+			"accent": "#35260c",
+			"accentForeground": "#ede8d8",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2c322d",
+			"input": "#373e37",
+			"ring": "#d1a968",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0d130f",
+			"shadowColor": "#010201"
+		},
+		"fonts": {
+			"sans": {
+				"family": "IBM Plex Sans",
+				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+			},
+			"display": {
+				"family": "Cormorant Garamond",
+				"href": "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"id": "first-crack-roasters",
+	"removed": [],
+	"theme": {
+		"name": "First Crack",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f5e9d8",
+				"foreground": "#381f22",
+				"primary": "#303988"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "karla",
+			"displayFont": "bricolage-grotesque",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

@@ -1,0 +1,137 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.stillwater {
+	--lake: var(--background);
+	--cream: var(--foreground);
+	--lichen: var(--primary);
+	background: var(--lake);
+	color: var(--cream);
+	font-family: var(--font-sans);
+}
+.stillwater header,
+.stillwater footer {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1.5rem;
+	align-items: center;
+	justify-content: space-between;
+	padding: 1.2rem 5vw;
+}
+.stillwater nav {
+	display: flex;
+	gap: 1.5rem;
+	font-size: 0.85rem;
+}
+.stillwater-brand {
+	font: 1.6rem var(--font-display);
+	line-height: 1;
+}
+.stillwater-brand span {
+	display: block;
+	margin-block-start: 0.3rem;
+	font: 0.64rem / 1 var(--font-sans);
+	letter-spacing: 0.18em;
+}
+.stillwater-hero {
+	min-height: clamp(32rem, 76vh, 54rem);
+	display: grid;
+	align-items: center;
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	padding: 5rem 7vw;
+}
+.stillwater-hero img {
+	z-index: -2;
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	object-position: 60% center;
+}
+.stillwater-hero::after {
+	content: "";
+	position: absolute;
+	z-index: -1;
+	inset: 0;
+	background: linear-gradient(
+		90deg,
+		color-mix(in oklch, var(--background) 88%, transparent),
+		transparent 85%
+	);
+}
+.stillwater-hero p {
+	color: var(--lichen);
+	letter-spacing: 0.18em;
+	font-size: 0.74rem;
+}
+.stillwater h1,
+.stillwater h2 {
+	font-family: var(--font-display);
+	font-weight: 400;
+}
+.stillwater h1 {
+	margin-block: 0.75rem 1.7rem;
+	font-size: clamp(4rem, 9vw, 9rem);
+	line-height: 0.88;
+	letter-spacing: -0.065em;
+}
+.stillwater-link {
+	display: inline-flex;
+	gap: 3rem;
+	padding: 0.8rem 1.1rem;
+	border: 1px solid var(--lichen);
+	color: var(--lichen);
+}
+.stillwater a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.3em;
+}
+.stillwater-section {
+	display: grid;
+	grid-template-columns: 1fr 3fr;
+	gap: 3rem;
+	padding: 5rem 7vw;
+	border-block-start: 1px solid var(--border);
+}
+.stillwater-section aside {
+	color: var(--lichen);
+	letter-spacing: 0.12em;
+	font-size: 0.74rem;
+}
+.stillwater-section h2 {
+	font-size: clamp(2rem, 5vw, 4.5rem);
+	margin-block-end: 0.5rem;
+	line-height: 1;
+}
+.stillwater-section h3 {
+	font-size: 1.2rem;
+}
+.stillwater-section p {
+	max-width: 52ch;
+	color: var(--muted-foreground);
+}
+.stillwater-section article {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	justify-content: space-between;
+	align-items: center;
+	padding-block: 1rem;
+	border-block-end: 1px solid var(--border);
+}
+.stillwater footer {
+	border-block-start: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+	.stillwater-section {
+		grid-template-columns: 1fr;
+		gap: 1rem;
+		padding-block: 3rem;
+	}
+	.stillwater-hero {
+		padding-inline: 5vw;
+	}
+}
