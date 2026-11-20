@@ -524,10 +524,13 @@ export class UserReferralsService {
 			return 0;
 		}
 
-		// Product rule: the paid reward needs a friend who still has a plan after the hold.
+		// Product rule: the paid reward needs a personal top-up or plan payment with no refund after the hold.
 		if (
 			reward === "paid" &&
-			!(await this.repository.hasLiveSubscription(referral.referredUserId, tx))
+			!(await this.repository.hasLivePersonalPayment(
+				referral.referredUserId,
+				tx,
+			))
 		) {
 			return 0;
 		}

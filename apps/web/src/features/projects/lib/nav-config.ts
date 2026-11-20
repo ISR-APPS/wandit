@@ -10,6 +10,7 @@ import { HandshakeIcon } from "@phosphor-icons/react/Handshake";
 import { ImagesSquareIcon } from "@phosphor-icons/react/ImagesSquare";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
 import { TrayIcon } from "@phosphor-icons/react/Tray";
+import { TrophyIcon } from "@phosphor-icons/react/Trophy";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 
 import type { TranslationKey } from "@/lib/i18n";
@@ -23,11 +24,13 @@ type NavItemBase = {
 	icon: Icon;
 };
 
+/** Every page that the sidebar links to. Each path needs a route file, so `<Link to>` type-checks. */
 export type NavRoutePath =
 	| "/dashboard"
 	| "/leads"
 	| "/assets"
 	| "/academy"
+	| "/trophies"
 	| "/affiliates"
 	| "/workspace/people";
 
@@ -92,6 +95,13 @@ export const NAV_GROUPS: NavGroup[] = [
 				titleKey: "academy.navLabel",
 				to: "/academy",
 				icon: GraduationCapIcon,
+			},
+			// Trophies belong to the user, so the link sits with the user-level resources, not with the workspace pages.
+			{
+				type: "route",
+				titleKey: "trophies.nav.title",
+				to: "/trophies",
+				icon: TrophyIcon,
 			},
 			// The dialog opens over the current page, so the report keeps the page URL and screenshot.
 			{

@@ -2,8 +2,8 @@
  * Pathless `_auth` layout: the session gate and workspace hydrate of
  * every signed-in route. The router runs `beforeLoad` on each
  * navigation into it. The gate calls `getSession` and
- * `hydrateWorkspaceScope`. The layout renders the outlet and the
- * Chatwoot widget, except on the OAuth pages.
+ * `hydrateWorkspaceScope`. The layout renders the outlet, the
+ * Chatwoot widget, and the trophy toaster, except on the OAuth pages.
  */
 import {
 	createFileRoute,
@@ -14,6 +14,7 @@ import {
 
 import { getSession } from "@/features/auth";
 import { ChatwootWidget } from "@/features/support";
+import { TrophyUnlockToaster } from "@/features/trophies";
 import { hydrateWorkspaceScope } from "@/features/workspaces";
 import {
 	isOAuthPagePath,
@@ -78,6 +79,8 @@ function AuthLayout() {
 			{/* Live-chat bubble on every signed-in page; public routes stay clean.
 			    The OAuth pages hold a signed request in the URL, and no third-party script may read it. */}
 			{isOAuthPage ? null : <ChatwootWidget userId={userId} />}
+			{/* A trophy toast would cover the consent screen of an OAuth page, so it shows only on the other pages. */}
+			{isOAuthPage ? null : <TrophyUnlockToaster />}
 		</>
 	);
 }

@@ -1,42 +1,39 @@
 /**
- * Grants, renews, ends, and lists manual (offline) plan subscriptions.
- * The admin manual billing controller, SlickpayPaymentsService, and the billing maintenance task call it.
- * It writes subscriptions and plan credits through the billing repositories and CreditsService.
+ * Offline billing for the admin app: request queue, "Record top-up", "Reverse top-up", and the receipt list.
+ * AdminManualBillingController calls it. Manual plans from before pricing v8 stay readable as history.
+ * It writes credits through CreditsService and rows through the receipt and request repositories.
  */
 import {
 	BadRequestException,
 	ConflictException,
 	Inject,
 	Injectable,
-	Logger,
 	NotFoundException,
-	Optional,
 } from "@nestjs/common";
 import {
-	type AdminEndManualSubscriptionInput,
-	type AdminGrantManualSubscriptionInput,
 	type AdminListManualRequestsQuery,
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsQuery,
 	type AdminListManualSubscriptionsResponse,
+	type AdminListTopupReceiptsQuery,
+	type AdminListTopupReceiptsResponse,
 	type AdminManualBillingStats,
 	type AdminManualPayment,
 	type AdminManualRequest,
 	type AdminManualSubscription,
 	type AdminManualSubscriptionDetail,
-	type AdminRenewManualSubscriptionInput,
+	type AdminRecordTopupInput,
+	type AdminReverseTopupInput,
+	type AdminTopupReceipt,
 	type AdminUpdateManualRequestBody,
-	addBillingInterval,
-	type BillingPlanId,
-	creditTierSchema,
+	centiCreditsToCredits,
+	creditsToCentiCredits,
 	ENTITLED_SUBSCRIPTION_STATUSES,
-	type ManualSubscriptionRequest,
 	OPEN_MANUAL_REQUEST_STATUSES,
-	type ProductSettings,
-	priceLookupKey,
+	topupCreditsForUsd,
+	topupReceiptProviderSchema,
 } from "@wandit/contracts";
 
-import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
 	type CreditOwner,
@@ -47,12 +44,13 @@ import {
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
-import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
-import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
-import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import {
+	type AdminTopupReceiptRow,
+	type BillingTopupReceiptRow,
+	BillingTopupReceiptsRepository,
+} from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import {
 	type ManualSubscriptionPaymentAdminRow,
-	type ManualSubscriptionPaymentRow,
 	ManualSubscriptionPaymentsRepository,
 } from "../../infrastructure/persistence/manual-subscription-payments.repository";
 import {
@@ -61,85 +59,102 @@ import {
 	ManualSubscriptionRequestsRepository,
 } from "../../infrastructure/persistence/manual-subscription-requests.repository";
 import { SubscriptionCreditsRepository } from "../../infrastructure/persistence/subscription-credits.repository";
-import { SubscriptionStateEventsRepository } from "../../infrastructure/persistence/subscription-state-events.repository";
 import {
 	type AdminManualSubscriptionRow,
-	type SubscriptionRow,
 	SubscriptionsRepository,
 } from "../../infrastructure/persistence/subscriptions.repository";
-import { SubscriptionRefillService } from "./subscription-refill.service";
+import { mapManualRequest } from "./manual-subscription-requests.service";
 
-const TERMINAL_SUBSCRIPTION_STATUSES = ["canceled", "incomplete_expired"];
 const DAY_MS = 86_400_000;
+// The offline stats count manual plans that end within this many days.
+const EXPIRING_WINDOW_DAYS = 7;
 
-export type ManualSubscriptionExpiryResult = {
-	ended: number;
-	failed: number;
-	skipped: number;
+/** The money of one offline top-up and the credits it buys. */
+type OfflineTopupAmounts = {
+	/** USD value of the money in cents. Null when the currency is not USD or DZD, or the value is below 1 cent. */
+	amountUsdCents: number | null;
+	/** UNIT: centi-credits, the ledger unit. Always above zero. */
+	centiCredits: number;
 };
 
-type TerminationOutcome = "ended" | "skipped";
-
+/** Admin offline billing: Record and Reverse top-up under the owner lock, plus read-only history of old manual plans. */
 @Injectable()
 export class ManualSubscriptionsService {
-	private readonly logger = new Logger(ManualSubscriptionsService.name);
-
 	constructor(
 		@Inject(SubscriptionsRepository)
-		private readonly subscriptionsRepository: SubscriptionsRepository,
+		private readonly subscriptionsRepository: Pick<
+			SubscriptionsRepository,
+			| "countManualActive"
+			| "countManualExpiringBetween"
+			| "findManualAdminById"
+			| "findManualBillingOwner"
+			| "listManualForAdmin"
+		>,
+		// Owner lock: the same advisory key as the credit ledger.
 		@Inject(SubscriptionCreditsRepository)
-		private readonly subscriptionCreditsRepository: SubscriptionCreditsRepository,
+		private readonly subscriptionCreditsRepository: Pick<
+			SubscriptionCreditsRepository,
+			"withOwnerLock"
+		>,
 		@Inject(CreditsService)
-		private readonly creditsService: CreditsService,
-		@Inject(SubscriptionRefillService)
-		private readonly subscriptionRefillService: SubscriptionRefillService,
+		private readonly creditsService: Pick<CreditsService, "revoke" | "topup">,
 		@Inject(ManualSubscriptionPaymentsRepository)
-		private readonly paymentsRepository: ManualSubscriptionPaymentsRepository,
+		private readonly paymentsRepository: Pick<
+			ManualSubscriptionPaymentsRepository,
+			"listBySubscription" | "sumByCurrencyBetween"
+		>,
 		@Inject(ManualSubscriptionRequestsRepository)
-		private readonly requestsRepository: ManualSubscriptionRequestsRepository,
-		@Inject(SubscriptionStateEventsRepository)
-		private readonly stateEventsRepository: SubscriptionStateEventsRepository,
-		@Inject(BillingCheckoutAttemptsRepository)
-		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
+		private readonly requestsRepository: Pick<
+			ManualSubscriptionRequestsRepository,
+			| "countOpen"
+			| "findAdminById"
+			| "findById"
+			| "findBySubscriptionId"
+			| "findOpenByOwner"
+			| "listForAdmin"
+			| "update"
+			| "updateIfNotTerminal"
+		>,
+		@Inject(BillingTopupReceiptsRepository)
+		private readonly receiptsRepository: Pick<
+			BillingTopupReceiptsRepository,
+			| "findAdminById"
+			| "findById"
+			| "findByProviderReference"
+			| "insertIfAbsent"
+			| "listForAdmin"
+			| "markReversed"
+		>,
 		@Inject(ProductSettingsService)
-		private readonly productSettingsService: ProductSettingsService,
+		private readonly productSettingsService: Pick<
+			ProductSettingsService,
+			"get"
+		>,
 		@Inject(LifecycleEventsService)
-		private readonly lifecycleEvents: LifecycleEventsService,
-		@Optional()
-		@Inject(AnalyticsService)
-		private readonly analyticsService?: AnalyticsService,
+		private readonly lifecycleEvents: Pick<LifecycleEventsService, "enqueue">,
 	) {}
 
 	/**
 	 * Header aggregates for the admin Offline billing page. Offline money never
-	 * joins the USD MRR analytics — the collected totals come from the real
-	 * recorded payment rows, per currency, on UTC calendar months.
+	 * joins the USD MRR analytics. The collected totals come from the recorded
+	 * payments and receipts, per currency, on UTC calendar months.
 	 */
 	async getStats(now = new Date()): Promise<AdminManualBillingStats> {
-		const settings = await this.productSettingsService.get();
-		const graceMs = this.graceMs(settings);
 		const monthStart = startOfUtcMonth(now);
 		const previousMonthStart = startOfUtcMonth(
 			new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)),
 		);
-		const effectiveNow = new Date(now.getTime() - graceMs);
-		const effectiveIn7Days = new Date(now.getTime() + 7 * DAY_MS - graceMs);
 		const [
 			activeSubscriptions,
 			expiringWithin7Days,
-			inGrace,
 			openRequests,
 			collectedThisMonth,
 			collectedPreviousMonth,
 		] = await Promise.all([
-			this.subscriptionsRepository.countManualActive(effectiveNow),
+			this.subscriptionsRepository.countManualActive(now),
 			this.subscriptionsRepository.countManualExpiringBetween(
-				effectiveNow,
-				effectiveIn7Days,
-			),
-			this.subscriptionsRepository.countManualExpiringBetween(
-				effectiveNow,
 				now,
+				new Date(now.getTime() + EXPIRING_WINDOW_DAYS * DAY_MS),
 			),
 			this.requestsRepository.countOpen(),
 			this.paymentsRepository.sumByCurrencyBetween(
@@ -157,25 +172,24 @@ export class ManualSubscriptionsService {
 			collectedPreviousMonth,
 			collectedThisMonth,
 			expiringWithin7Days,
-			inGrace,
+			// Pricing v8 removes the grace days. The field stays because the admin app parses it.
+			inGrace: 0,
 			openRequests,
 		};
 	}
 
 	/**
-	 * Creates a manual plan for a user or a team org. A replay of the same idempotency key returns the first result.
-	 * Throws 400 for a personal workspace org: its owner's personal plan pays there.
+	 * "Record top-up": money an admin collected offline becomes wallet credits, with or without a request.
+	 * A replay of the same idempotency key returns the first receipt. A replay with other values is a 409.
 	 */
-	async grant(
+	async recordTopup(
 		adminId: string,
-		input: AdminGrantManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
+		input: AdminRecordTopupInput,
+	): Promise<AdminTopupReceipt> {
 		const organizationId = input.organizationId ?? null;
 		const owner = organizationId
 			? orgOwner(organizationId)
 			: userOwner(input.userId);
-		this.assertPlanMatchesOwner(input.plan, owner);
-
 		const billingOwner =
 			await this.subscriptionsRepository.findManualBillingOwner(
 				input.userId,
@@ -186,381 +200,100 @@ export class ManualSubscriptionsService {
 			throw new NotFoundException("Billing user or organization was not found");
 		}
 
-		// The owner's personal plan pays in a personal workspace, so the org gets no plan.
+		// The owner's personal wallet pays in a personal workspace, so its org wallet is never spent.
 		if (billingOwner.organization?.personalOwnerUserId) {
 			throw new BadRequestException(
-				"A personal workspace cannot have its own plan. Grant the plan to its owner",
+				"A personal workspace has no wallet of its own. Record the top-up for its owner",
 			);
 		}
 
-		const providerSubscriptionId = `manual_${input.idempotencyKey}`;
-		const replay =
-			await this.subscriptionsRepository.findByProviderSubscriptionId(
-				providerSubscriptionId,
-			);
+		const settings = await this.productSettingsService.get();
+		const providerReference = `offline:${input.idempotencyKey}`;
 
-		if (replay) {
-			return this.getManualReplayDetail(replay);
-		}
-
-		const now = new Date();
-		const periodStart = input.periodStart ? new Date(input.periodStart) : now;
-		const periodEnd = input.periodEnd
-			? new Date(input.periodEnd)
-			: addBillingInterval(periodStart, input.interval);
-		this.assertValidPeriod(periodStart, periodEnd);
-
-		let result: { created: boolean; subscriptionId: string };
-
-		try {
-			result = await this.subscriptionCreditsRepository.withOwnerLock(
-				owner,
-				async (tx) => {
-					const lockedReplay =
-						await this.subscriptionsRepository.findByProviderSubscriptionId(
-							providerSubscriptionId,
-							tx,
-						);
-
-					if (lockedReplay) {
-						return { created: false, subscriptionId: lockedReplay.id };
-					}
-
-					if (await this.subscriptionsRepository.findActiveByOwner(owner, tx)) {
-						throw new ActiveSubscriptionExistsError();
-					}
-
-					const openCheckoutAttempts =
-						await this.checkoutAttemptsRepository.findOpenForOwner(
-							owner,
-							"subscription",
-							tx,
-						);
-
-					if (openCheckoutAttempts.length > 0) {
-						throw new ConflictException({
-							code: "BILLING_CHECKOUT_PENDING",
-							message: "A billing checkout is already pending",
-						});
-					}
-
-					// Without an explicit requestId, a grant from the user/org detail
-					// pages still fulfills the owner's open request — auto-link it so
-					// it does not stay pending forever (review finding).
-					const request = input.requestId
-						? await this.requestsRepository.findById(input.requestId, tx)
-						: await this.requestsRepository.findOpenByOwner(owner, tx);
-					this.assertRequestCanFundOwner(
-						request,
-						input.requestId,
-						input.userId,
-						owner,
-					);
-
-					const subscription = await this.subscriptionsRepository.insertManual(
-						{
-							cancelAtPeriodEnd: false,
-							currentPeriodEnd: periodEnd,
-							currentPeriodStart: periodStart,
-							interval: input.interval,
-							organizationId,
-							plan: input.plan,
-							priceLookupKey: priceLookupKey(
-								input.plan,
-								input.tierCredits,
-								input.interval,
-							),
-							providerSubscriptionId,
-							status: "active",
-							tierCredits: input.tierCredits,
-							userId: input.userId,
-						},
-						tx,
-					);
-					const payment = await this.paymentsRepository.insert(
-						{
-							amountMinor: input.payment.amountMinor,
-							currency: input.payment.currency,
-							idempotencyKey: input.idempotencyKey,
-							kind: "initial",
-							method: input.payment.method,
-							note: input.payment.note ?? null,
-							periodEnd,
-							periodStart,
-							recordedByUserId: adminId,
-							reference: input.payment.reference ?? null,
-							requestId: request?.id ?? null,
-							subscriptionId: subscription.id,
-						},
-						tx,
-					);
-					this.assertPaymentReplayMatches(payment, subscription.id, "initial");
-
-					await this.creditsService.grant(
-						owner,
-						input.tierCredits * 100,
-						{
-							bucket: "plan",
-							idempotencyKey: `manual:${subscription.id}:initial`,
-							meta: {
-								grantedBy: adminId,
-								paymentId: payment.id,
-								reason: "manual_subscription_initial",
-								subscriptionId: subscription.id,
-							},
-						},
-						tx,
-					);
-
-					await this.lifecycleEvents.enqueue(
-						{
-							event: "payment_completed",
-							idempotencyKey: lifecycleEventIdempotencyKey(
-								"payment_completed",
-								input.userId,
-							),
-							payload: { interval: input.interval },
-							userId: input.userId,
-						},
-						tx,
-					);
-
-					if (input.interval === "year") {
-						await this.subscriptionRefillService.createYearlySlots(
-							{
-								credits: input.tierCredits * 100,
-								funding: {
-									chargeId: null,
-									invoiceId: `manual:${payment.id}`,
-									paymentIntentId: null,
-								},
-								remainingAfter: periodStart,
-								subscription,
-							},
-							tx,
-						);
-					}
-
-					await this.stateEventsRepository.tryInsert(
-						{
-							kind: "created",
-							occurredAt: now,
-							organizationId,
-							stripeEventId: `manual:${subscription.id}:created`,
-							stripeSubscriptionId: subscription.providerSubscriptionId,
-							toLookupKey: subscription.priceLookupKey,
-							toStatus: subscription.status,
-							userId: subscription.userId,
-						},
-						tx,
-					);
-
-					if (request) {
-						await this.requestsRepository.update(
-							request.id,
-							{
-								adminNotes: this.mergeAdminNotes(
-									request.adminNotes,
-									input.adminNotes,
-								),
-								handledAt: now,
-								handledByUserId: adminId,
-								status: "approved",
-								subscriptionId: subscription.id,
-							},
-							tx,
-						);
-					}
-
-					return { created: true, subscriptionId: subscription.id };
-				},
-			);
-		} catch (error) {
-			if (!isUniqueViolation(error)) {
-				throw error;
-			}
-
-			const existing =
-				await this.subscriptionsRepository.findByProviderSubscriptionId(
-					providerSubscriptionId,
-				);
-
-			if (!existing) {
-				throw new ActiveSubscriptionExistsError();
-			}
-
-			return this.getManualReplayDetail(existing);
-		}
-
-		if (result.created) {
-			this.analyticsService?.capture(input.userId, "subscription_started", {
-				plan: input.plan,
-				provider: "manual",
-			});
-		}
-
-		return this.getSubscription(result.subscriptionId);
-	}
-
-	async renew(
-		adminId: string,
-		subscriptionId: string,
-		input: AdminRenewManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
-		const subscription = await this.requireSubscription(subscriptionId);
-		this.assertManual(subscription);
-		const replay = await this.paymentsRepository.findByIdempotencyKey(
-			input.idempotencyKey,
-		);
-
-		if (replay) {
-			this.assertPaymentReplayMatches(replay, subscriptionId, "renewal");
-			return this.getSubscription(subscriptionId);
-		}
-
-		const owner = ownerFromIds(
-			subscription.userId,
-			subscription.organizationId,
-		);
-
-		await this.subscriptionCreditsRepository.withOwnerLock(
+		// LIMIT: two records with two keys and no request both grant. Upgrade: refuse a second receipt with the same method and reference for one owner.
+		const receiptId = await this.subscriptionCreditsRepository.withOwnerLock(
 			owner,
 			async (tx) => {
-				const current = await this.subscriptionsRepository.findById(
-					subscriptionId,
+				const replay = await this.receiptsRepository.findByProviderReference(
+					providerReference,
 					tx,
 				);
 
-				if (!current) {
-					throw new NotFoundException();
+				// The admin dialog sends the same key on a retry. Check the replay before the request, which is approved now.
+				if (replay) {
+					assertOfflineReplayMatches(replay, input, organizationId);
+					return replay.id;
 				}
 
-				this.assertManual(current);
-				const renewalTierCredits = creditTierSchema.parse(
-					current.pendingTierCredits ?? current.tierCredits,
-				);
-				const appliesPendingTier = current.pendingTierCredits !== null;
-				const renewalPriceLookupKey = appliesPendingTier
-					? priceLookupKey(current.plan, renewalTierCredits, current.interval)
-					: current.priceLookupKey;
-				const lockedReplay = await this.paymentsRepository.findByIdempotencyKey(
-					input.idempotencyKey,
-					tx,
-				);
+				// After the replay check: an admin can change the DZD rate between a call and its retry.
+				const amounts = offlineTopupAmounts(input, settings.dzdPerUsdRate);
 
-				if (lockedReplay) {
-					this.assertPaymentReplayMatches(
-						lockedReplay,
-						subscriptionId,
-						"renewal",
-					);
-					return;
-				}
-
-				// An explicit requestId is the admin's decision (the UI warns on a
-				// plan mismatch). Without one, auto-resolve the owner's open request
-				// ONLY when it asks for exactly the plan being renewed — a change
-				// request must stay open for the End + grant flow.
-				const discovered = input.requestId
-					? null
-					: await this.requestsRepository.findOpenByOwner(owner, tx);
+				// Without a requestId, the open request of the owner is the one this money funds.
 				const request = input.requestId
 					? await this.requestsRepository.findById(input.requestId, tx)
-					: discovered &&
-							discovered.plan === current.plan &&
-							discovered.tierCredits === renewalTierCredits &&
-							discovered.interval === current.interval
-						? discovered
-						: null;
+					: await this.requestsRepository.findOpenByOwner(owner, tx);
 				this.assertRequestCanFundOwner(
 					request,
 					input.requestId,
-					current.userId,
+					input.userId,
 					owner,
 				);
 
 				const now = new Date();
-				const renewAtBoundary =
-					this.isEntitled(current.status) &&
-					current.currentPeriodEnd.getTime() > now.getTime();
-
-				if (!renewAtBoundary) {
-					const other = await this.subscriptionsRepository.findActiveByOwner(
-						owner,
-						tx,
-					);
-
-					if (other && other.id !== subscriptionId) {
-						throw new ActiveSubscriptionExistsError();
-					}
-
-					// Same admission rule as grant: re-activating an ended manual
-					// subscription while a Stripe checkout is open would let the
-					// webhook mirror collide with the fresh manual entitlement.
-					const openCheckoutAttempts =
-						await this.checkoutAttemptsRepository.findOpenForOwner(
-							owner,
-							"subscription",
-							tx,
-						);
-
-					if (openCheckoutAttempts.length > 0) {
-						throw new ConflictException({
-							code: "BILLING_CHECKOUT_PENDING",
-							message: "A billing checkout is already pending",
-						});
-					}
-				}
-
-				const newStart = renewAtBoundary ? current.currentPeriodEnd : now;
-				const newEnd = input.periodEnd
-					? new Date(input.periodEnd)
-					: addBillingInterval(newStart, current.interval);
-				this.assertValidPeriod(newStart, newEnd);
-
-				const payment = await this.paymentsRepository.insert(
+				const receipt = await this.receiptsRepository.insertIfAbsent(
 					{
-						amountMinor: input.payment.amountMinor,
-						currency: input.payment.currency,
-						idempotencyKey: input.idempotencyKey,
-						kind: "renewal",
-						method: input.payment.method,
-						note: input.payment.note ?? null,
-						periodEnd: newEnd,
-						periodStart: newStart,
+						amountCents: input.amountMinor,
+						amountUsdCents: amounts.amountUsdCents,
+						credits: amounts.centiCredits,
+						currency: input.currency,
+						method: input.method,
+						note: input.note ?? null,
+						organizationId,
+						paidAt: now,
+						provider: "offline",
+						providerReference,
 						recordedByUserId: adminId,
-						reference: input.payment.reference ?? null,
+						reference: input.reference ?? null,
 						requestId: request?.id ?? null,
-						subscriptionId,
-					},
-					tx,
-				);
-				this.assertPaymentReplayMatches(payment, subscriptionId, "renewal");
-
-				const updated = await this.subscriptionsRepository.updatePeriod(
-					subscriptionId,
-					{
-						cancelAtPeriodEnd: false,
-						currentPeriodEnd: newEnd,
-						currentPeriodStart: renewAtBoundary
-							? current.currentPeriodStart
-							: newStart,
-						...(appliesPendingTier
-							? {
-									pendingAppliedBy: null,
-									pendingTierCredits: null,
-									priceLookupKey: renewalPriceLookupKey,
-									tierCredits: renewalTierCredits,
-								}
-							: {}),
-						status: "active",
+						userId: input.userId,
 					},
 					tx,
 				);
 
-				if (!updated) {
-					throw new Error(`Manual subscription ${subscriptionId} disappeared`);
+				// Another owner holds this key: its call took a different lock and inserted first.
+				if (!receipt) {
+					throw new ConflictException(
+						"The idempotency key is already used by another top-up",
+					);
 				}
+
+				await this.creditsService.topup(
+					owner,
+					amounts.centiCredits,
+					{
+						idempotencyKey: `offline-topup:${input.idempotencyKey}`,
+						meta: {
+							amountUsdCents: amounts.amountUsdCents,
+							grantedBy: adminId,
+							method: input.method,
+							reason: "offline_topup",
+							receiptId: receipt.id,
+						},
+					},
+					tx,
+				);
+				await this.lifecycleEvents.enqueue(
+					{
+						event: "payment_completed",
+						idempotencyKey: lifecycleEventIdempotencyKey(
+							"payment_completed",
+							input.userId,
+						),
+						payload: { interval: "topup" },
+						userId: input.userId,
+					},
+					tx,
+				);
 
 				if (request) {
 					await this.requestsRepository.update(
@@ -569,143 +302,105 @@ export class ManualSubscriptionsService {
 							handledAt: now,
 							handledByUserId: adminId,
 							status: "approved",
-							subscriptionId,
 						},
 						tx,
 					);
 				}
 
-				if (renewAtBoundary) {
-					await this.subscriptionCreditsRepository.insertRefillSlots(
-						[
-							{
-								credits: updated.tierCredits * 100,
-								dueAt: newStart,
-								fundingChargeId: null,
-								fundingInvoiceId: `manual:${payment.id}:cycle`,
-								fundingPaymentIntentId: null,
-								periodOrdinal: 2,
-								status: "pending",
-								subscriptionId,
-							},
-						],
-						tx,
-					);
-
-					if (current.interval === "year") {
-						await this.createRenewalYearlySlots(
-							updated,
-							newStart,
-							newEnd,
-							payment.id,
-							tx,
-						);
-					}
-
-					return;
-				}
-
-				// A manual renewal re-grants the tier allotment below; the earlier
-				// period's unfired slots are superseded by this renewal.
-				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
-					subscriptionId,
-					{ reason: "replaced" },
-					tx,
-				);
-
-				await this.creditsService.applyCappedRefill(
-					owner,
-					updated.tierCredits * 100,
-					{
-						capMultiplier: 1,
-						idempotencyKey: `manual:${subscriptionId}:renewal:${payment.id}`,
-						meta: {
-							grantedBy: adminId,
-							paymentId: payment.id,
-							reason: "manual_subscription_renewal",
-							subscriptionId,
-						},
-					},
-					tx,
-				);
-
-				if (current.interval === "year") {
-					await this.createRenewalYearlySlots(
-						updated,
-						newStart,
-						newEnd,
-						payment.id,
-						tx,
-					);
-				}
-
-				await this.stateEventsRepository.tryInsert(
-					{
-						fromStatus: current.status,
-						kind: "status_changed",
-						occurredAt: now,
-						organizationId: current.organizationId,
-						stripeEventId: `manual:${subscriptionId}:renewed:${payment.id}`,
-						stripeSubscriptionId: current.providerSubscriptionId,
-						toStatus: "active",
-						userId: current.userId,
-					},
-					tx,
-				);
+				return receipt.id;
 			},
 		);
 
-		return this.getSubscription(subscriptionId);
+		return this.getTopupReceipt(receiptId);
 	}
 
-	async end(
+	/**
+	 * "Reverse top-up": takes back the credits of a SlickPay or offline receipt after a refund outside the API.
+	 * A second call is a no-op that returns the same receipt. The balance can go below zero.
+	 */
+	async reverseTopup(
 		adminId: string,
-		subscriptionId: string,
-		input: AdminEndManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
-		const subscription = await this.requireSubscription(subscriptionId);
-		this.assertManual(subscription);
-		await this.terminate(
-			subscriptionId,
-			input.reason ?? "manual_subscription_ended",
-			{ endedBy: adminId },
-		);
+		input: AdminReverseTopupInput,
+	): Promise<AdminTopupReceipt> {
+		const receipt = await this.receiptsRepository.findById(input.receiptId);
 
-		return this.getSubscription(subscriptionId);
-	}
-
-	async expireDue(
-		now = new Date(),
-		limit = 200,
-	): Promise<ManualSubscriptionExpiryResult> {
-		const result: ManualSubscriptionExpiryResult = {
-			ended: 0,
-			failed: 0,
-			skipped: 0,
-		};
-		const settings = await this.productSettingsService.get();
-		const cutoff = new Date(now.getTime() - this.graceMs(settings));
-		const due = await this.subscriptionsRepository.listManualDueForExpiry(
-			cutoff,
-			limit,
-		);
-
-		for (const subscription of due) {
-			try {
-				const outcome = await this.terminate(subscription.id, "period_ended", {
-					dueThrough: cutoff,
-				});
-				result[outcome] += 1;
-			} catch (error) {
-				result.failed += 1;
-				this.logger.error(
-					`Manual subscription ${subscription.id} expiry failed and remains retryable`,
-					error instanceof Error ? error.stack : String(error),
-				);
-			}
+		if (!receipt) {
+			throw new NotFoundException("Top-up receipt was not found");
 		}
 
-		return result;
+		// A Stripe refund revokes through the webhook. Only money with no refund event is reversed here.
+		if (receipt.provider !== "slickpay" && receipt.provider !== "offline") {
+			throw new BadRequestException(
+				"Only SlickPay and offline top-ups can be reversed",
+			);
+		}
+
+		const owner = ownerFromIds(receipt.userId, receipt.organizationId);
+
+		await this.subscriptionCreditsRepository.withOwnerLock(
+			owner,
+			async (tx) => {
+				const locked = await this.receiptsRepository.findById(receipt.id, tx);
+
+				if (!locked) {
+					throw new NotFoundException("Top-up receipt was not found");
+				}
+
+				if (locked.reversedAt !== null) {
+					return;
+				}
+
+				// billing_topup_receipts_non_stripe_credits_ck makes credits NOT NULL on a SlickPay or offline row.
+				if (locked.credits === null) {
+					throw new Error(`Top-up receipt ${locked.id} has no credits`);
+				}
+
+				await this.creditsService.revoke(
+					owner,
+					locked.credits,
+					{
+						bucket: "topup",
+						idempotencyKey: `topup-reverse:${locked.id}`,
+						meta: {
+							reason: "topup_reversed",
+							receiptId: locked.id,
+							reversedBy: adminId,
+						},
+					},
+					tx,
+				);
+
+				const reversed = await this.receiptsRepository.markReversed(
+					locked.id,
+					adminId,
+					new Date(),
+					tx,
+				);
+
+				// The owner lock serializes reversals, so a null here is a data bug. Roll back the revoke.
+				if (!reversed) {
+					throw new Error(
+						`Top-up receipt ${locked.id} was reversed in parallel`,
+					);
+				}
+			},
+		);
+
+		return this.getTopupReceipt(receipt.id);
+	}
+
+	/** One page of wallet receipts for the admin app. The offline billing page asks for SlickPay and offline. */
+	async listTopupReceipts(
+		query: AdminListTopupReceiptsQuery,
+	): Promise<AdminListTopupReceiptsResponse> {
+		const page = await this.receiptsRepository.listForAdmin(query);
+
+		return {
+			items: page.items.map(mapAdminTopupReceipt),
+			page: page.page,
+			pageSize: page.pageSize,
+			total: page.total,
+		};
 	}
 
 	async listRequests(
@@ -782,21 +477,18 @@ export class ManualSubscriptionsService {
 		return this.getRequest(id);
 	}
 
+	/** Manual plans from before pricing v8, read-only history for the admin app. */
 	async listSubscriptions(
 		query: AdminListManualSubscriptionsQuery,
 	): Promise<AdminListManualSubscriptionsResponse> {
 		const now = new Date();
-		const settings = await this.productSettingsService.get();
-		const graceMs = this.graceMs(settings);
 		const page = await this.subscriptionsRepository.listManualForAdmin(
 			query,
-			new Date(now.getTime() - graceMs),
+			now,
 		);
 
 		return {
-			items: page.items.map((row) =>
-				mapAdminManualSubscription(row, now, graceMs),
-			),
+			items: page.items.map((row) => mapAdminManualSubscription(row, now)),
 			page: page.page,
 			pageSize: page.pageSize,
 			total: page.total,
@@ -810,168 +502,26 @@ export class ManualSubscriptionsService {
 			throw new NotFoundException();
 		}
 
-		const [payments, request, settings] = await Promise.all([
+		const [payments, request] = await Promise.all([
 			this.paymentsRepository.listBySubscription(id),
 			this.requestsRepository.findBySubscriptionId(id),
-			this.productSettingsService.get(),
 		]);
 
 		return {
-			...mapAdminManualSubscription(row, new Date(), this.graceMs(settings)),
+			...mapAdminManualSubscription(row, new Date()),
 			payments: payments.map(mapAdminManualPayment),
-			request: request ? mapManualSubscriptionRequest(request) : null,
+			request: request ? mapManualRequest(request) : null,
 		};
 	}
 
-	private async getManualReplayDetail(
-		subscription: SubscriptionRow,
-	): Promise<AdminManualSubscriptionDetail> {
-		this.assertManual(subscription);
+	private async getTopupReceipt(id: string): Promise<AdminTopupReceipt> {
+		const row = await this.receiptsRepository.findAdminById(id);
 
-		return this.getSubscription(subscription.id);
-	}
-
-	private graceMs(settings: Pick<ProductSettings, "manualGraceDays">): number {
-		return settings.manualGraceDays * DAY_MS;
-	}
-
-	private async requireSubscription(id: string): Promise<SubscriptionRow> {
-		const subscription = await this.subscriptionsRepository.findById(id);
-
-		if (!subscription) {
-			throw new NotFoundException();
+		if (!row) {
+			throw new NotFoundException("Top-up receipt was not found");
 		}
 
-		return subscription;
-	}
-
-	private async terminate(
-		subscriptionId: string,
-		reason: string,
-		options: { dueThrough?: Date; endedBy?: string } = {},
-	): Promise<TerminationOutcome> {
-		const candidate =
-			await this.subscriptionsRepository.findById(subscriptionId);
-
-		if (!candidate || this.isTerminal(candidate.status)) {
-			return "skipped";
-		}
-
-		this.assertManual(candidate);
-		const owner = ownerFromIds(candidate.userId, candidate.organizationId);
-
-		return this.subscriptionCreditsRepository.withOwnerLock(
-			owner,
-			async (tx) => {
-				const current = await this.subscriptionsRepository.findById(
-					subscriptionId,
-					tx,
-				);
-
-				if (!current || this.isTerminal(current.status)) {
-					return "skipped";
-				}
-
-				this.assertManual(current);
-
-				if (
-					options.dueThrough &&
-					current.currentPeriodEnd.getTime() > options.dueThrough.getTime()
-				) {
-					return "skipped";
-				}
-
-				const ended = await this.subscriptionsRepository.updatePeriod(
-					subscriptionId,
-					{
-						cancelAtPeriodEnd: false,
-						currentPeriodEnd: current.currentPeriodEnd,
-						currentPeriodStart: current.currentPeriodStart,
-						status: "canceled",
-					},
-					tx,
-				);
-
-				if (!ended) {
-					throw new Error(`Manual subscription ${subscriptionId} disappeared`);
-				}
-
-				// The subscription ended: its unfired slots are void and, unlike a
-				// clawback, never restorable.
-				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
-					subscriptionId,
-					{ reason: "ended" },
-					tx,
-				);
-				const anotherEntitled =
-					await this.subscriptionCreditsRepository.findCanonicalEntitledByOwner(
-						owner,
-						tx,
-					);
-
-				if (!anotherEntitled) {
-					// Cycle-scoped, not period-end-scoped: an end -> renew -> end
-					// sequence can restore the SAME period end, and a reused key
-					// would make the second expiry a silent no-op (review finding).
-					const idempotencySuffix = `${current.currentPeriodStart.getTime()}:${current.currentPeriodEnd.getTime()}`;
-					await this.creditsService.expirePlanRemainder(
-						owner,
-						{
-							idempotencyKey: `manual:${subscriptionId}:expire:${idempotencySuffix}`,
-							meta: {
-								...(options.endedBy ? { endedBy: options.endedBy } : {}),
-								reason,
-								subscriptionId,
-							},
-						},
-						tx,
-					);
-				}
-
-				await this.stateEventsRepository.tryInsert(
-					{
-						fromLookupKey: current.priceLookupKey,
-						fromStatus: current.status,
-						kind: "ended",
-						occurredAt: new Date(),
-						organizationId: current.organizationId,
-						stripeEventId: `manual:${subscriptionId}:ended:${current.currentPeriodStart.getTime()}:${current.currentPeriodEnd.getTime()}`,
-						stripeSubscriptionId: current.providerSubscriptionId,
-						toStatus: "canceled",
-						userId: current.userId,
-					},
-					tx,
-				);
-
-				return "ended";
-			},
-		);
-	}
-
-	private async createRenewalYearlySlots(
-		subscription: SubscriptionRow,
-		periodStart: Date,
-		periodEnd: Date,
-		paymentId: string,
-		transaction: Parameters<SubscriptionRefillService["createYearlySlots"]>[1],
-	): Promise<void> {
-		await this.subscriptionRefillService.createYearlySlots(
-			{
-				credits: subscription.tierCredits * 100,
-				funding: {
-					chargeId: null,
-					invoiceId: `manual:${paymentId}`,
-					paymentIntentId: null,
-				},
-				remainingAfter: periodStart,
-				subscription: {
-					...subscription,
-					currentPeriodEnd: periodEnd,
-					currentPeriodStart: periodStart,
-				},
-			},
-			transaction,
-		);
+		return mapAdminTopupReceipt(row);
 	}
 
 	private assertRequestCanFundOwner(
@@ -999,94 +549,118 @@ export class ManualSubscriptionsService {
 			);
 		}
 
-		if (request.subscriptionId && request.status === "approved") {
-			throw new ConflictException(
-				"Offline payment request is already linked to a subscription",
-			);
-		}
-
 		// Approving must never resurrect a request the user canceled or an
-		// admin rejected — only OPEN requests can fund a grant or renewal.
+		// admin rejected. Only an OPEN request can fund a top-up.
 		if (
-			!(OPEN_MANUAL_REQUEST_STATUSES as readonly string[]).includes(
-				request.status,
-			)
+			!OPEN_MANUAL_REQUEST_STATUSES.some((status) => status === request.status)
 		) {
 			throw new ConflictException("Offline payment request is no longer open");
 		}
 	}
+}
 
-	private assertPlanMatchesOwner(
-		plan: BillingPlanId,
-		owner: CreditOwner,
-	): void {
-		const supported =
-			owner.type === "org"
-				? plan === "business"
-				: plan === "starter" || plan === "pro";
+/**
+ * The credits and the USD value of an offline top-up. Exported for the spec.
+ * Default credits: topupCreditsForUsd of the whole USD of the money, bonus included. The admin gives the credits for another currency or another price.
+ */
+export function offlineTopupAmounts(
+	input: Pick<AdminRecordTopupInput, "amountMinor" | "credits" | "currency">,
+	dzdPerUsdRate: number,
+): OfflineTopupAmounts {
+	// amountMinor is USD cents for "usd" and DZD centimes for "dzd". dzdPerUsdRate is centi-DZD per 1 USD.
+	const usdCents =
+		input.currency === "usd"
+			? input.amountMinor
+			: input.currency === "dzd"
+				? Math.round((input.amountMinor * 100) / dzdPerUsdRate)
+				: null;
+	const amountUsdCents = usdCents !== null && usdCents > 0 ? usdCents : null;
 
-		if (!supported) {
-			throw new BadRequestException(
-				owner.type === "org"
-					? "Organization billing owners support the business plan only"
-					: "Personal billing owners support the starter and pro plans only",
-			);
-		}
+	if (input.credits !== undefined) {
+		// The schema allows 0.01 to 1,000,000 display credits, so the result is above zero.
+		return {
+			amountUsdCents,
+			centiCredits: creditsToCentiCredits(input.credits),
+		};
 	}
 
-	private assertValidPeriod(periodStart: Date, periodEnd: Date): void {
-		if (
-			Number.isNaN(periodStart.getTime()) ||
-			Number.isNaN(periodEnd.getTime()) ||
-			periodEnd.getTime() <= periodStart.getTime()
-		) {
-			throw new BadRequestException("Period end must be after period start");
-		}
-	}
-
-	private assertManual(subscription: SubscriptionRow): void {
-		if (subscription.provider !== "manual") {
-			throw new ManualSubscriptionUnsupportedError();
-		}
-	}
-
-	private assertPaymentReplayMatches(
-		payment: ManualSubscriptionPaymentRow,
-		subscriptionId: string,
-		kind: ManualSubscriptionPaymentRow["kind"],
-	): void {
-		if (payment.subscriptionId !== subscriptionId || payment.kind !== kind) {
-			throw new ConflictException(
-				"The idempotency key is already used by another manual payment",
-			);
-		}
-	}
-
-	private mergeAdminNotes(
-		existing: string | null,
-		incoming: string | undefined,
-	): string | null {
-		if (!incoming) {
-			return existing;
-		}
-
-		return existing ? `${existing}\n${incoming}` : incoming;
-	}
-
-	private isEntitled(status: string): boolean {
-		return (ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-			status,
+	if (amountUsdCents === null) {
+		throw new BadRequestException(
+			`Give the credits: the API converts only USD and DZD, not ${input.currency.toUpperCase()}`,
 		);
 	}
 
-	private isTerminal(status: string): boolean {
-		return TERMINAL_SUBSCRIPTION_STATUSES.includes(status);
+	// A top-up buys credits for whole USD only. The admin gives the credits to count the cents.
+	// LIMIT: with no credits from the admin, the tier comes from the floored USD value.
+	// A DZD rate change can move an amount below a tier edge. Upgrade: store the quoted credits on the request row.
+	const wholeUsd = Math.floor(amountUsdCents / 100);
+
+	if (wholeUsd < 1) {
+		throw new BadRequestException(
+			"The amount is below 1 USD. Give the credits explicitly",
+		);
 	}
+
+	return {
+		amountUsdCents,
+		centiCredits: creditsToCentiCredits(topupCreditsForUsd(wholeUsd)),
+	};
+}
+
+// A replay must name the same owner and the same money, else the key is reused by mistake.
+// Default credits come from the DZD rate of the first call, so only credits the admin gave are compared.
+function assertOfflineReplayMatches(
+	receipt: BillingTopupReceiptRow,
+	input: AdminRecordTopupInput,
+	organizationId: string | null,
+): void {
+	const matches =
+		receipt.provider === "offline" &&
+		receipt.userId === input.userId &&
+		receipt.organizationId === organizationId &&
+		(input.credits === undefined ||
+			receipt.credits === creditsToCentiCredits(input.credits)) &&
+		receipt.amountCents === input.amountMinor &&
+		receipt.currency === input.currency;
+
+	if (!matches) {
+		throw new ConflictException(
+			"The idempotency key is already used by another top-up",
+		);
+	}
+}
+
+function mapAdminTopupReceipt(row: AdminTopupReceiptRow): AdminTopupReceipt {
+	const { receipt } = row;
+
+	return {
+		amountMinor: receipt.amountCents,
+		amountUsdCents: receipt.amountUsdCents,
+		createdAt: receipt.createdAt.toISOString(),
+		// The receipt stores centi-credits. The admin app shows decimal credits.
+		credits:
+			receipt.credits === null ? null : centiCreditsToCredits(receipt.credits),
+		currency: receipt.currency,
+		id: receipt.id,
+		method: receipt.method,
+		note: receipt.note,
+		organization: row.organization,
+		paidAt: receipt.paidAt.toISOString(),
+		// The column is text with a CHECK on the three providers. The parse keeps the contract type honest.
+		provider: topupReceiptProviderSchema.parse(receipt.provider),
+		providerReference: receipt.providerReference,
+		recordedBy: row.recordedBy,
+		reference: receipt.reference,
+		requestId: receipt.requestId,
+		reversedAt: receipt.reversedAt?.toISOString() ?? null,
+		reversedBy: row.reversedBy,
+		user: row.user,
+	};
 }
 
 function mapAdminManualRequest(row: AdminManualRequestRow): AdminManualRequest {
 	return {
-		...mapManualSubscriptionRequest(row.request),
+		...mapManualRequest(row.request),
 		adminNotes: row.request.adminNotes,
 		currentSubscription: row.currentSubscription
 			? {
@@ -1107,42 +681,16 @@ function mapAdminManualRequest(row: AdminManualRequestRow): AdminManualRequest {
 	};
 }
 
-function mapManualSubscriptionRequest(
-	row: ManualSubscriptionRequestRow,
-): ManualSubscriptionRequest {
-	return {
-		city: row.city,
-		company: row.company,
-		country: row.country,
-		createdAt: row.createdAt.toISOString(),
-		fullName: row.fullName,
-		handledAt: row.handledAt?.toISOString() ?? null,
-		id: row.id,
-		interval: row.interval,
-		notes: row.notes,
-		organizationId: row.organizationId,
-		phone: row.phone,
-		plan: row.plan,
-		preferredPaymentMethod: row.preferredPaymentMethod,
-		status: row.status,
-		subscriptionId: row.subscriptionId,
-		tierCredits: row.tierCredits,
-		updatedAt: row.updatedAt.toISOString(),
-	};
-}
-
+// Pricing v8 removes the grace days, so access ends at the period end.
 function mapAdminManualSubscription(
 	row: AdminManualSubscriptionRow,
 	now: Date,
-	graceMs: number,
 ): AdminManualSubscription {
 	const { subscription } = row;
-	const accessEndsAt = new Date(
-		subscription.currentPeriodEnd.getTime() + graceMs,
-	);
+	const accessEndsAt = subscription.currentPeriodEnd;
 	const entitled =
-		(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-			subscription.status,
+		ENTITLED_SUBSCRIPTION_STATUSES.some(
+			(status) => status === subscription.status,
 		) && accessEndsAt.getTime() > now.getTime();
 
 	return {
@@ -1153,10 +701,7 @@ function mapAdminManualSubscription(
 		currentPeriodStart: subscription.currentPeriodStart.toISOString(),
 		entitled,
 		id: subscription.id,
-		inGrace:
-			entitled &&
-			subscription.currentPeriodEnd.getTime() <= now.getTime() &&
-			accessEndsAt.getTime() > now.getTime(),
+		inGrace: false,
 		interval: subscription.interval,
 		// The summary subquery's max() comes back as a raw string from pg, not a
 		// Date — normalize through the Date constructor.
@@ -1192,28 +737,6 @@ function mapAdminManualPayment(
 		recordedBy: row.recordedBy,
 		reference: row.payment.reference,
 	};
-}
-
-// Drizzle/Postgres can wrap `23505`, so inspect the causal chain.
-function isUniqueViolation(error: unknown): boolean {
-	let current = error;
-
-	for (let depth = 0; depth < 5 && current; depth += 1) {
-		if (
-			typeof current === "object" &&
-			"code" in current &&
-			(current as { code?: unknown }).code === "23505"
-		) {
-			return true;
-		}
-
-		current =
-			typeof current === "object" && "cause" in current
-				? (current as { cause?: unknown }).cause
-				: undefined;
-	}
-
-	return false;
 }
 
 function startOfUtcMonth(date: Date): Date {

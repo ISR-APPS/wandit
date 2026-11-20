@@ -158,9 +158,8 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
  * before any write.
  */
 export function assertPickableModel(modelId: string): void {
-	// Product rule (staging and local only): every priced model runs on
-	// every plan. Credits bill the real provider cost, so a pick cannot
-	// under-bill. docs/v2/runbook.md names the restore before production.
+	// Product rule (pricing v8 D10): every priced model runs for every user.
+	// Credits bill the real provider cost, so a pick cannot under-bill.
 	if (llmModelPrice(modelId) === undefined) {
 		throw new BadRequestException({
 			code: "V2_MODEL_DENIED",
@@ -484,16 +483,16 @@ export class TurnsService {
 				});
 				// The Cloud tab "Try again" is behind a flag. So each new message also
 				// starts a failed or missing backend again. No wait: the turn starts now.
-				// LIMIT: a project the plan refuses runs the plan check on each message. Upgrade: skip a refused project.
+				// LIMIT: a payer with no free backend slot runs the paid-owner read and the locked count on each message. Upgrade: skip a refused project.
 				void this.backends
 					.provisionBackend(projectId, {
 						// The turn route reads no country; null picks the default region.
 						countryCode: null,
-						// The payer's plan decides the backend slot: the project owner columns.
+						// The payer decides the backend slot: the project owner columns.
 						...projectOwnerColumns(scope),
 					})
 					.catch((error: unknown) => {
-						// A plan without a free backend slot is a product rule, not a
+						// A payer with no free backend slot is a product rule, not a
 						// failure: `BackendsService` already logged it.
 						if (!(error instanceof BackendLimitReachedError)) {
 							this.logger.error(

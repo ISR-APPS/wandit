@@ -1,3 +1,7 @@
+/**
+ * Metric strip of the user detail page: wallet balance, spend and spend badge, projects, paid state, AI cost.
+ * UserDetailPage renders it from the admin user detail. Calls highestSpendBadgeId of user-detail-helpers for the spend badge.
+ */
 import {
 	CircleDollarSignIcon,
 	CircleMinusIcon,
@@ -15,24 +19,27 @@ import {
 import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 import { cn } from "@/lib/utils";
 
-import { subscriptionTierLabel, titleCase } from "./user-detail-helpers";
+import { highestSpendBadgeId, titleCase } from "./user-detail-helpers";
 
 type UserMetricsProps = {
 	user: AdminUserDetail;
 };
 
 export function UserMetrics({ user }: UserMetricsProps) {
+	const spendBadgeId = highestSpendBadgeId(user.creditsConsumed);
 	const metrics = [
 		{
-			label: "Credit balance",
+			label: "Wallet balance",
 			value: formatCreditBalance(user.creditsBalance),
-			detail: "Available now",
+			detail: "Personal wallet, available now",
 			icon: CoinsIcon,
 		},
 		{
 			label: "Credits used",
 			value: formatCreditAmount(user.creditsConsumed),
-			detail: "Lifetime consumption",
+			detail: spendBadgeId
+				? `Spend badge: ${titleCase(spendBadgeId)}`
+				: "No spend badge yet",
 			icon: CircleMinusIcon,
 		},
 		{
@@ -42,11 +49,11 @@ export function UserMetrics({ user }: UserMetricsProps) {
 			icon: FolderKanbanIcon,
 		},
 		{
-			label: "Plan",
-			value: titleCase(user.plan),
-			detail: user.subscription
-				? subscriptionTierLabel(user.subscription)
-				: "No active subscription",
+			label: "Payment status",
+			value: user.isPaidOwner ? "Paid" : "Free",
+			detail: user.isPaidOwner
+				? "Has a top-up or had a plan"
+				: "No payment yet",
 			icon: GemIcon,
 		},
 		{

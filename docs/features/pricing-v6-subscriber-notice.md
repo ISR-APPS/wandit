@@ -1,5 +1,7 @@
 # DRAFT — Pricing v7 subscriber notice (founder sends)
 
+> **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
+
 Replaces the v6 draft. Nobody received the v6 notice.
 
 ## English

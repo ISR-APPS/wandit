@@ -16,7 +16,6 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
-	allowedLlmModels,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
 	uuidSchema,
@@ -254,30 +253,31 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 2. Model allow-list: an absent model means the plan default. The
-		// list is the plan list plus the token `model`: the turn's pick, from
-		// any priced row. A bound chat gives the model of the turn that runs
-		// now. Any other named model is denied. Claude Code resolves its
-		// aliases to dated bare ids (`claude-haiku-4-5-20251001`); normalize
-		// them onto the `anthropic/...` list entries before the check.
+		// 2. Model check (pricing v8 D10): every priced model is open to every
+		// user, and the API does not read `claims.plan`. An absent model means
+		// the deploy default. A named model with no price row gets a 403 and a
+		// `model_denied` row here. Claude Code resolves its aliases to dated
+		// bare ids (`claude-haiku-4-5-20251001`); normalize them onto the
+		// `anthropic/...` price ids before the check.
 		const bodyJson = this.parseBody(input.body);
 		const requestedModel =
 			bodyJson?.model === undefined
 				? undefined
 				: normalizeInboundModelId(bodyJson.model);
 		const defaultModel = this.requireEnv("V2_DEFAULT_MODEL");
-		const allowed = allowedLlmModels(claims.plan, defaultModel);
-		if (claims.model !== undefined && !allowed.includes(claims.model)) {
-			allowed.push(claims.model);
-		}
-		if (requestedModel !== undefined && !allowed.includes(requestedModel)) {
+		if (
+			requestedModel !== undefined &&
+			requestedModel !== defaultModel &&
+			llmModelPrice(requestedModel) === undefined
+		) {
+			// The message text stays: `SESSION_BOUND_FAILURE_PATTERN` of the
+			// builder-turn runtime matches it to reset a resumed session.
 			await this.reject(reply, claims, input, startedAt, {
 				status: 403,
 				code: "V2_MODEL_DENIED",
 				message: "This plan may not call that model",
 				reason: requestedModel,
 				rowStatus: "model_denied",
-				bodyFields: { allowed },
 			});
 			return;
 		}
@@ -853,7 +853,7 @@ export class LlmProxyService {
 			reason: string;
 			rowStatus: LlmProxyRequestStatus;
 			headers?: Record<string, string>;
-			bodyFields?: Record<string, string | number | readonly string[]>;
+			bodyFields?: Record<string, string | number>;
 		},
 	): Promise<void> {
 		await this.sendError(
@@ -902,7 +902,7 @@ export class LlmProxyService {
 		code: string,
 		message: string,
 		headers?: Record<string, string>,
-		bodyFields?: Record<string, string | number | readonly string[]>,
+		bodyFields?: Record<string, string | number>,
 	): Promise<void> {
 		reply.writeHead(status, {
 			"content-type": "application/json",

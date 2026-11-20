@@ -284,13 +284,8 @@ describe("LifecycleEventsRepository due and dispatch context queries", () => {
 					accepted_invitation: true,
 					captured_events: ["website_generated"],
 					email: "user@example.com",
-					entitled_current_period_end: "2026-09-24T12:00:00.000Z",
-					entitled_plan: "starter",
-					entitled_provider: "manual",
-					entitled_status: "active",
 					has_first_prompt_event: true,
 					has_open_personal_manual_request: false,
-					has_personal_topup_receipt: false,
 					name: "Amina Example",
 				},
 			],
@@ -299,34 +294,20 @@ describe("LifecycleEventsRepository due and dispatch context queries", () => {
 			execute,
 		} as unknown as Database);
 
-		await expect(
-			repository.loadDispatchContext("user-1", NOW),
-		).resolves.toEqual({
+		await expect(repository.loadDispatchContext("user-1")).resolves.toEqual({
 			acceptedInvitation: true,
 			capturedEvents: ["website_generated"],
-			entitledSubscription: {
-				currentPeriodEnd: new Date("2026-09-24T12:00:00.000Z"),
-				plan: "starter",
-				provider: "manual",
-				status: "active",
-			},
 			hasFirstPromptEvent: true,
 			hasOpenPersonalManualRequest: false,
-			hasPersonalTopupReceipt: false,
 			user: { email: "user@example.com", name: "Amina Example" },
 		});
 		expect(execute).toHaveBeenCalledOnce();
 		const contextQuery = render(execute.mock.calls[0]?.[0]);
 		expect(contextQuery.statement).toContain(
-			"s.provider <> 'manual' or s.current_period_end",
-		);
-		expect(contextQuery.statement).toContain("receipt.organization_id is null");
-		expect(contextQuery.statement).toContain(
 			"request.status in ($1, $2, $3, $4, $5, $6)",
 		);
 		expect(contextQuery.params).toEqual([
 			...OPEN_MANUAL_REQUEST_STATUSES,
-			NOW,
 			"user-1",
 		]);
 		expect(contextQuery.statement).toContain(

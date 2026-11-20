@@ -21,6 +21,7 @@ import enProjects from "../dictionaries/en/projects.json";
 import enSettings from "../dictionaries/en/settings.json";
 import enSharing from "../dictionaries/en/sharing.json";
 import enTemplates from "../dictionaries/en/templates.json";
+import enTrophies from "../dictionaries/en/trophies.json";
 import enUserReferrals from "../dictionaries/en/user-referrals.json";
 import enWorkspace from "../dictionaries/en/workspace.json";
 import enWorkspaces from "../dictionaries/en/workspaces.json";
@@ -44,6 +45,7 @@ const en = {
 	sharing: enSharing,
 	templates: enTemplates,
 	userReferrals: enUserReferrals,
+	trophies: enTrophies,
 	errors: enErrors,
 	native: enNative,
 	onboarding: enOnboarding,
@@ -122,6 +124,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		sharing,
 		templates,
 		userReferrals,
+		trophies,
 		errors,
 		native,
 		onboarding,
@@ -143,6 +146,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/sharing.json"),
 		import("../dictionaries/fr/templates.json"),
 		import("../dictionaries/fr/user-referrals.json"),
+		import("../dictionaries/fr/trophies.json"),
 		import("../dictionaries/fr/errors.json"),
 		import("../dictionaries/fr/native.json"),
 		import("../dictionaries/fr/onboarding.json"),
@@ -166,6 +170,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		sharing: sharing.default,
 		templates: templates.default,
 		userReferrals: userReferrals.default,
+		trophies: trophies.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,
@@ -191,6 +196,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		sharing,
 		templates,
 		userReferrals,
+		trophies,
 		errors,
 		native,
 		onboarding,
@@ -212,6 +218,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/sharing.json"),
 		import("../dictionaries/ar/templates.json"),
 		import("../dictionaries/ar/user-referrals.json"),
+		import("../dictionaries/ar/trophies.json"),
 		import("../dictionaries/ar/errors.json"),
 		import("../dictionaries/ar/native.json"),
 		import("../dictionaries/ar/onboarding.json"),
@@ -235,6 +242,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		sharing: sharing.default,
 		templates: templates.default,
 		userReferrals: userReferrals.default,
+		trophies: trophies.default,
 		errors: errors.default,
 		native: native.default,
 		onboarding: onboarding.default,

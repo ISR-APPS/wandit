@@ -1,6 +1,13 @@
+/**
+ * Sends the due lifecycle events to Resend, one email event per row.
+ * The `lifecycle-events` Trigger task calls `sweep`. It reads user facts through
+ * LifecycleEventsRepository and the paid-owner rule through PaidOwnerRepository.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { centiCreditsToCredits } from "@wandit/contracts";
 
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
+import { userOwner } from "../../../credits/domain/credit-owner";
 import { EmailService } from "../../../email/application/services/email.service";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import {
@@ -69,6 +76,9 @@ export class LifecycleEventsDispatcher {
 		private readonly settings: DispatcherSettings,
 		@Inject(EmailService)
 		private readonly email: DispatcherEmail,
+		/** Decides if the user's personal pool is a paid owner (pricing v8 section 6). */
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 	) {}
 
 	async sweep(limit = DEFAULT_SWEEP_LIMIT): Promise<LifecycleSweepResult> {
@@ -120,7 +130,14 @@ export class LifecycleEventsDispatcher {
 				return "dropped";
 			}
 
-			if (FREE_ONLY_EVENT_SET.has(event) && !isMonetizationFree(context)) {
+			// Product rule: "free" means not a paid owner and no open offline request.
+			// A past customer stays a paid owner, so the free-only follow-ups never reach them.
+			// An open request answers first and skips the paid-owner read.
+			const isFree =
+				!context.hasOpenPersonalManualRequest &&
+				!(await this.paidOwners.isPaidOwner(userOwner(row.userId)));
+
+			if (FREE_ONLY_EVENT_SET.has(event) && !isFree) {
 				await this.repository.markDropped(row.id, "not_free");
 				return "dropped";
 			}
@@ -131,6 +148,7 @@ export class LifecycleEventsDispatcher {
 				payload: buildPayload(
 					{ ...row, event },
 					context,
+					isFree,
 					centiCreditsToCredits(settings.signupGrantCredits),
 				),
 			});
@@ -150,17 +168,10 @@ export class LifecycleEventsDispatcher {
 	}
 }
 
-function isMonetizationFree(context: LifecycleDispatchContext): boolean {
-	return (
-		context.entitledSubscription === null &&
-		!context.hasPersonalTopupReceipt &&
-		!context.hasOpenPersonalManualRequest
-	);
-}
-
 function buildPayload(
 	row: LifecycleEventRow & { event: LifecycleEventName },
 	context: LifecycleDispatchContext,
+	isFree: boolean,
 	signupGrantCredits: number,
 ): Record<string, unknown> {
 	const payload: Record<string, unknown> = { ...row.payload };
@@ -169,7 +180,8 @@ function buildPayload(
 		delete payload[key];
 	}
 
-	payload.plan = context.entitledSubscription?.plan ?? "free";
+	// The Resend templates read `plan`. Pricing v8 has no plans: only "paid" or "free".
+	payload.plan = isFree ? "free" : "paid";
 
 	const firstName = context.user.name.trim().split(/\s+/u)[0] ?? "";
 

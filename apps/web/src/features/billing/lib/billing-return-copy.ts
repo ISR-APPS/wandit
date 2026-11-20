@@ -4,6 +4,7 @@
  */
 import type { Locale } from "@wandit/internationalization";
 
+/** Texts of the return pages. `received` is the neutral text of a payment that the page cannot confirm yet. */
 export type BillingReturnCopy = {
 	backToBilling: string;
 	backToDashboard: string;
@@ -45,6 +46,10 @@ export type BillingReturnCopy = {
 		timeoutBody: string;
 		timeoutTitle: string;
 	};
+	received: {
+		body: string;
+		title: string;
+	};
 	retry: string;
 	/** SlickPay return page. One title and body per payment state. */
 	slickpay: {
@@ -61,34 +66,28 @@ export type BillingReturnCopy = {
 		fulfilledTitle: string;
 		paidBody: string;
 		paidTitle: string;
-		planLabel: string;
+		/** Label of the amount (v8 row) or the old plan (row from before v8). */
+		purchaseLabel: string;
+		creditsLabel: string;
 		timeoutBody: string;
 		timeoutTitle: string;
 	};
-	subscription: {
-		creditsLabel: string;
-		fixPaymentLabel: string;
-		notFoundBody: string;
-		notFoundTitle: string;
-		paymentAttentionBody: string;
-		paymentAttentionTitle: string;
-		planLabel: string;
-		syncErrorBody: string;
-		syncErrorTitle: string;
-		syncingBody: string;
-		syncingTitle: string;
-		updatedBody: string;
-		updatedTitle: string;
-	};
+	/** Stripe top-up return page. The page polls the top-up status, then stops after a fixed time. */
 	topup: {
-		updatedBody: string;
-		updatedTitle: string;
+		checkingBody: string;
+		checkingTitle: string;
+		creditedBody: string;
+		creditedTitle: string;
+		errorBody: string;
+		errorTitle: string;
+		timeoutBody: string;
+		timeoutTitle: string;
 	};
 };
 
 const billingReturnCopy = {
 	en: {
-		backToBilling: "Back to billing",
+		backToBilling: "Back to wallet",
 		backToDashboard: "Go to dashboard",
 		openProject: "Open project",
 		cancel: {
@@ -140,6 +139,10 @@ const billingReturnCopy = {
 				"We could not confirm a final status yet. Keep this order ID and check the order again later.",
 			timeoutTitle: "Status is still pending",
 		},
+		received: {
+			body: "Thank you. The credits appear in your wallet within a few minutes. You do not need to pay again.",
+			title: "Payment received",
+		},
 		retry: "Try again",
 		slickpay: {
 			amountLabel: "Amount",
@@ -147,52 +150,42 @@ const billingReturnCopy = {
 				"We are checking your CIB / Edahabia payment with SlickPay. Keep this page open.",
 			checkingTitle: "Checking your payment",
 			errorBody:
-				"We could not check this payment. If you paid, your plan appears within a few minutes. You do not need to pay again.",
+				"We could not check this payment. If you paid, your credits appear within a few minutes. You do not need to pay again.",
 			errorTitle: "Could not check the payment",
 			expiredBody:
-				"SlickPay did not receive a payment for this invoice. You were not charged. Start a new payment from the billing page.",
+				"SlickPay did not receive a payment for this invoice. You were not charged. Start a new payment from the wallet page.",
 			expiredTitle: "Payment not completed",
 			failedBody:
-				"SlickPay did not start this payment. You were not charged. Try again from the billing page.",
+				"SlickPay did not start this payment. You were not charged. Try again from the wallet page.",
 			failedTitle: "Payment did not start",
 			fulfilledBody:
-				"We received your payment. Your plan and its credits are ready.",
-			fulfilledTitle: "Your plan is active",
-			paidBody: "SlickPay confirmed your payment. We are activating your plan.",
+				"We received your payment. The credits are in your wallet.",
+			fulfilledTitle: "Credits added",
+			paidBody: "SlickPay confirmed your payment. We are adding your credits.",
 			paidTitle: "Payment received",
-			planLabel: "Plan",
+			purchaseLabel: "Purchase",
+			creditsLabel: "Credits",
 			timeoutBody:
-				"We are still confirming your payment. Your plan appears within a few minutes. You do not need to pay again.",
+				"We are still confirming your payment. Your credits appear within a few minutes. You do not need to pay again.",
 			timeoutTitle: "Still confirming your payment",
 		},
-		subscription: {
-			creditsLabel: "Current credit balance",
-			fixPaymentLabel: "Fix payment",
-			notFoundBody:
-				"Stripe returned successfully, but an active subscription is not visible yet. Try syncing again in a moment.",
-			notFoundTitle: "Subscription still updating",
-			paymentAttentionBody:
-				"Your subscription is visible, but payment needs attention before plan access can continue. Open the billing portal to fix it.",
-			paymentAttentionTitle: "Payment needs attention",
-			planLabel: "Plan",
-			syncErrorBody:
-				"We could not refresh your subscription from Stripe. Try again before leaving this page.",
-			syncErrorTitle: "Could not update the subscription",
-			syncingBody:
-				"We are refreshing your plan directly from Stripe. This usually takes only a moment.",
-			syncingTitle: "Updating your subscription",
-			updatedBody:
-				"Your plan is now reflected in Wandit. Included credits may take a moment to appear while Stripe finalizes the update.",
-			updatedTitle: "Subscription updated",
-		},
 		topup: {
-			updatedBody:
-				"Stripe received your checkout. Your credit balance will update after the payment is confirmed.",
-			updatedTitle: "Top-up submitted",
+			checkingBody:
+				"We are waiting for Stripe to confirm your payment. Keep this page open.",
+			checkingTitle: "Checking your payment",
+			creditedBody:
+				"Your payment is confirmed. The credits are in your wallet.",
+			creditedTitle: "Credits added",
+			errorBody:
+				"We could not check this payment. If you paid, the credits appear within a few minutes. You do not need to pay again.",
+			errorTitle: "Could not check the payment",
+			timeoutBody:
+				"The confirmation can take a few more minutes. The credits appear in your wallet when Stripe confirms the payment. You do not need to pay again.",
+			timeoutTitle: "Still confirming your payment",
 		},
 	},
 	fr: {
-		backToBilling: "Retour à la facturation",
+		backToBilling: "Retour au portefeuille",
 		backToDashboard: "Accéder au tableau de bord",
 		openProject: "Ouvrir le projet",
 		cancel: {
@@ -244,6 +237,10 @@ const billingReturnCopy = {
 				"Nous n’avons pas encore pu confirmer un état final. Conservez cet identifiant et consultez de nouveau la commande plus tard.",
 			timeoutTitle: "État toujours en attente",
 		},
+		received: {
+			body: "Merci. Les crédits arrivent dans votre portefeuille d’ici quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+			title: "Paiement reçu",
+		},
 		retry: "Réessayer",
 		slickpay: {
 			amountLabel: "Montant",
@@ -251,53 +248,43 @@ const billingReturnCopy = {
 				"Nous vérifions votre paiement CIB / Edahabia auprès de SlickPay. Gardez cette page ouverte.",
 			checkingTitle: "Vérification du paiement",
 			errorBody:
-				"Impossible de vérifier ce paiement. Si vous avez payé, votre offre apparaît dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+				"Impossible de vérifier ce paiement. Si vous avez payé, vos crédits arrivent dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
 			errorTitle: "Impossible de vérifier le paiement",
 			expiredBody:
-				"SlickPay n’a reçu aucun paiement pour cette facture. Aucun montant n’a été débité. Lancez un nouveau paiement depuis la page de facturation.",
+				"SlickPay n’a reçu aucun paiement pour cette facture. Aucun montant n’a été débité. Lancez un nouveau paiement depuis la page du portefeuille.",
 			expiredTitle: "Paiement non effectué",
 			failedBody:
-				"SlickPay n’a pas pu démarrer ce paiement. Aucun montant n’a été débité. Réessayez depuis la page de facturation.",
+				"SlickPay n’a pas pu démarrer ce paiement. Aucun montant n’a été débité. Réessayez depuis la page du portefeuille.",
 			failedTitle: "Le paiement n’a pas démarré",
 			fulfilledBody:
-				"Nous avons reçu votre paiement. Votre offre et ses crédits sont prêts.",
-			fulfilledTitle: "Votre offre est active",
+				"Nous avons reçu votre paiement. Les crédits sont dans votre portefeuille.",
+			fulfilledTitle: "Crédits ajoutés",
 			paidBody:
-				"SlickPay a confirmé votre paiement. Nous activons votre offre.",
+				"SlickPay a confirmé votre paiement. Nous ajoutons vos crédits.",
 			paidTitle: "Paiement reçu",
-			planLabel: "Offre",
+			purchaseLabel: "Achat",
+			creditsLabel: "Crédits",
 			timeoutBody:
-				"Nous confirmons encore votre paiement. Votre offre apparaît dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+				"Nous confirmons encore votre paiement. Vos crédits arrivent dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
 			timeoutTitle: "Confirmation toujours en cours",
 		},
-		subscription: {
-			creditsLabel: "Solde de crédits actuel",
-			fixPaymentLabel: "Corriger le paiement",
-			notFoundBody:
-				"Le retour Stripe a réussi, mais aucun abonnement actif n’est encore visible. Relancez la synchronisation dans un instant.",
-			notFoundTitle: "Mise à jour de l’abonnement",
-			paymentAttentionBody:
-				"Votre abonnement est visible, mais le paiement doit être corrigé avant de rétablir l’accès à l’offre. Ouvrez le portail de facturation.",
-			paymentAttentionTitle: "Paiement à corriger",
-			planLabel: "Offre",
-			syncErrorBody:
-				"Impossible d’actualiser votre abonnement depuis Stripe. Réessayez avant de quitter cette page.",
-			syncErrorTitle: "Impossible d’actualiser l’abonnement",
-			syncingBody:
-				"Nous actualisons votre offre directement depuis Stripe. Cela ne prend généralement qu’un instant.",
-			syncingTitle: "Mise à jour de votre abonnement",
-			updatedBody:
-				"Votre offre est maintenant à jour dans Wandit. Les crédits inclus peuvent prendre quelques instants avant d’apparaître pendant que Stripe finalise la mise à jour.",
-			updatedTitle: "Abonnement mis à jour",
-		},
 		topup: {
-			updatedBody:
-				"Stripe a reçu votre demande de paiement. Votre solde de crédits sera mis à jour après confirmation.",
-			updatedTitle: "Recharge envoyée",
+			checkingBody:
+				"Nous attendons la confirmation de Stripe. Gardez cette page ouverte.",
+			checkingTitle: "Vérification du paiement",
+			creditedBody:
+				"Votre paiement est confirmé. Les crédits sont dans votre portefeuille.",
+			creditedTitle: "Crédits ajoutés",
+			errorBody:
+				"Impossible de vérifier ce paiement. Si vous avez payé, les crédits arrivent dans quelques minutes. Vous n’avez pas besoin de payer à nouveau.",
+			errorTitle: "Impossible de vérifier le paiement",
+			timeoutBody:
+				"La confirmation peut prendre encore quelques minutes. Les crédits arrivent dans votre portefeuille dès que Stripe confirme le paiement. Vous n’avez pas besoin de payer à nouveau.",
+			timeoutTitle: "Confirmation toujours en cours",
 		},
 	},
 	ar: {
-		backToBilling: "العودة إلى الفوترة",
+		backToBilling: "العودة إلى المحفظة",
 		backToDashboard: "الانتقال إلى لوحة التحكم",
 		openProject: "فتح المشروع",
 		cancel: {
@@ -344,6 +331,10 @@ const billingReturnCopy = {
 				"لم نتمكن بعد من تأكيد الحالة النهائية. احتفظ بمعرّف الطلب وتحقق من حالته لاحقًا.",
 			timeoutTitle: "الحالة ما زالت قيد الانتظار",
 		},
+		received: {
+			body: "شكرًا لك. ستصل الأرصدة إلى محفظتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+			title: "تم استلام الدفع",
+		},
 		retry: "حاول مرة أخرى",
 		slickpay: {
 			amountLabel: "المبلغ",
@@ -351,45 +342,35 @@ const billingReturnCopy = {
 				"نتحقق من دفعك عبر CIB / Edahabia لدى SlickPay. أبقِ هذه الصفحة مفتوحة.",
 			checkingTitle: "جارٍ التحقق من الدفع",
 			errorBody:
-				"تعذر التحقق من هذا الدفع. إذا دفعت، فستظهر خطتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+				"تعذر التحقق من هذا الدفع. إذا دفعت، فستصل أرصدتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
 			errorTitle: "تعذر التحقق من الدفع",
 			expiredBody:
-				"لم يستلم SlickPay أي دفع لهذه الفاتورة، ولم يتم خصم أي مبلغ. ابدأ دفعًا جديدًا من صفحة الفوترة.",
+				"لم يستلم SlickPay أي دفع لهذه الفاتورة، ولم يتم خصم أي مبلغ. ابدأ دفعًا جديدًا من صفحة المحفظة.",
 			expiredTitle: "لم يكتمل الدفع",
 			failedBody:
-				"تعذر على SlickPay بدء هذا الدفع، ولم يتم خصم أي مبلغ. حاول مرة أخرى من صفحة الفوترة.",
+				"تعذر على SlickPay بدء هذا الدفع، ولم يتم خصم أي مبلغ. حاول مرة أخرى من صفحة المحفظة.",
 			failedTitle: "لم يبدأ الدفع",
-			fulfilledBody: "استلمنا دفعك. خطتك وأرصدتها جاهزة.",
-			fulfilledTitle: "خطتك مفعّلة",
-			paidBody: "أكد SlickPay دفعك. نقوم الآن بتفعيل خطتك.",
+			fulfilledBody: "استلمنا دفعك. الأرصدة الآن في محفظتك.",
+			fulfilledTitle: "تمت إضافة الأرصدة",
+			paidBody: "أكد SlickPay دفعك. نضيف أرصدتك الآن.",
 			paidTitle: "تم استلام الدفع",
-			planLabel: "الخطة",
+			purchaseLabel: "الشراء",
+			creditsLabel: "الأرصدة",
 			timeoutBody:
-				"ما زلنا نؤكد دفعك. ستظهر خطتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+				"ما زلنا نؤكد دفعك. ستصل أرصدتك خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
 			timeoutTitle: "ما زلنا نؤكد دفعك",
 		},
-		subscription: {
-			creditsLabel: "رصيد الأرصدة الحالي",
-			fixPaymentLabel: "إصلاح الدفع",
-			notFoundBody:
-				"اكتملت العودة من Stripe، لكن الاشتراك النشط لم يظهر بعد. أعد المزامنة بعد لحظات.",
-			notFoundTitle: "الاشتراك قيد التحديث",
-			paymentAttentionBody:
-				"اشتراكك ظاهر، لكن يجب معالجة الدفع قبل استعادة مزايا الخطة. افتح بوابة الفوترة لإصلاحه.",
-			paymentAttentionTitle: "الدفع يحتاج إلى متابعة",
-			planLabel: "الخطة",
-			syncErrorBody:
-				"تعذر تحديث اشتراكك من Stripe. حاول مرة أخرى قبل مغادرة الصفحة.",
-			syncErrorTitle: "تعذر تحديث الاشتراك",
-			syncingBody: "نحدّث خطتك مباشرة من Stripe. يستغرق ذلك عادة لحظات فقط.",
-			syncingTitle: "جارٍ تحديث اشتراكك",
-			updatedBody:
-				"أصبحت خطتك محدّثة في Wandit. قد تستغرق الأرصدة المضمّنة لحظات للظهور ريثما يُكمل Stripe تحديث الاشتراك.",
-			updatedTitle: "تم تحديث الاشتراك",
-		},
 		topup: {
-			updatedBody: "استلم Stripe طلب الدفع. سيُحدَّث رصيدك بعد تأكيد عملية الدفع.",
-			updatedTitle: "تم إرسال طلب شحن الرصيد",
+			checkingBody: "ننتظر تأكيد Stripe لدفعك. أبقِ هذه الصفحة مفتوحة.",
+			checkingTitle: "جارٍ التحقق من الدفع",
+			creditedBody: "تم تأكيد دفعك. الأرصدة الآن في محفظتك.",
+			creditedTitle: "تمت إضافة الأرصدة",
+			errorBody:
+				"تعذر التحقق من هذا الدفع. إذا دفعت، فستصل الأرصدة خلال دقائق. لا حاجة إلى الدفع مرة أخرى.",
+			errorTitle: "تعذر التحقق من الدفع",
+			timeoutBody:
+				"قد يستغرق التأكيد بضع دقائق أخرى. ستصل الأرصدة إلى محفظتك عندما يؤكد Stripe الدفع. لا حاجة إلى الدفع مرة أخرى.",
+			timeoutTitle: "ما زلنا نؤكد دفعك",
 		},
 	},
 } as const satisfies Record<Locale, BillingReturnCopy>;

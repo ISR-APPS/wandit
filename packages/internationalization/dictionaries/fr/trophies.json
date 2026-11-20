@@ -1,0 +1,230 @@
+{
+	"nav": {
+		"title": "Trophées"
+	},
+	"units": {
+		"points": {
+			"one": "{count} point",
+			"other": "{count} points"
+		},
+		"weeks": {
+			"one": "{count} semaine",
+			"other": "{count} semaines"
+		}
+	},
+	"page": {
+		"metaTitle": "Trophées — Wandit",
+		"title": "Trophées",
+		"eyebrow": "Vos trophées · personnels",
+		"intro": "Les trophées célèbrent ce que vous créez et publiez. Ils rapportent des points, jamais de crédits, et vous suivent dans chaque espace de travail.",
+		"level": "Niveau {index}",
+		"points": "{points} au total",
+		"toNext": "Encore {points} avant {level}",
+		"maxLevel": "Vous avez atteint le niveau maximum.",
+		"unlockedCount": "{unlocked} trophées sur {total}",
+		"levelPath": "Parcours des niveaux",
+		"nextUp": "Prochains objectifs",
+		"nextUpEmpty": "Vous avez gagné tous les trophées visibles. Cherchez maintenant les trophées secrets.",
+		"trackCount": "{unlocked} sur {total}",
+		"earnedOn": "Gagné le {date}",
+		"locked": "Verrouillé",
+		"hiddenName": "Trophée secret",
+		"loadError": "Impossible de charger vos trophées.",
+		"retry": "Réessayer"
+	},
+	"summary": {
+		"title": "Vos trophées",
+		"personal": "Personnel",
+		"seeAll": "Voir tous les trophées",
+		"allEarned": "Vous avez gagné tous les trophées visibles.",
+		"loadError": "Impossible de charger vos trophées."
+	},
+	"weeks": {
+		"title": "Semaines de création",
+		"caption": "Une semaine compte dès qu’elle a au moins une génération. Les semaines vont du lundi au dimanche, en UTC.",
+		"current": "Série en cours : {weeks}",
+		"best": "Record : {weeks}",
+		"stripLabel": "{built} des {total} dernières semaines ont au moins une génération."
+	},
+	"toast": {
+		"unlocked": "Trophée débloqué",
+		"points": "+{points}",
+		"many": {
+			"one": "Vous avez gagné {count} trophée",
+			"other": "Vous avez gagné {count} trophées"
+		},
+		"manyBody": "Ouvrez vos trophées pour tous les voir.",
+		"open": "Voir les trophées"
+	},
+	"chip": {
+		"level": "Niv. {index} · {name}"
+	},
+	"levels": {
+		"kindle": "Amorce",
+		"flicker": "Lueur",
+		"flame": "Flamme",
+		"blaze": "Brasier",
+		"forge": "Forge",
+		"comet": "Comète",
+		"nova": "Nova"
+	},
+	"tracks": {
+		"build": "Créer",
+		"ship": "Publier",
+		"craft": "Façonner",
+		"grow": "Grandir",
+		"team": "Équipe",
+		"rhythm": "Rythme",
+		"fuel": "Énergie",
+		"special": "Spécial"
+	},
+	"rarity": {
+		"common": "Commun",
+		"rare": "Rare",
+		"epic": "Épique",
+		"legendary": "Légendaire"
+	},
+	"fuelRule": "Dépensez {credits} depuis votre portefeuille personnel",
+	"riddles": {
+		"polyglot": "Une idée, trois foyers. Où d’autre peut-elle vivre ?",
+		"time_traveler": "Certains reculent pour mieux avancer."
+	},
+	"items": {
+		"first_project": {
+			"name": "Premier éclat",
+			"rule": "Créez votre premier projet"
+		},
+		"projects_5": {
+			"name": "Établi",
+			"rule": "Créez {target} projets"
+		},
+		"projects_25": {
+			"name": "Atelier",
+			"rule": "Créez {target} projets"
+		},
+		"first_app": {
+			"name": "Bâtisseur d’apps",
+			"rule": "Créez votre première app"
+		},
+		"builds_50": {
+			"name": "Dans le flow",
+			"rule": "Terminez {target} générations"
+		},
+		"builds_500": {
+			"name": "Concentration",
+			"rule": "Terminez {target} générations"
+		},
+		"marathon": {
+			"name": "Marathon",
+			"rule": "Envoyez {target} messages dans un même projet"
+		},
+		"first_publish": {
+			"name": "Décollage",
+			"rule": "Publiez un projet"
+		},
+		"publishes_10": {
+			"name": "En ligne !",
+			"rule": "Publiez {target} fois"
+		},
+		"publishes_50": {
+			"name": "Train de versions",
+			"rule": "Publiez {target} fois"
+		},
+		"live_3": {
+			"name": "Constellation",
+			"rule": "Gardez {target} projets en ligne en même temps"
+		},
+		"own_domain": {
+			"name": "À votre nom",
+			"rule": "Connectez votre propre domaine"
+		},
+		"mobile_build": {
+			"name": "Format poche",
+			"rule": "Générez une app mobile"
+		},
+		"desktop_build": {
+			"name": "Sur le bureau",
+			"rule": "Générez une app de bureau"
+		},
+		"polyglot": {
+			"name": "Polyglotte",
+			"rule": "Créez pour {target} plateformes différentes"
+		},
+		"art_director": {
+			"name": "Directeur artistique",
+			"rule": "Concevez un thème avec l’IA"
+		},
+		"images_25": {
+			"name": "Conteur visuel",
+			"rule": "Générez {target} images"
+		},
+		"research_25": {
+			"name": "Chercheur",
+			"rule": "Lancez {target} recherches web"
+		},
+		"time_traveler": {
+			"name": "Voyageur du temps",
+			"rule": "Restaurez une version précédente"
+		},
+		"explorer": {
+			"name": "Explorateur",
+			"rule": "Partez de {target} modèles différents"
+		},
+		"open_source": {
+			"name": "Open source",
+			"rule": "Liez un projet à GitHub"
+		},
+		"first_lead": {
+			"name": "Premier contact",
+			"rule": "Recevez votre premier lead"
+		},
+		"leads_100": {
+			"name": "Foule",
+			"rule": "Recevez {target} leads"
+		},
+		"ambassador": {
+			"name": "Ambassadeur",
+			"rule": "Invitez un ami qui s’inscrit"
+		},
+		"mentor": {
+			"name": "Mentor",
+			"rule": "Aidez un ami invité à lancer sa première création"
+		},
+		"rainmaker": {
+			"name": "Faiseur de pluie",
+			"rule": "Un ami invité effectue un premier paiement"
+		},
+		"team_player": {
+			"name": "Esprit d’équipe",
+			"rule": "Invitez un collaborateur sur un projet"
+		},
+		"bug_hunter": {
+			"name": "Chasseur de bugs",
+			"rule": "Envoyez un retour"
+		},
+		"shaped_wandit": {
+			"name": "Artisan de Wandit",
+			"rule": "Faites planifier ou livrer une de vos suggestions"
+		},
+		"steady_4": {
+			"name": "Régulier",
+			"rule": "Créez {target} semaines d’affilée"
+		},
+		"seasoned_12": {
+			"name": "Aguerri",
+			"rule": "Créez {target} semaines d’affilée"
+		},
+		"half_year": {
+			"name": "Forge d’un semestre",
+			"rule": "Créez {target} semaines d’affilée"
+		},
+		"backer": {
+			"name": "Soutien",
+			"rule": "Rechargez votre portefeuille personnel"
+		},
+		"early_adopter": {
+			"name": "Pionnier",
+			"rule": "Rejoignez Wandit à ses débuts"
+		}
+	}
+}

@@ -39,6 +39,8 @@ import {
 	putPageHtml,
 	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
+import { ownerFromIds } from "../../../credits/domain/credit-owner";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
 	buildLeadsCaptureUrl,
@@ -99,6 +101,9 @@ export class SitesService {
 		private readonly domainRoutingService: DomainRoutingService,
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsService,
+		/** Decides if the project's payer is a paid owner; only a paid owner can hide the badge. */
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 	) {}
 
 	async current(
@@ -331,12 +336,16 @@ export class SitesService {
 				deploymentId: pending.id,
 			});
 
+			// Product rule (pricing v8 section 6): the hide toggle counts only for a
+			// paid owner. The paid-owner read runs only when the toggle is on.
+			const hideBadge =
+				input.project.hideWanditBadge &&
+				(await this.paidOwners.isPaidOwner(
+					ownerFromIds(input.project.userId, input.project.organizationId),
+				));
 			// Restamp recognized canonical blocks from current project state; an
-			// unrecognized carrier leaves this injector's input untouched. The hide
-			// toggle only counts for an entitled owner.
-			const published = injectWanditBadge(withRuntime, {
-				hide: input.project.hideWanditBadge && input.project.ownerIsEntitled,
-			});
+			// unrecognized carrier leaves this injector's input untouched.
+			const published = injectWanditBadge(withRuntime, { hide: hideBadge });
 
 			assertNoEditorArtifacts(published);
 

@@ -216,6 +216,36 @@ export type CreditActivityResponse = z.infer<
 // converts at the API boundary.
 export const SIGNUP_GRANT_CREDITS = 20;
 
+// Spend badges (pricing v8). "Spend badge" is not the "Made with Wandit" page badge.
+/** Ids in threshold order. The web maps each id to a translated name and an icon. */
+export const spendBadgeIds = [
+	"spark",
+	"apprentice",
+	"builder",
+	"artisan",
+	"master",
+	"legend",
+] as const;
+
+/** Id of one spend badge. The Fuel trophy ids are `spend_<id>`. */
+export type SpendBadgeId = (typeof spendBadgeIds)[number];
+
+/**
+ * Lifetime credits a user must spend from the personal wallet to earn each badge, lowest first.
+ * Whole display credits. A badge gives no credits and no money.
+ */
+export const SPEND_BADGES = [
+	{ id: "spark", thresholdCredits: 10 },
+	{ id: "apprentice", thresholdCredits: 100 },
+	{ id: "builder", thresholdCredits: 500 },
+	{ id: "artisan", thresholdCredits: 2000 },
+	{ id: "master", thresholdCredits: 5000 },
+	{ id: "legend", thresholdCredits: 20000 },
+] as const satisfies ReadonlyArray<{
+	id: SpendBadgeId;
+	thresholdCredits: number;
+}>;
+
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",
 	balances: "/api/v1/credits/balances",

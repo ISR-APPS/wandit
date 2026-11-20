@@ -9,6 +9,7 @@ import {
 	putPageHtml,
 	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
+import type { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import type { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
 	type ProjectScope,
@@ -111,9 +112,10 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
-			ownerIsEntitled: false,
+			organizationId: null,
 			publicFormId: FORM_ID,
 			tiktokPixelId: null,
+			userId: "user-1",
 		}),
 		healStalePending: vi.fn().mockResolvedValue(undefined),
 		insertPending: vi.fn().mockResolvedValue(deploymentRow()),
@@ -133,13 +135,18 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 	const analytics = {
 		capture: vi.fn(),
 	};
+	// Default: a free owner, so the hide toggle does not count.
+	const paidOwners = {
+		isPaidOwner: vi.fn<PaidOwnerRepository["isPaidOwner"]>(async () => false),
+	};
 	const service = new SitesService(
 		repository as unknown as DeploymentsRepository,
 		routing as unknown as DomainRoutingService,
 		analytics as unknown as AnalyticsService,
+		paidOwners,
 	);
 
-	return { analytics, repository, routing, service };
+	return { analytics, paidOwners, repository, routing, service };
 }
 
 function mockLoggerError(service: SitesService): ReturnType<typeof vi.fn> {
@@ -470,9 +477,10 @@ describe("SitesService.publish", () => {
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
-			ownerIsEntitled: false,
+			organizationId: null,
 			publicFormId: FORM_ID,
 			tiktokPixelId: null,
+			userId: "user-1",
 		});
 		const bodies: string[] = [];
 		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
@@ -484,16 +492,18 @@ describe("SitesService.publish", () => {
 		expect(bodies[0]).toContain('id="wandit-badge"');
 	});
 
-	it("hides the badge when an ENTITLED owner sets the hide toggle", async () => {
-		const { repository, service } = setup();
+	it("hides the badge when a PAID owner sets the hide toggle", async () => {
+		const { paidOwners, repository, service } = setup();
+		paidOwners.isPaidOwner.mockResolvedValue(true);
 		repository.getAccessibleProject.mockResolvedValue({
 			hideWanditBadge: true,
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
-			ownerIsEntitled: true,
+			organizationId: null,
 			publicFormId: FORM_ID,
 			tiktokPixelId: null,
+			userId: "user-1",
 		});
 		const bodies: string[] = [];
 		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
@@ -1051,9 +1061,10 @@ describe("SitesService.rollback", () => {
 			id: PROJECT_ID,
 			metaPixelId: "777",
 			name: "Smoke Project",
-			ownerIsEntitled: false,
+			organizationId: null,
 			publicFormId: FORM_ID,
 			tiktokPixelId: null,
+			userId: "user-1",
 		});
 		vi.mocked(getPageHtml).mockResolvedValue(
 			'<html><head><script data-wandit-pixel="meta">!function(f,b,e,v,n,t,s,c,q,r,p){f.oldPixel="111"}()</script></head><body>archived</body></html>',

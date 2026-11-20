@@ -52,7 +52,7 @@
 			"body": "عندما يستخدم {min}، تحصل أنت على {activation}."
 		},
 		"subscribe": {
-			"title": "صديقك يشترك",
+			"title": "صديقك يدفع أول دفعة",
 			"body": "بعد {days} من أول دفعة، تحصل أنت على {paid}."
 		}
 	},
@@ -60,7 +60,7 @@
 		"title": "أرقامك",
 		"joined": "أصدقاء انضمّوا",
 		"activated": "أصدقاء بدأوا البناء",
-		"subscribed": "أصدقاء اشتركوا",
+		"subscribed": "أصدقاء دفعوا",
 		"earned": "الرصيد المكتسب",
 		"pending": "{pending} في الطريق"
 	},
@@ -78,12 +78,12 @@
 		"status": {
 			"joined": "انضمّ",
 			"activated": "يبني",
-			"subscribed": "مشترك"
+			"subscribed": "دفع"
 		},
 		"earned": "ربحتَ {credits}",
 		"hints": {
 			"activation": "{activation} عندما يستخدم {min}",
-			"paid": "{paid} عندما يشترك",
+			"paid": "{paid} عند أول دفعة له",
 			"paidPending": "في الطريق: {pending}، بعد {days} من أول دفعة"
 		},
 		"empty": {

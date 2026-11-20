@@ -410,8 +410,8 @@ export class AppProjectsService {
 	}
 
 	/**
-	 * D18 and D3: a V2 project gets one backend at creation when the payer's
-	 * plan has a free slot. A failure here must not lose the project: the
+	 * D18 and D3: a V2 project gets one backend at creation when the payer
+	 * is a paid owner with a free backend slot. A failure here must not lose the project: the
 	 * `app_backends` row stays `error` or absent, and the first turn still
 	 * runs. `BackendsService` gives a desktop project no backend.
 	 */
@@ -423,11 +423,11 @@ export class AppProjectsService {
 		try {
 			await this.backends.provisionBackend(projectId, {
 				countryCode,
-				// The payer's plan decides the backend slot: the project owner columns.
+				// The payer decides the backend slot: the project owner columns.
 				...projectOwnerColumns(scope),
 			});
 		} catch (error) {
-			// A plan without a free backend slot is a product rule, not a
+			// A payer without a free backend slot is a product rule, not a
 			// failure: `BackendsService` already logged it.
 			if (!(error instanceof BackendLimitReachedError)) {
 				this.logger.error(

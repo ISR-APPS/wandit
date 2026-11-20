@@ -1,3 +1,8 @@
+/**
+ * Ledger reads and writes of the refund and dispute code: grants of one charge,
+ * clawback of refill slots, and plan credits that already expired.
+ * PaymentRefundsService calls it. It reads `credit_ledger` and `subscriptions` through Drizzle.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
@@ -243,7 +248,7 @@ export class BillingCreditLedgerRepository {
 	 * Plan credits from a refunded charge that ALREADY expired (rollover cap,
 	 * subscription end) must not be clawed back a second time out of live
 	 * credits bought with newer money. Sums the `expire` rows of the grant
-	 * owner's plan bucket written at or after the earliest grant for the same
+	 * owner's plan bucket written after the earliest grant for the same
 	 * subscription, ONCE per (owner, subscription) no matter how many grants
 	 * the charge funded (a yearly charge funds one refill slot per month),
 	 * capped at the total of those grants.
@@ -318,8 +323,14 @@ export class BillingCreditLedgerRepository {
 						eq(creditLedger.kind, "expire"),
 						eq(creditLedger.bucket, "plan"),
 						sql`${creditLedger.delta} < 0`,
-						sql`${creditLedger.createdAt} >= ${group.earliestGrantAt}`,
-						sql`${creditLedger.meta}->>'subscriptionId' = ${group.subscriptionId}`,
+						// Strictly later: the refill transaction writes its `expire` row with the
+						// same now() as its grant, and that row took credits of an EARLIER charge.
+						// `created_at` holds microseconds, but the JS Date of the grant holds only
+						// milliseconds. Both sides truncate to milliseconds, so that row compares equal.
+						sql`date_trunc('milliseconds', ${creditLedger.createdAt}) > ${group.earliestGrantAt}`,
+						// A `subdel:` row names the Stripe id in `providerSubscriptionId` and has no
+						// `subscriptionId`. Match both, or a late refund debits the same credits twice.
+						sql`(${creditLedger.meta}->>'subscriptionId' = ${group.subscriptionId} or ${creditLedger.meta}->>'providerSubscriptionId' = (select ${subscriptions.providerSubscriptionId} from ${subscriptions} where ${subscriptions.id}::text = ${group.subscriptionId}))`,
 					),
 				);
 

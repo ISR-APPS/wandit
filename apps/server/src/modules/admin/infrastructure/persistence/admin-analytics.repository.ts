@@ -1,3 +1,8 @@
+/**
+ * Raw SQL of the admin analytics pages: revenue, acquisition, funnel, engagement, and features.
+ * AdminAnalyticsService and AdminOverviewRepository call it.
+ * "Paid" uses one payment fragment: a subscription past checkout, or a top-up receipt.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminAnalyticsDevice,
@@ -733,9 +738,9 @@ export class AdminAnalyticsRepository {
 						e.event_count,
 						exists (
 							select 1
-							from subscriptions s
-							where s.user_id = e.user_id
-								and s.created_at < b.snapshot_end
+							from (${paymentEventsSql()}) p
+							where p.user_id = e.user_id
+								and p.paid_at < b.snapshot_end
 						) as converted,
 						c.user_id as contact_user_id,
 						c.contacted_at,
@@ -1056,9 +1061,9 @@ export class AdminAnalyticsRepository {
 			paid_users as (
 				select distinct c.user_id
 				from cohort c
-				inner join subscriptions s on s.user_id = c.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = c.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			source_cohort_totals as (
 				select
@@ -1163,9 +1168,9 @@ export class AdminAnalyticsRepository {
 			paid_users as (
 				select distinct c.user_id
 				from cohort c
-				inner join subscriptions s on s.user_id = c.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = c.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			campaign_cohort_totals as (
 				select
@@ -1265,9 +1270,9 @@ export class AdminAnalyticsRepository {
 			paid_users as (
 				select distinct c.user_id
 				from country_cohort c
-				inner join subscriptions s on s.user_id = c.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = c.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			country_totals as (
 				select
@@ -1406,9 +1411,9 @@ export class AdminAnalyticsRepository {
 			paid_users as (
 				select distinct c.user_id
 				from signup_cohort c
-				inner join subscriptions s on s.user_id = c.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = c.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			mature_signup_cohort as (
 				select c.user_id, c.created_at
@@ -1557,11 +1562,12 @@ export class AdminAnalyticsRepository {
 				cross join bounds b
 				where e.created_at < b.snapshot_end
 			),
+			-- Both purposes count: a top-up checkout is the paid step now.
 			checkout_users as (
 				select distinct c.user_id
 				from signup_cohort c
 				inner join billing_checkout_attempts a
-					on a.user_id = c.user_id and a.purpose = 'subscription'
+					on a.user_id = c.user_id
 				cross join bounds b
 				where a.created_at < b.snapshot_end
 			)
@@ -1665,9 +1671,9 @@ export class AdminAnalyticsRepository {
 			paid_active_users as (
 				select distinct a.user_id
 				from range_active_users a
-				inner join subscriptions s on s.user_id = a.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = a.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			range_activity_totals as (
 				select
@@ -1965,9 +1971,9 @@ export class AdminAnalyticsRepository {
 			paid_users as (
 				select distinct u.user_id
 				from evaluation_users u
-				inner join subscriptions s on s.user_id = u.user_id
+				inner join (${paymentEventsSql()}) p on p.user_id = u.user_id
 				cross join bounds b
-				where s.created_at < b.snapshot_end
+				where p.paid_at < b.snapshot_end
 			),
 			credit_consumption as (
 				select
@@ -2203,12 +2209,12 @@ export class AdminAnalyticsRepository {
 				cross join bounds b
 				where u.created_at <= b.snapshot_end - interval '7 days'
 			),
-			first_subscriptions as (
-				select s.user_id, min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.user_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.snapshot_end
-				group by s.user_id
+				where p.paid_at < b.snapshot_end
+				group by p.user_id
 			),
 			-- Personal pool only: org-pool consumption performed by the acting
 			-- member is the org's spend, not this user's trial health.
@@ -2370,13 +2376,13 @@ export class AdminAnalyticsRepository {
 			cohort as (
 				select
 					u.id,
-					(f.first_subscription_at is not null) as paid,
+					(f.first_paid_at is not null) as paid,
 					(
 						coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
 						and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
 					) as healthy
 				from mature_users u
-				left join first_subscriptions f on f.user_id = u.id
+				left join first_payments f on f.user_id = u.id
 				left join credit_consumption c on c.user_id = u.id
 				left join completed_generations g on g.user_id = u.id
 			)
@@ -2445,7 +2451,8 @@ export class AdminAnalyticsRepository {
 				group by 1
 			),
 			-- Top-up cash: without it refunds of top-ups were subtracted from a
-			-- gross that never included the purchase.
+			-- gross that never included the purchase. Only Stripe rows are USD
+			-- card cash; SlickPay and offline rows are not in this total.
 			topup_revenue as (
 				select
 					(t.paid_at at time zone 'UTC')::date as day,
@@ -2454,6 +2461,7 @@ export class AdminAnalyticsRepository {
 				cross join bounds b
 				where t.paid_at >= b.range_start
 					and t.paid_at < b.range_end
+					and t.provider = 'stripe'
 					and t.amount_cents > 0
 					and lower(t.currency) = 'usd'
 				group by 1
@@ -2501,12 +2509,14 @@ export class AdminAnalyticsRepository {
 					and a.amount_paid_minor > 0
 					and lower(a.currency) = 'usd'
 			),
+			-- Stripe rows only, the same cash as topup_revenue above.
 			topup_totals as (
 				select coalesce(sum(t.amount_cents), 0)::bigint as amount_minor
 				from billing_topup_receipts t
 				cross join bounds b
 				where t.paid_at >= b.range_start
 					and t.paid_at < b.range_end
+					and t.provider = 'stripe'
 					and t.amount_cents > 0
 					and lower(t.currency) = 'usd'
 			),
@@ -2655,22 +2665,21 @@ export class AdminAnalyticsRepository {
 				) as day
 				from bounds b
 			),
-			first_subscriptions as (
-				select s.user_id, min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.user_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.range_end
-					and s.status in (${liveSubscriptionStatusList()})
-				group by s.user_id
+				where p.paid_at < b.range_end
+				group by p.user_id
 			),
 			daily as (
 				select
-					(f.first_subscription_at at time zone 'UTC')::date as day,
+					(f.first_paid_at at time zone 'UTC')::date as day,
 					count(*)::bigint as count
-				from first_subscriptions f
+				from first_payments f
 				cross join bounds b
-				where f.first_subscription_at >= b.range_start
-					and f.first_subscription_at < b.range_end
+				where f.first_paid_at >= b.range_start
+					and f.first_paid_at < b.range_end
 				group by 1
 			)
 			select
@@ -2693,25 +2702,25 @@ export class AdminAnalyticsRepository {
 	) {
 		const result = await client.execute<DaysToConvertRow>(sql`
 			with bounds as (${analyticsBounds(input)}),
-			first_subscriptions as (
-				select s.user_id, min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.user_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.range_end
-				group by s.user_id
+				where p.paid_at < b.range_end
+				group by p.user_id
 			),
 			conversion_days as (
 				select greatest(
 					0,
 					floor(
-						extract(epoch from (f.first_subscription_at - u.created_at)) / 86400
+						extract(epoch from (f.first_paid_at - u.created_at)) / 86400
 					)::int
 				) as days
-				from first_subscriptions f
+				from first_payments f
 				inner join "user" u on u.id = f.user_id
 				cross join bounds b
-				where f.first_subscription_at >= b.range_start
-					and f.first_subscription_at < b.range_end
+				where f.first_paid_at >= b.range_start
+					and f.first_paid_at < b.range_end
 					and u.created_at < b.range_end
 			)
 			select c.days, count(*)::bigint as count
@@ -3858,13 +3867,7 @@ export class AdminAnalyticsRepository {
 	) {
 		const result = await client.execute<FeatureAdoptionRow>(sql`
 			with bounds as (${analyticsBounds(input)}),
-			live_owners as (
-				select distinct coalesce(s.organization_id, s.user_id) as owner_id
-				from subscriptions s
-				cross join bounds b
-				where s.created_at < b.snapshot_end
-					and s.status in (${liveSubscriptionStatusList()})
-			),
+			live_owners as (${paidOwnersSql()}),
 			active_users as (
 				select count(distinct coalesce(e.organization_id, e.user_id))::bigint as count
 				from ai_usage_events e
@@ -3969,22 +3972,20 @@ export class AdminAnalyticsRepository {
 				inner join live_owners l on l.owner_id = f.owner_id
 				group by f.key
 			),
-			first_subscriptions as (
-				select
-					coalesce(s.organization_id, s.user_id) as owner_id,
-					min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.owner_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.snapshot_end
-				group by coalesce(s.organization_id, s.user_id)
+				where p.paid_at < b.snapshot_end
+				group by p.owner_id
 			),
 			converted_after_use_totals as (
 				select f.key, count(*)::bigint as converted_users
 				from feature_owners f
-				inner join first_subscriptions s on s.owner_id = f.owner_id
+				inner join first_payments s on s.owner_id = f.owner_id
 				cross join bounds b
-				where s.first_subscription_at >= f.first_use_at
-					and s.first_subscription_at < b.snapshot_end
+				where s.first_paid_at >= f.first_use_at
+					and s.first_paid_at < b.snapshot_end
 				group by f.key
 			)
 			select
@@ -4025,13 +4026,7 @@ export class AdminAnalyticsRepository {
 	) {
 		const result = await client.execute<CreditRangeRow>(sql`
 			with bounds as (${analyticsBounds(input)}),
-			live_owners as (
-				select distinct coalesce(s.organization_id, s.user_id) as owner_id
-				from subscriptions s
-				cross join bounds b
-				where s.created_at < b.snapshot_end
-					and s.status in (${liveSubscriptionStatusList()})
-			),
+			live_owners as (${paidOwnersSql()}),
 			-- Refund grants sit on their consume's day (consumptionEffectiveAt):
 			-- created_at >= range_start keeps the index usable because a refund
 			-- never precedes its consume.
@@ -4152,13 +4147,7 @@ export class AdminAnalyticsRepository {
 	) {
 		const result = await client.execute<FreeConsumptionRow>(sql`
 			with bounds as (${analyticsBounds(input)}),
-			live_owners as (
-				select distinct coalesce(s.organization_id, s.user_id) as owner_id
-				from subscriptions s
-				cross join bounds b
-				where s.created_at < b.snapshot_end
-					and s.status in (${liveSubscriptionStatusList()})
-			),
+			live_owners as (${paidOwnersSql()}),
 			ledger_owner_totals as (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
@@ -4229,22 +4218,22 @@ export class AdminAnalyticsRepository {
 	) {
 		const result = await client.execute<CreditsBeforeUpgradeRow>(sql`
 			with bounds as (${analyticsBounds(input)}),
-			first_subscriptions as (
-				select s.user_id, min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.user_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.snapshot_end
-				group by s.user_id
+				where p.paid_at < b.snapshot_end
+				group by p.user_id
 			),
 			converted_users as (
 				select
 					f.user_id,
-					f.first_subscription_at,
+					f.first_paid_at,
 					u.created_at
-				from first_subscriptions f
+				from first_payments f
 				inner join "user" u on u.id = f.user_id
 				cross join bounds b
-				where f.first_subscription_at < b.snapshot_end
+				where f.first_paid_at < b.snapshot_end
 					and u.created_at < b.snapshot_end
 			),
 			consumption as (
@@ -4257,7 +4246,7 @@ export class AdminAnalyticsRepository {
 					and c.organization_id is null
 					and ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
-					and ${consumptionEffectiveAt("c")} < u.first_subscription_at
+					and ${consumptionEffectiveAt("c")} < u.first_paid_at
 				group by u.user_id
 			)
 			select
@@ -4327,20 +4316,20 @@ export class AdminAnalyticsRepository {
 				where c.cumulative_consumed >= c.grant_credits
 				order by c.user_id, c.consumed_at
 			),
-			first_subscriptions as (
-				select s.user_id, min(s.created_at) as first_subscription_at
-				from subscriptions s
+			first_payments as (
+				select p.user_id, min(p.paid_at) as first_paid_at
+				from (${paymentEventsSql()}) p
 				cross join bounds b
-				where s.created_at < b.snapshot_end
-				group by s.user_id
+				where p.paid_at < b.snapshot_end
+				group by p.user_id
 			),
 			measured_crossings as (
 				select
 					extract(epoch from (c.crossing_at - c.grant_at)) as seconds
 				from crossings c
-				left join first_subscriptions s on s.user_id = c.user_id
-				where (s.first_subscription_at is null
-						or s.first_subscription_at >= c.crossing_at)
+				left join first_payments s on s.user_id = c.user_id
+				where (s.first_paid_at is null
+						or s.first_paid_at >= c.crossing_at)
 					and not exists (
 						select 1
 						from credit_ledger other_grant
@@ -4400,12 +4389,7 @@ export class AdminAnalyticsRepository {
 				where c.created_at < b.snapshot_end
 				group by coalesce(c.organization_id, c.user_id)
 			),
-			ever_paid_owners as (
-				select distinct coalesce(s.organization_id, s.user_id) as owner_id
-				from subscriptions s
-				cross join bounds b
-				where s.created_at < b.snapshot_end
-			),
+			ever_paid_owners as (${paidOwnersSql()}),
 			owner_totals as (
 				select
 					u.owner_id,
@@ -4657,8 +4641,9 @@ const FUNNEL_STEP_EVENT_QUERIES: Record<AdminAnalyticsFunnelUserStep, SQL> = {
 			max(a.created_at) as last_event_at,
 			count(*)::bigint as event_count
 		from signup_cohort c
+		-- Both purposes count, the same as checkout_users of the funnel snapshot.
 		inner join billing_checkout_attempts a
-			on a.user_id = c.user_id and a.purpose = 'subscription'
+			on a.user_id = c.user_id
 		cross join bounds b
 		where a.created_at < b.snapshot_end
 		group by a.user_id
@@ -4875,6 +4860,42 @@ function liveSubscriptionStatusList() {
 		LIVE_SUBSCRIPTION_STATUSES.map((status) => sql`${status}`),
 		sql`, `,
 	);
+}
+
+// "Paid" in analytics: one row for each payment. A payment is a subscription
+// row that got past checkout, or a top-up receipt of any provider. It follows
+// the paid-owner rule of billing (paid-owner.repository.ts), but reads receipts
+// in place of ledger `topup` rows. So a ledger top-up with no receipt (the dev
+// seed) is not paid here. The earliest paid_at is the first payment time.
+// Columns: user_id (the buyer), owner_id (the organization, else the user),
+// paid_at.
+function paymentEventsSql(): SQL {
+	return sql`
+		select
+			s.user_id,
+			coalesce(s.organization_id, s.user_id) as owner_id,
+			s.created_at as paid_at
+		from subscriptions s
+		where s.status not in ('incomplete', 'incomplete_expired')
+		union all
+		select
+			t.user_id,
+			coalesce(t.organization_id, t.user_id) as owner_id,
+			t.paid_at
+		from billing_topup_receipts t
+	`;
+}
+
+// Paid owners at the snapshot: a first payment before snapshot_end. A paid
+// owner never becomes free again (design record D9), so no range applies.
+// Needs the CTE `bounds` in scope. Column: owner_id.
+function paidOwnersSql(): SQL {
+	return sql`
+		select distinct p.owner_id
+		from (${paymentEventsSql()}) p
+		cross join bounds b
+		where p.paid_at < b.snapshot_end
+	`;
 }
 
 // Historical bundled helper calls (customerBilling 'bundled_unmetered' or

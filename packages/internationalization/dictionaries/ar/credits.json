@@ -6,27 +6,22 @@
 	"recentActivity": "النشاط الأخير",
 	"emptyActivity": "لا يوجد نشاط بعد.",
 	"activityLoadError": "تعذر تحميل نشاط الأرصدة.",
-	"topUpChip": "شحن الأرصدة",
-	"manageBilling": "عرض الفوترة",
-	"topUpDialog": "عرض الخطط وحزم الشحن",
+	"topUpChip": "شحن الرصيد",
+	"manageBilling": "فتح المحفظة",
+	"topUpDialog": "شحن الأرصدة",
 	"insufficientTitle": "الرصيد غير كافٍ",
 	"insufficientBody": "يتطلب هذا الإجراء أرصدة أكثر من رصيدك الحالي.",
 	"outOfCredits": {
 		"title": "نفد رصيدك",
-		"body": "قم بترقية خطتك لمواصلة الإنشاء.",
-		"memberBody": "نفد رصيد مساحة العمل هذه. اطلب من مالك مساحة العمل ترقية الخطة.",
-		"cta": "ترقية الخطة",
-		"pausedBody": "شراء الرصيد متوقف مؤقتًا خلال النسخة التجريبية."
+		"body": "اشحن محفظتك لمواصلة الإنشاء.",
+		"memberBody": "نفد رصيد مساحة العمل هذه. اطلب من مالك مساحة العمل شحن المحفظة.",
+		"cta": "شحن الرصيد",
+		"pausedBody": "شراء الرصيد متوقف مؤقتًا."
 	},
 	"elsewhere": {
 		"chipHint": "أرصدتك موجودة في {name}",
 		"dialogHint": "لديك {balance} من الأرصدة في {name}",
 		"switch": "التبديل"
-	},
-	"buckets": {
-		"plan": "الخطة",
-		"promo": "ترويجية",
-		"topup": "الشحن"
 	},
 	"ledgerKinds": {
 		"grant": "أرصدة ممنوحة",
@@ -63,6 +58,42 @@
 	"activityStatus": {
 		"inProgress": "قيد التنفيذ",
 		"refunded": "تم الاسترداد"
+	},
+	"spendBadges": {
+		"title": "الشارات",
+		"description": "اكسب الشارات كلما استخدمت أرصدة محفظتك الشخصية. لا تمنح الشارة أي أرصدة.",
+		"spent": "استخدمت {credits}",
+		"next": "تبقّى {credits} للوصول إلى {badge}",
+		"allEarned": "حصلت على كل الشارات.",
+		"earned": "مكتسبة",
+		"locked": "مقفلة",
+		"loadError": "تعذر تحميل شاراتك.",
+		"items": {
+			"spark": {
+				"name": "الشرارة",
+				"description": "خطواتك الأولى مع الذكاء الاصطناعي."
+			},
+			"apprentice": {
+				"name": "المتدرّب",
+				"description": "تستخدم الذكاء الاصطناعي كثيرًا."
+			},
+			"builder": {
+				"name": "البنّاء",
+				"description": "أصبح البناء بالذكاء الاصطناعي عادة لديك."
+			},
+			"artisan": {
+				"name": "الحِرفي",
+				"description": "تنجز مشاريع كثيرة بعناية."
+			},
+			"master": {
+				"name": "الخبير",
+				"description": "تعرف كل أداة جيدًا."
+			},
+			"legend": {
+				"name": "الأسطورة",
+				"description": "قلّة قليلة من المنشئين تصل إلى هنا."
+			}
+		}
 	},
 	"creditUnit": {
 		"zero": "{count} رصيد",

@@ -120,8 +120,9 @@ export const persistedTopupPackIdSchema = z.enum(persistedTopupPackIds);
 
 export type PersistedTopupPackId = z.infer<typeof persistedTopupPackIdSchema>;
 
-// Top-ups stay disabled in v7. These prices match the Pro base rate so they
-// cannot undercut a subscription if the existing switch is re-enabled.
+// Pricing v7 packs. Pricing v8 sells an amount in USD, not a pack. For one
+// release POST /billing/topup still accepts a pack id from a cached web bundle.
+// The API then charges `usd` of the pack and grants topupCreditsForUsd(usd), bonus included.
 export const TOPUP_PACKS = {
 	topup_250: { credits: 250, usd: 25 },
 	topup_1000: { credits: 1000, usd: 100 },
@@ -142,6 +143,122 @@ export const PERSISTED_TOPUP_PACKS = {
 	PersistedTopupPackId,
 	{ readonly credits: number; readonly usd: number }
 >;
+
+/** Pricing v8.1 wallet top-up presets, in whole USD. The web shows one button for each. */
+export const TOPUP_PRESET_AMOUNTS_USD = [10, 20, 40, 100, 200] as const;
+
+/** Smallest top-up of one payment, in whole USD. */
+export const TOPUP_MIN_AMOUNT_USD = 10;
+
+// LIMIT: the maximum is for one payment, not for one owner per day. Upgrade: a daily sum from `billing_topup_receipts`.
+/** Largest top-up of one payment, in whole USD. */
+export const TOPUP_MAX_AMOUNT_USD = 1000;
+
+/** Base rate of pricing v8: whole credits for 1 USD, before the bonus. Same for personal and team wallets. */
+export const TOPUP_CREDITS_PER_USD = 10;
+
+/** One step of the volume bonus. A top-up of `minAmountUsd` whole USD or more gets `bonusPercent` of its base credits. */
+export type TopupBonusTier = {
+	readonly minAmountUsd: number;
+	readonly bonusPercent: number;
+};
+
+/**
+ * Volume bonus of pricing v8.1, in ascending `minAmountUsd` order. It reverses founder decision D4 ("no volume bonus").
+ * An empty list gives the flat rate again, and the web then hides the bonus track.
+ */
+export const TOPUP_BONUS_TIERS: readonly TopupBonusTier[] = [
+	{ minAmountUsd: 40, bonusPercent: 5 },
+	{ minAmountUsd: 100, bonusPercent: 10 },
+	{ minAmountUsd: 200, bonusPercent: 15 },
+];
+
+/** The credits of one top-up. All counts are whole credits. `topupQuoteForUsd` makes it. */
+export type TopupQuote = {
+	/** Whole USD of the top-up. */
+	amountUsd: number;
+	/** `amountUsd * TOPUP_CREDITS_PER_USD`. */
+	baseCredits: number;
+	/** Percent of the tier that the amount reaches. 0 below the first tier. */
+	bonusPercent: number;
+	/** `baseCredits * bonusPercent / 100`, rounded down. */
+	bonusCredits: number;
+	/** `baseCredits + bonusCredits`. The webhook grants this number. */
+	credits: number;
+	/** First tier above the amount that one payment can reach. Null at the top tier. The web shows it as a nudge. */
+	nextTier: TopupBonusTier | null;
+};
+
+/**
+ * Whole USD of one top-up (Stripe, SlickPay, offline request). The server parses every body with it.
+ * Integer only, so the credit math below never gives a fraction of a credit.
+ */
+export const topupAmountUsdSchema = z
+	.int()
+	.min(TOPUP_MIN_AMOUNT_USD)
+	.max(TOPUP_MAX_AMOUNT_USD);
+
+/**
+ * Base, bonus, and total whole credits of a top-up of `amountUsd` whole USD.
+ * It accepts each positive safe integer, also below the minimum and above the maximum: the offline path needs it.
+ * Throws a RangeError on other values, so a bug cannot grant a fraction or a negative amount.
+ */
+export function topupQuoteForUsd(amountUsd: number): TopupQuote {
+	if (!Number.isSafeInteger(amountUsd) || amountUsd <= 0) {
+		throw new RangeError(
+			`Top-up amount must be a positive whole USD amount, got ${amountUsd}`,
+		);
+	}
+	// The tier of the amount is the last tier that it reaches. The list is in ascending order.
+	const tier = TOPUP_BONUS_TIERS.filter(
+		(candidate) => candidate.minAmountUsd <= amountUsd,
+	).at(-1);
+	const nextTier =
+		TOPUP_BONUS_TIERS.find(
+			(candidate) =>
+				candidate.minAmountUsd > amountUsd &&
+				candidate.minAmountUsd <= TOPUP_MAX_AMOUNT_USD,
+		) ?? null;
+	const baseCredits = amountUsd * TOPUP_CREDITS_PER_USD;
+	const bonusPercent = tier?.bonusPercent ?? 0;
+	// Round down, so the bonus never grants a fraction of a credit.
+	const bonusCredits = Math.floor((baseCredits * bonusPercent) / 100);
+	return {
+		amountUsd,
+		baseCredits,
+		bonusPercent,
+		bonusCredits,
+		credits: baseCredits + bonusCredits,
+		nextTier,
+	};
+}
+
+/**
+ * Whole credits, bonus included, that a top-up of `amountUsd` whole USD buys.
+ * The Stripe, SlickPay, offline, and admin paths call it. The server multiplies the result by 100 for the ledger.
+ * Throws the RangeError of `topupQuoteForUsd`.
+ */
+export function topupCreditsForUsd(amountUsd: number): number {
+	return topupQuoteForUsd(amountUsd).credits;
+}
+
+/**
+ * Smallest whole USD, from TOPUP_MIN_AMOUNT_USD to TOPUP_MAX_AMOUNT_USD, whose credits cover `shortfallCredits`.
+ * The shortfall is in decimal display credits. The web uses the result as the default amount after a 402 answer.
+ * Returns TOPUP_MAX_AMOUNT_USD when no amount covers the shortfall.
+ */
+export function smallestTopupCovering(shortfallCredits: number): number {
+	for (
+		let amountUsd = TOPUP_MIN_AMOUNT_USD;
+		amountUsd < TOPUP_MAX_AMOUNT_USD;
+		amountUsd++
+	) {
+		if (topupCreditsForUsd(amountUsd) >= shortfallCredits) {
+			return amountUsd;
+		}
+	}
+	return TOPUP_MAX_AMOUNT_USD;
+}
 
 export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
@@ -392,78 +509,77 @@ export type BillingSubscriptionViewResponse = z.infer<
 	typeof billingSubscriptionViewResponseSchema
 >;
 
-export const createBillingCheckoutBodySchema = z
-	.object({
-		plan: billingPlanIdSchema,
-		tierCredits: creditTierSchema,
-		interval: billingIntervalSchema,
-	})
-	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
-		message: "Tier is not purchasable for the selected plan",
-		path: ["tierCredits"],
-	});
-
-export type CreateBillingCheckoutBody = z.infer<
-	typeof createBillingCheckoutBodySchema
->;
-
-export const createBillingTopupBodySchema = z.object({
-	packId: topupPackIdSchema,
-});
+/**
+ * Body of POST billingRoutes.topup. The new web sends `{ amountUsd }`.
+ * `{ packId }` comes from a cached pricing v7 web bundle, for one release only.
+ * Strict objects: a body with both keys, or an unknown key, is a 400.
+ */
+export const createBillingTopupBodySchema = z.union([
+	z.strictObject({ amountUsd: topupAmountUsdSchema }),
+	z.strictObject({ packId: topupPackIdSchema }),
+]);
 
 export type CreateBillingTopupBody = z.infer<
 	typeof createBillingTopupBodySchema
 >;
 
-export const billingSubscriptionChangeTargetSchema = z.object({
-	interval: billingIntervalSchema,
-	plan: billingPlanIdSchema.optional(),
-	tierCredits: creditTierSchema,
-});
-
-export type BillingSubscriptionChangeTarget = z.infer<
-	typeof billingSubscriptionChangeTargetSchema
->;
-
-export const previewBillingSubscriptionChangeBodySchema =
-	billingSubscriptionChangeTargetSchema;
-
-export type PreviewBillingSubscriptionChangeBody = z.infer<
-	typeof previewBillingSubscriptionChangeBodySchema
->;
-
-export const billingSubscriptionChangePreviewResponseSchema = z.object({
-	intentId: uuidSchema,
-	amountDueMinor: z.int(),
-	currency: z.string().min(1),
-	// Decimal credits: computed against the centi-credit plan balance, so a
-	// monthly->yearly preview can carry a fractional expiry remainder.
-	creditsDelta: z.number(),
-	expiresAt: isoDateTimeSchema,
-});
-
-export type BillingSubscriptionChangePreviewResponse = z.infer<
-	typeof billingSubscriptionChangePreviewResponseSchema
->;
-
-export const changeBillingSubscriptionBodySchema = z.object({
-	intentId: uuidSchema,
-});
-
-export type ChangeBillingSubscriptionBody = z.infer<
-	typeof changeBillingSubscriptionBodySchema
->;
-
-export const billingSubscriptionChangeOutcomeResponseSchema = z.object({
-	outcome: z.enum(["applied", "payment_required", "failed"]),
-	hostedInvoiceUrl: z.url().optional(),
-	pendingExpiresAt: isoDateTimeSchema.optional(),
-	subscription: subscriptionSchema,
+/**
+ * Answer of GET billingRoutes.wallet for the active workspace. Each member can read it.
+ * The web wallet page and the top-up dialog read it. The API computes every credit count.
+ */
+export const billingWalletResponseSchema = z.object({
+	// Decimal display credits. Clients show `settledBalance` as the one wallet number.
 	balance: creditBalanceResponseSchema,
+	// True when the pool has a top-up ledger row, or had a subscription.
+	isPaidOwner: z.boolean(),
+	// True when the pool has a Stripe customer, so the portal shows old invoices.
+	hasStripeCustomer: z.boolean(),
+	// Decimal display credits: net consumption of this wallet in the last 30 days (consume minus refunds).
+	spentLast30DaysCredits: z.number().nonnegative(),
+	topup: z.object({
+		// The `topups_enabled` product setting. False hides the card top-up.
+		enabled: z.boolean(),
+		// Whole USD. Copies of the TOPUP_* constants, so the web never hard-codes them.
+		presetAmountsUsd: z.array(z.int().positive()),
+		minAmountUsd: z.int().positive(),
+		maxAmountUsd: z.int().positive(),
+		// Base rate, before the bonus. Use topupQuoteForUsd for the credits of an amount.
+		creditsPerUsd: z.int().positive(),
+	}),
 });
 
-export type BillingSubscriptionChangeOutcomeResponse = z.infer<
-	typeof billingSubscriptionChangeOutcomeResponseSchema
+export type BillingWalletResponse = z.infer<typeof billingWalletResponseSchema>;
+
+/**
+ * Query of GET billingRoutes.topupStatus. The web return page sends the Stripe Checkout Session id.
+ * Stripe session ids start with "cs_". The pattern refuses any other text before the database read.
+ */
+export const billingTopupStatusQuerySchema = z.object({
+	sessionId: z
+		.string()
+		.max(255)
+		.regex(/^cs_[A-Za-z0-9_]+$/, "Invalid checkout session id"),
+});
+
+export type BillingTopupStatusQuery = z.infer<
+	typeof billingTopupStatusQuerySchema
+>;
+
+/**
+ * Answer of GET billingRoutes.topupStatus. "credited" means the receipt of the session exists for the caller.
+ * The return page polls while the status is "pending".
+ */
+export const billingTopupStatusResponseSchema = z.discriminatedUnion("status", [
+	z.object({ status: z.literal("pending") }),
+	z.object({
+		status: z.literal("credited"),
+		// Decimal credits that the receipt granted, bonus included. Null for an old pack receipt with an unknown pack id.
+		credits: z.number().nonnegative().nullable(),
+	}),
+]);
+
+export type BillingTopupStatusResponse = z.infer<
+	typeof billingTopupStatusResponseSchema
 >;
 
 export const billingCheckoutResponseSchema = z.object({
@@ -494,31 +610,14 @@ export type CancellationReasonCode = z.infer<
 	typeof cancellationReasonCodeSchema
 >;
 
-export const billingCancelRequestSchema = z
-	.object({
-		reason: cancellationReasonCodeSchema,
-		details: z.string().trim().min(1).max(1000).optional(),
-	})
-	.superRefine((request, context) => {
-		if (request.reason === "other" && request.details === undefined) {
-			context.addIssue({
-				code: "custom",
-				message: "details is required when reason is other",
-				path: ["details"],
-			});
-		}
-	});
-
-export type BillingCancelRequest = z.infer<typeof billingCancelRequestSchema>;
-
 // ---------------------------------------------------------------------------
 // Offline / manual billing ("cash on delivery", wire transfer, CCP…).
 //
-// A user who cannot (or does not want to) pay by card files a manual
-// subscription REQUEST from the plan picker. An admin calls them, collects the
-// payment outside Stripe, and grants a `provider = "manual"` subscription in
-// the admin app. Manual subscriptions never auto-renew: a Trigger.dev sweep
-// ends them at `currentPeriodEnd`; renewing is an admin action after contact.
+// Pricing v8: a user who cannot pay by card files an offline REQUEST for a
+// top-up amount. An admin calls the contact, collects the money outside
+// Stripe, and records a top-up in the admin app. That writes one receipt in
+// `billing_topup_receipts` and approves the request. Requests and manual
+// subscriptions from before v8 keep their plan columns for history.
 // ---------------------------------------------------------------------------
 
 export const SUBSCRIPTION_PROVIDERS = {
@@ -562,6 +661,49 @@ export const preferredPaymentMethodSchema = manualPaymentMethodSchema.exclude([
 
 export type PreferredPaymentMethod = z.infer<
 	typeof preferredPaymentMethodSchema
+>;
+
+/**
+ * Values of `billing_topup_receipts.provider`. The db column is text with a check of the same list.
+ * offline: an admin recorded the money with "Record top-up".
+ */
+export const topupReceiptProviders = ["stripe", "slickpay", "offline"] as const;
+
+export const topupReceiptProviderSchema = z.enum(topupReceiptProviders);
+
+export type TopupReceiptProvider = z.infer<typeof topupReceiptProviderSchema>;
+
+/** One row of GET billingRoutes.payments: one receipt of the wallet, any provider. */
+export const billingWalletPaymentSchema = z.object({
+	// Id of the row in `billing_topup_receipts`.
+	id: uuidSchema,
+	provider: topupReceiptProviderSchema,
+	// Null for a Stripe or SlickPay receipt. The admin picks it for an offline receipt.
+	method: manualPaymentMethodSchema.nullable(),
+	// Money received, in the minor unit of `currency` (USD cents, DZD centimes).
+	amountMinor: z.int().min(0),
+	// ISO 4217 code in lower case ("usd", "dzd").
+	currency: z.string(),
+	// USD value that set the credits, in cents. Null for a receipt from before pricing v8.
+	amountUsdCents: z.int().positive().nullable(),
+	// Decimal display credits granted. Null for a receipt from before pricing v8.
+	credits: z.number().positive().nullable(),
+	paidAt: isoDateTimeSchema,
+	// Decimal display credits that a Stripe refund or dispute took back. Null when the receipt has no charge id.
+	revokedCredits: z.number().nullable(),
+	// Set when an admin reversed a SlickPay or offline receipt.
+	reversedAt: isoDateTimeSchema.nullable(),
+});
+
+export type BillingWalletPayment = z.infer<typeof billingWalletPaymentSchema>;
+
+/** Answer of GET billingRoutes.payments: the last 50 receipts of the pool, newest first. */
+export const billingPaymentsResponseSchema = z.object({
+	items: z.array(billingWalletPaymentSchema),
+});
+
+export type BillingPaymentsResponse = z.infer<
+	typeof billingPaymentsResponseSchema
 >;
 
 // no_answer: the customer does not answer the call. call_back: the customer asks for another call, or the admin plans one.
@@ -617,37 +759,40 @@ const phoneSchema = z
 		"Enter a valid phone number",
 	);
 
-export const createManualSubscriptionRequestBodySchema = z
-	.object({
-		plan: billingPlanIdSchema,
-		tierCredits: creditTierSchema,
-		interval: billingIntervalSchema,
-		fullName: z.string().trim().min(2).max(120),
-		phone: phoneSchema,
-		company: z.string().trim().min(1).max(120).optional(),
-		country: manualBillingCountrySchema,
-		city: z.string().trim().min(1).max(120).optional(),
-		preferredPaymentMethod: preferredPaymentMethodSchema.optional(),
-		notes: z.string().trim().min(1).max(1000).optional(),
-	})
-	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
-		message: "Tier is not purchasable for the selected plan",
-		path: ["tierCredits"],
-	});
+/**
+ * Body of POST billingRoutes.manualRequest: an offline request for a top-up of `amountUsd` whole USD.
+ * A plan body from a pricing v7 web bundle has no `amountUsd`, so it fails with a 400.
+ */
+export const createManualSubscriptionRequestBodySchema = z.object({
+	amountUsd: topupAmountUsdSchema,
+	fullName: z.string().trim().min(2).max(120),
+	phone: phoneSchema,
+	company: z.string().trim().min(1).max(120).optional(),
+	country: manualBillingCountrySchema,
+	city: z.string().trim().min(1).max(120).optional(),
+	preferredPaymentMethod: preferredPaymentMethodSchema.optional(),
+	notes: z.string().trim().min(1).max(1000).optional(),
+});
 
 export type CreateManualSubscriptionRequestBody = z.infer<
 	typeof createManualSubscriptionRequestBodySchema
 >;
 
+/**
+ * One offline request, as the web and the admin app read it.
+ * A pricing v8 request has `amountUsd` and null plan fields. An older request has the plan fields and a null `amountUsd`.
+ */
 export const manualSubscriptionRequestSchema = z.object({
 	id: uuidSchema,
 	status: manualSubscriptionRequestStatusSchema,
 	organizationId: z.string().nullable(),
-	plan: billingPlanIdSchema,
+	// Whole USD the customer asks to top up. From `amount_usd_cents / 100`.
+	amountUsd: z.number().positive().nullable(),
+	plan: billingPlanIdSchema.nullable(),
 	// Plain positive int (not creditTierSchema) so a request filed against a
 	// retired tier still renders.
-	tierCredits: z.int().positive(),
-	interval: billingIntervalSchema,
+	tierCredits: z.int().positive().nullable(),
+	interval: billingIntervalSchema.nullable(),
 	fullName: z.string(),
 	phone: z.string(),
 	company: z.string().nullable(),
@@ -674,48 +819,16 @@ export type ManualSubscriptionRequestViewResponse = z.infer<
 	typeof manualSubscriptionRequestViewResponseSchema
 >;
 
-/**
- * Adds one billing interval on the UTC calendar (the same month arithmetic the
- * yearly refill slots use): Jan 31 + 1 month = Feb 28/29, never Mar 3.
- */
-export function addBillingInterval(
-	anchor: Date,
-	interval: BillingInterval,
-	count = 1,
-): Date {
-	const months = (interval === "year" ? 12 : 1) * count;
-	const targetMonthIndex = anchor.getUTCMonth() + months;
-	const targetYear =
-		anchor.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
-	const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
-	const lastDay = new Date(
-		Date.UTC(targetYear, targetMonth + 1, 0),
-	).getUTCDate();
-	const targetDay = Math.min(anchor.getUTCDate(), lastDay);
-
-	return new Date(
-		Date.UTC(
-			targetYear,
-			targetMonth,
-			targetDay,
-			anchor.getUTCHours(),
-			anchor.getUTCMinutes(),
-			anchor.getUTCSeconds(),
-			anchor.getUTCMilliseconds(),
-		),
-	);
-}
-
 // ---------------------------------------------------------------------------
 // SlickPay: Algerian CIB / Edahabia cards (SATIM) on a SlickPay hosted page.
 //
-// One payment in DZD buys one period of one plan. It never auto-renews.
-// A paid invoice grants or renews a `provider = "manual"` subscription.
-// The manual expiry sweep, the admin Offline billing pages, and the receipts then apply to it.
+// Pricing v8: one payment in DZD buys one wallet top-up of an amount in USD.
+// A paid invoice grants top-up credits and writes one receipt in `billing_topup_receipts`.
+// A row from before v8 has a plan and no `credits`. The API still fulfils it.
 // ---------------------------------------------------------------------------
 
 /**
- * Converts a USD amount (usually from priceUsdFor) to whole DZD.
+ * Converts a USD amount (a top-up amount, or a plan price from priceUsdFor) to whole DZD.
  * dzdPerUsdRate is decimal DZD per 1 USD (270 = 270.00), not the stored centi-DZD value.
  * The API invoice, the web prices, and the admin receipts all call it, so their amounts agree.
  */
@@ -738,21 +851,17 @@ export type BillingLocalPricingResponse = z.infer<
 	typeof billingLocalPricingResponseSchema
 >;
 
-/** Body of POST billingRoutes.slickpayCheckout. fullName, phone, and city go on the SlickPay invoice. */
-export const startSlickpayCheckoutBodySchema = z
-	.object({
-		plan: billingPlanIdSchema,
-		tierCredits: creditTierSchema,
-		interval: billingIntervalSchema,
-		fullName: z.string().trim().min(2).max(120),
-		phone: phoneSchema,
-		// City or wilaya in Algeria.
-		city: z.string().trim().min(1).max(120),
-	})
-	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
-		message: "Tier is not purchasable for the selected plan",
-		path: ["tierCredits"],
-	});
+/**
+ * Body of POST billingRoutes.slickpayCheckout: a top-up of `amountUsd` whole USD, charged in DZD.
+ * fullName, phone, and city go on the SlickPay invoice. A pricing v7 plan body fails with a 400.
+ */
+export const startSlickpayCheckoutBodySchema = z.object({
+	amountUsd: topupAmountUsdSchema,
+	fullName: z.string().trim().min(2).max(120),
+	phone: phoneSchema,
+	// City or wilaya in Algeria.
+	city: z.string().trim().min(1).max(120),
+});
 
 export type StartSlickpayCheckoutBody = z.infer<
 	typeof startSlickpayCheckoutBodySchema
@@ -771,8 +880,8 @@ export type StartSlickpayCheckoutResponse = z.infer<
 
 // created: the row exists, the SlickPay invoice does not exist yet.
 // pending: SlickPay created the invoice. The buyer has the payment URL.
-// paid: SlickPay says paid. The subscription is not granted yet.
-// fulfilled: the subscription is granted or renewed. Terminal.
+// paid: SlickPay says paid. The credits are not granted yet.
+// fulfilled: the credits are granted (before v8: the subscription is granted or renewed). Terminal.
 // failed: the invoice creation failed, so the buyer never got a URL. Terminal.
 // expired: still unpaid 24 h after creation. The sweep skips it. Confirm still asks SlickPay and can move it to paid.
 /** Equals the pgEnum slickpay_payment_status in packages/db. */
@@ -789,17 +898,24 @@ export const slickpayPaymentStatusSchema = z.enum(slickpayPaymentStatuses);
 
 export type SlickpayPaymentStatus = z.infer<typeof slickpayPaymentStatusSchema>;
 
-/** Answer of POST billingRoutes.slickpayConfirm(id). The return page polls it while the status is created, pending, or paid. */
+/**
+ * Answer of POST billingRoutes.slickpayConfirm(id). The return page polls it while the status is created, pending, or paid.
+ * A pricing v8 row has amountUsd and credits, and null plan fields. A row from before v8 has the plan fields.
+ */
 export const slickpayPaymentViewSchema = z.object({
 	id: uuidSchema,
 	status: slickpayPaymentStatusSchema,
-	plan: billingPlanIdSchema,
+	// Whole USD of the top-up. From `amount_usd_cents / 100`. Null for a row from before v8.
+	amountUsd: z.number().positive().nullable(),
+	// Decimal display credits that the payment grants. Null for a row from before v8.
+	credits: z.number().positive().nullable(),
+	plan: billingPlanIdSchema.nullable(),
 	// Plain positive int (not creditTierSchema), so a payment on a retired tier still renders.
-	tierCredits: z.int().positive(),
-	interval: billingIntervalSchema,
+	tierCredits: z.int().positive().nullable(),
+	interval: billingIntervalSchema.nullable(),
 	// Whole DZD that SlickPay charges.
 	amountDzd: z.int().positive(),
-	// The granted or renewed subscription. Set when the status is fulfilled.
+	// The granted or renewed subscription of a row from before v8. Always null for a v8 top-up.
 	subscriptionId: uuidSchema.nullable(),
 });
 
@@ -854,7 +970,7 @@ export const slickpayErrorBodySchema = z.object({
 
 /**
  * True when SlickPay reports the invoice as paid. The official SlickPay WordPress plugin uses the same rule.
- * The API grants a subscription only after this returns true.
+ * The API grants credits only after this returns true.
  */
 export function isSlickpayInvoicePaid(
 	details: SlickpayInvoiceDetailsResponse,
@@ -871,16 +987,15 @@ export function isSlickpayInvoicePaid(
 
 /** API paths of the billing module. Functions build paths that have an id. */
 export const billingRoutes = {
+	// Old v7 reads. Cached web bundles call them for one release. The v8 web does not.
 	plans: "/api/v1/billing/plans",
 	subscription: "/api/v1/billing/subscription",
-	checkout: "/api/v1/billing/checkout",
+	wallet: "/api/v1/billing/wallet",
 	topup: "/api/v1/billing/topup",
+	// Query `sessionId`. The return page polls it after a Stripe top-up.
+	topupStatus: "/api/v1/billing/topup/status",
+	payments: "/api/v1/billing/payments",
 	portal: "/api/v1/billing/portal",
-	changePreview: "/api/v1/billing/change/preview",
-	change: "/api/v1/billing/change",
-	cancel: "/api/v1/billing/cancel",
-	resume: "/api/v1/billing/resume",
-	sync: "/api/v1/billing/sync",
 	manualRequest: "/api/v1/billing/manual-request",
 	manualRequestCancel: "/api/v1/billing/manual-request/cancel",
 	// Public. Tells the web if the visitor sees DZD prices and the SlickPay tab.

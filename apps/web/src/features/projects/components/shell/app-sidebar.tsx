@@ -2,7 +2,7 @@
  * The floating sidebar of the dashboard pages: a paper card beside the
  * content, in the look of the landing page. DashboardShell renders it. It
  * holds the logo, the workspace switcher, the page links, the feedback
- * entry, the upgrade and referral cards, the language segments, and the user
+ * entry, the top-up and referral cards, the language segments, and the user
  * menu. The active link is a night pill with a spark circle, like the
  * platform token of the landing hero.
  */
@@ -23,16 +23,21 @@ import {
 	useSidebar,
 } from "@wandit/ui/components/sidebar";
 import { cn } from "@wandit/ui/lib/utils";
+import { Zap } from "lucide-react";
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
 import { useAffiliatePortalMeQuery } from "@/features/affiliates/api/affiliates.queries";
 import { UserMenu } from "@/features/auth";
-import { UpgradeCard } from "@/features/billing/components/upgrade-button";
+import {
+	useBillingModal,
+	useBillingWalletQuery,
+	usePurchasesEnabled,
+} from "@/features/billing";
 import { FeedbackHost } from "@/features/feedback";
 import { isChatwootConfigured, openSupportChat } from "@/features/support";
 import { ReferralCard } from "@/features/user-referrals";
-import { useCollaborationGates } from "@/features/workspaces";
+import { useCollaborationGates, useWorkspace } from "@/features/workspaces";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { localeMeta, locales, useI18n, useTranslation } from "@/lib/i18n";
 import {
@@ -219,6 +224,55 @@ function NavGroupList({ group }: { group: NavGroup }) {
 	);
 }
 
+/**
+ * Sidebar "Top up" card. Only a billing owner with no top-up yet sees it.
+ * A paid owner tops up from the credits chip. workspace-header.tsx holds the same rule.
+ */
+function TopupCard({ className }: { className?: string }) {
+	const { t } = useTranslation();
+	const { openTopup } = useBillingModal();
+	const { actorCanManageBilling, isPersonal } = useWorkspace();
+	const purchasesEnabled = usePurchasesEnabled();
+	const walletQuery = useBillingWalletQuery();
+	// Wait for the wallet: a top-up call to action that flashes at a paying customer is worse than a late one.
+	const visible =
+		(isPersonal || actorCanManageBilling) &&
+		purchasesEnabled !== false &&
+		walletQuery.data?.isPaidOwner === false;
+
+	if (!visible) {
+		return null;
+	}
+
+	return (
+		<button
+			type="button"
+			onClick={() => openTopup("sidebar")}
+			className={cn(
+				"flex w-full items-center gap-3 rounded-xl border border-primary/25 bg-card/70 px-3 py-2.5 text-start transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+				className,
+			)}
+		>
+			<span className="min-w-0 flex-1">
+				<span className="block truncate font-medium text-sm">
+					{isPersonal
+						? t("workspace.topupCard.titlePersonal")
+						: t("workspace.topupCard.titleTeam")}
+				</span>
+				<span className="mt-0.5 block text-muted-foreground text-xs">
+					{t("workspace.topupCard.body")}
+				</span>
+			</span>
+			<span
+				aria-hidden
+				className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary"
+			>
+				<Zap className="size-4" />
+			</span>
+		</button>
+	);
+}
+
 /** Collapses to icons with Ctrl+B (Cmd+B on a Mac) or the bar button. On a phone it is a sheet. */
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 	const { t } = useTranslation();
@@ -283,9 +337,9 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 				) : null}
 			</SidebarContent>
 			<SidebarFooter className="gap-2 p-2 pb-3">
-				{/* The upgrade card gates itself on purchases + free plan, so this
+				{/* The top-up card gates itself on purchases and on a free owner, so this
 				    stays invisible until billing opens (ship-dark launch policy). */}
-				<UpgradeCard className="group-data-[collapsible=icon]:hidden" />
+				<TopupCard className="group-data-[collapsible=icon]:hidden" />
 				{/* The referral card renders nothing while the referral program is off. */}
 				<ReferralCard className="group-data-[collapsible=icon]:hidden" />
 				<LanguageSegments />

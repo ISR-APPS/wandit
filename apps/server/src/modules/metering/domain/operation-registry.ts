@@ -248,8 +248,8 @@ export const OPERATION_REGISTRY = {
 		rootAllowed: true,
 		unit: "operation",
 	},
-	// Appetize device minutes (WANDIT-196): zero credits inside the plan
-	// allowance. The event records the provider cost only.
+	// Appetize device minutes (WANDIT-196): zero credits inside the monthly
+	// minutes of a paid owner. The event records the provider cost only.
 	mobile_preview: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: NO_PARENTS,

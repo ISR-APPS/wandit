@@ -72,6 +72,8 @@ export type AdminUserSummaryRow = {
 	createdAt: Date;
 	lastSeenAt: Date | null;
 	plan: string | null;
+	/** Personal pool has a top-up or had a subscription. See `personalPaidOwnerFilter`. */
+	isPaidOwner: boolean;
 	// UNIT: integer centi-credits (ledger sums); mappers divide by 100.
 	creditsBalance: number;
 	creditsConsumed: number;
@@ -944,6 +946,7 @@ export class AdminRepository {
 				order by "subscriptions"."created_at" desc
 				limit 1
 			)`,
+			isPaidOwner: sql<boolean>`${personalPaidOwnerFilter(userId)}`,
 			creditsBalance: userCreditsBalance(userId),
 			creditsConsumed: userCreditsConsumed(userId),
 			projectsCount: userProjectsCount(userId),
@@ -1002,9 +1005,11 @@ export class AdminRepository {
 					: sql`${creditsBalance} > 0`,
 			);
 
+			// "Free credits" means a user who never paid. A top-up alone makes a
+			// user paid, so the subscription-only plan filter is not enough here.
 			filters.push(
 				and(
-					freePlanUserFilter(userId),
+					sql`not ${personalPaidOwnerFilter(userId)}`,
 					signupFreeCreditsGrantExists(userId),
 					or(...balanceFilters),
 				),
@@ -1307,6 +1312,24 @@ function personalEntitledSubscriptionExists(
 				plans.map((plan) => sql`${plan}`),
 				sql`, `,
 			)}))`;
+}
+
+// Copy of `paidOwnerCondition` (billing paid-owner.repository.ts) for the
+// personal pool, correlated with the outer "user" row. That function takes a
+// fixed owner id, so a list query cannot use it. Keep the two rules equal.
+// `organization_id is null`: a team subscription row holds the buyer in user_id.
+function personalPaidOwnerFilter(userId: SQL) {
+	return sql`(exists (select 1
+			from "subscriptions"
+			where "subscriptions"."user_id" = ${userId}
+				and "subscriptions"."organization_id" is null
+				and "subscriptions"."status" not in ('incomplete', 'incomplete_expired'))
+		or exists (select 1
+			from "credit_ledger"
+			where "credit_ledger"."user_id" = ${userId}
+				and "credit_ledger"."organization_id" is null
+				and "credit_ledger"."bucket" = 'topup'
+				and "credit_ledger"."kind" = 'topup'))`;
 }
 
 function freePlanUserFilter(userId: SQL) {

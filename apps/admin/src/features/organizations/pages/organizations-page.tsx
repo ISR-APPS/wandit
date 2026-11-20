@@ -107,9 +107,8 @@ export function OrganizationsPage() {
 						Organizations
 					</h1>
 					<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-						Team workspaces with their members, Business plan, and shared credit
-						pool. Each user also has one personal workspace: select Personal to
-						see them.
+						Team workspaces with their members and shared team wallet. Each user
+						also has one personal workspace: select Personal to see them.
 					</p>
 				</div>
 				{/* The filter stays outside the table card, so an empty list never hides it. */}

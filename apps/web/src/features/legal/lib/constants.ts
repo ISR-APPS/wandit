@@ -70,4 +70,4 @@ export const GOOGLE_PERMISSIONS_URL =
  * the reader's locale; bump it whenever the copy in legal.json changes, because
  * both documents state that this date identifies the version in force.
  */
-export const LEGAL_LAST_UPDATED_ISO = "2026-08-17";
+export const LEGAL_LAST_UPDATED_ISO = "2026-11-12";

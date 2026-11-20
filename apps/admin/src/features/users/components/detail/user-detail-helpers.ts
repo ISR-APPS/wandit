@@ -1,4 +1,12 @@
-import { tryPriceUsdFor } from "@wandit/contracts";
+/**
+ * Pure helpers of the user detail page: initials, labels, old plan prices, and the spend badge.
+ * Called by the user detail components. Uses the billing and credits contracts.
+ */
+import {
+	SPEND_BADGES,
+	type SpendBadgeId,
+	tryPriceUsdFor,
+} from "@wandit/contracts";
 
 import type {
 	AdminUserSubscription,
@@ -43,21 +51,14 @@ export function subscriptionPriceUsd(
 	);
 }
 
-// "175 credits/mo · $25/mo" (or "· $250/yr" on yearly billing).
-export function subscriptionTierLabel(
-	subscription: Pick<
-		AdminUserSubscription,
-		"plan" | "tierCredits" | "interval"
-	>,
-): string {
-	const priceUsd = subscriptionPriceUsd(subscription);
-	const credits = `${subscription.tierCredits.toLocaleString("en-US")} credits/mo`;
-
-	if (priceUsd === null) {
-		return credits;
-	}
-
-	const per = subscription.interval === "year" ? "yr" : "mo";
-
-	return `${credits} · $${priceUsd.toLocaleString("en-US")}/${per}`;
+/**
+ * Id of the highest spend badge that `spentCredits` (decimal credits) earns.
+ * Null below the first threshold. The badges and thresholds come from the contracts.
+ */
+export function highestSpendBadgeId(spentCredits: number): SpendBadgeId | null {
+	// SPEND_BADGES is in threshold order, so the last reached badge is the highest.
+	return (
+		SPEND_BADGES.findLast((badge) => spentCredits >= badge.thresholdCredits)
+			?.id ?? null
+	);
 }

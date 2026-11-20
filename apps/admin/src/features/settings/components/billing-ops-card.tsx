@@ -234,8 +234,8 @@ export function BillingOpsCard({
 								aria-describedby="billing-dzd-rate-description billing-dzd-rate-error"
 							/>
 							<FieldDescription id="billing-dzd-rate-description">
-								DZD per 1 USD. It prices offline receipts, and the DZD plan
-								prices that visitors in Algeria see and pay with SlickPay.
+								DZD per 1 USD. It prices offline receipts, converts SlickPay
+								top-ups to DZD, and sets the credits of a DZD offline top-up.
 							</FieldDescription>
 							<FieldError id="billing-dzd-rate-error">
 								{rateSubmitted && !dzdRateIsValid

@@ -1,7 +1,11 @@
+/**
+ * Picks the workspace that still holds credits when the active wallet is empty.
+ * The credits chip and CreditsElsewhereNotice call it. It reads only the balances list it gets.
+ */
 import type { WorkspaceCreditBalance } from "@wandit/contracts";
 
 /**
- * "Your credits are in {name}" hint (chip, plan picker, billing notice):
+ * "Your credits are in {name}" hint (chip, top-up dialog, billing notice):
  * fires only when the ACTIVE workspace's settled balance is drained (<= 0)
  * while another workspace the user belongs to still holds settled credits.
  * Settled balances keep the hint from flashing while a running generation's

@@ -22,10 +22,13 @@ function checkoutAttempt(
 	overrides: AttemptOverrides = {},
 ): BillingCheckoutAttemptRow {
 	return {
+		amountUsdCents: 2_500,
 		createdAt: new Date(0),
+		// UNIT: centi-credits. 250 credits for 25 USD.
+		credits: 25_000,
 		id: "11111111-1111-4111-8111-111111111111",
 		organizationId: null,
-		packId: "topup_175",
+		packId: null,
 		priceLookupKey: null,
 		providerSessionId: "cs_topup",
 		purpose: "topup",
@@ -39,24 +42,45 @@ function checkoutAttempt(
 function checkoutSession(
 	overrides: Partial<Stripe.Checkout.Session> = {},
 ): Stripe.Checkout.Session {
+	// SAFETY: grantTopup reads only the fields set here; the rest of the session type is unused.
 	return {
+		amount_subtotal: 2_500,
 		amount_total: 2_500,
 		currency: "usd",
 		customer: "cus_1",
 		id: "cs_topup",
 		metadata: {
 			attemptId: "11111111-1111-4111-8111-111111111111",
-			credits: "175",
-			packId: "topup_175",
 			purpose: "topup",
 			userId: "user_1",
 		},
 		mode: "payment",
 		payment_intent: "pi_topup",
 		payment_status: "paid",
+		total_details: { amount_discount: 0, amount_shipping: 0, amount_tax: 0 },
 		...overrides,
 	} as Stripe.Checkout.Session;
 }
+
+/** A pricing v7 pack attempt: no amount columns, the pack sets the price and the credits. */
+const legacyAttempt = (overrides: AttemptOverrides = {}) =>
+	checkoutAttempt({
+		amountUsdCents: null,
+		credits: null,
+		packId: "topup_175",
+		...overrides,
+	});
+
+/** The Stripe session of a pricing v7 pack: the pack and its credits are in the metadata. */
+const legacySession = (overrides: Partial<Stripe.Checkout.Session> = {}) =>
+	checkoutSession({
+		metadata: {
+			...checkoutSession().metadata,
+			credits: "175",
+			packId: "topup_175",
+		},
+		...overrides,
+	});
 
 function billingCustomer(
 	overrides: Partial<BillingCustomerRow> = {},
@@ -225,15 +249,15 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		await service.grantTopup(checkoutSession());
 
-		// The active 175-credit pack becomes 17,500 centi-credits at the grant boundary.
+		// The attempt column is already in centi-credits: the grant passes it with no factor.
 		expect(credits.topup).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			17_500,
+			25_000,
 			{
 				idempotencyKey: "topup:cs_topup",
 				meta: {
+					amountUsdCents: 2_500,
 					chargeId: "ch_topup",
-					packId: "topup_175",
 					paymentIntentId: "pi_topup",
 					reason: "topup_purchase",
 					sessionId: "cs_topup",
@@ -282,7 +306,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 			"outbox unavailable",
 		);
 		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
-			expect.objectContaining({ sessionId: "cs_topup" }),
+			expect.objectContaining({ providerReference: "cs_topup" }),
 			creditTransaction,
 		);
 		expect(order).toEqual([
@@ -301,12 +325,15 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
 			expect.objectContaining({
 				amountCents: 2_500,
+				amountUsdCents: 2_500,
 				chargeId: "ch_topup",
+				credits: 25_000,
 				currency: "usd",
 				organizationId: null,
-				packId: "topup_175",
+				packId: null,
 				paymentIntentId: "pi_topup",
-				sessionId: "cs_topup",
+				provider: "stripe",
+				providerReference: "cs_topup",
 				userId: "user_1",
 			}),
 			creditTransaction,
@@ -331,15 +358,34 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		expect(attempts.markCompletedBySession).not.toHaveBeenCalled();
 	});
 
-	it("fulfills a persisted pre-v6 top-up pack for webhook history", async () => {
-		const { creditTransaction, credits, receipts, service } = setup({
-			attempt: checkoutAttempt({ packId: "topup_250" }),
+	it("grants the credits of the attempt row and ignores credits in the session metadata", async () => {
+		const { credits, service } = setup({
+			attempt: checkoutAttempt({ credits: 12_345 }),
 		});
 
 		await service.grantTopup(
 			checkoutSession({
+				metadata: { ...checkoutSession().metadata, credits: "99999" },
+			}),
+		);
+
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			12_345,
+			expect.anything(),
+			expect.anything(),
+		);
+	});
+
+	it("fulfills a pricing v7 pack session that was open at the deploy", async () => {
+		const { creditTransaction, credits, receipts, service } = setup({
+			attempt: legacyAttempt({ packId: "topup_250" }),
+		});
+
+		await service.grantTopup(
+			legacySession({
 				metadata: {
-					...checkoutSession().metadata,
+					...legacySession().metadata,
 					credits: "250",
 					packId: "topup_250",
 				},
@@ -355,7 +401,11 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 			creditTransaction,
 		);
 		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
-			expect.objectContaining({ packId: "topup_250" }),
+			expect.objectContaining({
+				amountUsdCents: 2_500,
+				credits: 25_000,
+				packId: "topup_250",
+			}),
 			creditTransaction,
 		);
 	});
@@ -449,46 +499,66 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 			}),
 		},
 		{
-			attempt: checkoutAttempt({ packId: "future_pack" }),
-			expected: "has unknown top-up pack future_pack",
-			name: "unknown catalog pack",
+			attempt: checkoutAttempt(),
+			expected: "amount_subtotal does not match checkout attempt",
+			name: "subtotal",
+			session: checkoutSession({ amount_subtotal: 2_499 }),
+		},
+		{
+			attempt: checkoutAttempt(),
+			expected: "has a discount",
+			name: "discount",
+			// A 50% code keeps the subtotal at the attempt amount but halves the money paid.
 			session: checkoutSession({
+				amount_total: 1_250,
+				total_details: {
+					amount_discount: 1_250,
+					amount_shipping: 0,
+					amount_tax: 0,
+				},
+			}),
+		},
+		{
+			attempt: checkoutAttempt(),
+			expected: "currency is not usd",
+			name: "currency",
+			session: checkoutSession({ currency: "eur" }),
+		},
+		{
+			attempt: legacyAttempt({ packId: "future_pack" }),
+			expected: "has unknown top-up pack future_pack",
+			name: "unknown v7 pack",
+			session: legacySession({
 				metadata: {
-					...checkoutSession().metadata,
+					...legacySession().metadata,
 					packId: "future_pack",
 				},
 			}),
 		},
 		{
-			attempt: checkoutAttempt(),
+			attempt: legacyAttempt(),
 			expected: "pack topup_700 does not match checkout attempt",
-			name: "attempt pack",
-			session: checkoutSession({
+			name: "v7 attempt pack",
+			session: legacySession({
 				metadata: {
-					...checkoutSession().metadata,
+					...legacySession().metadata,
 					packId: "topup_700",
 				},
 			}),
 		},
 		{
-			attempt: checkoutAttempt(),
+			attempt: legacyAttempt(),
 			expected: "credits 700 do not match top-up pack topup_175",
-			name: "credits",
-			session: checkoutSession({
-				metadata: { ...checkoutSession().metadata, credits: "700" },
+			name: "v7 credits",
+			session: legacySession({
+				metadata: { ...legacySession().metadata, credits: "700" },
 			}),
 		},
 		{
-			attempt: checkoutAttempt(),
+			attempt: legacyAttempt(),
 			expected: "amount_total does not match top-up pack topup_175",
-			name: "amount",
-			session: checkoutSession({ amount_total: 2_499 }),
-		},
-		{
-			attempt: checkoutAttempt(),
-			expected: "currency does not match top-up pack topup_175",
-			name: "currency",
-			session: checkoutSession({ currency: "eur" }),
+			name: "v7 amount",
+			session: legacySession({ amount_total: 2_499 }),
 		},
 		{
 			attempt: checkoutAttempt(),

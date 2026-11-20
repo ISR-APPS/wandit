@@ -4,7 +4,6 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import {
-	type BillingPlanId,
 	creditsToCentiCredits,
 	OPEN_MANUAL_REQUEST_STATUSES,
 	SIGNUP_GRANT_CREDITS,
@@ -45,20 +44,12 @@ type LifecycleEventsDbClient = Pick<
 	"execute" | "insert" | "select" | "update"
 >;
 
-export type LifecycleEntitledSubscription = {
-	currentPeriodEnd: Date;
-	plan: BillingPlanId;
-	provider: string;
-	status: string;
-};
-
 export type LifecycleDispatchContext = {
 	acceptedInvitation: boolean;
 	capturedEvents: LifecycleEventName[];
-	entitledSubscription: LifecycleEntitledSubscription | null;
 	hasFirstPromptEvent: boolean;
+	/** True while the user has a personal offline request that waits for an admin; such a user is not "free". */
 	hasOpenPersonalManualRequest: boolean;
-	hasPersonalTopupReceipt: boolean;
 	user: {
 		email: string;
 		name: string;
@@ -69,13 +60,8 @@ type LifecycleDispatchContextDbRow = {
 	accepted_invitation: boolean;
 	captured_events: LifecycleEventName[] | null;
 	email: string;
-	entitled_current_period_end: Date | string | null;
-	entitled_plan: BillingPlanId | null;
-	entitled_provider: string | null;
-	entitled_status: string | null;
 	has_first_prompt_event: boolean;
 	has_open_personal_manual_request: boolean;
-	has_personal_topup_receipt: boolean;
 	name: string;
 };
 
@@ -232,9 +218,9 @@ export class LifecycleEventsRepository {
 			);
 	}
 
+	/** The user facts of one dispatch. The paid-owner rule is not here: the dispatcher calls `PaidOwnerRepository`. */
 	async loadDispatchContext(
 		userId: string,
-		now = new Date(),
 	): Promise<LifecycleDispatchContext | null> {
 		// Lifecycle messages must respect every request that still needs admin action.
 		const openRequestStatuses = sql.join(
@@ -245,16 +231,6 @@ export class LifecycleEventsRepository {
 			select
 				u.email,
 				u.name,
-				entitled.plan as entitled_plan,
-				entitled.provider as entitled_provider,
-				entitled.status as entitled_status,
-				entitled.current_period_end as entitled_current_period_end,
-				exists (
-					select 1
-					from billing_topup_receipts receipt
-					where receipt.user_id = u.id
-						and receipt.organization_id is null
-				) as has_personal_topup_receipt,
 				exists (
 					select 1
 					from manual_subscription_requests request
@@ -280,29 +256,6 @@ export class LifecycleEventsRepository {
 					where captured.user_id = u.id
 				), array[]::text[]) as captured_events
 			from "user" u
-			left join lateral (
-				select
-					s.plan,
-					s.provider,
-					s.status,
-					s.current_period_end
-				from subscriptions s
-				where s.user_id = u.id
-					and s.organization_id is null
-					and s.status in ('active', 'trialing')
-					and (
-						s.provider <> 'manual'
-						or s.current_period_end + (
-							coalesce((
-								select settings.manual_grace_days
-								from product_settings settings
-								where settings.id = 1
-							), 0) * interval '1 day'
-						) > ${now}
-					)
-				order by s.updated_at desc
-				limit 1
-			) entitled on true
 			where u.id = ${userId}
 			limit 1
 		`);
@@ -312,15 +265,11 @@ export class LifecycleEventsRepository {
 			return null;
 		}
 
-		const entitledSubscription = this.mapEntitledSubscription(row);
-
 		return {
 			acceptedInvitation: row.accepted_invitation,
 			capturedEvents: row.captured_events ?? [],
-			entitledSubscription,
 			hasFirstPromptEvent: row.has_first_prompt_event,
 			hasOpenPersonalManualRequest: row.has_open_personal_manual_request,
-			hasPersonalTopupReceipt: row.has_personal_topup_receipt,
 			user: {
 				email: row.email,
 				name: row.name,
@@ -424,28 +373,5 @@ export class LifecycleEventsRepository {
 
 	private cooldownLockValue(input: EnqueueLifecycleEvent): string {
 		return `lifecycle-event:${input.event}:${input.userId}`;
-	}
-
-	private mapEntitledSubscription(
-		row: LifecycleDispatchContextDbRow,
-	): LifecycleEntitledSubscription | null {
-		if (
-			!row.entitled_plan ||
-			!row.entitled_provider ||
-			!row.entitled_status ||
-			!row.entitled_current_period_end
-		) {
-			return null;
-		}
-
-		return {
-			currentPeriodEnd:
-				row.entitled_current_period_end instanceof Date
-					? row.entitled_current_period_end
-					: new Date(row.entitled_current_period_end),
-			plan: row.entitled_plan,
-			provider: row.entitled_provider,
-			status: row.entitled_status,
-		};
 	}
 }

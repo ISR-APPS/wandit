@@ -374,8 +374,8 @@
 	"credits": {
 		"title": "Credits",
 		"left": "{count} left",
-		"betaNote": "Plan, promo, and top-up credits combined",
-		"bucketPlan": "Plan",
+		"betaNote": "Your wallet. Credits never expire.",
+		"bucketPlan": "Included",
 		"bucketPromo": "Promo",
 		"bucketTopup": "Top-up"
 	},

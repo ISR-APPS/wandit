@@ -4,10 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ProductSettingsService } from "../../../application/services/product-settings.service";
 import { MANUAL_PAYMENTS_DISABLED_ERROR_CODE } from "../../../domain/errors/manual-payments-disabled.error";
-import { SUBSCRIPTIONS_DISABLED_ERROR_CODE } from "../../../domain/errors/subscriptions-disabled.error";
 import { TOPUPS_DISABLED_ERROR_CODE } from "../../../domain/errors/topups-disabled.error";
 import { ManualPaymentsEnabledGuard } from "./manual-payments-enabled.guard";
-import { SubscriptionsEnabledGuard } from "./subscriptions-enabled.guard";
 import { TopupsEnabledGuard } from "./topups-enabled.guard";
 
 function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
@@ -61,29 +59,6 @@ describe("product settings admission guards", () => {
 			expect((error as ConflictException).getStatus()).toBe(409);
 			expect((error as ConflictException).getResponse()).toMatchObject({
 				code: MANUAL_PAYMENTS_DISABLED_ERROR_CODE,
-			});
-		}
-	});
-
-	it("allows subscription admissions when paid subscriptions are enabled", async () => {
-		const guard = new SubscriptionsEnabledGuard(
-			serviceFor(settings({ paidSubscriptionsEnabled: true })),
-		);
-
-		await expect(guard.canActivate()).resolves.toBe(true);
-	});
-
-	it("rejects subscription admissions with a typed 403", async () => {
-		const guard = new SubscriptionsEnabledGuard(serviceFor(settings()));
-
-		expect.assertions(3);
-		try {
-			await guard.canActivate();
-		} catch (error) {
-			expect(error).toBeInstanceOf(ForbiddenException);
-			expect((error as ForbiddenException).getStatus()).toBe(403);
-			expect((error as ForbiddenException).getResponse()).toMatchObject({
-				code: SUBSCRIPTIONS_DISABLED_ERROR_CODE,
 			});
 		}
 	});

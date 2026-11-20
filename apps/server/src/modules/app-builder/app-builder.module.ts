@@ -11,7 +11,7 @@ import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
-import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
+import { PaidOwnerRepository } from "../billing/infrastructure/persistence/paid-owner.repository";
 import { CreditsModule } from "../credits/credits.module";
 import { DomainsModule } from "../domains/domains.module";
 import { GenerationModule } from "../generation/generation.module";
@@ -304,8 +304,8 @@ export function createCloudSupabaseClient(
 		SandboxWakeService,
 		SecurityScansRepository,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
-		// all it needs (the turn model allow-list reads the plan).
-		SubscriptionsRepository,
+		// all it needs (the backend limit and the device minutes read it).
+		PaidOwnerRepository,
 		TemplateVersionService,
 		// `AppProjectsService` queues the starter template apply through it.
 		TriggerApplyStarterTemplateTaskStarter,

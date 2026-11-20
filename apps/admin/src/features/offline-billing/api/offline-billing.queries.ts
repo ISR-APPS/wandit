@@ -1,8 +1,13 @@
+/**
+ * React Query hooks and cache keys of the offline billing feature.
+ * Called by the offline billing components and receipt pages. Calls offline-billing.services.
+ */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type {
 	ListManualRequestsParams,
 	ListManualSubscriptionsParams,
+	ListTopupReceiptsParams,
 } from "./offline-billing.dto";
 import {
 	getManualBillingReceiptConfig,
@@ -11,8 +16,10 @@ import {
 	getManualSubscription,
 	listManualRequests,
 	listManualSubscriptions,
+	listTopupReceipts,
 } from "./offline-billing.services";
 
+/** React Query keys of the offline billing page. A top-up receipt invalidates its lists, requests, and stats. */
 export const offlineBillingKeys = {
 	all: ["admin-offline-billing"] as const,
 	receiptConfig: () => [...offlineBillingKeys.all, "receipt-config"] as const,
@@ -33,6 +40,10 @@ export const offlineBillingKeys = {
 		[...offlineBillingKeys.subscriptions(), "detail"] as const,
 	subscriptionDetail: (subscriptionId: string) =>
 		[...offlineBillingKeys.subscriptionDetails(), subscriptionId] as const,
+	topupReceiptLists: () =>
+		[...offlineBillingKeys.all, "topup-receipts", "list"] as const,
+	topupReceiptList: (params: ListTopupReceiptsParams) =>
+		[...offlineBillingKeys.topupReceiptLists(), params] as const,
 };
 
 export function useManualRequestsQuery(params: ListManualRequestsParams) {
@@ -72,6 +83,15 @@ export function useManualSubscriptionQuery(
 		queryKey: offlineBillingKeys.subscriptionDetail(subscriptionId ?? "none"),
 		queryFn: () => getManualSubscription(subscriptionId as string),
 		enabled: enabled && Boolean(subscriptionId),
+	});
+}
+
+/** One page of top-up receipts. Keeps the previous page on screen while the next page loads. */
+export function useTopupReceiptsQuery(params: ListTopupReceiptsParams) {
+	return useQuery({
+		queryKey: offlineBillingKeys.topupReceiptList(params),
+		queryFn: () => listTopupReceipts(params),
+		placeholderData: keepPreviousData,
 	});
 }
 

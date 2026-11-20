@@ -1,5 +1,5 @@
 /**
- * Confirm dialog of the "Refund last payment" action in the users table.
+ * Confirm dialog of the "Refund last plan payment" action in the users table.
  * Reads the refund preview, then refunds the last Stripe plan payment and cancels the Stripe plan.
  * UserRowActions renders it. It calls useUserRefundPreviewQuery and useRefundUserMutation.
  */
@@ -107,9 +107,10 @@ function OpenRefundUserDialog({ user, onOpenChange }: RefundUserDialogProps) {
 		// SlickPay and offline payments have no refund API. The server sends no payment then.
 		body = (
 			<p className="text-sm">
-				This user pays through SlickPay or offline. Refund the payment in the
-				SlickPay dashboard, or by hand for an offline payment. Then end the
-				subscription on the user page.
+				The last payment of this user is a SlickPay or offline top-up. Give the
+				money back in the SlickPay dashboard, or by hand for an offline payment.
+				Then use "Reverse top-up" on the Offline billing page to remove its
+				credits.
 			</p>
 		);
 	} else if (!payment) {
@@ -169,9 +170,10 @@ function OpenRefundUserDialog({ user, onOpenChange }: RefundUserDialogProps) {
 					<AlertDialogMedia>
 						<RotateCcwIcon aria-hidden="true" />
 					</AlertDialogMedia>
-					<AlertDialogTitle>Refund the last payment?</AlertDialogTitle>
+					<AlertDialogTitle>Refund the last plan payment?</AlertDialogTitle>
 					<AlertDialogDescription>
-						Last Stripe plan payment of {user.name}.
+						Last Stripe plan payment of {user.name}. To refund a card top-up,
+						use the Stripe Dashboard.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 

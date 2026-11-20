@@ -1,3 +1,7 @@
+/**
+ * Maps admin user rows of the repositories to the admin API contract.
+ * AdminUsersService calls it. Ledger sums go from centi-credits to decimal credits here.
+ */
 import {
 	type AdminAiSpend,
 	type AdminCreditLedgerEntry,
@@ -40,6 +44,7 @@ export function mapAdminUserSummary(
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
 		plan: normalizePlan(row.plan),
+		isPaidOwner: row.isPaidOwner,
 		// Ledger sums are integer centi-credits; the API carries decimal credits.
 		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
 		creditsConsumed: centiCreditsToCredits(Number(row.creditsConsumed)),

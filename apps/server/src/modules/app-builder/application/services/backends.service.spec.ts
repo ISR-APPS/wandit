@@ -1,10 +1,6 @@
-import type { BillingPlanId } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-	SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import type { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import { BACKEND_DEFAULTS } from "../../domain/backend-lifecycle";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import type { ProvisionBackendTaskStarter } from "../../domain/ports/provision-backend-task-starter";
@@ -38,35 +34,6 @@ function backendRow(overrides: Partial<AppBackendRow> = {}): AppBackendRow {
 		triggerRunId: null,
 		userId: "user-1",
 		...overrides,
-	};
-}
-
-const NOW = new Date("2026-09-25T00:00:00.000Z");
-
-// Copy of the fixture in `resolve-billing-plan.spec.ts`: a spec must not
-// import from another spec file.
-function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
-	return {
-		cancelAtPeriodEnd: false,
-		createdAt: NOW,
-		currentPeriodEnd: NOW,
-		currentPeriodStart: NOW,
-		id: "sub_1",
-		interval: "month",
-		organizationId: null,
-		pendingAppliedBy: null,
-		pendingInterval: null,
-		pendingPlan: null,
-		pendingTierCredits: null,
-		plan,
-		priceLookupKey: "pro_250_month",
-		provider: "stripe",
-		providerSubscriptionId: "sub_stripe_1",
-		renewalReminderPeriodEnd: null,
-		status: "active",
-		tierCredits: 250,
-		updatedAt: NOW,
-		userId: "user-1",
 	};
 }
 
@@ -123,11 +90,9 @@ function setup(
 		...envOverrides,
 	};
 
-	// Default: a Pro payer, so the first backend passes the D3 entitlement.
-	const subscriptions = {
-		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
-			async () => subscriptionRow("pro"),
-		),
+	// Default: a paid payer, so the first backend passes the limit.
+	const paidOwners = {
+		isPaidOwner: vi.fn<PaidOwnerRepository["isPaidOwner"]>(async () => true),
 	};
 
 	const projects = {
@@ -148,11 +113,11 @@ function setup(
 		backends,
 		starter,
 		v2Env,
-		subscriptions,
+		paidOwners,
 		projects,
 	);
 
-	return { backends, owned, service, starter, store, subscriptions };
+	return { backends, owned, paidOwners, service, starter, store };
 }
 
 describe("BackendsService.provisionBackend", () => {
@@ -230,9 +195,9 @@ describe("BackendsService.provisionBackend", () => {
 		expect(starter.start).toHaveBeenCalledTimes(1);
 	});
 
-	it("refuses at the plan limit with BACKEND_LIMIT_REACHED and starts nothing", async () => {
+	it("refuses a paid personal payer at its limit with BACKEND_LIMIT_REACHED and starts nothing", async () => {
 		const { owned, service, starter } = setup();
-		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
+		const limit = BACKEND_DEFAULTS.backendsPerPaidOwner.user;
 		owned.count = limit;
 
 		const failure = await service
@@ -246,24 +211,36 @@ describe("BackendsService.provisionBackend", () => {
 		expect(refusal.getResponse()).toEqual({
 			code: "BACKEND_LIMIT_REACHED",
 			details: { limit, plan: "pro" },
-			message: `Backend limit reached: the pro plan allows ${limit}`,
+			message: `Backend limit reached: this workspace allows ${limit}`,
 		});
 		expect(starter.start).not.toHaveBeenCalled();
 	});
 
+	it("refuses the first backend of a free payer", async () => {
+		const { paidOwners, service, starter } = setup();
+		paidOwners.isPaidOwner.mockResolvedValue(false);
+
+		const failure = await service
+			.provisionBackend("project-1", INPUT)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BackendLimitReachedError);
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+
 	it("provisions a free payer when BACKEND_LIMIT_OFF is on", async () => {
-		const { service, starter, subscriptions } = setup({
+		const { paidOwners, service, starter } = setup({
 			BACKEND_LIMIT_OFF: true,
 		});
-		subscriptions.findActiveByOwner.mockResolvedValue(null);
+		paidOwners.isPaidOwner.mockResolvedValue(false);
 
 		await service.provisionBackend("project-1", INPUT);
 
 		expect(starter.start).toHaveBeenCalledTimes(1);
 	});
 
-	it("counts and reads the plan of the org for an org project", async () => {
-		const { backends, service, subscriptions } = setup();
+	it("counts and reads the paid-owner rule of the org for an org project", async () => {
+		const { backends, paidOwners, service } = setup();
 
 		await service.provisionBackend("project-1", {
 			...INPUT,
@@ -274,7 +251,7 @@ describe("BackendsService.provisionBackend", () => {
 			organizationId: "org-1",
 			type: "org",
 		});
-		expect(subscriptions.findActiveByOwner).toHaveBeenCalledWith({
+		expect(paidOwners.isPaidOwner).toHaveBeenCalledWith({
 			organizationId: "org-1",
 			type: "org",
 		});

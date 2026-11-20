@@ -1,6 +1,6 @@
 /**
  * Admin settings card for the product switches and their amounts.
- * The amounts are the signup grant, the offline grace days, and the user referral rewards.
+ * The amounts are the signup grant and the user referral rewards.
  * The settings page renders it. It calls the product-settings mutation.
  */
 import {
@@ -11,7 +11,6 @@ import {
 } from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
-	CalendarClockIcon,
 	GiftIcon,
 	Loader2Icon,
 	RefreshCwIcon,
@@ -66,7 +65,6 @@ const SETTINGS_CONFLICT_MESSAGE = "settings changed elsewhere — reload";
 
 const BOOLEAN_SETTING_KEYS = [
 	"signupGrantEnabled",
-	"paidSubscriptionsEnabled",
 	"manualPaymentsEnabled",
 	"topupsEnabled",
 	"organizationsEnabled",
@@ -101,16 +99,13 @@ const USER_REFERRAL_CREDIT_FIELDS = [
 	{
 		key: "userReferralPaidCredits",
 		title: "Referral paid reward",
-		description: `Promo credits the referrer gets ${USER_REFERRAL_PAID_HOLD_DAYS} days after the friend's first payment, if the subscription is still live.`,
+		description: `Promo credits the referrer gets ${USER_REFERRAL_PAID_HOLD_DAYS} days after the friend's first payment, if the payment is not refunded.`,
 	},
 ] as const;
 
 type UserReferralCreditField = (typeof USER_REFERRAL_CREDIT_FIELDS)[number];
 
-type NumericSettingKey =
-	| "signupGrantCredits"
-	| "manualGraceDays"
-	| UserReferralCreditField["key"];
+type NumericSettingKey = "signupGrantCredits" | UserReferralCreditField["key"];
 
 type ToggleDetails = {
 	description: string;
@@ -128,40 +123,32 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant unless you run the signup grant backfill.`
 				: "Future signups will stop receiving promo credits. Credits already granted to existing accounts will remain available.",
 	},
-	paidSubscriptionsEnabled: {
-		label: "Paid subscriptions",
-		description:
-			"Control admission to new paid checkouts, plan changes, and subscription resumes.",
-		consequence: (nextValue) =>
-			nextValue
-				? "Signed-in users will be able to start, change, or resume paid subscriptions. Existing paid fulfillment already continues regardless of this switch."
-				: "New paid checkouts, plan changes, and subscription resumes will be blocked. Payments already made will still be fulfilled.",
-	},
 	manualPaymentsEnabled: {
 		label: "Offline payments",
 		description:
-			"Control whether users can request subscriptions paid by cash or transfer.",
+			"Control whether users can request a wallet top-up paid by cash or transfer.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will see Cash / transfer and can submit offline subscription requests. Administrators must still collect payment and grant each subscription."
-				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests and offline subscriptions remain available for administrators to grant, renew, or end.",
+				? "Users will see Cash / transfer and can submit offline top-up requests. Administrators must still collect the money and record each top-up."
+				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests stay available for administrators to record or close.",
 	},
 	topupsEnabled: {
-		label: "Credit top-ups",
-		description: "Control admission to new one-time credit pack purchases.",
+		label: "Card top-ups",
+		description:
+			"Control admission to new wallet top-ups paid by card (Stripe). SlickPay and offline payments have their own switches.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will be able to purchase new credit top-ups. Previously paid top-ups are fulfilled either way."
-				: "New credit top-up purchases will be blocked. Top-ups that were already paid will still be fulfilled.",
+				? "Users will be able to top up their wallet by card. Previously paid top-ups are fulfilled either way."
+				: "New card top-ups will be blocked. Top-ups that were already paid will still be fulfilled.",
 	},
 	organizationsEnabled: {
 		label: "Team workspaces",
 		description:
-			"Control whether users can create team workspaces and see the Business plan.",
+			"Control whether users can create team workspaces. The team owner tops up the team wallet.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will see the workspace switcher, can create team workspaces, and can buy the Business plan."
-				: "New team creation and new Business checkouts will be blocked. Existing teams keep working — members, invitations, projects, and paid renewals are unaffected.",
+				? "Users will see the workspace switcher and can create team workspaces."
+				: "New team creation will be blocked. Existing teams keep working — members, invitations, projects, and team wallets are unaffected.",
 	},
 	emailAuthEnabled: {
 		label: "Email sign-in",
@@ -222,8 +209,6 @@ export function ProductControlsCard({
 		String(settings.signupGrantCredits),
 	);
 	const [grantSubmitted, setGrantSubmitted] = useState(false);
-	const [graceDays, setGraceDays] = useState(String(settings.manualGraceDays));
-	const [graceSubmitted, setGraceSubmitted] = useState(false);
 	const [pendingNumericSetting, setPendingNumericSetting] =
 		useState<NumericSettingKey | null>(null);
 	const [conflict, setConflict] = useState(false);
@@ -238,24 +223,11 @@ export function ProductControlsCard({
 		setGrantSubmitted(false);
 	}, [settings.signupGrantCredits]);
 
-	useEffect(() => {
-		setGraceDays(String(settings.manualGraceDays));
-		setGraceSubmitted(false);
-	}, [settings.manualGraceDays]);
-
 	const parsedGrantCredits = Number(grantCredits);
 	const grantCreditsAreValid =
 		Number.isSafeInteger(parsedGrantCredits) && parsedGrantCredits > 0;
 	const grantCreditsChanged =
 		grantCreditsAreValid && parsedGrantCredits !== settings.signupGrantCredits;
-	const parsedGraceDays = Number(graceDays);
-	const graceDaysAreValid =
-		graceDays.trim().length > 0 &&
-		Number.isSafeInteger(parsedGraceDays) &&
-		parsedGraceDays >= 0 &&
-		parsedGraceDays <= 30;
-	const graceDaysChanged =
-		graceDaysAreValid && parsedGraceDays !== settings.manualGraceDays;
 
 	function requestToggle(key: BooleanSettingKey, nextValue: boolean) {
 		if (!canManage || nextValue === settings[key] || conflict) {
@@ -329,30 +301,6 @@ export function ProductControlsCard({
 			});
 			toast.success("Signup grant amount updated.");
 			setGrantSubmitted(false);
-		} catch (error) {
-			handleMutationError(error, () => setConflict(true));
-		} finally {
-			setPendingNumericSetting(null);
-		}
-	}
-
-	async function saveGraceDays(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		setGraceSubmitted(true);
-		setErrorMessage(null);
-
-		if (!canManage || !graceDaysAreValid || !graceDaysChanged || conflict) {
-			return;
-		}
-
-		setPendingNumericSetting("manualGraceDays");
-		try {
-			await mutation.mutateAsync({
-				manualGraceDays: parsedGraceDays,
-				version: settings.version,
-			});
-			toast.success("Offline grace period updated.");
-			setGraceSubmitted(false);
 		} catch (error) {
 			handleMutationError(error, () => setConflict(true));
 		} finally {
@@ -578,78 +526,6 @@ export function ProductControlsCard({
 							>
 								{grantSubmitted && !grantCreditsAreValid
 									? "Enter a positive whole number of credits."
-									: null}
-							</FieldError>
-						</Field>
-					</FieldGroup>
-				</form>
-
-				<form
-					onSubmit={saveGraceDays}
-					noValidate
-					className="border-t bg-muted/20 px-5 py-5"
-				>
-					<FieldGroup>
-						<Field
-							data-invalid={graceSubmitted && !graceDaysAreValid}
-							className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
-						>
-							<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
-								<div className="flex items-center gap-2 font-medium text-sm">
-									<CalendarClockIcon aria-hidden="true" />
-									Offline grace days
-								</div>
-								<FieldDescription id="offline-grace-days-description">
-									Days of access after an offline period ends before the cron
-									cancels it. 0 = strict.
-								</FieldDescription>
-							</div>
-							<div className="flex flex-col gap-2">
-								<FieldLabel htmlFor="offline-grace-days">Days</FieldLabel>
-								<Input
-									id="offline-grace-days"
-									type="number"
-									inputMode="numeric"
-									min={0}
-									max={30}
-									step={1}
-									value={graceDays}
-									onChange={(event) => setGraceDays(event.target.value)}
-									disabled={mutation.isPending || conflict || !canManage}
-									aria-invalid={graceSubmitted && !graceDaysAreValid}
-									aria-describedby="offline-grace-days-description offline-grace-days-error"
-								/>
-							</div>
-							<Button
-								type="submit"
-								disabled={
-									mutation.isPending ||
-									conflict ||
-									!canManage ||
-									(graceDaysAreValid && !graceDaysChanged)
-								}
-							>
-								{mutation.isPending &&
-								pendingNumericSetting === "manualGraceDays" ? (
-									<Loader2Icon
-										data-icon="inline-start"
-										className="animate-spin"
-										aria-hidden="true"
-									/>
-								) : (
-									<SaveIcon data-icon="inline-start" aria-hidden="true" />
-								)}
-								{mutation.isPending &&
-								pendingNumericSetting === "manualGraceDays"
-									? "Saving…"
-									: "Save days"}
-							</Button>
-							<FieldError
-								id="offline-grace-days-error"
-								className="sm:col-span-2 sm:col-start-2"
-							>
-								{graceSubmitted && !graceDaysAreValid
-									? "Enter a whole number from 0 to 30."
 									: null}
 							</FieldError>
 						</Field>

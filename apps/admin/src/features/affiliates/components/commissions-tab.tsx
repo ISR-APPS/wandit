@@ -1,3 +1,8 @@
+/**
+ * Admin commission ledger tab: earnings, adjustments, and their Stripe references.
+ * Rendered by the admin affiliates page. Reads `useAffiliateCommissionsQuery`.
+ * A payment id is a Stripe invoice id (`in_`) or a top-up Checkout Session id (`cs_`).
+ */
 import type {
 	AffiliateCommissionEntryType,
 	AffiliateCommissionStatus,
@@ -64,8 +69,8 @@ export function CommissionsTab() {
 			<div>
 				<h2 className="font-semibold text-lg">Commission ledger</h2>
 				<p className="text-muted-foreground text-sm">
-					Immutable earnings and adjustments generated from paid invoices and
-					clawbacks.
+					Immutable earnings and adjustments generated from paid invoices,
+					top-ups, and clawbacks.
 				</p>
 			</div>
 
@@ -85,7 +90,7 @@ export function CommissionsTab() {
 						setQuery(event.target.value);
 						setPage(1);
 					}}
-					placeholder="Search affiliate, user, link, or invoice..."
+					placeholder="Search affiliate, user, link, or payment..."
 					className="lg:max-w-sm"
 				/>
 				<Select
@@ -168,7 +173,7 @@ export function CommissionsTab() {
 									<TableHead>Affiliate / user</TableHead>
 									<TableHead>Entry</TableHead>
 									<TableHead>Amount</TableHead>
-									<TableHead>Invoice references</TableHead>
+									<TableHead>Stripe references</TableHead>
 									<TableHead>Hold / payout</TableHead>
 									<TableHead>Status</TableHead>
 									<TableHead>Fraud</TableHead>
@@ -215,7 +220,7 @@ export function CommissionsTab() {
 											</p>
 										</TableCell>
 										<TableCell className="font-mono text-xs">
-											<p>Invoice {entry.stripeInvoiceId}</p>
+											<p>Payment {entry.stripeInvoiceId}</p>
 											<p className="text-muted-foreground">
 												Charge {entry.stripeChargeId}
 											</p>

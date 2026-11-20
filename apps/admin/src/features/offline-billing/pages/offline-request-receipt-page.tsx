@@ -1,3 +1,7 @@
+/**
+ * Printable French quote of an offline request from before pricing v8 (plan, price in DZD).
+ * Route /offline-billing/requests/$requestId/receipt. A top-up request has no plan, so it shows the unavailable state.
+ */
 import { Link } from "@tanstack/react-router";
 import { tryPriceUsdFor } from "@wandit/contracts";
 import {
@@ -24,6 +28,7 @@ import {
 	useManualRequestQuery,
 } from "@/features/offline-billing/api/offline-billing.queries";
 import { OfflineRequestReceipt } from "@/features/offline-billing/components/offline-receipt";
+import { isPlanManualRequest } from "@/features/offline-billing/lib/receipt";
 import { RECEIPT_PRINT_STYLES } from "@/features/offline-billing/lib/receipt-print-styles";
 import { isApiClientError } from "@/lib/api-client";
 
@@ -38,10 +43,15 @@ export function OfflineRequestReceiptPage({
 	const receiptConfigQuery = useManualBillingReceiptConfigQuery();
 	const [generatedAt] = useState(() => new Date());
 	const request = requestQuery.data;
+	const planRequest =
+		request && isPlanManualRequest(request) ? request : undefined;
 	const dzdPerUsdRate = receiptConfigQuery.data?.dzdPerUsdRate;
-	const hasCatalogPrice = request
-		? tryPriceUsdFor(request.plan, request.tierCredits, request.interval) !==
-			null
+	const hasCatalogPrice = planRequest
+		? tryPriceUsdFor(
+				planRequest.plan,
+				planRequest.tierCredits,
+				planRequest.interval,
+			) !== null
 		: false;
 	const isPending = requestQuery.isPending || receiptConfigQuery.isPending;
 	const isError = requestQuery.isError || receiptConfigQuery.isError;
@@ -54,7 +64,7 @@ export function OfflineRequestReceiptPage({
 	const isReceiptReady =
 		requestQuery.isSuccess &&
 		receiptConfigQuery.isSuccess &&
-		request !== undefined &&
+		planRequest !== undefined &&
 		hasCatalogPrice &&
 		dzdPerUsdRate !== undefined;
 	const retryReceipt = () => {
@@ -79,7 +89,7 @@ export function OfflineRequestReceiptPage({
 				<UnavailablePlanPriceState />
 			) : isReceiptReady ? (
 				<OfflineRequestReceipt
-					request={request}
+					request={planRequest}
 					generatedAt={generatedAt}
 					dzdPerUsdRate={dzdPerUsdRate}
 				/>
@@ -184,11 +194,10 @@ function UnavailablePlanPriceState() {
 				<EmptyMedia variant="icon">
 					<CircleAlertIcon aria-hidden="true" />
 				</EmptyMedia>
-				<EmptyTitle>Requested plan price is unavailable</EmptyTitle>
+				<EmptyTitle>No printable quote for this request</EmptyTitle>
 				<EmptyDescription>
-					This plan and credit-tier combination has no catalog price, so a
-					priced receipt cannot be printed. Correct the request before granting
-					the subscription.
+					Only a request from before pay as you go, with a plan in the catalog,
+					has a printed quote. Use "Record top-up" for this request.
 				</EmptyDescription>
 			</EmptyHeader>
 			<EmptyContent>

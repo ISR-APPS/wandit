@@ -244,7 +244,7 @@ class InMemoryBillingCreditLedgerRepository {
 						row.kind === "expire" &&
 						row.bucket === "plan" &&
 						row.userId === group.userId &&
-						row.createdAt >= group.earliestGrantAt &&
+						row.createdAt > group.earliestGrantAt &&
 						(row.meta as CreditMeta).subscriptionId === subscriptionId,
 				)
 				.reduce((total, row) => total + Math.abs(row.delta), 0);

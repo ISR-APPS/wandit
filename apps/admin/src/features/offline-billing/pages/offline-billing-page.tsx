@@ -1,9 +1,14 @@
-import { ClipboardListIcon, ReceiptTextIcon } from "lucide-react";
+/**
+ * Offline billing page: the request queue, the offline and SlickPay top-ups, and old manual subscriptions.
+ * Route /offline-billing. Renders the stats strip and one tab for each list.
+ */
+import { ClipboardListIcon, HistoryIcon, WalletCardsIcon } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ManualRequestsTable } from "@/features/offline-billing/components/manual-requests-table";
 import { ManualSubscriptionsTable } from "@/features/offline-billing/components/manual-subscriptions-table";
 import { OfflineBillingStats } from "@/features/offline-billing/components/offline-billing-stats";
+import { TopupReceiptsTable } from "@/features/offline-billing/components/topup-receipts-table";
 
 export function OfflineBillingPage() {
 	return (
@@ -16,8 +21,8 @@ export function OfflineBillingPage() {
 					Offline billing
 				</h1>
 				<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-					Follow up cash and transfer requests, record collected payments, and
-					manage subscriptions that do not renew automatically.
+					Follow up cash and transfer requests, record the money you receive as
+					wallet top-ups, and reverse a top-up when the money goes back.
 				</p>
 			</div>
 
@@ -30,14 +35,21 @@ export function OfflineBillingPage() {
 							<ClipboardListIcon aria-hidden="true" />
 							Requests
 						</TabsTrigger>
+						<TabsTrigger value="topups">
+							<WalletCardsIcon aria-hidden="true" />
+							Top-ups
+						</TabsTrigger>
 						<TabsTrigger value="subscriptions">
-							<ReceiptTextIcon aria-hidden="true" />
-							Subscriptions
+							<HistoryIcon aria-hidden="true" />
+							Past subscriptions
 						</TabsTrigger>
 					</TabsList>
 				</div>
 				<TabsContent value="requests">
 					<ManualRequestsTable />
+				</TabsContent>
+				<TabsContent value="topups">
+					<TopupReceiptsTable />
 				</TabsContent>
 				<TabsContent value="subscriptions">
 					<ManualSubscriptionsTable />

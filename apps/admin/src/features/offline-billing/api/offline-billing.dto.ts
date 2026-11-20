@@ -1,70 +1,64 @@
-// The offline billing feature consumes the shared API contract directly.
-// Keep all feature-facing aliases here so @wandit/contracts stays the source
-// of truth for requests, subscriptions, payments, and mutation payloads.
+/**
+ * Types and boundary parsers of the offline billing feature.
+ * The services call the parsers on every API answer. @wandit/contracts holds the schemas.
+ * Covers requests, top-up receipts, old manual subscriptions, and the page stats.
+ */
 import {
-	type AdminEndManualSubscriptionInput,
-	type AdminGrantManualSubscriptionInput,
 	type AdminListManualRequestsQuery,
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsQuery,
 	type AdminListManualSubscriptionsResponse,
+	type AdminListTopupReceiptsQuery,
+	type AdminListTopupReceiptsResponse,
 	type AdminManualBillingOrganization,
 	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualBillingUser,
 	type AdminManualPayment,
-	type AdminManualPaymentInput,
 	type AdminManualRequest,
 	type AdminManualRequestStatusFilter,
 	type AdminManualSubscription,
 	type AdminManualSubscriptionDetail,
 	type AdminManualSubscriptionStatusFilter,
-	type AdminRenewManualSubscriptionInput,
+	type AdminRecordTopupInput,
+	type AdminTopupReceipt,
 	type AdminUpdateManualRequestBody,
 	adminListManualRequestsResponseSchema,
 	adminListManualSubscriptionsResponseSchema,
+	adminListTopupReceiptsResponseSchema,
 	adminManualBillingReceiptConfigSchema,
 	adminManualBillingStatsSchema,
 	adminManualRequestSchema,
 	adminManualSubscriptionDetailSchema,
 	adminManualSubscriptionSchema,
+	adminTopupReceiptSchema,
 } from "@wandit/contracts";
 
 export type {
-	AdminEndManualSubscriptionInput,
-	AdminGrantManualSubscriptionInput,
 	AdminListManualRequestsResponse,
 	AdminListManualSubscriptionsResponse,
+	AdminListTopupReceiptsResponse,
 	AdminManualBillingOrganization,
 	AdminManualBillingReceiptConfig,
 	AdminManualBillingUser,
 	AdminManualPayment,
-	AdminManualPaymentInput,
 	AdminManualRequest,
 	AdminManualRequestStatusFilter,
 	AdminManualSubscription,
 	AdminManualSubscriptionDetail,
 	AdminManualSubscriptionStatusFilter,
-	AdminRenewManualSubscriptionInput,
+	AdminRecordTopupInput,
+	AdminTopupReceipt,
 	AdminUpdateManualRequestBody,
 };
 
 export type ListManualRequestsParams = AdminListManualRequestsQuery;
 export type ListManualSubscriptionsParams = AdminListManualSubscriptionsQuery;
+export type ListTopupReceiptsParams = AdminListTopupReceiptsQuery;
 
 export type UpdateManualRequestInput = {
 	requestId: string;
 	body: AdminUpdateManualRequestBody;
-};
-
-export type RenewManualSubscriptionInput = {
-	subscriptionId: string;
-	body: AdminRenewManualSubscriptionInput;
-};
-
-export type EndManualSubscriptionInput = {
-	subscriptionId: string;
-	body: AdminEndManualSubscriptionInput;
 };
 
 /** A selectable billing contact; detail pages may only know the user ID. */
@@ -105,6 +99,18 @@ export function mapManualSubscriptionsDto(
 	input: unknown,
 ): AdminListManualSubscriptionsResponse {
 	return adminListManualSubscriptionsResponseSchema.parse(input);
+}
+
+/** Validate the answer of "Record top-up" and "Reverse top-up". */
+export function mapTopupReceiptDto(input: unknown): AdminTopupReceipt {
+	return adminTopupReceiptSchema.parse(input);
+}
+
+/** Validate one page of top-up receipts. */
+export function mapTopupReceiptsDto(
+	input: unknown,
+): AdminListTopupReceiptsResponse {
+	return adminListTopupReceiptsResponseSchema.parse(input);
 }
 
 export type { AdminManualBillingStats };

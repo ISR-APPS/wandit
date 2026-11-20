@@ -1,3 +1,7 @@
+/**
+ * Zod schemas and types of the affiliate API: portal, public click, and admin routes.
+ * Used by the server controllers, the web affiliate portal, and the admin affiliate feature.
+ */
 import { z } from "zod";
 import {
 	paginatedResultSchema,
@@ -734,6 +738,7 @@ const affiliateCommissionRecordShape = {
 	id: uuidSchema,
 	attributionId: uuidSchema,
 	affiliateId: uuidSchema,
+	/** Stripe invoice id, or the Checkout Session id (`cs_`) of a top-up. */
 	stripeInvoiceId: z.string().min(1),
 	stripeRefundId: z.string().min(1).nullable(),
 	stripeDisputeId: z.string().min(1).nullable(),
