@@ -1,0 +1,41 @@
+{
+	"id": "gridwatch-energy",
+	"removed": [
+		"src/features/app-shell/components/app-header.tsx",
+		"src/features/app-shell/components/app-sidebar.tsx",
+		"src/features/app-shell/lib/nav-items.ts",
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Gridwatch",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#111a19",
+				"foreground": "#e1f6e8",
+				"primary": "#83cba6"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "red-hat-text",
+			"displayFont": "ibm-plex-mono",
+			"scale": "xs",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "bar",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "thin",
+			"navIcon": "plain"
+		}
+	}
+}

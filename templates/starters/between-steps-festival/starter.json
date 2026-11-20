@@ -1,0 +1,35 @@
+{
+	"id": "between-steps-festival",
+	"removed": [],
+	"theme": {
+		"name": "Between Steps",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#282023",
+				"foreground": "#f8e9d6",
+				"primary": "#ee775f"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "epilogue",
+			"displayFont": "syne",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

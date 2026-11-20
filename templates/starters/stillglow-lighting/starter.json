@@ -1,0 +1,35 @@
+{
+	"id": "stillglow-lighting",
+	"removed": [],
+	"theme": {
+		"name": "Stillglow",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#211911",
+				"foreground": "#f2dfbb",
+				"primary": "#c7a35b"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "jost",
+			"displayFont": "fraunces",
+			"scale": "md",
+			"radius": "none",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

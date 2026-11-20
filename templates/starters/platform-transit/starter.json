@@ -1,0 +1,41 @@
+{
+	"id": "platform-transit",
+	"removed": [
+		"src/features/app-shell/components/app-header.tsx",
+		"src/features/app-shell/components/app-sidebar.tsx",
+		"src/features/app-shell/lib/nav-items.ts",
+		"src/features/landing/components/landing-page.tsx",
+		"src/features/landing/index.ts"
+	],
+	"theme": {
+		"name": "Platform",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#eef5f7",
+				"foreground": "#14273f",
+				"primary": "#165c9f"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "hanken-grotesk",
+			"displayFont": "archivo",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "block",
+			"header": "bar",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "bold",
+			"navIcon": "plain"
+		}
+	}
+}

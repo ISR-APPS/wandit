@@ -1,0 +1,122 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Folio Collections",
+	"selection": {
+		"source": {
+			"kind": "look",
+			"look": "ivoire"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "look",
+		"displayFont": "look",
+		"scale": "lg",
+		"radius": "md",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "classic",
+		"sidebarCollapse": "rail",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "quiet",
+		"header": "plain",
+		"userMenu": "header",
+		"frame": "flat",
+		"icons": "thin",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "oklch(0.97 0.014 88)",
+			"foreground": "oklch(0.26 0.03 55)",
+			"card": "oklch(0.99 0.008 90)",
+			"cardForeground": "oklch(0.26 0.03 55)",
+			"popover": "oklch(0.99 0.008 90)",
+			"popoverForeground": "oklch(0.26 0.03 55)",
+			"primary": "oklch(0.56 0.1 86)",
+			"primaryForeground": "oklch(0.99 0.008 88)",
+			"secondary": "oklch(0.94 0.018 85)",
+			"secondaryForeground": "oklch(0.28 0.03 55)",
+			"muted": "oklch(0.945 0.016 85)",
+			"mutedForeground": "oklch(0.48 0.03 60)",
+			"accent": "oklch(0.935 0.024 82)",
+			"accentForeground": "oklch(0.28 0.035 55)",
+			"destructive": "oklch(0.5 0.16 28)",
+			"destructiveForeground": "oklch(0.99 0.008 88)",
+			"border": "oklch(0.875 0.03 82)",
+			"input": "oklch(0.8 0.035 80)",
+			"ring": "oklch(0.56 0.1 86)",
+			"success": "oklch(0.5 0.09 150)",
+			"warning": "oklch(0.55 0.11 65)",
+			"info": "oklch(0.5 0.08 240)",
+			"canvas": "oklch(0.945 0.018 85)",
+			"shadowColor": "oklch(0.3 0.03 55)",
+			"chart1": "oklch(0.56 0.1 86)",
+			"chart2": "oklch(0.42 0.05 50)",
+			"chart3": "oklch(0.74 0.09 85)",
+			"chart4": "oklch(0.6 0.04 160)",
+			"chart5": "oklch(0.7 0.03 60)",
+			"contrast": "oklch(0.27 0.03 55)",
+			"contrastForeground": "oklch(0.93 0.03 85)"
+		},
+		"dark": {
+			"background": "oklch(0.2 0.014 60)",
+			"foreground": "oklch(0.94 0.015 85)",
+			"card": "oklch(0.23 0.016 60)",
+			"cardForeground": "oklch(0.94 0.015 85)",
+			"popover": "oklch(0.25 0.017 60)",
+			"popoverForeground": "oklch(0.94 0.015 85)",
+			"primary": "oklch(0.78 0.1 80)",
+			"primaryForeground": "oklch(0.2 0.03 60)",
+			"secondary": "oklch(0.28 0.018 60)",
+			"secondaryForeground": "oklch(0.93 0.015 85)",
+			"muted": "oklch(0.27 0.016 60)",
+			"mutedForeground": "oklch(0.73 0.025 80)",
+			"accent": "oklch(0.29 0.022 70)",
+			"accentForeground": "oklch(0.95 0.015 85)",
+			"destructive": "oklch(0.7 0.15 25)",
+			"destructiveForeground": "oklch(0.2 0.03 25)",
+			"border": "oklch(0.33 0.025 75)",
+			"input": "oklch(0.41 0.028 75)",
+			"ring": "oklch(0.78 0.1 80)",
+			"success": "oklch(0.76 0.1 150)",
+			"warning": "oklch(0.8 0.11 75)",
+			"info": "oklch(0.75 0.08 240)",
+			"canvas": "oklch(0.17 0.012 60)",
+			"shadowColor": "oklch(0.08 0.01 60)",
+			"chart1": "oklch(0.78 0.1 80)",
+			"chart2": "oklch(0.66 0.05 55)",
+			"chart3": "oklch(0.88 0.04 88)",
+			"chart4": "oklch(0.72 0.05 160)",
+			"chart5": "oklch(0.6 0.025 60)",
+			"contrast": "oklch(0.15 0.012 60)",
+			"contrastForeground": "oklch(0.92 0.02 85)"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Jost",
+				"href": "https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Cormorant Garamond",
+				"href": "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Amiri",
+				"href": "https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "normal",
+			"numerals": "display"
+		}
+	}
+}

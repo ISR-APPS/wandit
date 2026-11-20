@@ -1,0 +1,127 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.valence {
+	--ink: var(--foreground);
+	--steel: var(--muted);
+	--paper: var(--background);
+	--signal: var(--primary);
+	background: var(--paper);
+	color: var(--ink);
+	font: 1rem / 1.45 var(--font-sans);
+}
+.valence header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1.05rem 4vw;
+	border-block-end: 1px solid currentcolor;
+}
+.valence :where(header) > a {
+	font-size: 1.8rem;
+	font-weight: 900;
+	letter-spacing: -0.09em;
+	line-height: 1;
+}
+.valence header span {
+	color: var(--primary);
+}
+.valence nav {
+	display: flex;
+	gap: 1.2rem;
+	font-size: 0.85rem;
+}
+.valence-hero {
+	display: grid;
+	grid-template-columns: 5fr 7fr;
+	min-height: 35rem;
+}
+.valence-hero > div {
+	display: grid;
+	align-content: center;
+	justify-items: start;
+	gap: 1.4rem;
+	padding: clamp(2rem, 6vw, 7rem) 4vw;
+	background: var(--signal);
+	color: var(--primary-foreground);
+}
+.valence-hero > div > p:first-child,
+.valence figcaption {
+	font:
+		0.78rem / 1.5 ui-monospace,
+		monospace;
+	letter-spacing: 0.08em;
+}
+.valence h1,
+.valence h2 {
+	font-family: "Arial Black", var(--font-sans);
+	font-weight: 900;
+	line-height: 0.9;
+	letter-spacing: -0.095em;
+}
+.valence h1 {
+	font-size: clamp(3.4rem, 7.3vw, 8.7rem);
+}
+.valence h2 {
+	font-size: clamp(2.7rem, 6vw, 5.5rem);
+}
+.valence-hero a {
+	display: inline-block;
+	padding: 0.75rem 1rem;
+	background: var(--ink);
+	color: var(--paper);
+}
+.valence-hero figure {
+	display: grid;
+	grid-template-rows: 1fr auto;
+	background: var(--steel);
+	min-width: 0;
+}
+.valence-hero img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	min-height: 0;
+}
+.valence figcaption {
+	padding: 0.55rem 1rem;
+	border-block-start: 1px solid currentcolor;
+}
+.valence-range,
+.valence-guide {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2rem;
+	padding: 3rem 4vw;
+	border-block-start: 1px solid currentcolor;
+}
+.valence-range article {
+	padding: 1rem 0;
+	border-block-end: 1px solid currentcolor;
+}
+.valence h3 {
+	font-weight: 900;
+}
+.valence-range p,
+.valence-guide p {
+	margin-block: 0.3rem 0.75rem;
+}
+.valence a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.22em;
+}
+@media (max-width: 700px) {
+	.valence-hero,
+	.valence-range,
+	.valence-guide {
+		grid-template-columns: 1fr;
+	}
+	.valence-hero img {
+		max-height: 23rem;
+	}
+	.valence-hero > div {
+		padding-block: 3.6rem;
+	}
+}

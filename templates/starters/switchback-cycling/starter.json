@@ -1,0 +1,35 @@
+{
+	"id": "switchback-cycling",
+	"removed": [],
+	"theme": {
+		"name": "Switchback",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#e9e8df",
+				"foreground": "#2b2c26",
+				"primary": "#923c1a"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "space-grotesk",
+			"displayFont": "unbounded",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"id": "dovetail-repair",
+	"removed": [],
+	"theme": {
+		"name": "Dovetail",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#eeefe3",
+				"foreground": "#293b2d",
+				"primary": "#526346"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "instrument-sans",
+			"displayFont": "fraunces",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}
