@@ -290,7 +290,6 @@ function otlpJson(
 		},
 		stringAttribute("langfuse.trace.metadata.turn_id", claims.turnId),
 		stringAttribute("langfuse.trace.metadata.project_id", claims.projectId),
-		stringAttribute("langfuse.trace.metadata.plan", claims.plan),
 		stringAttribute("langfuse.environment", resource.environment),
 	];
 	const statusMessage =

@@ -5,45 +5,24 @@ import {
 	PATH_METADATA,
 	ROUTE_ARGS_METADATA,
 } from "@nestjs/common/constants";
-import type { AuthUser } from "@wandit/auth";
-import type { CreateManualSubscriptionRequestBody } from "@wandit/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { ManualPaymentsEnabledGuard } from "../../../../settings";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
-import type { ManualSubscriptionRequestsService } from "../../../application/services/manual-subscription-requests.service";
 import { WebOriginWriteGuard } from "../guards/web-origin-write.guard";
 import { ManualBillingController } from "./manual-billing.controller";
 
-const user = { id: "user_1" } as AuthUser;
-const workspace = { kind: "personal" } satisfies WorkspaceContext;
 const body = {
+	amountUsd: 25,
 	city: " Algiers ",
 	company: " Example SARL ",
 	country: "DZ",
 	fullName: " Amina Example ",
-	interval: "month",
 	notes: " Call after 4 PM ",
 	phone: "+213 661 22 33 44",
-	plan: "pro",
 	preferredPaymentMethod: "ccp",
-	tierCredits: 500,
 } as const;
-
-function setup() {
-	const service = {
-		cancel: vi.fn(async () => ({ request: null })),
-		create: vi.fn(async () => ({ request: null })),
-		getCurrent: vi.fn(async () => ({ request: null })),
-	};
-	const controller = new ManualBillingController(
-		service as unknown as ManualSubscriptionRequestsService,
-	);
-
-	return { controller, service };
-}
 
 function bodyPipe(): ZodValidationPipe<unknown> {
 	const routeArguments = Reflect.getMetadata(
@@ -123,43 +102,33 @@ describe("ManualBillingController", () => {
 		const pipe = bodyPipe();
 
 		expect(pipe.transform(body, { type: "body" })).toEqual({
+			amountUsd: 25,
 			city: "Algiers",
 			company: "Example SARL",
 			country: "DZ",
 			fullName: "Amina Example",
-			interval: "month",
 			notes: "Call after 4 PM",
 			phone: "+213 661 22 33 44",
-			plan: "pro",
 			preferredPaymentMethod: "ccp",
-			tierCredits: 500,
 		});
-		expect(() =>
-			pipe.transform({ ...body, phone: "bad" }, { type: "body" }),
-		).toThrow(BadRequestException);
-		expect(() =>
-			pipe.transform({ ...body, tierCredits: 350 }, { type: "body" }),
-		).toThrow(BadRequestException);
-		expect(
-			pipe.transform(
-				{ ...body, plan: "starter", tierCredits: 60 },
-				{ type: "body" },
-			),
-		).toMatchObject({ plan: "starter", tierCredits: 60 });
 	});
 
-	it("delegates reads and writes with the active workspace", async () => {
-		const { controller, service } = setup();
-		const validated = bodyPipe().transform(body, {
-			type: "body",
-		}) as CreateManualSubscriptionRequestBody;
-
-		await controller.getCurrent(user, workspace);
-		await controller.create(user, workspace, validated);
-		await controller.cancel(user, workspace);
-
-		expect(service.getCurrent).toHaveBeenCalledWith(user, workspace);
-		expect(service.create).toHaveBeenCalledWith(user, validated, workspace);
-		expect(service.cancel).toHaveBeenCalledWith(user, workspace);
+	// A cached web bundle still sends a plan body. It must fail, never create a request with no amount.
+	it.each([
+		["a bad phone", { ...body, phone: "bad" }],
+		[
+			"a plan body",
+			{
+				...body,
+				amountUsd: undefined,
+				interval: "month",
+				plan: "pro",
+				tierCredits: 250,
+			},
+		],
+	])("answers 400 for %s", (_label, input) => {
+		expect(() => bodyPipe().transform(input, { type: "body" })).toThrow(
+			BadRequestException,
+		);
 	});
 });

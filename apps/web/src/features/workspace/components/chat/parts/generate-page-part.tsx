@@ -31,8 +31,7 @@ import {
 import { useState } from "react";
 import { useStopwatch } from "react-timer-hook";
 
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
+import { useBillingModal, usePurchasesEnabled } from "@/features/billing";
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -737,7 +736,7 @@ export function FailedBuildCard({
 	onRetry: (() => void) | undefined;
 	retrying?: boolean;
 }) {
-	const { openPlanPicker } = useBillingModal();
+	const { openTopup } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
 	const copy = buildFailureCopy(failureCode);
 	// While all purchases are paused (beta), the top-up CTA is a dead end —
@@ -774,7 +773,7 @@ export function FailedBuildCard({
 							size="sm"
 							className="h-8 flex-1 text-[13px]"
 							disabled={busy}
-							onClick={() => openPlanPicker("generate_page")}
+							onClick={() => openTopup("generate_page")}
 						>
 							Top up wallet
 						</Button>

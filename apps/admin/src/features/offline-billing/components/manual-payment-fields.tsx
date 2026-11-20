@@ -1,7 +1,8 @@
-import {
-	type ManualPaymentMethod,
-	manualPaymentMethods,
-} from "@wandit/contracts";
+/**
+ * Payment fields of the "Record top-up" dialog: method, amount, currency, reference, note.
+ * Called by RecordTopupDialog. Uses the offline billing labels and the minor-unit converter.
+ */
+import { preferredPaymentMethodSchema } from "@wandit/contracts";
 
 import {
 	Field,
@@ -22,13 +23,13 @@ import {
 	amountToMinorUnits,
 	MANUAL_PAYMENT_CURRENCIES,
 	MANUAL_PAYMENT_METHOD_LABELS,
-	type ManualPaymentFormInput,
+	type RecordTopupFormInput,
 } from "@/features/offline-billing/lib/offline-billing";
 
 type ManualPaymentFieldsProps = {
 	idPrefix: string;
-	value: ManualPaymentFormInput;
-	onChange: (value: ManualPaymentFormInput) => void;
+	value: RecordTopupFormInput;
+	onChange: (value: RecordTopupFormInput) => void;
 	submitted: boolean;
 	disabled?: boolean;
 };
@@ -40,12 +41,13 @@ export function ManualPaymentFields({
 	submitted,
 	disabled = false,
 }: ManualPaymentFieldsProps) {
-	const amountIsValid =
-		amountToMinorUnits(value.majorAmount, value.currency) !== null;
+	const amountMinor = amountToMinorUnits(value.majorAmount, value.currency);
+	// A top-up always receives money, so zero is not a valid amount.
+	const amountIsValid = amountMinor !== null && amountMinor > 0;
 
-	function update<Key extends keyof ManualPaymentFormInput>(
+	function update<Key extends keyof RecordTopupFormInput>(
 		key: Key,
-		nextValue: ManualPaymentFormInput[Key],
+		nextValue: RecordTopupFormInput[Key],
 	) {
 		onChange({ ...value, [key]: nextValue });
 	}
@@ -57,7 +59,7 @@ export function ManualPaymentFields({
 				<Select
 					value={value.method}
 					onValueChange={(method) =>
-						update("method", method as ManualPaymentMethod)
+						update("method", preferredPaymentMethodSchema.parse(method))
 					}
 					disabled={disabled}
 				>
@@ -65,7 +67,8 @@ export function ManualPaymentFields({
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{manualPaymentMethods.map((method) => (
+						{/* SlickPay is not in the list: SlickPay payments record their own receipts. */}
+						{preferredPaymentMethodSchema.options.map((method) => (
 							<SelectItem key={method} value={method}>
 								{MANUAL_PAYMENT_METHOD_LABELS[method]}
 							</SelectItem>
@@ -81,7 +84,7 @@ export function ManualPaymentFields({
 						id={`${idPrefix}-amount`}
 						type="number"
 						inputMode="decimal"
-						min={0}
+						min={0.01}
 						max={10_000_000}
 						step={0.01}
 						value={value.majorAmount}
@@ -92,7 +95,7 @@ export function ManualPaymentFields({
 					/>
 					<FieldError>
 						{submitted && !amountIsValid
-							? "Enter a non-negative amount up to 10,000,000."
+							? "Enter an amount above zero, up to 10,000,000."
 							: null}
 					</FieldError>
 				</Field>

@@ -29,7 +29,7 @@ import { PhoneCell } from "@/features/users/components/table/user-table-cells";
 import { getInitialAdminViews } from "@/features/users/lib/admin-view-options";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
-import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
+import { getInitials, getRoleLabel } from "./user-detail-helpers";
 
 type UserDetailHeaderProps = {
 	user: AdminUserDetail;
@@ -38,7 +38,8 @@ type UserDetailHeaderProps = {
 	/** credits:grant, minus a support grant to its own account (the API rejects it). */
 	canGrantCredits: boolean;
 	onGrantCredits: () => void;
-	onGrantOffline?: () => void;
+	/** Opens "Record top-up" for the personal wallet. Shown only with billing:manage. */
+	onRecordTopup?: () => void;
 	onChangeRole: () => void;
 	onEditAdminViews: () => void;
 	onToggleBanned: () => void;
@@ -49,7 +50,7 @@ export function UserDetailHeader({
 	canManageAccess,
 	canGrantCredits,
 	onGrantCredits,
-	onGrantOffline,
+	onRecordTopup,
 	onChangeRole,
 	onEditAdminViews,
 	onToggleBanned,
@@ -118,7 +119,10 @@ export function UserDetailHeader({
 									{grantedAdminViews.length} of {adminViewValues.length} views
 								</span>
 							) : null}
-							<Badge variant="secondary">{titleCase(user.plan)}</Badge>
+							{/* isPaidOwner: the personal wallet has a top-up or had a plan. */}
+							<Badge variant={user.isPaidOwner ? "default" : "secondary"}>
+								{user.isPaidOwner ? "Paid" : "Free"}
+							</Badge>
 							{user.emailVerified ? (
 								<Badge variant="outline">
 									<BadgeCheckIcon aria-hidden="true" />
@@ -158,10 +162,10 @@ export function UserDetailHeader({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
-					{canManageBilling && !user.subscription && onGrantOffline ? (
-						<Button type="button" variant="outline" onClick={onGrantOffline}>
+					{canManageBilling && onRecordTopup ? (
+						<Button type="button" variant="outline" onClick={onRecordTopup}>
 							<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
-							Grant offline subscription
+							Record top-up
 						</Button>
 					) : null}
 					{canSetRole && canManageAccess ? (

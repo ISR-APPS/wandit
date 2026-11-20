@@ -4,8 +4,7 @@
  * Takes the same owner advisory lock as CreditsRepository, so ledger writes serialize.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
+import { and, asc, desc, eq, gt, isNull, or, sql } from "@wandit/db";
 import {
 	billingInvoiceApplications,
 	subscriptionRefillSlots,
@@ -38,8 +37,8 @@ export type SubscriptionCreditRow = typeof subscriptions.$inferSelect;
 /**
  * Why a pending slot was canceled. `replaced`: a newer invoice's slots
  * superseded it (upgrade/renewal); `clawback`: its funding charge was
- * refunded or disputed; `ownership`: its subscription stopped being the
- * owner's canonical entitled mirror (deletion, replacement).
+ * refunded or disputed. Pricing v8 writes only these two. `ownership` and
+ * `ended` stay for rows that older code wrote.
  */
 export type RefillSlotCancelReason =
 	| "clawback"
@@ -83,42 +82,6 @@ export class SubscriptionCreditsRepository {
 
 			return fn(tx);
 		});
-	}
-
-	/**
-	 * The resolution authority for grant/expiry/refill decisions. OWNER-keyed:
-	 * a creator with a personal Pro AND an org Business shares one userId
-	 * across two entitled rows, and a user-keyed lookup silently cross-talks
-	 * between them (confirmed review critical — dead-lettered invoices,
-	 * skipped expiry, canceled refills).
-	 */
-	async findCanonicalEntitledByOwner(
-		owner: CreditOwner,
-		client: SubscriptionCreditsClient = this.db,
-	): Promise<SubscriptionCreditRow | null> {
-		const ownerPredicate =
-			owner.type === "user"
-				? and(
-						eq(subscriptions.userId, owner.userId),
-						isNull(subscriptions.organizationId),
-					)
-				: eq(subscriptions.organizationId, owner.organizationId);
-		const [row] = await client
-			.select()
-			.from(subscriptions)
-			.where(
-				and(
-					ownerPredicate,
-					inArray(
-						subscriptions.status,
-						ENTITLED_SUBSCRIPTION_STATUSES as unknown as string[],
-					),
-				),
-			)
-			.orderBy(desc(subscriptions.updatedAt), desc(subscriptions.createdAt))
-			.limit(1);
-
-		return row ?? null;
 	}
 
 	async findSubscriptionByProviderId(
@@ -227,37 +190,18 @@ export class SubscriptionCreditsRepository {
 			.where(
 				and(
 					eq(billingInvoiceApplications.subscriptionId, subscriptionId),
-					// Initial invoices always grant a positive allotment unless they
-					// were skipped after a newer renewal. Keep those audit-only rows
-					// out of the paid predecessor chain for subsequent upgrades.
+					// Old code skipped a late create invoice with creditsDelta 0.
+					// Keep those audit-only rows out of the paid predecessor chain.
 					sql`(${billingInvoiceApplications.billingReason} <> 'subscription_create' OR ${billingInvoiceApplications.creditsDelta} > 0)`,
 				),
 			)
+			// Pricing v8 (I4): a late invoice of an older period now grants and
+			// writes a row. The newest period, not the newest write, is the predecessor.
 			.orderBy(
+				desc(billingInvoiceApplications.periodEnd),
 				desc(billingInvoiceApplications.appliedAt),
 				desc(billingInvoiceApplications.stripeInvoiceId),
 			)
-			.limit(1);
-
-		return row ?? null;
-	}
-
-	async findCycleAtOrAfter(
-		subscriptionId: string,
-		periodEnd: Date,
-		client: SubscriptionCreditsClient = this.db,
-	): Promise<InvoiceApplicationRow | null> {
-		const [row] = await client
-			.select()
-			.from(billingInvoiceApplications)
-			.where(
-				and(
-					eq(billingInvoiceApplications.subscriptionId, subscriptionId),
-					eq(billingInvoiceApplications.billingReason, "subscription_cycle"),
-					sql`${billingInvoiceApplications.periodEnd} >= ${periodEnd}`,
-				),
-			)
-			.orderBy(desc(billingInvoiceApplications.periodEnd))
 			.limit(1);
 
 		return row ?? null;
@@ -333,62 +277,6 @@ export class SubscriptionCreditsRepository {
 		return rows.length;
 	}
 
-	async cancelPendingSlotsByFunding(
-		input: {
-			chargeId?: string | null;
-			invoiceId?: string | null;
-			paymentIntentId?: string | null;
-		},
-		client: SubscriptionCreditsClient = this.db,
-	): Promise<number> {
-		const matches = [
-			input.chargeId
-				? eq(subscriptionRefillSlots.fundingChargeId, input.chargeId)
-				: undefined,
-			input.invoiceId
-				? eq(subscriptionRefillSlots.fundingInvoiceId, input.invoiceId)
-				: undefined,
-			input.paymentIntentId
-				? eq(
-						subscriptionRefillSlots.fundingPaymentIntentId,
-						input.paymentIntentId,
-					)
-				: undefined,
-		].filter((condition) => condition !== undefined);
-
-		if (matches.length === 0) {
-			return 0;
-		}
-
-		const fundingMatch = matches.length === 1 ? matches[0] : or(...matches);
-		const rows = await client
-			.update(subscriptionRefillSlots)
-			.set(canceledSlotValues({ reason: "clawback" }))
-			.where(and(eq(subscriptionRefillSlots.status, "pending"), fundingMatch))
-			.returning({ id: subscriptionRefillSlots.id });
-
-		return rows.length;
-	}
-
-	async listDueSlotIds(now: Date, limit = 100): Promise<string[]> {
-		const rows = await this.db
-			.select({ id: subscriptionRefillSlots.id })
-			.from(subscriptionRefillSlots)
-			.where(
-				and(
-					eq(subscriptionRefillSlots.status, "pending"),
-					sql`${subscriptionRefillSlots.dueAt} <= ${now}`,
-				),
-			)
-			.orderBy(
-				asc(subscriptionRefillSlots.dueAt),
-				asc(subscriptionRefillSlots.periodOrdinal),
-			)
-			.limit(limit);
-
-		return rows.map((row) => row.id);
-	}
-
 	async findDuePendingSlotsForSubscription(
 		subscriptionId: string,
 		dueThrough: Date,
@@ -434,6 +322,29 @@ export class SubscriptionCreditsRepository {
 		return row ?? null;
 	}
 
+	/**
+	 * Sets one `pending` slot to `granted`, due or not. Only the pay-as-you-go
+	 * cutover grant calls it. Returns null when another writer changed the slot first.
+	 */
+	async claimPendingSlot(
+		slotId: string,
+		grantedAt: Date,
+		client: SubscriptionCreditsClient = this.db,
+	): Promise<RefillSlotRow | null> {
+		const [row] = await client
+			.update(subscriptionRefillSlots)
+			.set({ grantedAt, status: "granted" })
+			.where(
+				and(
+					eq(subscriptionRefillSlots.id, slotId),
+					eq(subscriptionRefillSlots.status, "pending"),
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
 	async claimDueSlot(
 		slotId: string,
 		now: Date,
@@ -452,24 +363,5 @@ export class SubscriptionCreditsRepository {
 			.returning();
 
 		return row ?? null;
-	}
-
-	async cancelPendingSlot(
-		slotId: string,
-		provenance: RefillSlotCancellation,
-		client: SubscriptionCreditsClient = this.db,
-	): Promise<boolean> {
-		const [row] = await client
-			.update(subscriptionRefillSlots)
-			.set(canceledSlotValues(provenance))
-			.where(
-				and(
-					eq(subscriptionRefillSlots.id, slotId),
-					eq(subscriptionRefillSlots.status, "pending"),
-				),
-			)
-			.returning({ id: subscriptionRefillSlots.id });
-
-		return row !== undefined;
 	}
 }

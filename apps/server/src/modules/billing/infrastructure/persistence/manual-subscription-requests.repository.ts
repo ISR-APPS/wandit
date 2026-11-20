@@ -1,9 +1,11 @@
+/**
+ * Reads and writes `manual_subscription_requests`, the offline top-up requests of customers.
+ * ManualSubscriptionRequestsService creates and cancels rows. ManualSubscriptionsService lists, updates, and approves them.
+ * Drizzle only. One open request per owner is a unique index in the database.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminListManualRequestsQuery,
-	type BillingInterval,
-	type BillingPlanId,
-	type CreditTier,
 	type ManualPaymentMethod,
 	type ManualSubscriptionRequestStatus,
 	OPEN_MANUAL_REQUEST_STATUSES,
@@ -65,19 +67,19 @@ export type AdminManualRequestRow = {
 	user: ManualBillingUserRow;
 };
 
+/** Columns of a new top-up request. The plan columns stay NULL: only requests from before pricing v8 hold a plan. */
 export type InsertManualSubscriptionRequestInput = {
+	/** USD cents the customer asks to top up. Whole USD times 100. */
+	amountUsdCents: number;
 	city: string | null;
 	company: string | null;
 	country: string;
 	fullName: string;
-	interval: BillingInterval;
 	notes: string | null;
 	organizationId: string | null;
 	phone: string;
-	plan: BillingPlanId;
 	preferredPaymentMethod: ManualPaymentMethod | null;
 	status: ManualSubscriptionRequestStatus;
-	tierCredits: CreditTier;
 	userId: string;
 };
 

@@ -8,7 +8,7 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AppBackendsRepository } from "../app-builder/infrastructure/persistence/app-backends.repository";
-import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
+import { PaidOwnerRepository } from "../billing/infrastructure/persistence/paid-owner.repository";
 import { EmailModule } from "../email/email.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { ProjectInvitationsService } from "./application/services/project-invitations.service";
@@ -25,12 +25,12 @@ import { ProjectSharingController } from "./presentation/http/controllers/projec
 	providers: [
 		// The move counts the destination backends under the same lock as a backend insert.
 		AppBackendsRepository,
+		// The move reads if the destination payer is a paid owner: it decides the backend slots.
+		PaidOwnerRepository,
 		ProjectInvitationsRepository,
 		ProjectInvitationsService,
 		ProjectSharingRepository,
 		ProjectSharingService,
-		// The move reads the destination plan: it decides the backend slots.
-		SubscriptionsRepository,
 	],
 })
 export class ProjectSharingModule {}

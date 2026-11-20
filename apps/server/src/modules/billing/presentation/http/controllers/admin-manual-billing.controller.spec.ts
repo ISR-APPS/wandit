@@ -61,19 +61,24 @@ describe("AdminManualBillingController receipt config", () => {
 });
 
 describe("AdminManualBillingController request permissions", () => {
-	it("lets support update a request but not grant a subscription", () => {
+	it("lets support update a request", () => {
 		const updatePermission = Reflect.getMetadata(
 			ADMIN_PERMISSION_KEY,
 			AdminManualBillingController.prototype.updateRequest,
 		);
-		const grantPermission = Reflect.getMetadata(
-			ADMIN_PERMISSION_KEY,
-			AdminManualBillingController.prototype.grant,
-		);
 
 		expect(updatePermission).toEqual({ billing: ["update-request"] });
 		expect(adminRoleHasPermission("support", updatePermission)).toBe(true);
-		expect(grantPermission).toEqual({ billing: ["manage"] });
-		expect(adminRoleHasPermission("support", grantPermission)).toBe(false);
+	});
+
+	// Both routes move credits, so support must not reach them.
+	it.each([
+		["recordTopup", AdminManualBillingController.prototype.recordTopup],
+		["reverseTopup", AdminManualBillingController.prototype.reverseTopup],
+	])("keeps %s behind billing manage", (_label, handler) => {
+		const permission = Reflect.getMetadata(ADMIN_PERMISSION_KEY, handler);
+
+		expect(permission).toEqual({ billing: ["manage"] });
+		expect(adminRoleHasPermission("support", permission)).toBe(false);
 	});
 });

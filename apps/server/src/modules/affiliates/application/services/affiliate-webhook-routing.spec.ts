@@ -32,6 +32,9 @@ function setup(input: { affiliateClawbackHandled?: boolean } = {}) {
 			order.push("credit-policy");
 			return false;
 		}),
+		grantTopup: vi.fn(async () => {
+			order.push("topup-grant");
+		}),
 	} as unknown as SubscriptionCreditsService;
 	const refunds = {
 		handleChargeDisputeClosed: vi.fn(async () => {
@@ -54,6 +57,10 @@ function setup(input: { affiliateClawbackHandled?: boolean } = {}) {
 	const commission = {
 		handlePaidInvoice: vi.fn(async () => {
 			order.push("affiliate-candidate");
+			return true;
+		}),
+		handlePaidTopup: vi.fn(async () => {
+			order.push("affiliate-topup");
 			return true;
 		}),
 	} as unknown as AffiliateCommissionService;
@@ -108,6 +115,21 @@ describe("affiliate Stripe routing", () => {
 			"credit-policy",
 			"affiliate-candidate",
 		]);
+	});
+
+	it("earns the top-up commission only after the top-up credits are granted", async () => {
+		const { order, router } = setup();
+		const session: Partial<Stripe.Checkout.Session> = {
+			id: "cs_1",
+			metadata: { purpose: "topup" },
+			mode: "payment",
+			payment_status: "paid",
+		};
+
+		await expect(
+			router.route(event("checkout.session.completed", session)),
+		).resolves.toEqual({ status: "processed" });
+		expect(order).toEqual(["topup-grant", "affiliate-topup"]);
 	});
 
 	it("runs billing clawback first, then affiliates, and ORs handled outcomes", async () => {

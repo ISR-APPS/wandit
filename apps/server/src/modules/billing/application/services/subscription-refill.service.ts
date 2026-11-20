@@ -1,10 +1,16 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+/**
+ * Plans and grants the monthly refill slots of a yearly plan.
+ * SubscriptionCreditsService calls it from the invoice handlers. The cutover script
+ * calls grantPendingSlot. It writes slots and plain `plan` grants, never an `expire` row.
+ */
+import { Inject, Injectable } from "@nestjs/common";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { ownerFromIds } from "../../../credits/domain/credit-owner";
 import { FinancialReconciliationOutboxRepository } from "../../infrastructure/persistence/financial-reconciliation-outbox.repository";
 import {
 	type InsertRefillSlot,
+	type RefillSlotRow,
 	type SubscriptionCreditRow,
 	SubscriptionCreditsRepository,
 	type SubscriptionCreditsTransaction,
@@ -21,20 +27,13 @@ export type YearlySlotPlan = {
 	/**
 	 * UNIT: integer centi-credits. Callers convert the whole-credit tier x100
 	 * (subscription-credits.service allotment) before building the plan; slot
-	 * rows store centi-credits and flow into applyCappedRefill unchanged.
+	 * rows store centi-credits and flow into CreditsService.grant unchanged.
 	 */
 	credits: number;
 	funding: RefillFundingReferences;
 	grantDueThrough?: Date;
 	remainingAfter: Date;
 	subscription: SubscriptionCreditRow;
-};
-
-export type SubscriptionRefillSweepResult = {
-	canceled: number;
-	failed: number;
-	granted: number;
-	skipped: number;
 };
 
 export type DueSlotGrantResult = {
@@ -45,8 +44,6 @@ export type DueSlotGrantResult = {
 
 @Injectable()
 export class SubscriptionRefillService {
-	private readonly logger = new Logger(SubscriptionRefillService.name);
-
 	constructor(
 		@Inject(SubscriptionCreditsRepository)
 		private readonly repository: SubscriptionCreditsRepository,
@@ -107,38 +104,11 @@ export class SubscriptionRefillService {
 				continue;
 			}
 
-			await this.creditsService.applyCappedRefill(
-				ownerFromIds(subscription.userId, subscription.organizationId),
-				claimed.credits,
-				{
-					capMultiplier: 1,
-					idempotencyKey: `refill:${subscription.id}:${claimed.fundingInvoiceId}:${claimed.periodOrdinal}`,
-					meta: {
-						...(claimed.fundingChargeId
-							? { chargeId: claimed.fundingChargeId }
-							: {}),
-						invoiceId: claimed.fundingInvoiceId,
-						...(claimed.fundingPaymentIntentId
-							? { paymentIntentId: claimed.fundingPaymentIntentId }
-							: {}),
-						periodOrdinal: claimed.periodOrdinal,
-						reason: "yearly_subscription_refill",
-						subscriptionId: subscription.id,
-					},
-				},
-				transaction,
-			);
+			await this.grantClaimedSlot(subscription, claimed, transaction);
 			granted += 1;
 
 			if (claimed.fundingChargeId) {
 				fundingChargeIds.add(claimed.fundingChargeId);
-				await this.reconciliationOutbox.enqueue(
-					{
-						chargeId: claimed.fundingChargeId,
-						triggerRef: `slot:${claimed.id}`,
-					},
-					transaction,
-				);
 			}
 		}
 
@@ -157,172 +127,60 @@ export class SubscriptionRefillService {
 		return slots.length;
 	}
 
-	async sweepDueSlots(
-		now = new Date(),
-		limit = 100,
-	): Promise<SubscriptionRefillSweepResult> {
-		const result: SubscriptionRefillSweepResult = {
-			canceled: 0,
-			failed: 0,
-			granted: 0,
-			skipped: 0,
-		};
-		const slotIds = await this.repository.listDueSlotIds(now, limit);
-
-		for (const slotId of slotIds) {
-			try {
-				const outcome = await this.grantDueSlot(slotId, now);
-				result[outcome] += 1;
-			} catch (error) {
-				result.failed += 1;
-				this.logger.error(
-					`Subscription refill slot ${slotId} failed and remains retryable`,
-					error instanceof Error ? error.stack : String(error),
-				);
-			}
-		}
-
-		return result;
-	}
-
-	async grantDueSlot(
+	/**
+	 * Grants one `pending` slot, due or not, in its own owner-lock transaction.
+	 * Only the pay-as-you-go cutover script calls it. A slot in another state gives "skipped".
+	 */
+	async grantPendingSlot(
 		slotId: string,
 		now = new Date(),
-	): Promise<"canceled" | "granted" | "skipped"> {
+	): Promise<"granted" | "skipped"> {
 		const candidate = await this.repository.findSlotWithSubscription(slotId);
 
 		if (candidate?.slot.status !== "pending") {
-			if (
-				candidate?.slot.status === "granted" &&
-				candidate.slot.fundingChargeId
-			) {
-				// Complete a replay that may have crashed after the atomic ledger/slot
-				// commit but before charge-state reconciliation.
-				await this.paymentRefundsService.reconcileChargeAfterGrant(
-					candidate.slot.fundingChargeId,
-				);
-			}
-
 			return "skipped";
 		}
 
 		if (candidate.slot.fundingChargeId) {
-			/*
-			 * Reconcile before claiming too. If the charge was already refunded or
-			 * disputed, the existing charge-locked clawback path cancels this pending
-			 * slot, closing the hard-crash window after the later grant commit.
-			 */
+			// A refunded or disputed charge cancels its pending slots through the
+			// clawback path. Reconcile first, so a refunded month is never granted.
 			await this.paymentRefundsService.reconcileChargeAfterGrant(
 				candidate.slot.fundingChargeId,
 			);
 		}
 
-		// The slot's OWNER is its subscription's owner entity — an org slot must
-		// never resolve canonicality (or grant) through the provenance userId,
-		// which may also carry a personal subscription (confirmed review finding).
-		const slotOwner = ownerFromIds(
+		// The slot owner is the subscription owner. An org slot never grants to
+		// the personal pool of the buyer in `userId`.
+		const owner = ownerFromIds(
 			candidate.subscription.userId,
 			candidate.subscription.organizationId,
 		);
-		let fundingChargeId: string | null = null;
-		const outcome = await this.repository.withOwnerLock(
-			slotOwner,
-			async (tx) => {
-				const current = await this.repository.findSlotWithSubscription(
-					slotId,
-					tx,
-				);
+		const claimed = await this.repository.withOwnerLock(owner, async (tx) => {
+			const slot = await this.repository.claimPendingSlot(slotId, now, tx);
 
-				if (
-					current?.slot.status !== "pending" ||
-					current.slot.dueAt.getTime() > now.getTime()
-				) {
-					return "skipped" as const;
-				}
+			if (slot) {
+				await this.grantClaimedSlot(candidate.subscription, slot, tx);
+			}
 
-				const canonical = await this.repository.findCanonicalEntitledByOwner(
-					ownerFromIds(
-						current.subscription.userId,
-						current.subscription.organizationId,
-					),
-					tx,
-				);
+			return slot;
+		});
 
-				if (!canonical || canonical.id !== current.subscription.id) {
-					await this.repository.cancelPendingSlot(
-						slotId,
-						{ reason: "ownership" },
-						tx,
-					);
-
-					return "canceled" as const;
-				}
-
-				// Subscription sync can advance the mirror to the renewed Starter
-				// period before its paid invoice replaces the old Pro slots. Those
-				// old allotments must not be spendable in the new period. Renewal
-				// fulfillment handles any catch-up and the new rollover cap together.
-				if (
-					current.slot.dueAt.getTime() <
-						canonical.currentPeriodStart.getTime() ||
-					current.slot.dueAt.getTime() >=
-						canonical.currentPeriodEnd.getTime() ||
-					now.getTime() >= canonical.currentPeriodEnd.getTime()
-				) {
-					return "skipped" as const;
-				}
-
-				const claimed = await this.repository.claimDueSlot(slotId, now, tx);
-
-				if (!claimed) {
-					return "skipped" as const;
-				}
-
-				fundingChargeId = claimed.fundingChargeId;
-				await this.creditsService.applyCappedRefill(
-					ownerFromIds(canonical.userId, canonical.organizationId),
-					claimed.credits,
-					{
-						capMultiplier: 1,
-						idempotencyKey: `refill:${canonical.id}:${claimed.fundingInvoiceId}:${claimed.periodOrdinal}`,
-						meta: {
-							...(claimed.fundingChargeId
-								? { chargeId: claimed.fundingChargeId }
-								: {}),
-							invoiceId: claimed.fundingInvoiceId,
-							...(claimed.fundingPaymentIntentId
-								? { paymentIntentId: claimed.fundingPaymentIntentId }
-								: {}),
-							periodOrdinal: claimed.periodOrdinal,
-							reason: "yearly_subscription_refill",
-							subscriptionId: canonical.id,
-						},
-					},
-					tx,
-				);
-
-				if (claimed.fundingChargeId) {
-					await this.reconciliationOutbox.enqueue(
-						{ chargeId: claimed.fundingChargeId, triggerRef: `slot:${slotId}` },
-						tx,
-					);
-				}
-
-				return "granted" as const;
-			},
-		);
-
-		// Re-read Stripe only after the slot and ledger commit. A refund/dispute
-		// racing this grant is then reconciled from fresh charge state. The
-		// outbox row enqueued in the transaction covers a crash before this.
-		if (outcome === "granted" && fundingChargeId) {
-			await this.paymentRefundsService.reconcileChargeAfterGrant(
-				fundingChargeId,
-			);
-			await this.reconciliationOutbox.markDoneForCharge(fundingChargeId);
+		if (!claimed) {
+			return "skipped";
 		}
 
-		return outcome;
+		// Read Stripe again only after the commit, so a refund that raced this
+		// grant takes back its part. The outbox row covers a crash before this.
+		if (claimed.fundingChargeId) {
+			await this.paymentRefundsService.reconcileChargeAfterGrant(
+				claimed.fundingChargeId,
+			);
+			await this.reconciliationOutbox.markDoneForCharge(
+				claimed.fundingChargeId,
+			);
+		}
+
+		return "granted";
 	}
 
 	yearlySlots(plan: YearlySlotPlan): InsertRefillSlot[] {
@@ -357,6 +215,44 @@ export class SubscriptionRefillService {
 		}
 
 		return slots;
+	}
+
+	/**
+	 * Plain `plan` grant of one claimed slot, plus its reconciliation outbox row.
+	 * The key and the meta match the grants that older code wrote, so a replay passes.
+	 * The refund code finds the grant by `meta.chargeId` and `meta.subscriptionId`.
+	 */
+	private async grantClaimedSlot(
+		subscription: SubscriptionCreditRow,
+		slot: RefillSlotRow,
+		transaction: SubscriptionCreditsTransaction,
+	): Promise<void> {
+		await this.creditsService.grant(
+			ownerFromIds(subscription.userId, subscription.organizationId),
+			slot.credits,
+			{
+				bucket: "plan",
+				idempotencyKey: `refill:${subscription.id}:${slot.fundingInvoiceId}:${slot.periodOrdinal}`,
+				meta: {
+					...(slot.fundingChargeId ? { chargeId: slot.fundingChargeId } : {}),
+					invoiceId: slot.fundingInvoiceId,
+					...(slot.fundingPaymentIntentId
+						? { paymentIntentId: slot.fundingPaymentIntentId }
+						: {}),
+					periodOrdinal: slot.periodOrdinal,
+					reason: "yearly_subscription_refill",
+					subscriptionId: subscription.id,
+				},
+			},
+			transaction,
+		);
+
+		if (slot.fundingChargeId) {
+			await this.reconciliationOutbox.enqueue(
+				{ chargeId: slot.fundingChargeId, triggerRef: `slot:${slot.id}` },
+				transaction,
+			);
+		}
 	}
 
 	private addUtcCalendarMonths(anchor: Date, months: number): Date {

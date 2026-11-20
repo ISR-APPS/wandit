@@ -1,18 +1,31 @@
 /**
  * Drizzle queries of the user referral program: `user_referral_codes` and `user_referrals`.
  * UserReferralsService calls it, from the API and from the Trigger task `user-referral-sweep`.
- * It also READS tables of other modules: `user`, `subscriptions`, the two payment tables,
- * and `affiliate_attributions`. It writes only the two referral tables.
+ * It also READS tables of other modules: `user`, `subscriptions`, the two plan payment tables,
+ * `billing_topup_receipts`, `credit_ledger`, and `affiliate_attributions`. It writes only the two referral tables.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, isNull, lte, or, type SQL, sql } from "@wandit/db";
+import {
+	alias,
+	and,
+	desc,
+	eq,
+	gt,
+	isNull,
+	lte,
+	or,
+	type SQL,
+	sql,
+} from "@wandit/db";
 import { affiliateAttributions } from "@wandit/db/schema/affiliates";
 import { user } from "@wandit/db/schema/auth";
 import {
 	billingInvoiceApplications,
+	billingTopupReceipts,
 	manualSubscriptionPayments,
 	subscriptions,
 } from "@wandit/db/schema/billing";
+import { creditLedger } from "@wandit/db/schema/credits";
 import {
 	userReferralCodes,
 	userReferrals,
@@ -23,6 +36,33 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import type { UserReferralReward } from "../../domain/user-referral-rules";
+
+/** The `inv:<invoice id>:grant` ledger row of a plan invoice. The revoke rows are a second `credit_ledger` scan. */
+const invoiceGrant = alias(creditLedger, "referral_invoice_grant");
+
+/**
+ * Centi-credits that refunds and disputes took back from one payment, as a scalar subquery.
+ * Revoke rows are negative and clawback restores are positive, so the net revoke is minus their sum.
+ * The rule copies `revokedCentiCreditsQuery` of BillingTopupReceiptsRepository, plus a payment intent match
+ * when the charge id is null. A SlickPay or offline payment has neither id, so the result is 0.
+ */
+function netRevokedCentiCredits(chargeId: SQL, paymentIntentId: SQL): SQL {
+	return sql`(
+		select -coalesce(sum(${creditLedger.delta}), 0)
+		from ${creditLedger}
+		where (
+				${creditLedger.kind} = 'revoke'
+				or (
+					${creditLedger.kind} = 'grant'
+					and ${creditLedger.meta}->>'billingAdjustment' = 'clawback_restore'
+				)
+			)
+			and (
+				${creditLedger.meta}->>'chargeId' = ${chargeId}
+				or (${chargeId} is null and ${creditLedger.meta}->>'paymentIntentId' = ${paymentIntentId})
+			)
+	)`;
+}
 
 /** One row of `user_referrals`. The three credit columns are centi-credits. */
 export type UserReferralRow = typeof userReferrals.$inferSelect;
@@ -166,22 +206,57 @@ export class UserReferralsRepository {
 	}
 
 	/**
-	 * True when the user has a subscription that is not ended.
-	 * A cross-module read of the billing table: the paid reward needs it, and the billing module stays unchanged.
-	 * The status rule is the rule of `SubscriptionsRepository.findActiveByOwner`.
+	 * True when the user has one personal payment with a net revoke of 0.
+	 * The payment is a top-up receipt, or a paid invoice or manual payment of a personal plan.
+	 * The sweep calls it after the 7-day hold. It is a cross-module read: the billing module stays unchanged.
 	 */
-	async hasLiveSubscription(
+	async hasLivePersonalPayment(
 		userId: string,
 		tx: UserReferralsTransaction,
 	): Promise<boolean> {
+		// Strict money rule: a refund of any size makes that payment "not paid". A full dispute restore makes it paid again.
 		const [row] = await tx
-			.select({ id: subscriptions.id })
-			.from(subscriptions)
+			.select({ id: user.id })
+			.from(user)
 			.where(
 				and(
-					// LIMIT: a team plan counts for the admin who paid (`subscriptions.user_id`). Upgrade: count personal plans only.
-					eq(subscriptions.userId, userId),
-					sql`${subscriptions.status} NOT IN ('canceled', 'incomplete_expired')`,
+					eq(user.id, userId),
+					sql`(
+						exists (
+							select 1 from ${billingTopupReceipts}
+							where ${billingTopupReceipts.userId} = ${userId}
+								and ${billingTopupReceipts.organizationId} is null
+								and ${billingTopupReceipts.amountCents} > 0
+								and ${billingTopupReceipts.reversedAt} is null
+								and ${netRevokedCentiCredits(
+									sql`${billingTopupReceipts.chargeId}`,
+									sql`${billingTopupReceipts.paymentIntentId}`,
+								)} = 0
+						)
+						or exists (
+							select 1 from ${subscriptions}
+							where ${subscriptions.userId} = ${userId}
+								and ${subscriptions.organizationId} is null
+								and (
+									exists (
+										select 1 from ${billingInvoiceApplications}
+										inner join ${creditLedger} as ${invoiceGrant}
+											on ${invoiceGrant.idempotencyKey} = 'inv:' || ${billingInvoiceApplications.stripeInvoiceId} || ':grant'
+										where ${billingInvoiceApplications.subscriptionId} = ${subscriptions.id}
+											and ${billingInvoiceApplications.amountPaidMinor} > 0
+											and ${netRevokedCentiCredits(
+												sql`${invoiceGrant.meta}->>'chargeId'`,
+												sql`${invoiceGrant.meta}->>'paymentIntentId'`,
+											)} = 0
+									)
+									or exists (
+										select 1 from ${manualSubscriptionPayments}
+										where ${manualSubscriptionPayments.subscriptionId} = ${subscriptions.id}
+											and ${manualSubscriptionPayments.amountMinor} > 0
+									)
+								)
+						)
+					)`,
 				),
 			)
 			.limit(1);
@@ -251,10 +326,10 @@ export class UserReferralsRepository {
 	}
 
 	/**
-	 * Sets `first_paid_at` on each referral whose friend has a real payment and no mark.
-	 * A real payment is an amount above 0 on a subscription with `subscriptions.user_id` = the friend.
-	 * For a team plan, that user is the admin who paid (see the LIMIT mark in `hasLiveSubscription`).
-	 * A cross-module read of the billing tables: it covers Stripe, manual, and SlickPay with no billing hook.
+	 * Sets `first_paid_at` on each referral whose friend has a real personal payment and no mark.
+	 * A real payment is a top-up receipt, or a plan payment, with an amount above 0. Team payments do not count.
+	 * A cross-module read of the billing tables: it covers Stripe, manual, SlickPay, and offline with no billing hook.
+	 * The refund check comes later, in `hasLivePersonalPayment`, after the hold.
 	 */
 	async markFirstPayments(now: Date): Promise<void> {
 		// LIMIT: each run reads all rows with no payment mark. Upgrade: a partial index on first_paid_at IS NULL, or a mark from the billing hook.
@@ -264,12 +339,19 @@ export class UserReferralsRepository {
 			.where(
 				and(
 					isNull(userReferrals.firstPaidAt),
-					// Product rule: only a paid plan counts.
-					// A free admin grant, the dev seed plan, and a top-up are not paid plans.
-					// They have no row with an amount above 0 in these two tables.
-					sql`exists (
+					// Product rule: only real money counts, a top-up or a paid personal plan.
+					// A free admin grant and the dev seed plan have no row with an amount above 0.
+					sql`(exists (
+						select 1 from ${billingTopupReceipts}
+						where ${billingTopupReceipts.userId} = ${userReferrals.referredUserId}
+							and ${billingTopupReceipts.organizationId} is null
+							and ${billingTopupReceipts.amountCents} > 0
+							and ${billingTopupReceipts.reversedAt} is null
+					)
+					or exists (
 						select 1 from ${subscriptions}
 						where ${subscriptions.userId} = ${userReferrals.referredUserId}
+							and ${subscriptions.organizationId} is null
 							and (
 								exists (
 									select 1 from ${billingInvoiceApplications}
@@ -282,7 +364,7 @@ export class UserReferralsRepository {
 										and ${manualSubscriptionPayments.amountMinor} > 0
 								)
 							)
-					)`,
+					))`,
 				),
 			);
 	}

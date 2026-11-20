@@ -472,7 +472,12 @@ export const billingCheckoutAttempts = pgTable(
 		}),
 		purpose: billingCheckoutPurpose("purpose").notNull(),
 		priceLookupKey: text("price_lookup_key"),
+		// Pricing v7 top-up pack. NULL for a v8 top-up, which sets the two amount columns below.
 		packId: text("pack_id"),
+		// UNIT: USD cents. The top-up amount. The webhook compares it with the Stripe amount_subtotal.
+		amountUsdCents: integer("amount_usd_cents"),
+		// UNIT: centi-credits. The webhook grants this value, never a value from Stripe metadata.
+		credits: integer("credits"),
 		providerSessionId: text("provider_session_id"),
 		status: billingCheckoutAttemptStatus("status").notNull().default("created"),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -491,6 +496,12 @@ export const billingCheckoutAttempts = pgTable(
 			table.userId,
 			table.purpose,
 			table.status,
+		),
+		// A top-up attempt never grants zero credits, and never has a charge with no credits.
+		// Each comparison has an IS NOT NULL guard: Postgres accepts a CHECK that gives NULL.
+		check(
+			"billing_checkout_attempts_topup_amount_ck",
+			sql`(${table.amountUsdCents} IS NULL AND ${table.credits} IS NULL) OR (${table.amountUsdCents} IS NOT NULL AND ${table.credits} IS NOT NULL AND ${table.amountUsdCents} > 0 AND ${table.credits} > 0)`,
 		),
 	],
 );
@@ -698,35 +709,96 @@ export const billingFinancialReconciliationOutbox = pgTable(
 );
 
 /**
- * Cash record for top-up purchases. Top-ups grant ledger credits but never
- * touched a revenue table, so refunds (which do land in
- * billing_payment_adjustments) were subtracted from a gross that never
- * included them. Idempotent on the checkout session id.
+ * Payment history of the wallet: one row for each top-up, for every provider (Stripe, SlickPay, offline).
+ * The grant of the credits writes it in the same transaction. Idempotent on `providerReference`.
+ * Revenue analytics read only the `stripe` rows, so DZD money never joins the USD cash total.
  */
 export const billingTopupReceipts = pgTable(
 	"billing_topup_receipts",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		sessionId: text("session_id").notNull(),
+		// Stripe Checkout Session id, `slickpay:{paymentId}`, or `offline:{idempotencyKey}`.
+		// The SQL column keeps its old name `session_id`.
+		providerReference: text("session_id").notNull(),
+		// Values `stripe`, `slickpay`, `offline` (topupReceiptProviders in packages/contracts).
+		// The default keeps the inserts of the old API instances valid during a deploy.
+		provider: text("provider").notNull().default("stripe"),
+		// The buyer. For an organization row, the acting billing manager. The lifecycle query reads it.
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "restrict",
 		}),
-		packId: text("pack_id").notNull(),
+		// Pricing v7 pack of an old Stripe receipt. NULL for a v8 top-up.
+		packId: text("pack_id"),
+		// UNIT: minor unit of `currency` (USD cents, DZD centimes). The money received.
 		amountCents: integer("amount_cents").notNull(),
+		// ISO 4217 code in lower case ("usd", "dzd").
 		currency: text("currency").notNull(),
+		// UNIT: USD cents. The USD value that set the credits. NULL for a receipt from before v8.
+		amountUsdCents: integer("amount_usd_cents"),
+		// UNIT: centi-credits, the unit of the ledger. The credits granted. NULL for a receipt from before v8.
+		credits: integer("credits"),
+		// How the customer paid an offline or SlickPay top-up. NULL for Stripe.
+		method: manualPaymentMethod("method"),
+		// Bank or transfer reference that the admin typed. Offline rows only.
+		reference: text("reference"),
+		// Admin note of an offline row.
+		note: text("note"),
+		// The admin who recorded an offline row. NULL for Stripe and SlickPay.
+		recordedByUserId: text("recorded_by_user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
+		// The offline request that this receipt approved.
+		requestId: uuid("request_id").references(
+			() => manualSubscriptionRequests.id,
+			{ onDelete: "restrict" },
+		),
 		chargeId: text("charge_id"),
 		paymentIntentId: text("payment_intent_id"),
 		paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+		// Set by the admin action "Reverse top-up" (SlickPay and offline rows only).
+		reversedAt: timestamp("reversed_at", { withTimezone: true }),
+		reversedByUserId: text("reversed_by_user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
 	},
 	(table) => [
-		uniqueIndex("billing_topup_receipts_sessionId_uq").on(table.sessionId),
+		// Keep this name. A new name makes drizzle-kit drop and create the unique index.
+		uniqueIndex("billing_topup_receipts_sessionId_uq").on(
+			table.providerReference,
+		),
 		index("billing_topup_receipts_paidAt_idx").on(table.paidAt),
+		// GET /billing/payments reads the last receipts of one pool, newest first.
+		index("billing_topup_receipts_userId_paidAt_idx").on(
+			table.userId,
+			table.paidAt,
+		),
+		index("billing_topup_receipts_organizationId_paidAt_idx")
+			.on(table.organizationId, table.paidAt)
+			.where(sql`${table.organizationId} is not null`),
+		check(
+			"billing_topup_receipts_provider_ck",
+			sql`${table.provider} IN ('stripe', 'slickpay', 'offline')`,
+		),
+		// A receipt never records a grant of zero or fewer credits.
+		check(
+			"billing_topup_receipts_credits_positive_ck",
+			sql`${table.credits} > 0`,
+		),
+		// "Reverse top-up" revokes the receipt credits. Only an old Stripe receipt can have no credits.
+		check(
+			"billing_topup_receipts_non_stripe_credits_ck",
+			sql`${table.provider} = 'stripe' OR ${table.credits} IS NOT NULL`,
+		),
+		check(
+			"billing_topup_receipts_amount_usd_cents_positive_ck",
+			sql`${table.amountUsdCents} > 0`,
+		),
 	],
 );
 
@@ -755,23 +827,29 @@ export const betaAccessEvents = pgTable(
 	],
 );
 
-/** Offline plan requests. The partial unique indexes allow one OPEN request per owner. */
+/**
+ * Offline requests. The partial unique indexes allow one OPEN request per owner.
+ * A pricing v8 request asks for a top-up amount. A request from before v8 asks for a plan.
+ */
 export const manualSubscriptionRequests = pgTable(
 	"manual_subscription_requests",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
 		// The requester / contact person. For org requests this is the acting
-		// billing owner; the pool the subscription will fund is organizationId.
+		// billing owner; the pool the top-up will fund is organizationId.
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "restrict",
 		}),
-		plan: billingPlan("plan").notNull(),
+		// The plan columns are NULL for a v8 request, never a placeholder, so old code fails closed.
+		plan: billingPlan("plan"),
 		// UNIT: whole display credits (tier identity) — same as subscriptions.
-		tierCredits: integer("tier_credits").notNull(),
-		interval: billingInterval("interval").notNull(),
+		tierCredits: integer("tier_credits"),
+		interval: billingInterval("interval"),
+		// UNIT: USD cents. The top-up amount the customer asks for. NULL for a request from before v8.
+		amountUsdCents: integer("amount_usd_cents"),
 		fullName: text("full_name").notNull(),
 		phone: text("phone").notNull(),
 		company: text("company"),
@@ -827,6 +905,11 @@ export const manualSubscriptionRequests = pgTable(
 		check(
 			"manual_subscription_requests_tier_credits_positive_ck",
 			sql`${table.tierCredits} > 0`,
+		),
+		// A request asks for a full plan (before v8) or for a positive top-up amount (v8).
+		check(
+			"manual_subscription_requests_plan_or_amount_ck",
+			sql`(${table.plan} IS NOT NULL AND ${table.tierCredits} IS NOT NULL AND ${table.interval} IS NOT NULL) OR (${table.amountUsdCents} IS NOT NULL AND ${table.amountUsdCents} > 0)`,
 		),
 	],
 );
@@ -885,9 +968,9 @@ export const manualSubscriptionPayments = pgTable(
 );
 
 /**
- * One SlickPay (CIB / Edahabia card) payment. One row buys one period of one plan.
- * The API inserts it at checkout and grants a provider = "manual" subscription when SlickPay says paid.
- * The Trigger.dev sweep refreshes the rows that are still open.
+ * One SlickPay (CIB / Edahabia card) payment. A pricing v8 row buys one wallet top-up.
+ * The API inserts it at checkout and grants top-up credits when SlickPay says paid.
+ * A row from before v8 bought one period of one plan. The Trigger.dev sweep refreshes the open rows.
  */
 export const slickpayPayments = pgTable(
 	"slickpay_payments",
@@ -901,10 +984,15 @@ export const slickpayPayments = pgTable(
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "restrict",
 		}),
-		plan: billingPlan("plan").notNull(),
+		// The plan columns are NULL for a v8 row, never a placeholder, so old code fails closed.
+		plan: billingPlan("plan"),
 		// UNIT: whole display credits (tier identity), same as subscriptions.
-		tierCredits: integer("tier_credits").notNull(),
-		interval: billingInterval("interval").notNull(),
+		tierCredits: integer("tier_credits"),
+		interval: billingInterval("interval"),
+		// UNIT: USD cents. The top-up amount. NULL for a row from before v8.
+		amountUsdCents: integer("amount_usd_cents"),
+		// UNIT: centi-credits. Set at checkout; the fulfil step grants this value. NULL for a row from before v8.
+		credits: integer("credits"),
 		// UNIT: whole DZD. The SlickPay invoice charges this exact amount.
 		amountDzd: integer("amount_dzd").notNull(),
 		// UNIT: centi-DZD per 1 USD (27000 = 270.00). Copy of product_settings at checkout.
@@ -945,6 +1033,16 @@ export const slickpayPayments = pgTable(
 		check(
 			"slickpay_payments_amount_dzd_positive_ck",
 			sql`${table.amountDzd} > 0`,
+		),
+		// A v8 row sets both amounts above zero, so it can never fulfil with zero credits.
+		check(
+			"slickpay_payments_topup_amount_ck",
+			sql`(${table.amountUsdCents} IS NULL AND ${table.credits} IS NULL) OR (${table.amountUsdCents} IS NOT NULL AND ${table.credits} IS NOT NULL AND ${table.amountUsdCents} > 0 AND ${table.credits} > 0)`,
+		),
+		// A row buys a full plan (before v8) or a top-up (v8).
+		check(
+			"slickpay_payments_plan_or_topup_ck",
+			sql`(${table.plan} IS NOT NULL AND ${table.tierCredits} IS NOT NULL AND ${table.interval} IS NOT NULL) OR ${table.credits} IS NOT NULL`,
 		),
 	],
 );

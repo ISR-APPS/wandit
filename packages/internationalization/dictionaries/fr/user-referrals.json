@@ -44,7 +44,7 @@
 			"body": "Dès {min} utilisés, tu reçois {activation}."
 		},
 		"subscribe": {
-			"title": "Ton ami s'abonne",
+			"title": "Ton ami fait un premier paiement",
 			"body": "{days} après son premier paiement, tu reçois {paid}."
 		}
 	},
@@ -52,7 +52,7 @@
 		"title": "Tes chiffres",
 		"joined": "Amis inscrits",
 		"activated": "Amis actifs",
-		"subscribed": "Amis abonnés",
+		"subscribed": "Amis qui ont payé",
 		"earned": "Crédits gagnés",
 		"pending": "{pending} en route"
 	},
@@ -66,12 +66,12 @@
 		"status": {
 			"joined": "Inscrit",
 			"activated": "Actif",
-			"subscribed": "Abonné"
+			"subscribed": "Payé"
 		},
 		"earned": "Gagné : {credits}",
 		"hints": {
 			"activation": "{activation} dès {min} utilisés",
-			"paid": "{paid} si ton ami s'abonne",
+			"paid": "{paid} à son premier paiement",
 			"paidPending": "En route : {pending}, {days} après son premier paiement"
 		},
 		"empty": {

@@ -98,6 +98,8 @@ export * from "./v1/story-links";
 export * from "./v1/support";
 // Audio transcription contract.
 export * from "./v1/transcriptions";
+// Trophy catalog, levels, and routes. A trophy gives points only.
+export * from "./v1/trophies";
 // User referral program contracts: the invite code, the summary, and the claim.
 export * from "./v1/user-referrals";
 // Workspace (organization) contracts.

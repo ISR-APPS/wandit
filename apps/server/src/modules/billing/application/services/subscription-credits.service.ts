@@ -1,15 +1,17 @@
 /**
- * Grants plan and top-up credits from paid Stripe invoices and checkout sessions,
- * and expires plan credits when a subscription is deleted.
+ * Grants plan and top-up credits from paid Stripe invoices and checkout sessions.
+ * Pricing v8: it writes no `expire` row, and a subscription deletion changes no credit.
  * StripeEventRouter calls it for Stripe webhooks. The Trigger.dev billing maintenance task
  * replays failed webhook events through the same router.
  * It writes credit_ledger and billing_invoice_applications through CreditsService and repositories.
  */
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
+	creditsToCentiCredits,
 	type ParsedPriceLookupKey,
 	PERSISTED_TOPUP_PACKS,
+	type PersistedTopupPackId,
 	parsePriceLookupKey,
 	persistedTopupPackIdSchema,
 	priceLookupKey,
@@ -29,7 +31,10 @@ import {
 import type { CreditsTransaction } from "../../../credits/infrastructure/persistence/credits.repository";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
-import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import {
+	type BillingCheckoutAttemptRow,
+	BillingCheckoutAttemptsRepository,
+} from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import { FinancialReconciliationOutboxRepository } from "../../infrastructure/persistence/financial-reconciliation-outbox.repository";
@@ -79,10 +84,18 @@ type InvoiceGrantOutcome = {
 
 const NO_SLOT_CHARGES: string[] = [];
 
+/** Result of the money checks of a paid top-up session: what the grant and the receipt write. */
+type TopupGrant = {
+	/** UNIT: USD cents. The USD value that set the credits. */
+	amountUsdCents: number;
+	/** UNIT: centi-credits. The ledger delta of the grant. */
+	centiCredits: number;
+	/** Pricing v7 pack of an old session. Null for a v8 amount top-up. */
+	packId: PersistedTopupPackId | null;
+};
+
 @Injectable()
 export class SubscriptionCreditsService {
-	private readonly logger = new Logger(SubscriptionCreditsService.name);
-
 	constructor(
 		@Inject(BillingCustomersRepository)
 		private readonly billingCustomersRepository: BillingCustomersRepository,
@@ -199,47 +212,16 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		const metadataPackId = this.requiredMetadata(session.metadata, "packId");
-		const parsedPackId = persistedTopupPackIdSchema.safeParse(metadataPackId);
-
-		if (!parsedPackId.success) {
-			throw new Error(
-				`Stripe checkout session ${session.id} has unknown top-up pack ${metadataPackId}`,
-			);
-		}
-
-		const packId = parsedPackId.data;
-
-		if (attempt.packId !== packId) {
-			throw new Error(
-				`Stripe checkout session ${session.id} pack ${packId} does not match checkout attempt ${attempt.id}`,
-			);
-		}
-
-		const pack = PERSISTED_TOPUP_PACKS[packId];
-		// Stripe session metadata carries WHOLE display credits (pack identity);
-		// the metadata check therefore compares whole credits.
-		const credits = this.positiveIntegerMetadata(session.metadata, "credits");
-
-		if (credits !== pack.credits) {
-			throw new Error(
-				`Stripe checkout session ${session.id} credits ${credits} do not match top-up pack ${packId}`,
-			);
-		}
-
-		const expectedAmountTotal = Math.round(pack.usd * 100);
-
-		if (session.amount_total !== expectedAmountTotal) {
-			throw new Error(
-				`Stripe checkout session ${session.id} amount_total does not match top-up pack ${packId}`,
-			);
-		}
-
-		if (session.currency?.toLowerCase() !== "usd") {
-			throw new Error(
-				`Stripe checkout session ${session.id} currency does not match top-up pack ${packId}`,
-			);
-		}
+		// A v8 attempt stores its amount. An attempt with no amount comes from a pricing v7
+		// pack session that was open at the deploy: the old pack checks keep it payable.
+		const grant =
+			attempt.amountUsdCents !== null && attempt.credits !== null
+				? this.verifyAmountTopup(session, {
+						amountUsdCents: attempt.amountUsdCents,
+						centiCredits: attempt.credits,
+						id: attempt.id,
+					})
+				: this.verifyPackTopup(session, attempt);
 
 		// Owner resolution: org top-ups carry organizationId in the session
 		// metadata AND on the attempt; both must agree, and the Stripe customer
@@ -291,19 +273,21 @@ export class SubscriptionCreditsService {
 			session.payment_intent,
 		);
 
-		// The ledger takes centi-credits: convert the whole-credit pack amount
-		// exactly once at this grant boundary.
 		await this.subscriptionCreditsRepository.withOwnerLock(
 			owner,
 			async (tx) => {
+				// grant.centiCredits is already in the ledger unit. Do not multiply it.
 				await this.creditsService.topup(
 					owner,
-					credits * 100,
+					grant.centiCredits,
 					{
 						idempotencyKey: `topup:${session.id}`,
 						meta: this.withPaymentReferences(
 							{
-								packId,
+								// A v7 pack grant keeps its old meta. A v8 grant names its USD amount.
+								...(grant.packId
+									? { packId: grant.packId }
+									: { amountUsdCents: grant.amountUsdCents }),
 								reason: "topup_purchase",
 								sessionId: session.id,
 							},
@@ -315,14 +299,17 @@ export class SubscriptionCreditsService {
 
 				await this.topupReceiptsRepository.insertIfAbsent(
 					{
-						amountCents: session.amount_total ?? expectedAmountTotal,
+						amountCents: session.amount_total ?? grant.amountUsdCents,
+						amountUsdCents: grant.amountUsdCents,
 						chargeId: paymentReferences.chargeId,
+						credits: grant.centiCredits,
 						currency: session.currency?.toLowerCase() ?? "usd",
 						organizationId: metadataOrganizationId,
-						packId,
+						packId: grant.packId,
 						paidAt: this.checkoutSessionPaidAt(session),
 						paymentIntentId: paymentReferences.paymentIntentId,
-						sessionId: session.id,
+						provider: "stripe",
+						providerReference: session.id,
 						userId,
 					},
 					tx,
@@ -373,82 +360,100 @@ export class SubscriptionCreditsService {
 		await this.reconcileFinancialAdjustments(paymentReferences);
 	}
 
-	async expireForDeletedSubscription(
-		subscription: Stripe.Subscription,
-	): Promise<void> {
-		/*
-		 * The local mirror owns the credit bucket. Never trust webhook metadata
-		 * enough to choose which user's advisory lock or balance to mutate.
-		 */
-		const tracked =
-			await this.subscriptionsRepository.findByProviderSubscriptionId(
-				subscription.id,
+	/**
+	 * Money checks of a pricing v8 top-up session. The credits come from the attempt row only.
+	 * Throws on a mismatch, so the webhook stays failed and grants nothing.
+	 */
+	private verifyAmountTopup(
+		session: Stripe.Checkout.Session,
+		attempt: {
+			/** UNIT: USD cents, from `billing_checkout_attempts.amount_usd_cents`. */
+			amountUsdCents: number;
+			/** UNIT: centi-credits, from `billing_checkout_attempts.credits`. */
+			centiCredits: number;
+			id: string;
+		},
+	): TopupGrant {
+		if (session.currency?.toLowerCase() !== "usd") {
+			throw new Error(
+				`Stripe checkout session ${session.id} currency is not usd for checkout attempt ${attempt.id}`,
 			);
-
-		if (!tracked) {
-			this.logger.warn(
-				`Skipping terminal credit expiry for untracked subscription ${subscription.id}`,
-			);
-
-			return;
 		}
 
-		await this.assertSubscriptionOwnership(subscription, tracked);
-		// The OWNER pool expires — org subscriptions expire the org pool, and
-		// "another entitled subscription" only counts within the SAME owner
-		// (an org sub must never keep a deleted personal sub's credits alive,
-		// or vice versa — confirmed review critical).
-		const owner = ownerFromIds(tracked.userId, tracked.organizationId);
+		// The subtotal is the price before discounts and taxes, so tax cannot break this check.
+		if (session.amount_subtotal !== attempt.amountUsdCents) {
+			throw new Error(
+				`Stripe checkout session ${session.id} amount_subtotal does not match checkout attempt ${attempt.id}`,
+			);
+		}
 
-		await this.subscriptionCreditsRepository.withOwnerLock(
-			owner,
-			async (tx) => {
-				const deleted =
-					await this.subscriptionCreditsRepository.findSubscriptionByProviderId(
-						subscription.id,
-						tx,
-					);
+		// A discount keeps the subtotal but lowers the money paid. Full credits need the full price.
+		if ((session.total_details?.amount_discount ?? 0) !== 0) {
+			throw new Error(
+				`Stripe checkout session ${session.id} has a discount, which a top-up does not allow`,
+			);
+		}
 
-				if (!deleted) {
-					this.logger.warn(
-						`Skipping terminal credit expiry for untracked subscription ${subscription.id}`,
-					);
+		return {
+			amountUsdCents: attempt.amountUsdCents,
+			centiCredits: attempt.centiCredits,
+			packId: null,
+		};
+	}
 
-					return;
-				}
+	/** Money checks of a pricing v7 pack session: the pack of the attempt sets the price and the credits. */
+	private verifyPackTopup(
+		session: Stripe.Checkout.Session,
+		attempt: BillingCheckoutAttemptRow,
+	): TopupGrant {
+		const metadataPackId = this.requiredMetadata(session.metadata, "packId");
+		const parsedPackId = persistedTopupPackIdSchema.safeParse(metadataPackId);
 
-				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
-					deleted.id,
-					{ reason: "ownership" },
-					tx,
-				);
-				const anotherEntitled =
-					await this.subscriptionCreditsRepository.findCanonicalEntitledByOwner(
-						owner,
-						tx,
-					);
+		if (!parsedPackId.success) {
+			throw new Error(
+				`Stripe checkout session ${session.id} has unknown top-up pack ${metadataPackId}`,
+			);
+		}
 
-				if (anotherEntitled) {
-					this.logger.warn(
-						`Keeping plan credits after deletion of ${subscription.id}; entitled mirror ${anotherEntitled.providerSubscriptionId} remains`,
-					);
+		const packId = parsedPackId.data;
 
-					return;
-				}
+		if (attempt.packId !== packId) {
+			throw new Error(
+				`Stripe checkout session ${session.id} pack ${packId} does not match checkout attempt ${attempt.id}`,
+			);
+		}
 
-				await this.creditsService.expirePlanRemainder(
-					owner,
-					{
-						idempotencyKey: `subdel:${subscription.id}`,
-						meta: {
-							providerSubscriptionId: subscription.id,
-							reason: "subscription_ended",
-						},
-					},
-					tx,
-				);
-			},
-		);
+		const pack = PERSISTED_TOPUP_PACKS[packId];
+		// Stripe session metadata carries WHOLE display credits (pack identity);
+		// the metadata check therefore compares whole credits.
+		const credits = this.positiveIntegerMetadata(session.metadata, "credits");
+
+		if (credits !== pack.credits) {
+			throw new Error(
+				`Stripe checkout session ${session.id} credits ${credits} do not match top-up pack ${packId}`,
+			);
+		}
+
+		// Whole USD to USD cents.
+		const expectedAmountTotal = Math.round(pack.usd * 100);
+
+		if (session.amount_total !== expectedAmountTotal) {
+			throw new Error(
+				`Stripe checkout session ${session.id} amount_total does not match top-up pack ${packId}`,
+			);
+		}
+
+		if (session.currency?.toLowerCase() !== "usd") {
+			throw new Error(
+				`Stripe checkout session ${session.id} currency does not match top-up pack ${packId}`,
+			);
+		}
+
+		return {
+			amountUsdCents: expectedAmountTotal,
+			centiCredits: creditsToCentiCredits(pack.credits),
+			packId,
+		};
 	}
 
 	async grantForPaidInvoice(eventInvoice: Stripe.Invoice): Promise<boolean> {
@@ -502,26 +507,39 @@ export class SubscriptionCreditsService {
 		const applied = await this.subscriptionCreditsRepository.withOwnerLock(
 			owner,
 			async (tx) => {
-				const canonical =
-					await this.subscriptionCreditsRepository.findCanonicalEntitledByOwner(
-						owner,
-						tx,
-					);
-
-				if (
-					!canonical ||
-					canonical.providerSubscriptionId !== providerSubscriptionId
-				) {
-					throw new Error(
-						`Stripe invoice ${invoice.id} cannot resolve subscription ${providerSubscriptionId} as the canonical entitled mirror for owner ${creditOwnerKey(owner)}`,
-					);
-				}
-
+				// The journal row is the replay marker of the invoice. One row per
+				// invoice id plus the key `inv:{invoiceId}:grant` give one grant only.
 				const existing =
 					await this.subscriptionCreditsRepository.findInvoiceApplication(
 						invoice.id,
 						tx,
 					);
+				// Pricing v8 (I4): a paid invoice grants also when the mirror is
+				// `canceled`, for example a past_due invoice paid after the cutover.
+				const canonical =
+					await this.subscriptionCreditsRepository.findSubscriptionByProviderId(
+						providerSubscriptionId,
+						tx,
+					);
+
+				if (!canonical) {
+					throw new Error(
+						`Stripe invoice ${invoice.id} has no local subscription row for ${providerSubscriptionId}`,
+					);
+				}
+
+				// Security: the lock and the grant use the owner of the Stripe customer.
+				// The row must belong to that same pool, or another pool gets the credits.
+				if (
+					!sameCreditOwner(
+						ownerFromIds(canonical.userId, canonical.organizationId),
+						owner,
+					)
+				) {
+					throw new Error(
+						`Stripe invoice ${invoice.id} subscription ${providerSubscriptionId} does not belong to owner ${creditOwnerKey(owner)}`,
+					);
+				}
 
 				if (existing) {
 					this.assertInvoiceApplicationReplay(existing, {
@@ -585,34 +603,6 @@ export class SubscriptionCreditsService {
 					stripeInvoiceId: invoice.id,
 					subscriptionId: canonical.id,
 				};
-
-				if (
-					billingReason === "subscription_cycle" ||
-					billingReason === "subscription_create"
-				) {
-					// A successfully fulfilled renewal is the credit boundary. A late
-					// original invoice must not restore Pro credits after Starter has
-					// already refilled and capped the balance. A newer mirror alone
-					// is insufficient: its renewal payment may still be unfulfilled.
-					const newerCycle =
-						await this.subscriptionCreditsRepository.findCycleAtOrAfter(
-							canonical.id,
-							period.end,
-							tx,
-						);
-
-					if (newerCycle) {
-						await this.subscriptionCreditsRepository.insertInvoiceApplication(
-							{ ...applicationBase, creditsDelta: 0 },
-							tx,
-						);
-						this.logger.warn(
-							`Skipping stale ${billingReason} invoice ${invoice.id}; ${newerCycle.stripeInvoiceId} already covers period ending ${newerCycle.periodEnd.toISOString()}`,
-						);
-
-						return false;
-					}
-				}
 
 				const policySubscription =
 					billingReason === "subscription_update"
@@ -929,10 +919,13 @@ export class SubscriptionCreditsService {
 			}
 		}
 
-		const refill = await this.creditsService.applyCappedRefill(
+		// Pricing v8 (I1): a plain grant of one allotment. The rollover cap and
+		// its `expire` row are gone. A replay of an old capped-refill row passes.
+		await this.creditsService.grant(
 			ownerFromIds(subscription.userId, subscription.organizationId),
 			this.allotment(currentPlan),
 			{
+				bucket: "plan",
 				idempotencyKey: `inv:${invoice.id}:grant`,
 				meta: this.withPaymentReferences(
 					{
@@ -964,10 +957,9 @@ export class SubscriptionCreditsService {
 			}
 		}
 
-		// Both terms are centi-credits (allotment converts; expiredCredits is
-		// ledger-native), so the stored creditsDelta stays in one unit.
+		// creditsDelta is in centi-credits, the unit of allotment().
 		return {
-			creditsDelta: this.allotment(currentPlan) - refill.expiredCredits,
+			creditsDelta: this.allotment(currentPlan),
 			slotFundingChargeIds: [...slotFundingChargeIds],
 		};
 	}
@@ -1067,12 +1059,13 @@ export class SubscriptionCreditsService {
 		}
 
 		// Anchor reset (Ruling 7) or interval change: the customer paid the full
-		// new price now, so the old plan's remainder expires above one allotment
-		// and the full new allotment is granted — exactly what the preview quoted.
-		const refill = await this.creditsService.applyCappedRefill(
+		// new price now, so the full new allotment is granted. Pricing v8 (I1):
+		// the old plan remainder stays in the wallet; no `expire` row.
+		await this.creditsService.grant(
 			ownerFromIds(subscription.userId, subscription.organizationId),
 			this.allotment(currentPlan),
 			{
+				bucket: "plan",
 				idempotencyKey: `inv:${invoice.id}:grant`,
 				meta: this.withPaymentReferences(
 					{
@@ -1109,68 +1102,9 @@ export class SubscriptionCreditsService {
 		}
 
 		return {
-			creditsDelta: this.allotment(currentPlan) - refill.expiredCredits,
+			creditsDelta: this.allotment(currentPlan),
 			slotFundingChargeIds: [...slotFundingChargeIds],
 		};
-	}
-
-	private async assertSubscriptionOwnership(
-		subscription: Stripe.Subscription,
-		tracked: { organizationId: string | null; userId: string },
-	): Promise<void> {
-		// OWNER identity, never actor identity: an org subscription's metadata
-		// userId is the purchasing admin, which may legitimately differ from the
-		// mirror's provenance userId (confirmed review finding). The pool —
-		// organizationId, or the user for personal — is what must match.
-		const trackedOwner = ownerFromIds(tracked.userId, tracked.organizationId);
-		const metadataOrganizationId = subscription.metadata.organizationId;
-		const metadataUserId = subscription.metadata.userId;
-		const metadataOwner = metadataOrganizationId
-			? orgOwner(metadataOrganizationId)
-			: metadataUserId
-				? userOwner(metadataUserId)
-				: null;
-
-		if (metadataOwner && !sameCreditOwner(metadataOwner, trackedOwner)) {
-			throw new Error(
-				`Stripe subscription ${subscription.id} metadata owner does not match its local mirror`,
-			);
-		}
-
-		const customerId = this.expandableId(subscription.customer);
-
-		if (!customerId) {
-			return;
-		}
-
-		if (trackedOwner.type === "org") {
-			const orgCustomer =
-				await this.organizationBillingCustomersRepository.findByProviderCustomerId(
-					customerId,
-				);
-
-			if (
-				orgCustomer &&
-				orgCustomer.organizationId !== trackedOwner.organizationId
-			) {
-				throw new Error(
-					`Stripe subscription ${subscription.id} customer owner does not match its local mirror`,
-				);
-			}
-
-			return;
-		}
-
-		const customer =
-			await this.billingCustomersRepository.findByProviderCustomerId(
-				customerId,
-			);
-
-		if (customer && customer.userId !== tracked.userId) {
-			throw new Error(
-				`Stripe subscription ${subscription.id} customer owner does not match its local mirror`,
-			);
-		}
 	}
 
 	private async requiredOwnerForInvoice(
@@ -1196,9 +1130,8 @@ export class SubscriptionCreditsService {
 	 * Every rung that resolves must agree on the owner. A disagreement means
 	 * our own records contradict each other about which pool this money
 	 * belongs to — dead-letter (throw) instead of silently granting the
-	 * highest-precedence answer, same posture as assertSubscriptionOwnership.
-	 * Like there, this compares OWNER identity (the pool), never the
-	 * purchasing actor.
+	 * highest-precedence answer. This compares OWNER identity (the pool),
+	 * never the purchasing actor.
 	 */
 	private async ownerForInvoice(
 		invoice: Stripe.Invoice,

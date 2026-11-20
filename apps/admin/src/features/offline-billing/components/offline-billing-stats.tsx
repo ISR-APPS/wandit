@@ -3,12 +3,7 @@
  * Reads the stats query and formats recorded payment amounts.
  */
 import type { LucideIcon } from "lucide-react";
-import {
-	CalendarClockIcon,
-	ClipboardListIcon,
-	ReceiptTextIcon,
-	WalletCardsIcon,
-} from "lucide-react";
+import { ClipboardListIcon, WalletCardsIcon } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,18 +12,17 @@ import { useManualBillingStatsQuery } from "@/features/offline-billing/api/offli
 import { formatManualPaymentAmount } from "@/features/offline-billing/lib/offline-billing";
 
 /**
- * Header aggregates for the Offline billing page. Offline money stays out of
- * the USD MRR analytics on purpose (negotiated local prices), so this strip is
- * where the offline numbers live: pipeline, active base, and real collected
- * cash per currency.
+ * Header aggregates for the Offline billing page: open requests and the money collected per currency.
+ * Offline and SlickPay money stays out of the USD analytics, so this strip is where it shows.
+ * The subscription counters of the API go to zero after the cutover, so the page does not show them.
  */
 export function OfflineBillingStats() {
 	const statsQuery = useManualBillingStatsQuery();
 
 	if (statsQuery.isPending) {
 		return (
-			<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-hidden>
-				{Array.from({ length: 4 }, (_, index) => (
+			<div className="grid gap-3 sm:grid-cols-2" aria-hidden>
+				{Array.from({ length: 2 }, (_, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton tiles
 					<Skeleton key={index} className="h-24 rounded-xl" />
 				))}
@@ -45,25 +39,12 @@ export function OfflineBillingStats() {
 	}
 
 	return (
-		<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-			<StatTile
-				icon={ReceiptTextIcon}
-				label="Active subscriptions"
-				value={stats.activeSubscriptions.toLocaleString("en-US")}
-				description="Manual subscriptions with current access."
-			/>
+		<div className="grid gap-3 sm:grid-cols-2">
 			<StatTile
 				icon={ClipboardListIcon}
 				label="Open requests"
 				value={stats.openRequests.toLocaleString("en-US")}
 				description="Not yet approved, rejected, or canceled."
-			/>
-			<StatTile
-				icon={CalendarClockIcon}
-				label="Expiring in 7 days"
-				value={stats.expiringWithin7Days.toLocaleString("en-US")}
-				description={`Call these customers to renew before the cron ends them.${stats.inGrace > 0 ? ` ${stats.inGrace} in grace period.` : ""}`}
-				highlight={stats.expiringWithin7Days > 0}
 			/>
 			<CollectedTile
 				collectedThisMonth={stats.collectedThisMonth}
@@ -78,13 +59,11 @@ function StatTile({
 	label,
 	value,
 	description,
-	highlight = false,
 }: {
 	icon: LucideIcon;
 	label: string;
 	value: string;
 	description: string;
-	highlight?: boolean;
 }) {
 	return (
 		<Card className="shadow-none">
@@ -93,15 +72,7 @@ function StatTile({
 					<Icon className="size-4" aria-hidden="true" />
 					<span className="text-xs uppercase tracking-[0.12em]">{label}</span>
 				</div>
-				<p
-					className={
-						highlight
-							? "font-mono font-semibold text-2xl text-amber-700 tabular-nums dark:text-amber-400"
-							: "font-mono font-semibold text-2xl tabular-nums"
-					}
-				>
-					{value}
-				</p>
+				<p className="font-mono font-semibold text-2xl tabular-nums">{value}</p>
 				<p className="text-muted-foreground text-xs">{description}</p>
 			</CardContent>
 		</Card>
@@ -164,7 +135,7 @@ function previousMonthSummary(
 	]);
 
 	if (currencies.size === 0) {
-		return "Recorded payments (grants + renewals), UTC month.";
+		return "Offline and SlickPay payments, UTC month.";
 	}
 
 	const parts = [...currencies]

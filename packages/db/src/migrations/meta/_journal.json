@@ -708,6 +708,20 @@
       "when": 1795111403118,
       "tag": "0100_web-fetch-site-capture",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795128897762,
+      "tag": "0101_pay-as-you-go-topups",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795132290009,
+      "tag": "0102_user-trophies",
+      "breakpoints": true
     }
   ]
 }

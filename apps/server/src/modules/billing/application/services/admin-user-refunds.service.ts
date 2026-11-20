@@ -1,8 +1,8 @@
 /**
  * Refunds the last paid Stripe plan payment of a user and ends that Stripe subscription now.
- * AdminUserRefundsController calls it for the admin "Refund last payment" action.
- * Reads invoice rows through Drizzle repositories. Calls Stripe through StripeProvider.
- * It never writes credits: the charge.refunded and customer.subscription.deleted webhooks do that.
+ * AdminUserRefundsController calls it for the admin "Refund last plan payment" action.
+ * Reads invoice and receipt rows through Drizzle repositories. Calls Stripe through StripeProvider.
+ * It never writes credits: the charge.refunded webhook revokes the credits of the refunded charge.
  */
 import {
 	BadGatewayException,
@@ -21,6 +21,7 @@ import type {
 import Stripe from "stripe";
 
 import type { CreateRefundParams } from "../../domain/ports/payment-provider.port";
+import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import {
 	type InvoiceApplicationRow,
 	SubscriptionCreditsRepository,
@@ -80,7 +81,7 @@ class RefundInStripeDashboardError extends ConflictException {
 	}
 }
 
-/** Needs billing:manage (see the controller). Writes no credits: the Stripe webhooks do that. */
+/** Needs billing:manage (see the controller). Writes no credits: the charge.refunded webhook does that. */
 @Injectable()
 export class AdminUserRefundsService {
 	private readonly logger = new Logger(AdminUserRefundsService.name);
@@ -92,9 +93,11 @@ export class AdminUserRefundsService {
 			"findInvoiceApplication" | "findLatestPaidPersonalStripeInvoice"
 		>,
 		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: Pick<
-			SubscriptionsRepository,
-			"findActiveByOwnerAndProvider" | "findById"
+		private readonly subscriptions: Pick<SubscriptionsRepository, "findById">,
+		@Inject(BillingTopupReceiptsRepository)
+		private readonly receipts: Pick<
+			BillingTopupReceiptsRepository,
+			"findLatestPersonalOfflinePaidAt"
 		>,
 		@Inject(StripeProvider)
 		private readonly stripe: AdminRefundStripeClient,
@@ -102,17 +105,20 @@ export class AdminUserRefundsService {
 
 	/** Reads what a refund would do. It writes nothing. */
 	async preview(userId: string): Promise<AdminUserRefundPreview> {
-		const [latest, offlineSubscription] = await Promise.all([
+		const [latest, offlinePaidAt] = await Promise.all([
 			this.invoices.findLatestPaidPersonalStripeInvoice(userId),
-			this.subscriptions.findActiveByOwnerAndProvider(
-				{ type: "user", userId },
-				"manual",
-			),
+			this.receipts.findLatestPersonalOfflinePaidAt(userId),
 		]);
-		const paidOffline = offlineSubscription !== null;
+		// Old invoice rows have no paid_at. The apply time is close to the payment time.
+		const stripePaidAt = latest
+			? (latest.invoice.paidAt ?? latest.invoice.appliedAt)
+			: null;
+		const paidOffline =
+			offlinePaidAt !== null &&
+			(stripePaidAt === null || offlinePaidAt > stripePaidAt);
 
-		// Product rule: a user on a live SlickPay or offline plan gets only the refund instruction.
-		// One live plan per user, so a Stripe payment of this user is for an older period.
+		// Product rule: when the newest payment is a SlickPay or offline top-up, the admin
+		// gets only the refund instruction. The Stripe plan payment is an older payment.
 		if (!latest || paidOffline) {
 			return { paidOffline, payment: null };
 		}

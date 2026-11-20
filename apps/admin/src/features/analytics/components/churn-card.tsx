@@ -1,3 +1,7 @@
+/**
+ * Card "Churn and MRR movement": customer churn, MRR churn, plan changes, and LTV.
+ * RevenueAnalyticsPage renders it. After pricing v8 it shows history only.
+ */
 import type { AdminAnalyticsChurn } from "@wandit/contracts";
 import { DatabaseIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -56,7 +60,8 @@ function ChurnCard({ churn }: ChurnCardProps) {
 							<h2>Churn and MRR movement</h2>
 						</CardTitle>
 						<CardDescription className="mt-1">
-							Subscription lifecycle changes in the selected range
+							History (plans ended). Subscription lifecycle changes in the
+							selected range
 						</CardDescription>
 					</div>
 					<Badge variant="outline" className="shrink-0 bg-muted/30">

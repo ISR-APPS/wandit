@@ -1,3 +1,7 @@
+/**
+ * Metric tiles of the dashboard overview: revenue, old MRR, tokens, and totals.
+ * OverviewPage renders it with the snapshot of the overview stats query.
+ */
 import type { LucideIcon } from "lucide-react";
 import {
 	CircleDollarSignIcon,
@@ -88,7 +92,7 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "revenue",
 			label: "Gross revenue",
 			tooltip:
-				"Money actually received. Subscription payments recorded since June 2026 (migration 0029); older payments are not included.",
+				"Money actually received in USD by Stripe: card top-ups, domain orders, and plan payments recorded since June 2026 (migration 0029). Offline and SlickPay money is on the Offline billing page.",
 			value: formatOverviewRoundedUsdMinor(revenue.totalUsdMinor),
 			description: "Collected · USD",
 			changePercent: revenue.changePercent,
@@ -98,9 +102,9 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "mrr",
 			label: "MRR",
 			tooltip:
-				"Monthly recurring revenue at list price. Yearly plans are counted as their price divided by 12. Discounts are not subtracted.",
+				"History (plans ended): monthly recurring revenue of the subscriptions that are still live, at list price. Pay as you go has no recurring revenue, so this number goes to zero after the cutover.",
 			value: formatOverviewRoundedUsdMinor(snapshot.mrrMinor),
-			description: "Live subs · list price",
+			description: "History (plans ended)",
 			icon: CircleDollarSignIcon,
 		},
 		{

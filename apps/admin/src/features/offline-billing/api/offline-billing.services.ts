@@ -1,9 +1,13 @@
+/**
+ * HTTP calls of the offline billing feature: requests, top-up receipts, old manual subscriptions, stats.
+ * Called by the query and mutation hooks. Calls the admin API through the api-client.
+ */
 import {
-	adminEndManualSubscriptionInputSchema,
-	adminGrantManualSubscriptionInputSchema,
 	adminListManualRequestsQuerySchema,
 	adminListManualSubscriptionsQuerySchema,
-	adminRenewManualSubscriptionInputSchema,
+	adminListTopupReceiptsQuerySchema,
+	adminRecordTopupInputSchema,
+	adminReverseTopupInputSchema,
 	adminRoutes,
 	adminUpdateManualRequestBodySchema,
 } from "@wandit/contracts";
@@ -11,23 +15,26 @@ import {
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 
 import {
-	type AdminGrantManualSubscriptionInput,
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsResponse,
+	type AdminListTopupReceiptsResponse,
 	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualRequest,
 	type AdminManualSubscriptionDetail,
-	type EndManualSubscriptionInput,
+	type AdminRecordTopupInput,
+	type AdminTopupReceipt,
 	type ListManualRequestsParams,
 	type ListManualSubscriptionsParams,
+	type ListTopupReceiptsParams,
 	mapManualBillingReceiptConfigDto,
 	mapManualBillingStatsDto,
 	mapManualRequestDto,
 	mapManualRequestsDto,
 	mapManualSubscriptionDetailDto,
 	mapManualSubscriptionsDto,
-	type RenewManualSubscriptionInput,
+	mapTopupReceiptDto,
+	mapTopupReceiptsDto,
 	type UpdateManualRequestInput,
 } from "./offline-billing.dto";
 
@@ -79,37 +86,38 @@ export async function getManualSubscription(
 	return mapManualSubscriptionDetailDto(payload);
 }
 
-export async function grantManualSubscription(
-	input: AdminGrantManualSubscriptionInput,
-): Promise<AdminManualSubscriptionDetail> {
-	const body = adminGrantManualSubscriptionInputSchema.parse(input);
-	const payload = await apiPost<unknown>(adminRoutes.manualSubscriptions, body);
-
-	return mapManualSubscriptionDetailDto(payload);
-}
-
-export async function renewManualSubscription({
-	subscriptionId,
-	body,
-}: RenewManualSubscriptionInput): Promise<AdminManualSubscriptionDetail> {
+/** "Record top-up". A retry with the same idempotency key returns the first receipt. */
+export async function recordTopup(
+	input: AdminRecordTopupInput,
+): Promise<AdminTopupReceipt> {
 	const payload = await apiPost<unknown>(
-		adminRoutes.manualSubscriptionRenew(subscriptionId),
-		adminRenewManualSubscriptionInputSchema.parse(body),
+		adminRoutes.topupReceipts,
+		adminRecordTopupInputSchema.parse(input),
 	);
 
-	return mapManualSubscriptionDetailDto(payload);
+	return mapTopupReceiptDto(payload);
 }
 
-export async function endManualSubscription({
-	subscriptionId,
-	body,
-}: EndManualSubscriptionInput): Promise<AdminManualSubscriptionDetail> {
+/** "Reverse top-up" of one SlickPay or offline receipt. The API takes back its credits. */
+export async function reverseTopup(
+	receiptId: string,
+): Promise<AdminTopupReceipt> {
 	const payload = await apiPost<unknown>(
-		adminRoutes.manualSubscriptionEnd(subscriptionId),
-		adminEndManualSubscriptionInputSchema.parse(body),
+		adminRoutes.topupReceiptReverse,
+		adminReverseTopupInputSchema.parse({ receiptId }),
 	);
 
-	return mapManualSubscriptionDetailDto(payload);
+	return mapTopupReceiptDto(payload);
+}
+
+/** GET the admin top-up receipts. Parses the query and the response with the contract schemas. */
+export async function listTopupReceipts(
+	params: ListTopupReceiptsParams,
+): Promise<AdminListTopupReceiptsResponse> {
+	const query = adminListTopupReceiptsQuerySchema.parse(params);
+	const payload = await apiGet<unknown>(adminRoutes.topupReceipts, query);
+
+	return mapTopupReceiptsDto(payload);
 }
 
 export async function getManualBillingStats(): Promise<AdminManualBillingStats> {

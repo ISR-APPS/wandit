@@ -1,7 +1,7 @@
 /**
  * Turns billing refusals (402 credits, 403 member limit) into one intent for the billing modal.
  * Callers: api error handlers and the builder chat, through dispatchBillingError.
- * billing-modal-provider.tsx subscribes and opens the plan picker or a notice.
+ * billing-modal-provider.tsx subscribes and opens the top-up dialog or a notice.
  */
 import {
 	creditPayerSchema,
@@ -21,7 +21,7 @@ export type UpgradeModalIntent = PaymentRequiredDetails & {
 /**
  * The org member-limit refusal (403): the workspace pool could pay, but the
  * acting member's monthly cap could not. Buying credits is not the fix, so
- * it opens a dedicated notice instead of the plan picker.
+ * it opens a dedicated notice instead of the top-up dialog.
  */
 export type MemberLimitModalIntent = MemberCreditLimitDetails & {
 	code: "MEMBER_CREDIT_LIMIT_REACHED";

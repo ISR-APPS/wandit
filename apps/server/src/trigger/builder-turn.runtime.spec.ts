@@ -694,8 +694,8 @@ function makeWorld(over?: {
 	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
 	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
 	const balanceReads: number[] = [];
-	/** The subject of every `resolvePlan` call: the payer the turn bills. */
-	const planSubjects: MeteringSubject[] = [];
+	/** The subject of every `hostTools.build` call: the payer the turn bills. */
+	const toolSubjects: MeteringSubject[] = [];
 	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
 	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
 	const uploads = new Map<string, Uint8Array>();
@@ -818,7 +818,12 @@ function makeWorld(over?: {
 			},
 		},
 		harness,
-		hostTools: new EmptyHostToolRegistry(),
+		hostTools: {
+			build: async (context) => {
+				toolSubjects.push(context.subject);
+				return new EmptyHostToolRegistry().build(context);
+			},
+		},
 		recentMessages: async (_chatId, limit) => recent.slice(0, limit),
 		insertAssistantMessage: async (input) => {
 			inserted.push({ input });
@@ -869,10 +874,6 @@ function makeWorld(over?: {
 		},
 		readUpload: async (url) => uploads.get(url) ?? null,
 		readV2Enabled: async () => nextV2(),
-		resolvePlan: async (subject) => {
-			planSubjects.push(subject);
-			return "pro";
-		},
 		sandboxSessions: {
 			touchActivity: async (projectId) => {
 				touched.push(projectId);
@@ -913,7 +914,7 @@ function makeWorld(over?: {
 		lock,
 		metering,
 		minted,
-		planSubjects,
+		toolSubjects,
 		promoted,
 		proxySum,
 		revoked,
@@ -1985,7 +1986,7 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		expect(world.planSubjects).toEqual([
+		expect(world.toolSubjects).toEqual([
 			{
 				actorIsLimitExempt: false,
 				actorUserId: "user_1",
@@ -2007,7 +2008,7 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		// No hold names the payer, so the project row does. secretActor scopes the project with it.
-		expect(world.planSubjects).toEqual([
+		expect(world.toolSubjects).toEqual([
 			{ actorUserId: "user_1", organizationId: null, payerUserId: "owner_1" },
 		]);
 	});
@@ -2863,7 +2864,7 @@ describe("runBuilderTurn", () => {
 		expect(world.turns.failCalls).toHaveLength(0);
 	});
 
-	it("mints the run token with plan, cap, and scope claims", async () => {
+	it("mints the run token with the legacy plan, cap, and scope claims", async () => {
 		const world = makeWorld();
 		const { controller, input } = makeInput();
 
@@ -2873,7 +2874,8 @@ describe("runBuilderTurn", () => {
 		const claims = world.minted[0];
 		// 6400 cc = 64 credits × $0.032 = $2.048.
 		expect(claims?.capUsd).toBeCloseTo(2.048);
-		expect(claims?.plan).toBe("pro");
+		// An old API instance requires `plan` during a deploy; `business` allows every model there.
+		expect(claims?.plan).toBe("business");
 		expect(claims?.runId).toBe(RUN_ID);
 		expect(claims?.turnId).toBe(TURN_ID);
 		expect(claims?.projectId).toBe(PROJECT_ID);

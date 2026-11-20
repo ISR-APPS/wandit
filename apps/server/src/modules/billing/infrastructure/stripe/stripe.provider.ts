@@ -1,5 +1,6 @@
 /**
- * Stripe adapter of billing: customers, checkouts, subscription changes, refunds, and reads.
+ * Stripe adapter of billing: customers, top-up and order checkouts, refunds, and reads.
+ * The v6 subscription writes stay for scripts/migrate-subscriptions-v6.ts and the admin refund.
  * Billing, orders, and affiliates services call it, often through the PAYMENT_PROVIDER port.
  * Calls the Stripe API. Wraps write failures with an unknown result in AmbiguousPaymentProviderWriteError.
  */
@@ -8,55 +9,25 @@ import {
 	InternalServerErrorException,
 	Logger,
 } from "@nestjs/common";
-import {
-	type BillingInterval,
-	type BillingPlanId,
-	CHECKOUT_PURPOSE,
-	type CreditTier,
-	parsePriceLookupKey,
-	priceLookupKey,
-} from "@wandit/contracts";
+import { CHECKOUT_PURPOSE, parsePriceLookupKey } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import Stripe from "stripe";
 
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
 import type {
-	ApplySubscriptionChangeParams,
+	CreateCheckoutSessionResult,
 	CreateOrderCheckoutParams,
-	CreateOrderCheckoutResult,
 	CreateRefundParams,
-	CreateSubscriptionCheckoutParams,
-	CreateSubscriptionCheckoutResult,
 	CreateTopupCheckoutParams,
 	PaymentProvider,
-	PreviewSubscriptionChangeParams,
 	ScheduleSubscriptionDowngradeParams,
-	SubscriptionChangePreviewProviderResult,
-	SubscriptionChangeProviderResult,
 	SwitchSubscriptionPriceWithoutProrationParams,
 } from "../../domain/ports/payment-provider.port";
 import { STRIPE_API_VERSION } from "./stripe.constants";
 
 const RESTRICTED_PORTAL_CONFIGURATION_NAME =
 	"Wandit restricted billing portal v2";
-
-/**
- * Timing fields for the plan change preview and the plan change update.
- * Stripe refuses `proration_date` together with `billing_cycle_anchor: "now"`.
- * So an anchor reset prorates at the time of each request.
- * `proration_date` is in Unix seconds, because Stripe takes seconds.
- */
-// LIMIT: an anchor-reset charge can be above its preview by old price x delay / period, in minor units.
-// The 15 min intent TTL caps the delay on the first attempt. A retry of a "processing" intent has no cap.
-// Upgrade: preview again on confirm and ask when the amount changes.
-function planChangeTiming(
-	params: PreviewSubscriptionChangeParams,
-): { billing_cycle_anchor: "now" } | { proration_date: number } {
-	return params.billingCycleAnchorNow
-		? { billing_cycle_anchor: "now" }
-		: { proration_date: Math.floor(params.prorationDate.getTime() / 1000) };
-}
 
 @Injectable()
 export class StripeProvider implements PaymentProvider {
@@ -120,7 +91,7 @@ export class StripeProvider implements PaymentProvider {
 
 	async createOrderCheckout(
 		params: CreateOrderCheckoutParams,
-	): Promise<CreateOrderCheckoutResult> {
+	): Promise<CreateCheckoutSessionResult> {
 		const metadata = {
 			orderId: params.orderId,
 			orderKind: params.kind,
@@ -162,86 +133,54 @@ export class StripeProvider implements PaymentProvider {
 		};
 	}
 
-	async createSubscriptionCheckout(
-		params: CreateSubscriptionCheckoutParams,
-	): Promise<CreateSubscriptionCheckoutResult> {
-		const lookupKey = priceLookupKey(
-			params.plan,
-			params.tierCredits,
-			params.interval,
-		);
-		const priceId = await this.resolvePriceId(lookupKey);
-		const metadata = this.subscriptionMetadata(
-			params.userId,
-			params.plan,
-			params.tierCredits,
-			params.interval,
-			params.organizationId ?? null,
-		);
-		const attemptMetadata = { ...metadata, attemptId: params.attemptId };
-		const session = await this.createCheckoutSession(
-			{
-				cancel_url: `${env.CORS_ORIGIN}/billing/cancel`,
-				client_reference_id: params.userId,
-				customer: params.customerId,
-				line_items: [
-					{
-						price: priceId,
-						quantity: 1,
-					},
-				],
-				metadata: attemptMetadata,
-				mode: "subscription",
-				subscription_data: {
-					metadata,
-				},
-				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=subscription`,
-			},
-			{
-				// Org checkouts key on the pool, not the actor: a different owner
-				// retrying the same attempt must replay, never duplicate.
-				idempotencyKey: params.organizationId
-					? `sub-checkout:org:${params.organizationId}:${params.attemptId}`
-					: `sub-checkout:${params.userId}:${params.attemptId}`,
-			},
-		);
-
-		return {
-			id: session.id,
-			url: this.expectUrl(session.url, "Stripe checkout session"),
-		};
-	}
-
+	/**
+	 * Creates the Checkout Session of a wallet top-up: one card payment in USD.
+	 * BillingService passes values from the attempt row only. No clock value goes in,
+	 * so a replay with the same idempotency key sends the same bytes.
+	 */
 	async createTopupCheckout(
 		params: CreateTopupCheckoutParams,
-	): Promise<CreateSubscriptionCheckoutResult> {
-		const priceId = await this.resolvePriceId(params.packId);
+	): Promise<CreateCheckoutSessionResult> {
+		// The webhook takes the credits from the attempt row, so the metadata holds no amount.
 		const metadata = {
 			attemptId: params.attemptId,
-			credits: String(params.credits),
 			...(params.organizationId
 				? { organizationId: params.organizationId }
 				: {}),
-			packId: params.packId,
 			purpose: CHECKOUT_PURPOSE.topup,
 			userId: params.userId,
 		};
+		// English digits with commas, as the product name is English: "1,100 credits".
+		const numberFormat = new Intl.NumberFormat("en-US");
+		const totalCredits = params.baseCredits + params.bonusCredits;
+		// The payer sees the bonus split only when the amount reaches a bonus tier.
+		const description =
+			params.bonusCredits > 0
+				? `${numberFormat.format(totalCredits)} credits (${numberFormat.format(params.baseCredits)} + ${numberFormat.format(params.bonusCredits)} bonus)`
+				: `${numberFormat.format(totalCredits)} credits`;
 		const session = await this.createCheckoutSession(
 			{
+				// Off: the webhook compares amount_subtotal in USD cents with the attempt row.
+				adaptive_pricing: { enabled: false },
 				cancel_url: `${env.CORS_ORIGIN}/billing/cancel`,
 				customer: params.customerId,
 				line_items: [
 					{
-						price: priceId,
+						price_data: {
+							currency: "usd",
+							product_data: { description, name: "Wandit credits" },
+							unit_amount: params.amountUsdCents,
+						},
 						quantity: 1,
 					},
 				],
 				metadata,
 				mode: "payment",
-				payment_intent_data: {
-					metadata,
-				},
-				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=topup`,
+				// Refund retries read `purpose` from the payment intent (checkoutPurposeForCharge).
+				payment_intent_data: { metadata },
+				// Cards only: a delayed method completes the session unpaid and blocks the owner for days.
+				payment_method_types: ["card"],
+				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=topup&session_id={CHECKOUT_SESSION_ID}`,
 			},
 			{
 				idempotencyKey: params.organizationId
@@ -307,87 +246,6 @@ export class StripeProvider implements PaymentProvider {
 		}
 	}
 
-	async changeSubscription(
-		params: ApplySubscriptionChangeParams,
-	): Promise<SubscriptionChangeProviderResult> {
-		const parsed = parsePriceLookupKey(params.newPriceLookupKey);
-
-		if (!parsed) {
-			throw new InternalServerErrorException(
-				"Invalid billing price lookup key",
-			);
-		}
-
-		const stripe = this.stripe();
-		let priorRemoteMutation = false;
-
-		try {
-			const [subscription, priceId] = await Promise.all([
-				stripe.subscriptions.retrieve(params.providerSubscriptionId, {
-					expand: ["latest_invoice"],
-				}),
-				this.resolvePriceId(params.newPriceLookupKey),
-			]);
-			const [subscriptionItem] = subscription.items.data;
-
-			if (!subscriptionItem) {
-				throw new InternalServerErrorException(
-					"Stripe subscription has no subscription items",
-				);
-			}
-
-			priorRemoteMutation = await this.releaseManagedDowngradeSchedule(
-				subscription,
-				`${params.idempotencyKey}:release-schedule`,
-			);
-
-			if (subscription.pending_update) {
-				if (!this.pendingUpdateTargetsPrice(subscription, priceId)) {
-					throw new InternalServerErrorException(
-						`Stripe subscription ${subscription.id} has a different pending update`,
-					);
-				}
-
-				return this.pendingSubscriptionChangeResult(subscription);
-			}
-
-			// Stripe idempotency records are not permanent. If a prior accepted
-			// request outlives that window, the live target is the durable replay
-			// signal and prevents a second proration invoice.
-			if (subscriptionItem.price.id === priceId) {
-				return { outcome: "applied" };
-			}
-
-			const updated = await stripe.subscriptions.update(
-				params.providerSubscriptionId,
-				{
-					...planChangeTiming(params),
-					expand: ["latest_invoice"],
-					items: [
-						{
-							id: subscriptionItem.id,
-							price: priceId,
-						},
-					],
-					payment_behavior: "pending_if_incomplete",
-					proration_behavior: "always_invoice",
-				},
-				{ idempotencyKey: params.idempotencyKey },
-			);
-			priorRemoteMutation = true;
-
-			return updated.pending_update
-				? this.pendingSubscriptionChangeResult(updated)
-				: { outcome: "applied" };
-		} catch (error) {
-			this.rethrowPaymentWrite(
-				error,
-				"Stripe subscription change ended with an ambiguous write result",
-				priorRemoteMutation,
-			);
-		}
-	}
-
 	async switchSubscriptionPriceWithoutProration(
 		params: SwitchSubscriptionPriceWithoutProrationParams,
 	): Promise<void> {
@@ -431,24 +289,6 @@ export class StripeProvider implements PaymentProvider {
 			},
 			{ idempotencyKey: params.idempotencyKey },
 		);
-	}
-
-	async cancelScheduledSubscriptionDowngrade(
-		providerSubscriptionId: string,
-		idempotencyKey: string,
-	): Promise<void> {
-		try {
-			const subscription = await this.stripe().subscriptions.retrieve(
-				providerSubscriptionId,
-			);
-
-			await this.releaseManagedDowngradeSchedule(subscription, idempotencyKey);
-		} catch (error) {
-			this.rethrowPaymentWrite(
-				error,
-				"Stripe downgrade cancellation ended with an ambiguous write result",
-			);
-		}
 	}
 
 	async scheduleSubscriptionDowngrade(
@@ -625,87 +465,10 @@ export class StripeProvider implements PaymentProvider {
 		}
 	}
 
-	async hasPendingSubscriptionUpdate(
-		providerSubscriptionId: string,
-	): Promise<boolean> {
-		const subscription = await this.stripe().subscriptions.retrieve(
-			providerSubscriptionId,
-		);
-
-		return subscription.pending_update !== null;
-	}
-
-	async previewSubscriptionChange(
-		params: PreviewSubscriptionChangeParams,
-	): Promise<SubscriptionChangePreviewProviderResult> {
-		const stripe = this.stripe();
-		const [subscription, priceId] = await Promise.all([
-			stripe.subscriptions.retrieve(params.providerSubscriptionId),
-			this.resolvePriceId(params.newPriceLookupKey),
-		]);
-		const item = subscription.items.data[0];
-
-		if (!item) {
-			throw new InternalServerErrorException(
-				"Stripe subscription has no subscription items",
-			);
-		}
-
-		const preview = await stripe.invoices.createPreview({
-			subscription: params.providerSubscriptionId,
-			subscription_details: {
-				...planChangeTiming(params),
-				items: [{ id: item.id, price: priceId }],
-				proration_behavior: "always_invoice",
-			},
-		});
-
-		return {
-			amountDueMinor: preview.amount_due,
-			currency: preview.currency,
-		};
-	}
-
-	async setCancelAtPeriodEnd(
-		providerSubscriptionId: string,
-		flag: boolean,
-	): Promise<void> {
-		let priorRemoteMutation = false;
-
-		try {
-			const subscription = await this.stripe().subscriptions.retrieve(
-				providerSubscriptionId,
-			);
-
-			if (!flag && !subscription.cancel_at_period_end) {
-				return;
-			}
-
-			if (flag) {
-				// An attached schedule owns cancellation behavior. Remove our future
-				// downgrade before canceling at the end of the current paid period.
-				priorRemoteMutation = await this.releaseManagedDowngradeSchedule(
-					subscription,
-					`sub-cancel:${providerSubscriptionId}:release-schedule`,
-				);
-			}
-
-			await this.stripe().subscriptions.update(providerSubscriptionId, {
-				cancel_at_period_end: flag,
-			});
-		} catch (error) {
-			this.rethrowPaymentWrite(
-				error,
-				"Stripe subscription cancellation update ended with an ambiguous write result",
-				priorRemoteMutation,
-			);
-		}
-	}
-
 	/**
 	 * Ends a Stripe subscription now, with no proration credit and no final invoice.
 	 * AdminUserRefundsService calls it after an admin refund. A call on an ended subscription does nothing.
-	 * The customer.subscription.deleted webhook then expires the plan credits.
+	 * The customer.subscription.deleted webhook then updates the local subscription row.
 	 */
 	async cancelSubscriptionNow(
 		providerSubscriptionId: string,
@@ -727,7 +490,7 @@ export class StripeProvider implements PaymentProvider {
 			}
 
 			// An attached schedule owns cancellation behavior. Release our managed
-			// downgrade schedule first, as setCancelAtPeriodEnd does.
+			// downgrade schedule first.
 			priorRemoteMutation = await this.releaseManagedDowngradeSchedule(
 				subscription,
 				`${idempotencyKey}:release-schedule`,
@@ -869,7 +632,7 @@ export class StripeProvider implements PaymentProvider {
 			status: "all",
 		});
 
-		// Checkout admission and reconciliation must see older active subscriptions,
+		// The subscription sync must see older active subscriptions,
 		// even when newer canceled attempts fill the first page of Stripe history.
 		for await (const subscription of pages) {
 			subscriptions.push(subscription);
@@ -1091,40 +854,6 @@ export class StripeProvider implements PaymentProvider {
 		};
 	}
 
-	private pendingSubscriptionChangeResult(
-		subscription: Stripe.Subscription,
-	): SubscriptionChangeProviderResult {
-		const pendingUpdate = subscription.pending_update;
-
-		if (!pendingUpdate) {
-			throw new InternalServerErrorException(
-				`Stripe subscription ${subscription.id} has no pending update`,
-			);
-		}
-
-		const latestInvoice =
-			typeof subscription.latest_invoice === "object"
-				? subscription.latest_invoice
-				: null;
-
-		return {
-			...(latestInvoice?.hosted_invoice_url
-				? { hostedInvoiceUrl: latestInvoice.hosted_invoice_url }
-				: {}),
-			outcome: "payment_required",
-			pendingExpiresAt: new Date(pendingUpdate.expires_at * 1000),
-		};
-	}
-
-	private pendingUpdateTargetsPrice(
-		subscription: Stripe.Subscription,
-		priceId: string,
-	): boolean {
-		const items = subscription.pending_update?.subscription_items;
-
-		return items?.length === 1 && items[0]?.price.id === priceId;
-	}
-
 	private rethrowPaymentWrite(
 		error: unknown,
 		message: string,
@@ -1170,26 +899,6 @@ export class StripeProvider implements PaymentProvider {
 		}
 
 		this.priceLookupKeyById.set(price.id, price.lookup_key);
-	}
-
-	private subscriptionMetadata(
-		userId: string,
-		plan: BillingPlanId,
-		tierCredits: CreditTier,
-		interval: BillingInterval,
-		organizationId: string | null,
-	) {
-		return {
-			interval,
-			// Org checkouts carry the paying pool's identity; webhook routing and
-			// the ownership cross-checks compare it against the attempt and the
-			// org customer mapping.
-			...(organizationId ? { organizationId } : {}),
-			plan,
-			purpose: CHECKOUT_PURPOSE.subscription,
-			tierCredits: String(tierCredits),
-			userId,
-		};
 	}
 
 	private expectUrl(url: string | null, label: string) {

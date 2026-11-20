@@ -1,3 +1,8 @@
+/**
+ * Drizzle reads and writes of the affiliate tables: attributions, candidates, commissions, payouts.
+ * Called by the affiliate services and by the Trigger.dev affiliate tasks.
+ * Holds the advisory locks that make an earning, a clawback, and a payout idempotent.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "@wandit/db";
 import {

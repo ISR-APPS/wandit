@@ -1,5 +1,7 @@
 # Credits & Usage (fake in MVP)
 
+> **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
+
 > **SUPERSEDED (billing v2):** this document describes the pre-v2 slice and no
 > longer matches the shipped system. Current truth:
 > `docs/features/billing.md` and `docs/features/pricing-v6-starter-plan.md`.

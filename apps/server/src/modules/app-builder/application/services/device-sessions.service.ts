@@ -21,8 +21,7 @@ import type {
 } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
-import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
-import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import {
 	subjectPayer,
 	subjectPayerUserId,
@@ -33,10 +32,10 @@ import {
 } from "../../../projects/domain/project-scope";
 import {
 	APPETIZE_DEVICES,
-	DEVICE_MINUTES_PER_PLAN,
 	DEVICE_SESSION_LOCK_TTL_MS,
 	DEVICE_SESSION_TIME_LIMIT_SECONDS,
 	deviceMinutesLeft,
+	deviceMinutesPerMonth,
 } from "../../domain/device-minutes";
 import {
 	DEVICE_SESSION_LOCK,
@@ -99,11 +98,9 @@ export class DeviceSessionsService {
 			PreviewProxyClient,
 			"mintPhoneLink" | "isMetroRunning"
 		>,
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: Pick<
-			SubscriptionsRepository,
-			"findActiveByOwner"
-		>,
+		/** Decides if the payer is a paid owner; that decides the month minutes. */
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
 	) {}
@@ -135,8 +132,8 @@ export class DeviceSessionsService {
 			this.v2Env,
 		);
 
-		// Product rule: each plan gets a number of device minutes per month.
-		// The plan and the allowance belong to the payer, the owner of the pool.
+		// Product rule (spec section 6): a paid owner gets device minutes each month, a free owner none.
+		// The allowance belongs to the payer, the owner of the pool.
 		// This read only fails fast; the insert checks again under the payer lock.
 		// LIMIT: an open session counts only its elapsed minutes, so parallel
 		// sessions of one pool can each run to the time limit. Upgrade: count an
@@ -144,13 +141,16 @@ export class DeviceSessionsService {
 		const now = new Date();
 		const subject = meteringSubjectFrom(scope);
 		const payer = subjectPayer(subject);
-		const plan = await resolveBillingPlan(this.subscriptions, subject);
+		const monthlyMinutes = deviceMinutesPerMonth(
+			await this.paidOwners.isPaidOwner(payer),
+			payer,
+		);
 		const usedMinutes = await this.sessions.usedMinutesSince(
 			payer,
 			monthStartUtc(now),
 			now,
 		);
-		if (deviceMinutesLeft(plan, usedMinutes) <= 0) {
+		if (deviceMinutesLeft(monthlyMinutes, usedMinutes) <= 0) {
 			throw minutesExhausted();
 		}
 
@@ -194,7 +194,7 @@ export class DeviceSessionsService {
 					userId: scope.actorUserId,
 				},
 				payer,
-				DEVICE_MINUTES_PER_PLAN[plan],
+				monthlyMinutes,
 				monthStartUtc(now),
 			);
 			// Another member of the pool took the last minute after the first read.

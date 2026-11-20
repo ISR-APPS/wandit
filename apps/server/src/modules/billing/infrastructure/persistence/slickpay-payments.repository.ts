@@ -16,17 +16,16 @@ import {
 /** One `slickpay_payments` row. amountDzd is whole DZD, and dzdPerUsdRate is centi-DZD per 1 USD. */
 export type SlickpayPaymentRow = typeof slickpayPayments.$inferSelect;
 
-/** Columns of a new row. The status starts at "created". */
+/** Columns of a new top-up row. The status starts at "created". The plan columns stay NULL. */
 export type InsertSlickpayPaymentInput = Pick<
 	SlickpayPaymentRow,
-	| "amountDzd"
-	| "dzdPerUsdRate"
-	| "interval"
-	| "organizationId"
-	| "plan"
-	| "tierCredits"
-	| "userId"
->;
+	"amountDzd" | "dzdPerUsdRate" | "organizationId" | "userId"
+> & {
+	/** USD cents of the top-up. Whole USD times 100. */
+	amountUsdCents: number;
+	/** UNIT: centi-credits that the payment grants. */
+	credits: number;
+};
 
 /** Columns that a checkout or a refresh can write. updateIfStatus always adds updated_at. */
 export type SlickpayPaymentChanges = Partial<

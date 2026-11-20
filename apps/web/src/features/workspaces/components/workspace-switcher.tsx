@@ -101,12 +101,8 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 		return item ? formatCreditBalance(item.settledBalance, locale) : null;
 	};
 
-	// Creating a workspace goes straight into a Business subscription
-	// checkout, so it also needs the paid-subscriptions switch — otherwise it
-	// creates an org whose checkout the server then rejects.
-	const canCreateWorkspace =
-		settingsQuery.data?.organizationsEnabled === true &&
-		settingsQuery.data.paidSubscriptionsEnabled;
+	// A team needs no plan (pricing-v8 D11), so only the organizations switch decides.
+	const canCreateWorkspace = settingsQuery.data?.organizationsEnabled === true;
 
 	// Ships dark: without the kill switch (or another membership) the switcher
 	// renders nothing and the app looks exactly like pre-teams.

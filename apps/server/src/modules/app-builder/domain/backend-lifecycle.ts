@@ -2,13 +2,15 @@
  * The pure rules of the backend lifecycle (WANDIT-184, D3): which backends
  * the daily sweep pauses, deletes, or moves to `deleting`, when a wake is
  * stuck, what happens to the project of an `error` row, and how many
- * backends a plan may own. `backend-pause-sweep.runtime.ts` and
+ * backends an owner may hold. `backend-pause-sweep.runtime.ts` and
  * `CloudService` call the rules; `BackendsService` hands
  * `assertBackendEntitlement` to the locked write of `AppBackendsRepository`.
  * No I/O here.
  */
-import type { BillingPlanId, SupabaseProjectStatus } from "@wandit/contracts";
+import type { SupabaseProjectStatus } from "@wandit/contracts";
 import type { appBackendStatus } from "@wandit/db/schema/app-backends";
+
+import type { CreditOwner } from "../../credits/domain/credit-owner";
 
 // One day in milliseconds; every window below counts whole days.
 const DAY_MS = 86_400_000;
@@ -39,15 +41,15 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	/** Provisional default (ESTIMATE): at most this many rows in each of the six steps of one sweep run. */
 	sweepBatchCap: 50,
 	/**
-	 * Backends one owner may hold per plan. A free user (`starter`) gets none.
-	 * Business gets 1000, which means no practical limit (Zack's choice).
-	 * WANDIT-153 decides the backend price.
+	 * Backends a paid owner may hold, by pool kind (spec section 6). A free
+	 * owner gets none. A team gets 1000, which means no practical limit.
+	 * LIMIT: one top-up or one old subscription unlocks a recurring cost. A full
+	 * refund keeps the owner paid. Upgrade: price backends before V2 opens (WANDIT-153).
 	 */
-	backendsPerPlan: Object.freeze({
-		starter: 0,
-		pro: 1,
-		business: 1000,
-	} satisfies Record<BillingPlanId, number>),
+	backendsPerPaidOwner: Object.freeze({
+		user: 1,
+		org: 1000,
+	} satisfies Record<CreditOwner["type"], number>),
 });
 
 /** The windows one sweep run applies, in whole days. The runtime builds them from the env and `BACKEND_DEFAULTS`. */
@@ -194,15 +196,24 @@ export function errorBackendAction(
 	return "wait";
 }
 
+/**
+ * Backends the pool of `owner` may hold. `isPaidOwner` comes from
+ * `PaidOwnerRepository`. The backends service and the project move read it.
+ */
+export function backendLimitFor(
+	isPaidOwner: boolean,
+	owner: CreditOwner,
+): number {
+	return isPaidOwner ? BACKEND_DEFAULTS.backendsPerPaidOwner[owner.type] : 0;
+}
+
 /** Answer of `assertBackendEntitlement`: allowed, or the typed refusal. */
 export type BackendEntitlement =
 	| { allowed: true }
 	| {
 			allowed: false;
 			code: "backend_limit_reached";
-			/** The plan of the owner that pays for the backend. */
-			plan: BillingPlanId;
-			/** Backends the plan allows, from `BACKEND_DEFAULTS.backendsPerPlan`. */
+			/** Backends the owner may hold, from `backendLimitFor`. */
 			limit: number;
 	  };
 
@@ -210,17 +221,16 @@ export type BackendEntitlement =
 export type BackendRefusal = Extract<BackendEntitlement, { allowed: false }>;
 
 /**
- * Checks one more backend against the plan limit. `ownedBackends` counts
- * the owner's backends that are not `deleting` or `error`. At the limit
- * the answer is the `backend_limit_reached` refusal.
+ * Checks one more backend against `limit` from `backendLimitFor`.
+ * `ownedBackends` counts the owner's backends that are not `deleting` or
+ * `error`. At the limit the answer is the `backend_limit_reached` refusal.
  */
 export function assertBackendEntitlement(
-	plan: BillingPlanId,
+	limit: number,
 	ownedBackends: number,
 ): BackendEntitlement {
-	const limit = BACKEND_DEFAULTS.backendsPerPlan[plan];
 	if (ownedBackends < limit) {
 		return { allowed: true };
 	}
-	return { allowed: false, code: "backend_limit_reached", limit, plan };
+	return { allowed: false, code: "backend_limit_reached", limit };
 }

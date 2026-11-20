@@ -44,7 +44,7 @@
 			"body": "When they use {min}, you get {activation}."
 		},
 		"subscribe": {
-			"title": "Your friend subscribes",
+			"title": "Your friend makes a first payment",
 			"body": "{days} after the first payment, you get {paid}."
 		}
 	},
@@ -52,7 +52,7 @@
 		"title": "Your numbers",
 		"joined": "Friends joined",
 		"activated": "Friends who built",
-		"subscribed": "Friends subscribed",
+		"subscribed": "Friends who paid",
 		"earned": "Credits earned",
 		"pending": "{pending} on the way"
 	},
@@ -66,12 +66,12 @@
 		"status": {
 			"joined": "Joined",
 			"activated": "Building",
-			"subscribed": "Subscribed"
+			"subscribed": "Paid"
 		},
 		"earned": "Earned {credits}",
 		"hints": {
 			"activation": "{activation} when they use {min}",
-			"paid": "{paid} when they subscribe",
+			"paid": "{paid} when they make a first payment",
 			"paidPending": "On the way: {pending}, {days} after their first payment"
 		},
 		"empty": {

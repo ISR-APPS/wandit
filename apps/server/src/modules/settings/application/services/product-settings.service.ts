@@ -65,7 +65,8 @@ export class ProductSettingsService {
 			manualGraceDays: settings.manualGraceDays,
 			manualPaymentsEnabled: settings.manualPaymentsEnabled,
 			organizationsEnabled: settings.organizationsEnabled,
-			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
+			// Pricing v8 has no plans. The stored column stays for history only.
+			paidSubscriptionsEnabled: false,
 			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,

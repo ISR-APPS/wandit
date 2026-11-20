@@ -5,6 +5,7 @@
  */
 import {
 	type AdminManualPayment,
+	type AdminManualRequest,
 	type AdminManualSubscriptionDetail,
 	type BillingInterval,
 	type BillingPlanId,
@@ -15,6 +16,24 @@ import {
 import { currencyMinorFactor, MANUAL_COUNTRY_LABELS } from "./offline-billing";
 
 const RECEIPT_TIME_ZONE = "Africa/Algiers";
+
+/** An offline request from before pricing v8. Only such a request has a printable plan quote. */
+export type PlanManualRequest = AdminManualRequest & {
+	plan: BillingPlanId;
+	tierCredits: number;
+	interval: BillingInterval;
+};
+
+/** True when the request names a full plan. A pricing v8 top-up request has no plan. */
+export function isPlanManualRequest(
+	request: AdminManualRequest,
+): request is PlanManualRequest {
+	return (
+		request.plan !== null &&
+		request.tierCredits !== null &&
+		request.interval !== null
+	);
+}
 
 const receiptDateFormatter = new Intl.DateTimeFormat("fr-FR", {
 	day: "2-digit",

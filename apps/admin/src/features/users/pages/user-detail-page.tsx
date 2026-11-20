@@ -21,7 +21,7 @@ import {
 	useAdminPermission,
 } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
-import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
+import { RecordTopupDialog } from "@/features/offline-billing";
 import { useUserQuery } from "@/features/users/api/users.queries";
 import { AdminViewsDialog } from "@/features/users/components/admin-views-dialog";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
@@ -41,7 +41,7 @@ type UserDetailPageProps = {
 
 type OpenDialog =
 	| "credits"
-	| "offline-subscription"
+	| "record-topup"
 	| "role"
 	| "admin-views"
 	| "ban"
@@ -129,7 +129,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				canManageAccess={canManageAccess}
 				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setOpenDialog("credits")}
-				onGrantOffline={() => setOpenDialog("offline-subscription")}
+				onRecordTopup={() => setOpenDialog("record-topup")}
 				onChangeRole={() => setOpenDialog("role")}
 				onEditAdminViews={() => setOpenDialog("admin-views")}
 				onToggleBanned={() => setOpenDialog("ban")}
@@ -137,10 +137,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			<UserMetrics user={user} />
 
 			{user.subscription ? (
-				<UserSubscriptionCard
-					subscription={user.subscription}
-					ownerLabel={user.name}
-				/>
+				<UserSubscriptionCard subscription={user.subscription} />
 			) : null}
 
 			<UserWorkspacesCard workspaces={user.workspaces} />
@@ -159,11 +156,9 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				/>
 			) : null}
 			{canManageBilling ? (
-				<GrantManualSubscriptionDialog
-					open={openDialog === "offline-subscription"}
-					onOpenChange={(open) =>
-						setOpenDialog(open ? "offline-subscription" : null)
-					}
+				<RecordTopupDialog
+					open={openDialog === "record-topup"}
+					onOpenChange={(open) => setOpenDialog(open ? "record-topup" : null)}
 					prefill={{ user }}
 				/>
 			) : null}

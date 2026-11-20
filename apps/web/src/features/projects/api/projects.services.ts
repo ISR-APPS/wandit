@@ -84,7 +84,7 @@ export async function updateProjectPixels(
 }
 
 // Persist the "Made with Wandit" badge visibility for the published page.
-// Stored for everyone; publish honours it only for entitled (paid) owners.
+// Stored for everyone; publish honours it only for a paid owner (one top-up, or a past subscription).
 export async function updateProjectBadge(
 	id: string,
 	hideWanditBadge: boolean,

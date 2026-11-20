@@ -18,18 +18,16 @@
 	},
 	"create": {
 		"title": "Nommez votre espace de travail",
-		"description": "Votre espace d'équipe a besoin d'un nom. Vous pourrez inviter vos coéquipiers juste après le paiement.",
+		"description": "Votre espace d'équipe a besoin d'un nom. Vous pourrez inviter vos coéquipiers juste après.",
 		"nameLabel": "Nom de l'espace",
 		"namePlaceholder": "ex. Acme Marketing",
-		"submit": "Continuer vers le paiement",
+		"submit": "Créer l'espace",
 		"creating": "Création de l'espace…",
 		"errors": {
 			"nameRequired": "Donnez un nom à votre espace",
 			"disabled": "Les espaces d'équipe ne sont pas encore disponibles",
-			"failed": "La création de l'espace a échoué. Veuillez réessayer.",
-			"checkoutFailed": "Votre espace de travail a été créé, mais la page de paiement n'a pas pu s'ouvrir. Appuyez sur le bouton pour réessayer le paiement."
-		},
-		"retryCheckout": "Réessayer le paiement"
+			"failed": "La création de l'espace a échoué. Veuillez réessayer."
+		}
 	},
 	"people": {
 		"title": "Personnes",
@@ -152,11 +150,11 @@
 	},
 	"billing": {
 		"ownerOnlyTitle": "La facturation est gérée par le propriétaire",
-		"ownerOnlyBody": "Seul le propriétaire de cet espace peut changer le plan, acheter des crédits ou gérer le paiement.",
+		"ownerOnlyBody": "Seul le propriétaire de cet espace peut acheter des crédits ou gérer le paiement.",
 		"workspaceLabel": "Facturation de l'espace",
 		"personalLabel": "Facturation personnelle",
 		"teamTeaserTitle": "Vous travaillez en équipe ?",
-		"teamTeaserBody": "Le plan Business offre à toute votre équipe un pool de crédits partagé.",
+		"teamTeaserBody": "Un espace d'équipe offre à toute votre équipe un portefeuille de crédits partagé.",
 		"teamTeaserCta": "Créer un espace d'équipe"
 	},
 	"errors": {
@@ -164,7 +162,7 @@
 		"memberLimitBody": "Vous avez utilisé votre limite de crédits pour ce mois ({limit} crédits). Demandez à un propriétaire ou admin de l'augmenter.",
 		"memberLimitCta": "Compris",
 		"poolEmptyTitle": "L'espace n'a plus de crédits",
-		"poolEmptyBodyManager": "Le pool partagé est vide. Améliorez le plan ou achetez une recharge pour que l'équipe continue.",
+		"poolEmptyBodyManager": "Le portefeuille partagé est vide. Rechargez-le pour que l'équipe continue.",
 		"poolEmptyBodyMember": "Le pool partagé est vide. Prévenez un propriétaire pour qu'il ajoute des crédits.",
 		"permissionDenied": "Vous n'avez pas la permission de faire cela dans cet espace."
 	},

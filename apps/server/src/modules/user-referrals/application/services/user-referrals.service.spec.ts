@@ -106,7 +106,8 @@ class InMemoryUserReferralsStore implements UserReferralsStore {
 	/** User id to signup time. */
 	readonly userCreatedAt = new Map<string, Date>();
 	readonly affiliateUserIds = new Set<string>();
-	readonly liveSubscriptionUserIds = new Set<string>();
+	/** Users with a paid personal plan or top-up and no refund. */
+	readonly livePaymentUserIds = new Set<string>();
 	/** Users with a real payment that has no mark yet. */
 	readonly paidUserIds = new Set<string>();
 
@@ -153,8 +154,8 @@ class InMemoryUserReferralsStore implements UserReferralsStore {
 		return this.affiliateUserIds.has(userId);
 	}
 
-	async hasLiveSubscription(userId: string) {
-		return this.liveSubscriptionUserIds.has(userId);
+	async hasLivePersonalPayment(userId: string) {
+		return this.livePaymentUserIds.has(userId);
 	}
 
 	async insertReferral(input: {
@@ -612,7 +613,7 @@ describe("UserReferralsService.runSweep", () => {
 		store.referrals.push(
 			referralRow({ firstPaidAt: daysBefore(7), friendGrantedAt: null }),
 		);
-		store.liveSubscriptionUserIds.add(FRIEND);
+		store.livePaymentUserIds.add(FRIEND);
 		consumedByUser.set(FRIEND, 900);
 
 		await service.runSweep(NOW);
@@ -626,14 +627,29 @@ describe("UserReferralsService.runSweep", () => {
 	});
 
 	// Money rule: the paid reward waits 7 days after the first payment mark,
-	// and it needs a friend who still has a plan at that time.
+	// and it needs a personal payment with no refund at that time.
 	it.each([
-		{ daysSinceMark: 6, hasPlan: true, paidCredits: 10_000, isStamped: false },
-		{ daysSinceMark: 7, hasPlan: true, paidCredits: 10_000, isStamped: true },
-		{ daysSinceMark: 7, hasPlan: false, paidCredits: 0, isStamped: true },
-	])("paid reward after $daysSinceMark days, plan $hasPlan: $paidCredits centi-credits", async ({
+		{
+			daysSinceMark: 6,
+			hasLivePayment: true,
+			paidCredits: 10_000,
+			isStamped: false,
+		},
+		{
+			daysSinceMark: 7,
+			hasLivePayment: true,
+			paidCredits: 10_000,
+			isStamped: true,
+		},
+		{
+			daysSinceMark: 7,
+			hasLivePayment: false,
+			paidCredits: 0,
+			isStamped: true,
+		},
+	])("paid reward after $daysSinceMark days, live payment $hasLivePayment: $paidCredits centi-credits", async ({
 		daysSinceMark,
-		hasPlan,
+		hasLivePayment,
 		isStamped,
 		paidCredits,
 	}) => {
@@ -642,8 +658,8 @@ describe("UserReferralsService.runSweep", () => {
 			referralRow({ firstPaidAt: daysBefore(daysSinceMark) }),
 		);
 
-		if (hasPlan) {
-			store.liveSubscriptionUserIds.add(FRIEND);
+		if (hasLivePayment) {
+			store.livePaymentUserIds.add(FRIEND);
 		}
 
 		await service.runSweep(NOW);
@@ -667,7 +683,7 @@ describe("UserReferralsService.runSweep", () => {
 	it("pays the referrer nothing when the friend gets an affiliate attribution after the claim", async () => {
 		const { consumedByUser, grants, service, store } = createHarness();
 		store.referrals.push(referralRow({ firstPaidAt: daysBefore(8) }));
-		store.liveSubscriptionUserIds.add(FRIEND);
+		store.livePaymentUserIds.add(FRIEND);
 		store.affiliateUserIds.add(FRIEND);
 		consumedByUser.set(FRIEND, 900);
 

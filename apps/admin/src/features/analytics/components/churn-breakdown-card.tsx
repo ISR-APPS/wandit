@@ -1,3 +1,7 @@
+/**
+ * Card "Churn breakdown": churned owners grouped by plan, acquisition, reason, and country.
+ * RevenueAnalyticsPage renders it. After pricing v8 it shows history only.
+ */
 import type { AdminAnalyticsChurnBreakdown } from "@wandit/contracts";
 import { DatabaseIcon, ListFilterIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -123,8 +127,8 @@ function ChurnBreakdownCard({ breakdown }: ChurnBreakdownCardProps) {
 					</h2>
 				</CardTitle>
 				<CardDescription className="mt-1">
-					Churned owners grouped by plan, acquisition, cancellation reason,
-					geography, and prior product use
+					History (plans ended). Churned owners grouped by plan, acquisition,
+					cancellation reason, geography, and prior product use
 				</CardDescription>
 			</CardHeader>
 

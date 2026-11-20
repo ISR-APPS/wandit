@@ -2,11 +2,11 @@
 	"backToDashboard": "Back to dashboard",
 	"tabsAriaLabel": "Workspace views",
 	"autosaved": "Saved",
-	"upgrade": "Upgrade",
-	"upgradeCard": {
-		"titlePro": "Upgrade to Pro",
-		"titleBusiness": "Upgrade to Business",
-		"body": "More credits and features"
+	"topup": "Top up",
+	"topupCard": {
+		"titlePersonal": "Top up your wallet",
+		"titleTeam": "Top up the team wallet",
+		"body": "Credits never expire"
 	},
 	"meta": {
 		"title": "Workspace — Wandit"
@@ -1249,12 +1249,12 @@
 			},
 			"limit": {
 				"inUse": {
-					"one": "Your {plan} plan includes {count} app database, and it is in use.",
-					"other": "Your {plan} plan includes {count} app databases, and all are in use."
+					"one": "This workspace includes {count} app database, and it is in use.",
+					"other": "This workspace includes {count} app databases, and all are in use."
 				},
-				"notIncluded": "Your current plan does not include an app database.",
-				"generic": "Your plan has no free app database.",
-				"seePlans": "See plans"
+				"notIncluded": "An app database comes with the first top-up of this wallet.",
+				"generic": "This workspace has no free app database.",
+				"topup": "Top up"
 			},
 			"waiting": "Setting up your backend. This takes about 2 minutes.",
 			"restoring": "Waking up your database.",

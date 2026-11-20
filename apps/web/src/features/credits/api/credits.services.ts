@@ -1,3 +1,7 @@
+/**
+ * Raw HTTP functions of the credits API: the balance, the balances of all workspaces, and activity.
+ * The credits queries call them. Each answer is parsed with its contract schema.
+ */
 import {
 	creditActivityResponseSchema,
 	creditBalanceResponseSchema,

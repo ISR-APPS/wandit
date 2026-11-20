@@ -1,3 +1,7 @@
+/**
+ * Out-of-credits gate for the composers: true when the settled balance is zero or below.
+ * The chat and page-build composers call useOutOfCredits. It reads useCreditBalanceQuery.
+ */
 import type { CreditBalanceResponse } from "@wandit/contracts";
 
 import { useSession } from "@/features/auth";
@@ -24,7 +28,7 @@ export function isOutOfCredits(
  * Reactive out-of-credits gate for composer surfaces. Recovery needs no manual
  * wiring: the underlying balance query is invalidated on billing errors,
  * finished operations, window focus and the /billing/success return — so the
- * gate lifts on its own once a resubscribe or top-up lands.
+ * gate lifts on its own once a top-up lands.
  */
 export function useOutOfCredits() {
 	const { data: session } = useSession();

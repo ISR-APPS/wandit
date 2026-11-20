@@ -120,9 +120,6 @@ function setup() {
 			_options?: Stripe.RequestOptions,
 		) => subscription,
 	);
-	const invoicesCreatePreview = vi.fn(
-		async () => ({ amount_due: 2_500, currency: "usd" }) as Stripe.Invoice,
-	);
 	const portalConfigurationsCreate = vi.fn(
 		async () =>
 			({ id: "bpc_restricted" }) as Stripe.BillingPortal.Configuration,
@@ -194,9 +191,6 @@ function setup() {
 		customers: {
 			create: customersCreate,
 		},
-		invoices: {
-			createPreview: invoicesCreatePreview,
-		},
 		invoicePayments: {
 			list: invoicePaymentsList,
 		},
@@ -225,7 +219,6 @@ function setup() {
 	return {
 		chargesRetrieve,
 		customersCreate,
-		invoicesCreatePreview,
 		invoicePaymentsAutoPagingToArray,
 		invoicePaymentsList,
 		portalConfigurationsCreate,
@@ -311,51 +304,17 @@ describe("StripeProvider", () => {
 		);
 	});
 
-	it("persists subscription attempt metadata and exact checkout idempotency", async () => {
-		const { pricesList, provider, sessionsCreate } = setup();
-
-		await expect(
-			provider.createSubscriptionCheckout({
-				attemptId: "11111111-1111-4111-8111-111111111111",
-				customerId: "cus_1",
-				email: "user@example.com",
-				interval: "month",
-				plan: "pro",
-				tierCredits: 250,
-				userId: "user_1",
-			}),
-		).resolves.toEqual({
-			id: "cs_1",
-			url: "https://checkout.stripe.test/cs_1",
-		});
-
-		expect(pricesList).toHaveBeenCalledWith({
-			active: true,
-			limit: 1,
-			lookup_keys: ["pro_250_month"],
-		});
-		expect(sessionsCreate.mock.calls[0]).toHaveLength(2);
-		expect(sessionsCreate.mock.calls[0]?.[0]).toEqual(
-			expect.objectContaining({
-				cancel_url: "http://web.test/billing/cancel",
-				customer: "cus_1",
-				metadata: expect.objectContaining({
-					attemptId: "11111111-1111-4111-8111-111111111111",
-					purpose: "subscription",
-					userId: "user_1",
-				}),
-				mode: "subscription",
-				success_url: "http://web.test/billing/success?purpose=subscription",
-			}),
-		);
-		expect(sessionsCreate.mock.calls[0]?.[1]).toEqual({
-			idempotencyKey:
-				"sub-checkout:user_1:11111111-1111-4111-8111-111111111111",
-		});
-	});
-
 	it("wraps only ambiguous Stripe checkout writes for durable recovery", async () => {
 		const { provider, sessionsCreate } = setup();
+		const input = {
+			amountUsdCents: 2_500,
+			attemptId: "11111111-1111-4111-8111-111111111111",
+			baseCredits: 250,
+			bonusCredits: 0,
+			customerId: "cus_1",
+			organizationId: null,
+			userId: "user_1",
+		};
 		sessionsCreate.mockRejectedValueOnce(
 			new Stripe.errors.StripeConnectionError({
 				message: "connection reset",
@@ -363,35 +322,19 @@ describe("StripeProvider", () => {
 			}),
 		);
 
-		await expect(
-			provider.createSubscriptionCheckout({
-				attemptId: "11111111-1111-4111-8111-111111111111",
-				customerId: "cus_1",
-				email: "user@example.com",
-				interval: "month",
-				plan: "pro",
-				tierCredits: 250,
-				userId: "user_1",
-			}),
-		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
+		await expect(provider.createTopupCheckout(input)).rejects.toBeInstanceOf(
+			AmbiguousPaymentProviderWriteError,
+		);
 
 		sessionsCreate.mockRejectedValueOnce(
 			new Stripe.errors.StripeInvalidRequestError({
-				message: "invalid price",
+				message: "invalid amount",
 				type: "invalid_request_error",
 			}),
 		);
-		await expect(
-			provider.createSubscriptionCheckout({
-				attemptId: "22222222-2222-4222-8222-222222222222",
-				customerId: "cus_1",
-				email: "user@example.com",
-				interval: "month",
-				plan: "pro",
-				tierCredits: 250,
-				userId: "user_1",
-			}),
-		).rejects.toBeInstanceOf(Stripe.errors.StripeInvalidRequestError);
+		await expect(provider.createTopupCheckout(input)).rejects.toBeInstanceOf(
+			Stripe.errors.StripeInvalidRequestError,
+		);
 	});
 
 	it("expires an open subscription checkout session", async () => {
@@ -441,15 +384,17 @@ describe("StripeProvider", () => {
 		expect(sessionsExpire).toHaveBeenCalledOnce();
 	});
 
-	it("sets explicit top-up purpose metadata", async () => {
+	it("charges the attempt amount in USD by card, shows the bonus split, with no amount in the metadata", async () => {
 		const { pricesList, provider, sessionsCreate } = setup();
 
 		await expect(
 			provider.createTopupCheckout({
+				amountUsdCents: 10_000,
 				attemptId: "22222222-2222-4222-8222-222222222222",
-				credits: 700,
+				baseCredits: 1_000,
+				bonusCredits: 100,
 				customerId: "cus_1",
-				packId: "topup_700",
+				organizationId: null,
 				userId: "user_1",
 			}),
 		).resolves.toEqual({
@@ -457,144 +402,40 @@ describe("StripeProvider", () => {
 			url: "https://checkout.stripe.test/cs_1",
 		});
 
-		expect(pricesList).toHaveBeenCalledWith({
-			active: true,
-			limit: 1,
-			lookup_keys: ["topup_700"],
-		});
-		expect(sessionsCreate.mock.calls[0]?.[0]).toEqual(
-			expect.objectContaining({
-				cancel_url: "http://web.test/billing/cancel",
-				metadata: {
-					attemptId: "22222222-2222-4222-8222-222222222222",
-					credits: "700",
-					packId: "topup_700",
-					purpose: "topup",
-					userId: "user_1",
-				},
-				mode: "payment",
-				payment_intent_data: {
-					metadata: {
-						attemptId: "22222222-2222-4222-8222-222222222222",
-						credits: "700",
-						packId: "topup_700",
-						purpose: "topup",
-						userId: "user_1",
+		const metadata = {
+			attemptId: "22222222-2222-4222-8222-222222222222",
+			purpose: "topup",
+			userId: "user_1",
+		};
+		expect(pricesList).not.toHaveBeenCalled();
+		expect(sessionsCreate.mock.calls[0]?.[0]).toEqual({
+			adaptive_pricing: { enabled: false },
+			cancel_url: "http://web.test/billing/cancel",
+			customer: "cus_1",
+			line_items: [
+				{
+					price_data: {
+						currency: "usd",
+						product_data: {
+							description: "1,100 credits (1,000 + 100 bonus)",
+							name: "Wandit credits",
+						},
+						unit_amount: 10_000,
 					},
+					quantity: 1,
 				},
-				success_url: "http://web.test/billing/success?purpose=topup",
-			}),
-		);
+			],
+			metadata,
+			mode: "payment",
+			payment_intent_data: { metadata },
+			payment_method_types: ["card"],
+			success_url:
+				"http://web.test/billing/success?purpose=topup&session_id={CHECKOUT_SESSION_ID}",
+		});
 		expect(sessionsCreate.mock.calls[0]?.[1]).toEqual({
 			idempotencyKey:
 				"topup-checkout:user_1:22222222-2222-4222-8222-222222222222",
 		});
-	});
-
-	// Stripe refuses proration_date with billing_cycle_anchor "now" (Sentry WANDIT-SERVER-Q).
-	it.each([
-		{ billingCycleAnchorNow: true, timing: { billing_cycle_anchor: "now" } },
-		{
-			billingCycleAnchorNow: false,
-			timing: { proration_date: 1_785_587_696 },
-		},
-	])("sends one timing field to preview and metadata-free update (anchor now: $billingCycleAnchorNow)", async ({
-		billingCycleAnchorNow,
-		timing,
-	}) => {
-		const { invoicesCreatePreview, provider, subscriptionsUpdate } = setup();
-		const input = {
-			billingCycleAnchorNow,
-			newPriceLookupKey: "pro_500_year",
-			prorationDate: new Date("2026-08-01T12:34:56.000Z"),
-			providerSubscriptionId: "sub_1",
-		};
-
-		await expect(provider.previewSubscriptionChange(input)).resolves.toEqual({
-			amountDueMinor: 2_500,
-			currency: "usd",
-		});
-		await expect(
-			provider.changeSubscription({
-				...input,
-				idempotencyKey: "sub-change:user_1:intent_1",
-			}),
-		).resolves.toEqual({ outcome: "applied" });
-
-		expect(invoicesCreatePreview).toHaveBeenCalledWith({
-			subscription: "sub_1",
-			subscription_details: {
-				...timing,
-				items: [{ id: "si_1", price: "price_1" }],
-				proration_behavior: "always_invoice",
-			},
-		});
-		const updateParams = subscriptionsUpdate.mock.calls[0]?.[1];
-		expect(updateParams).toEqual({
-			...timing,
-			expand: ["latest_invoice"],
-			items: [{ id: "si_1", price: "price_1" }],
-			payment_behavior: "pending_if_incomplete",
-			proration_behavior: "always_invoice",
-		});
-		expect(updateParams).not.toHaveProperty("metadata");
-		expect(subscriptionsUpdate.mock.calls[0]?.[2]).toEqual({
-			idempotencyKey: "sub-change:user_1:intent_1",
-		});
-	});
-
-	it("recovers an accepted pending update without issuing a second provider write", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
-		const pendingExpiresAt = 1_780_003_600;
-		subscription.latest_invoice = {
-			hosted_invoice_url: "https://invoice.stripe.test/in_pending",
-		} as Stripe.Invoice;
-		subscription.pending_update = {
-			billing_cycle_anchor: null,
-			expires_at: pendingExpiresAt,
-			subscription_items: [
-				{ price: { id: "price_1" } } as Stripe.SubscriptionItem,
-			],
-			trial_end: null,
-			trial_from_plan: false,
-		};
-
-		await expect(
-			provider.changeSubscription({
-				billingCycleAnchorNow: false,
-				idempotencyKey: "sub-change:user_1:intent_pending",
-				newPriceLookupKey: "pro_500_month",
-				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
-				providerSubscriptionId: "sub_1",
-			}),
-		).resolves.toEqual({
-			hostedInvoiceUrl: "https://invoice.stripe.test/in_pending",
-			outcome: "payment_required",
-			pendingExpiresAt: new Date(pendingExpiresAt * 1000),
-		});
-		expect(subscriptionsUpdate).not.toHaveBeenCalled();
-	});
-
-	it("uses the live target price as the durable replay signal after Stripe idempotency expires", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
-		const [item] = subscription.items.data;
-
-		if (!item) {
-			throw new Error("Missing test subscription item");
-		}
-
-		item.price = { id: "price_1" } as Stripe.Price;
-
-		await expect(
-			provider.changeSubscription({
-				billingCycleAnchorNow: false,
-				idempotencyKey: "sub-change:user_1:intent_replay",
-				newPriceLookupKey: "pro_500_month",
-				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
-				providerSubscriptionId: "sub_1",
-			}),
-		).resolves.toEqual({ outcome: "applied" });
-		expect(subscriptionsUpdate).not.toHaveBeenCalled();
 	});
 
 	it("switches a migration price through the shared client without proration", async () => {
@@ -1091,168 +932,37 @@ describe("StripeProvider", () => {
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
 	});
 
-	it("releases the owned downgrade schedule before an immediate upgrade", async () => {
-		const {
-			provider,
-			subscription,
-			subscriptionSchedulesRelease,
-			subscriptionsUpdate,
-		} = setup();
-		subscription.schedule = "sub_sched_1";
-
-		await provider.changeSubscription({
-			billingCycleAnchorNow: false,
-			idempotencyKey: "sub-change:user_1:intent_2",
-			newPriceLookupKey: "pro_500_month",
-			prorationDate: new Date("2026-08-01T12:34:56.000Z"),
-			providerSubscriptionId: "sub_1",
-		});
-
-		expect(subscriptionSchedulesRelease).toHaveBeenCalledWith(
-			"sub_sched_1",
-			{},
-			{
-				idempotencyKey:
-					"sub-change:user_1:intent_2:release-schedule:sub_sched_1",
-			},
-		);
-		expect(subscriptionsUpdate).toHaveBeenCalledTimes(2);
-		expect(subscriptionsUpdate.mock.calls[1]?.[1]).toMatchObject({
-			items: [{ id: "si_1", price: "price_1" }],
-			proration_behavior: "always_invoice",
-		});
-		expect(
-			subscriptionSchedulesRelease.mock.invocationCallOrder[0],
-		).toBeLessThan(subscriptionsUpdate.mock.invocationCallOrder[1] ?? 0);
-	});
-
-	it("scopes repeated release idempotency to the attached schedule id", async () => {
+	it("does not release an unmanaged schedule to end a subscription now", async () => {
 		const {
 			provider,
 			subscription,
 			subscriptionSchedule,
 			subscriptionSchedulesRelease,
-		} = setup();
-		subscription.schedule = "sub_sched_1";
-
-		await provider.cancelScheduledSubscriptionDowngrade(
-			"sub_1",
-			"sub-change:user_1:intent_2:release-schedule",
-		);
-		subscription.schedule = "sub_sched_2";
-		subscriptionSchedule.id = "sub_sched_2";
-		await provider.cancelScheduledSubscriptionDowngrade(
-			"sub_1",
-			"sub-change:user_1:intent_2:release-schedule",
-		);
-
-		expect(
-			subscriptionSchedulesRelease.mock.calls.map(([scheduleId, , options]) => [
-				scheduleId,
-				options?.idempotencyKey,
-			]),
-		).toEqual([
-			[
-				"sub_sched_1",
-				"sub-change:user_1:intent_2:release-schedule:sub_sched_1",
-			],
-			[
-				"sub_sched_2",
-				"sub-change:user_1:intent_2:release-schedule:sub_sched_2",
-			],
-		]);
-	});
-
-	it("releases a pending Starter downgrade before canceling at the paid period end", async () => {
-		const {
-			provider,
-			subscription,
-			subscriptionSchedule,
-			subscriptionSchedulesRelease,
-			subscriptionsUpdate,
-		} = setup();
-		subscription.schedule = "sub_sched_1";
-		subscriptionSchedule.metadata = {
-			...subscriptionSchedule.metadata,
-			wanditScheduleTarget: "starter_60_year",
-		};
-
-		await provider.setCancelAtPeriodEnd("sub_1", true);
-
-		expect(subscriptionSchedulesRelease).toHaveBeenCalledWith(
-			"sub_sched_1",
-			{},
-			{
-				idempotencyKey: "sub-cancel:sub_1:release-schedule:sub_sched_1",
-			},
-		);
-		expect(subscriptionsUpdate).toHaveBeenLastCalledWith("sub_1", {
-			cancel_at_period_end: true,
-		});
-		expect(
-			subscriptionSchedulesRelease.mock.invocationCallOrder[0],
-		).toBeLessThan(subscriptionsUpdate.mock.invocationCallOrder.at(-1) ?? 0);
-	});
-
-	it("preserves the downgrade schedule when resuming an already renewing subscription", async () => {
-		const {
-			provider,
-			subscription,
-			subscriptionSchedulesRelease,
-			subscriptionsUpdate,
-		} = setup();
-		subscription.schedule = "sub_sched_1";
-
-		await provider.setCancelAtPeriodEnd("sub_1", false);
-
-		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
-		expect(subscriptionsUpdate).not.toHaveBeenCalled();
-	});
-
-	it("resumes a subscription that is scheduled to cancel", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
-		subscription.cancel_at_period_end = true;
-
-		await provider.setCancelAtPeriodEnd("sub_1", false);
-
-		expect(subscriptionsUpdate).toHaveBeenCalledWith("sub_1", {
-			cancel_at_period_end: false,
-		});
-	});
-
-	it("does not release an unmanaged schedule to cancel a subscription", async () => {
-		const {
-			provider,
-			subscription,
-			subscriptionSchedule,
-			subscriptionSchedulesRelease,
-			subscriptionsUpdate,
+			subscriptionsCancel,
 		} = setup();
 		subscription.schedule = "sub_sched_1";
 		subscriptionSchedule.metadata = {};
 
-		await expect(provider.setCancelAtPeriodEnd("sub_1", true)).rejects.toThrow(
-			"controlled by an unmanaged schedule",
-		);
+		await expect(
+			provider.cancelSubscriptionNow("sub_1", "admin-refund-cancel:sub_1"),
+		).rejects.toThrow("controlled by an unmanaged schedule");
 
 		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
-		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+		expect(subscriptionsCancel).not.toHaveBeenCalled();
 	});
 
-	it("keeps cancellation retryable if releasing the downgrade succeeds before cancellation fails", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
+	it("keeps an immediate cancel retryable if the schedule release succeeds before the cancel fails", async () => {
+		const { provider, subscription, subscriptionsCancel } = setup();
 		subscription.schedule = "sub_sched_1";
-		subscriptionsUpdate
-			.mockResolvedValueOnce(subscription)
-			.mockRejectedValueOnce(
-				new Stripe.errors.StripeInvalidRequestError({
-					message: "cancellation update rejected",
-					type: "invalid_request_error",
-				}),
-			);
+		subscriptionsCancel.mockRejectedValueOnce(
+			new Stripe.errors.StripeInvalidRequestError({
+				message: "cancellation rejected",
+				type: "invalid_request_error",
+			}),
+		);
 
 		await expect(
-			provider.setCancelAtPeriodEnd("sub_1", true),
+			provider.cancelSubscriptionNow("sub_1", "admin-refund-cancel:sub_1"),
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
 	});
 
@@ -1273,51 +983,6 @@ describe("StripeProvider", () => {
 
 		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
 		expect(subscriptionsCancel).not.toHaveBeenCalled();
-	});
-
-	it("keeps an upgrade retryable when schedule release succeeded before a definite update error", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
-		subscription.schedule = "sub_sched_1";
-		subscriptionsUpdate
-			.mockResolvedValueOnce(subscription)
-			.mockRejectedValueOnce(
-				new Stripe.errors.StripeInvalidRequestError({
-					message: "invalid subscription update",
-					type: "invalid_request_error",
-				}),
-			);
-
-		await expect(
-			provider.changeSubscription({
-				billingCycleAnchorNow: false,
-				idempotencyKey: "sub-change:user_1:intent_2",
-				newPriceLookupKey: "pro_500_month",
-				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
-				providerSubscriptionId: "sub_1",
-			}),
-		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
-	});
-
-	it("keeps stale schedule-owner cleanup retryable after the remote schedule is already gone", async () => {
-		const { provider, subscription, subscriptionsUpdate } = setup();
-		subscription.metadata = {
-			wanditScheduleIntent: "sub-change:user_1:intent_1",
-			wanditScheduleOwner: "period_end_downgrade",
-			wanditScheduleTarget: "pro_250_month",
-		};
-		subscriptionsUpdate.mockRejectedValueOnce(
-			new Stripe.errors.StripeInvalidRequestError({
-				message: "metadata cleanup rejected",
-				type: "invalid_request_error",
-			}),
-		);
-
-		await expect(
-			provider.cancelScheduledSubscriptionDowngrade(
-				"sub_1",
-				"sub-change:user_1:intent_2:release-schedule",
-			),
-		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
 	});
 
 	it("creates and caches a restricted portal configuration without cancellation", async () => {
