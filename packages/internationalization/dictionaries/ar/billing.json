@@ -1,242 +1,121 @@
 {
 	"meta": {
-		"title": "الفوترة — Wandit"
+		"title": "المحفظة — Wandit"
 	},
 	"page": {
-		"title": "الفوترة",
-		"description": "أدر خطتك وأرصدتك وسجل الفوترة.",
-		"betaBadge": "نسخة تجريبية خاصة",
-		"betaBody": "عمليات الشراء متوقفة خلال النسخة التجريبية الخاصة. تبقى الأرصدة الممنوحة متاحة لك.",
-		"loadErrorTitle": "تعذر تحميل الفوترة",
-		"loadErrorBody": "تعذر تحميل أحدث معلومات الفوترة. حاول مرة أخرى.",
+		"title": "المحفظة",
+		"description": "أرصدتك وعمليات الشحن ومدفوعاتك. لا تنتهي صلاحية الأرصدة أبدًا.",
+		"loadErrorTitle": "تعذر تحميل محفظتك",
+		"loadErrorBody": "تعذر تحميل أحدث معلومات محفظتك. حاول مرة أخرى.",
 		"retry": "إعادة المحاولة",
-		"balanceTitle": "رصيد الأرصدة",
-		"balanceDescription": "تُستخدم الأرصدة بالترتيب: الخطة ثم الترويجية ثم أرصدة الشحن.",
-		"totalBalance": "الإجمالي المتاح",
-		"subscriptionTitle": "الخطة الحالية",
-		"subscriptionDescription": "حالة اشتراكك وتفاصيل التجديد.",
-		"noSubscriptionTitle": "لا يوجد اشتراك نشط",
-		"noSubscriptionBody": "اختر خطة عندما تصبح مستعدًا للاشتراك.",
-		"statusLabel": "الحالة",
-		"renewsLabel": "يتجدد في",
-		"endsLabel": "ينتهي في",
-		"pendingTierLabel": "الفئة التالية",
-		"creditsPerCycle": "{count} رصيدًا لكل دورة",
-		"changePlan": "تغيير الخطة",
-		"choosePlan": "اختيار خطة",
-		"openPortal": "بوابة الفوترة",
-		"cancelPlan": "إلغاء الخطة",
-		"cancelTitle": "هل تريد إلغاء اشتراكك؟",
-		"cancelBody": "تبقى خطتك نشطة حتى نهاية فترة الفوترة الحالية. يمكنك استئنافها قبل ذلك.",
-		"cancelOffer": {
-			"title": "جرّب Starter بدلًا من ذلك",
-			"body": "تبقى خطتك الحالية نشطة حتى ⁨{date}⁩. تبدأ Starter عند التجديد. يمكنك الإلغاء في أي وقت.",
-			"cta": "انتقل إلى Starter بدلًا من ذلك",
-			"orCancel": "أو أخبرنا لماذا تريد المغادرة"
-		},
-		"cancelReasonPrompt": "ما السبب الرئيسي لإلغاء اشتراكك؟",
-		"cancelReasons": {
-			"too_expensive": "السعر مرتفع جدًا",
-			"not_using_enough": "لا أستخدمه بما يكفي",
-			"missing_features": "تنقصه ميزات أحتاج إليها",
-			"technical_issues": "مشكلات تقنية",
-			"switching_provider": "سأنتقل إلى أداة أخرى",
-			"temporary_pause": "سأتوقف مؤقتًا في الوقت الحالي",
-			"other": "سبب آخر"
-		},
-		"cancelDetailsLabel": "أخبرنا بالمزيد",
-		"cancelDetailsOptional": "(اختياري)",
-		"cancelDetailsPlaceholder": "شارك أي تفاصيل قد تساعدنا على التحسين.",
-		"cancelDetailsRequired": "يرجى تزويدنا ببعض التفاصيل.",
-		"keepPlan": "الاحتفاظ بالخطة",
-		"confirmCancel": "الإلغاء في نهاية الفترة",
-		"cancelling": "جارٍ جدولة الإلغاء…",
-		"resumePlan": "استئناف الخطة",
-		"resuming": "جارٍ الاستئناف…",
-		"cancelSuccess": "ستنتهي خطتك عند إغلاق فترة الفوترة الحالية.",
-		"resumeSuccess": "ستتجدد خطتك بصورة طبيعية.",
-		"topupsTitle": "حزم الشحن",
-		"topupsDescription": "أضف أرصدة دون تغيير فئة اشتراكك.",
-		"buyTopup": "شراء {count} رصيدًا",
+		"balanceTitle": "رصيد المحفظة",
+		"personalWallet": "المحفظة الشخصية",
+		"teamWallet": "محفظة {name}",
+		"totalBalance": "الأرصدة المتاحة",
+		"negativeBalance": "رصيدك أقل من الصفر. استرجع رد مبلغ أو نزاع أرصدة سبق استخدامها. اشحن محفظتك للمتابعة.",
+		"topup": "شحن الرصيد",
+		"purchasesPaused": "الشحن متاح قريبًا. يمكنك استخدام أرصدتك كالمعتاد.",
+		"pastInvoices": "الفواتير السابقة",
 		"ledgerTitle": "نشاط الأرصدة",
-		"ledgerDescription": "سجل كامل للمنح والاستخدام والانتهاء وعمليات الشحن.",
+		"ledgerDescription": "كل رصيد يدخل هذه المحفظة أو يخرج منها.",
 		"previousPage": "السابق",
 		"nextPage": "التالي",
 		"pageStatus": "الصفحة {page} من {totalPages}",
-		"offline": {
-			"badge": "مدفوع مسبقًا",
-			"expiresLabel": "ينتهي في",
-			"requestChange": "طلب التجديد أو التغيير",
-			"graceTitle": "موعد الدفع خارج المنصة",
-			"graceNotice": "انتهت فترة اشتراكك المدفوعة في ⁨{endDate}⁩. جدّد قبل ⁨{accessEndDate}⁩ للاحتفاظ بخطتك.",
-			"pending": {
-				"title": "طلب الدفع خارج المنصة قيد الانتظار",
-				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
-				"cancel": "إلغاء الطلب",
-				"cancelling": "جارٍ الإلغاء…",
-				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
-				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
-				"keep": "الاحتفاظ بالطلب",
-				"confirmCancel": "إلغاء الطلب",
-				"cancelSuccess": "تم إلغاء طلبك."
-			}
+		"workspacePersonal": "شخصي",
+		"runway": {
+			"days": {
+				"zero": "حوالي {count} يوم بوتيرتك الحالية",
+				"one": "حوالي يوم واحد بوتيرتك الحالية",
+				"two": "حوالي يومين بوتيرتك الحالية",
+				"few": "حوالي {count} أيام بوتيرتك الحالية",
+				"many": "حوالي {count} يومًا بوتيرتك الحالية",
+				"other": "حوالي {count} يوم بوتيرتك الحالية"
+			},
+			"weeks": {
+				"zero": "حوالي {count} أسبوع بوتيرتك الحالية",
+				"one": "حوالي أسبوع واحد بوتيرتك الحالية",
+				"two": "حوالي أسبوعين بوتيرتك الحالية",
+				"few": "حوالي {count} أسابيع بوتيرتك الحالية",
+				"many": "حوالي {count} أسبوعًا بوتيرتك الحالية",
+				"other": "حوالي {count} أسبوع بوتيرتك الحالية"
+			},
+			"longer": "أكثر من ستة أشهر بوتيرتك الحالية",
+			"lessThanDay": "أقل من يوم بوتيرتك الحالية"
+		},
+		"neverExpire": "لا تنتهي صلاحية أرصدتك أبدًا",
+		"topupCard": {
+			"title": "أضف أرصدة",
+			"description": "حرّك المؤشر أو اكتب مبلغًا. ترى كل رصيد قبل أن تدفع."
+		},
+		"continue": "متابعة · {amount} ← {credits}",
+		"tabs": {
+			"label": "سجل المحفظة",
+			"activity": "النشاط",
+			"payments": "المدفوعات"
 		}
 	},
-	"status": {
-		"active": "نشط",
-		"trialing": "تجريبي",
-		"past_due": "دفعة متأخرة",
-		"unpaid": "غير مدفوع",
-		"paused": "متوقف مؤقتًا",
-		"canceled": "ملغى",
-		"incomplete": "غير مكتمل",
-		"incomplete_expired": "منتهي",
-		"unknown": "يحتاج إلى متابعة",
-		"canceling": "ينتهي عند إغلاق الفترة"
+	"payments": {
+		"title": "سجل المدفوعات",
+		"description": "آخر 50 دفعة لهذه المحفظة.",
+		"empty": "لا توجد مدفوعات بعد.",
+		"loadError": "تعذر تحميل سجل المدفوعات.",
+		"dateLabel": "التاريخ",
+		"methodLabel": "الطريقة",
+		"amountLabel": "المبلغ",
+		"creditsLabel": "الأرصدة",
+		"stateLabel": "الحالة",
+		"providers": {
+			"stripe": "البطاقة",
+			"slickpay": "CIB / Edahabia",
+			"offline": "نقدًا / تحويل"
+		},
+		"paid": "مدفوع",
+		"reversed": "أُلغي في {date}",
+		"revoked": "استُرجع {credits}"
 	},
-	"planPicker": {
-		"loadingTitle": "جارٍ تحميل الخطط",
-		"loadingBody": "جارٍ جلب أحدث قائمة وخطة اشتراكك.",
-		"loadErrorTitle": "تعذر تحميل الخطط",
-		"loadErrorBody": "تعذر تحميل أحدث الخطط. أغلق هذه النافذة وحاول مرة أخرى.",
-		"catalogEmptyBody": "قائمة الخطط غير متاحة مؤقتًا.",
-		"betaBadge": "نسخة تجريبية خاصة",
-		"betaTitle": "عمليات الشراء غير متاحة بعد",
-		"betaBody": "تبقى أرصدتك الحالية متاحة أثناء توقف الاشتراكات وحزم الشحن.",
-		"chooseTitle": "اختر خطتك",
-		"chooseDescription": "اختر دورة الفوترة وكمية الأرصدة الشهرية المناسبة لعملك.",
-		"starterName": "Starter",
-		"starterTagline": "لمتجرك الأول وحملاتك الأولى",
-		"proName": "Pro",
-		"proTagline": "للبائعين الذين ينشئون ويحسّنون أعمالهم كل شهر",
-		"popularBadge": "الأكثر رواجًا",
-		"businessName": "الأعمال",
-		"businessTagline": "للفرق التي تتشارك رصيدًا واحدًا",
-		"businessFromPrice": "ابتداءً من {price}",
-		"starterFeatures": [
-			"صفحات متجر جاهزة بالذكاء الاصطناعي في دقائق",
-			"صور المنتجات ونصوص التسويق بالذكاء الاصطناعي",
-			"نطاق مخصص مضمّن",
-			"إدارة العملاء المحتملين لطلباتك",
-			"النشر مجاني دائمًا، وإلغاء في أي وقت"
-		],
-		"proFeatures": [
-			"رصيد خطة جديد كل شهر",
-			"أدوات تسويق وحملات بالذكاء الاصطناعي",
-			"توليد الصور بالذكاء الاصطناعي",
-			"مكتبة الأصول",
-			"نطاقات مخصصة",
-			"ربط التطبيقات والتكاملات",
-			"إدارة العملاء المحتملين لطلباتك",
-			"النشر مجاني دائمًا"
-		],
-		"businessFeatures": [
-			"كل ما في باقة Pro",
-			"رصيد مشترك واحد لكامل الفريق",
-			"أدوار ودعوات وحدود رصيد لكل عضو",
-			"مقاعد غير محدودة — تدفع مقابل الرصيد لا الأشخاص"
-		],
-		"changeTitle": "تغيير خطتك",
-		"changeDescription": "عاين المبلغ الدقيق وتغيير الأرصدة قبل التأكيد.",
-		"currentPlan": "الاشتراك الحالي",
+	"topup": {
+		"title": "اشحن محفظتك",
+		"personalWallet": "تذهب الأرصدة إلى محفظتك الشخصية.",
+		"teamWallet": "تذهب الأرصدة إلى محفظة {name}.",
+		"loadErrorTitle": "تعذر تحميل خيارات الشحن",
+		"loadErrorBody": "أغلق هذه النافذة وحاول مرة أخرى.",
+		"pausedBody": "تبقى أرصدتك متاحة. حاول لاحقًا.",
+		"amountLabel": "المبلغ",
+		"customAmountLabel": "مبلغ آخر بالدولار الأمريكي",
+		"customAmountHint": "عدد صحيح من {min} إلى {max}.",
+		"amountErrors": {
+			"empty": "اختر مبلغًا أو أدخله.",
+			"notWholeNumber": "أدخل عددًا صحيحًا، مثلًا 40.",
+			"belowMinimum": "الحد الأدنى هو {min}.",
+			"aboveMaximum": "الحد الأقصى هو {max}."
+		},
+		"creditsYouGet": "تحصل على {credits}",
 		"requiredCredits": "المطلوب",
 		"availableCredits": "المتاح",
 		"heldCredits": "محجوزة لعمليات توليد قيد التشغيل",
-		"billingCycle": "دورة الفوترة",
-		"monthly": "شهري",
-		"yearly": "سنوي",
-		"twoMonthsFree": "شهران مجانًا",
-		"yearlyToMonthlyUnavailable": "التحويل من الخطة السنوية إلى الشهرية غير متاح في هذا الإصدار.",
-		"creditTier": "الأرصدة شهريًا",
-		"creditsEveryMonth": {
-			"zero": "لا أرصدة كل شهر",
-			"one": "رصيد واحد كل شهر",
-			"two": "رصيدان كل شهر",
-			"few": "{count} أرصدة كل شهر",
-			"many": "{count} رصيدًا كل شهر",
-			"other": "{count} رصيد كل شهر"
+		"methodsLabel": "طريقة الدفع",
+		"methods": {
+			"card": "البطاقة",
+			"slickpay": "CIB / Edahabia",
+			"offline": "نقدًا / تحويل"
 		},
-		"selectedPrice": "سعر الخطة",
-		"perMonth": "/ شهر",
-		"perYear": "/ سنة",
-		"savePercent": "وفّر {percent}%",
-		"topupTitle": "هل تحتاج إلى أرصدة الآن؟",
-		"topupBody": "لا تغيّر حزمة الشحن خطتك المتكررة.",
-		"currentSelection": "الخطة الحالية",
-		"preparing": "جارٍ التحضير…",
-		"previewChange": "معاينة التغيير",
-		"continueToCheckout": "ترقية",
-		"previewTitle": "مراجعة تغيير الخطة",
-		"previewDescription": "تُثبّت هذه المعاينة لفترة قصيرة حتى يبقى المبلغ المؤكد متسقًا.",
-		"newPlan": "الخطة الجديدة",
-		"payNowCredits": "ادفع {amount} الآن · {credits} رصيدًا",
-		"upgradeExplanation": "يُحصَّل سعر الفئة الجديدة كاملًا الآن ويُعاد إليك المبلغ عن المدة غير المستخدمة من فئتك الحالية. تُعاد أرصدة خطتك فورًا إلى الحصة الكاملة للفئة الجديدة.",
-		"changesAtRenewal": "يتغير عند التجديد",
-		"downgradeExplanation": "تبقى فئتك الحالية نشطة حتى نهاية هذه الفترة. تبدأ الفئة الأقل عند التجديد.",
-		"keepCurrentPlanExplanation": "ستتجدد خطتك الحالية كالمعتاد. سيُلغى التغيير المجدول دون أي رسوم أو تغيير في رصيدك.",
-		"back": "رجوع",
-		"applying": "جارٍ التطبيق…",
-		"confirmChange": "تأكيد التغيير",
-		"changeAppliedTitle": "تم تأكيد تغيير الخطة",
-		"changeAppliedBody": "فئتك الجديدة نشطة. سيتحدث الرصيد عند اكتمال الفوترة.",
-		"downgradeAppliedBody": "تمت جدولة الفئة الأقل للتجديد التالي.",
-		"keepCurrentPlanAppliedBody": "أُلغي التغيير المجدول. ستتجدد خطتك الحالية كالمعتاد.",
-		"paymentRequiredTitle": "يلزم إجراء للدفع",
-		"paymentRequiredBody": "أكمل الدفع في الفاتورة المستضافة لإنهاء تغيير الخطة.",
-		"openInvoice": "فتح الفاتورة",
-		"changeFailedTitle": "فشل تغيير الخطة",
-		"changeFailedBody": "تعذر على مزود الدفع تطبيق هذا التغيير. أنشئ معاينة جديدة وحاول مرة أخرى.",
-		"tryAgain": "إعادة المحاولة",
-		"done": "تم",
-		"changePendingError": "يوجد تغيير خطة ينتظر الدفع بالفعل.",
-		"previewExpiredError": "انتهت صلاحية هذه المعاينة. ارجع وأنشئ معاينة جديدة.",
-		"previewInvalidError": "استُخدمت هذه المعاينة من قبل أو لم تعد صالحة.",
-		"resumeFirstTitle": "استأنف الاشتراك قبل تغيير الفئة",
-		"resumeFirstBody": "تم ضبط هذا الاشتراك لينتهي. استأنفه أولًا ثم اختر فئة أخرى.",
-		"resume": "استئناف الاشتراك",
-		"resuming": "جارٍ الاستئناف…",
-		"paymentAttentionTitle": "أصلح دفعة الاشتراك",
-		"paymentAttentionBody": "افتح بوابة الفوترة لمعالجة الدفع قبل تغيير الفئة.",
-		"openPortal": "فتح بوابة الفوترة",
-		"close": "إغلاق",
+		"card": {
+			"description": "ادفع بالدولار الأمريكي على صفحة Stripe الآمنة. تدفع مرة واحدة.",
+			"redirecting": "جارٍ فتح Stripe…"
+		},
 		"slickpay": {
-			"tab": "CIB / Edahabia",
-			"title": "الدفع عبر CIB / Edahabia",
-			"description": "ادفع بالدينار الجزائري على صفحة SlickPay الآمنة. يغطي الدفع الواحد شهرًا أو سنة، ولا يتجدد تلقائيًا.",
+			"description": "ادفع بالدينار الجزائري على صفحة SlickPay الآمنة. تدفع مرة واحدة.",
 			"formTitle": "معلومات الدفع",
 			"formDescription": "يعرض SlickPay هذه المعلومات على فاتورتك.",
-			"renewTitle": "جدّد خطتك",
-			"renewBody": "تدفع مقابل فترة إضافية من خطتك الحالية. تبدأ الفترة الجديدة عند انتهاء الفترة الحالية.",
 			"cityLabel": "المدينة أو الولاية",
 			"cityPlaceholder": "مثال: الجزائر",
 			"cityError": "أدخل مدينتك أو ولايتك.",
 			"pay": "ادفع {amount} عبر CIB / Edahabia",
-			"renew": "جدّد مقابل {amount}",
 			"redirecting": "جارٍ فتح SlickPay…"
 		},
 		"offline": {
-			"tabs": {
-				"ariaLabel": "طريقة الدفع",
-				"card": "البطاقة",
-				"offline": "الدفع عند الاستلام"
-			},
-			"managed": {
-				"title": "تُدار خطتك خارج المنصة",
-				"body": "أرسل إلينا طلبًا لتغييرها أو تجديدها."
-			},
-			"cardActive": {
-				"title": "خطتك مدفوعة بالبطاقة",
-				"body": "للتحول إلى الدفع نقدًا أو بالتحويل، ألغِ اشتراكك بالبطاقة أولًا — يبقى نشطًا حتى نهاية الفترة المدفوعة — ثم أرسل لنا طلبًا."
-			},
-			"title": "الدفع نقدًا أو بالتحويل",
-			"description": "اختر خطتك وأدخل بيانات التواصل. سنتصل بك لترتيب الدفع.",
+			"description": "أخبرنا كيف نتواصل معك. سنتصل بك لترتيب دفع {amount}.",
 			"localPriceNote": "سنتفق معك على السعر المحلي أثناء المكالمة.",
-			"steps": {
-				"label": "الخطوة {current} من {total}",
-				"plan": "اختر خطتك"
-			},
-			"continue": "متابعة",
-			"changePlan": "تغيير",
 			"form": {
 				"title": "بيانات التواصل",
 				"description": "أدخل البيانات التي سنستخدمها للتواصل معك بشأن هذا الطلب.",
@@ -273,9 +152,6 @@
 				"OTHER": "بلد آخر"
 			},
 			"validation": {
-				"plan": "اختر خطة صالحة.",
-				"tierCredits": "اختر فئة أرصدة.",
-				"interval": "اختر دورة فوترة.",
 				"fullName": "أدخل اسمًا من حرفين على الأقل وبحد أقصى 120 حرفًا.",
 				"phone": "أدخل رقم هاتف صالحًا.",
 				"company": "يجب ألا يتجاوز اسم الشركة 120 حرفًا.",
@@ -287,26 +163,62 @@
 			},
 			"submit": "إرسال الطلب",
 			"submitting": "جارٍ الإرسال…",
-			"close": "إغلاق",
 			"success": {
 				"title": "تم استلام الطلب",
 				"body": "استلمنا طلبك. سنتصل بك قريبًا على الرقم ⁨{phone}⁩."
-			},
-			"pending": {
-				"title": "طلب الدفع خارج المنصة قيد الانتظار",
-				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
-				"planLabel": "الخطة",
-				"tierLabel": "فئة الأرصدة",
-				"cycleLabel": "دورة الفوترة",
-				"createdLabel": "تاريخ الإرسال",
-				"cancel": "إلغاء الطلب",
-				"cancelling": "جارٍ الإلغاء…",
-				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
-				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
-				"keep": "الاحتفاظ بالطلب",
-				"confirmCancel": "إلغاء الطلب",
-				"cancelSuccess": "تم إلغاء طلبك."
 			}
-		}
+		},
+		"close": "إغلاق",
+		"amountInputLabel": "المبلغ بالدولار الأمريكي",
+		"presetsLabel": "مبالغ سريعة",
+		"bonusLabel": "+{percent}٪",
+		"bonusTrack": {
+			"label": "مكافأة الكمية",
+			"base": "السعر الأساسي"
+		},
+		"receipt": {
+			"label": "عملية الشحن",
+			"youPay": "تدفع",
+			"localPrice": "أو {price} عبر CIB / Edahabia",
+			"credits": "الأرصدة",
+			"bonus": "المكافأة {percent}",
+			"youGet": "تحصل على",
+			"totalUnit": {
+				"zero": "رصيد",
+				"one": "رصيد",
+				"two": "رصيدان",
+				"few": "أرصدة",
+				"many": "رصيدًا",
+				"other": "رصيد"
+			},
+			"footer": "لا تنتهي صلاحيتها. تعمل في كل مشاريعك."
+		},
+		"nudge": "أضف {amount} لتصل إلى {bonus}",
+		"payAction": "ادفع {amount} · احصل على {credits}",
+		"shortfall": "ينقصك {credits}. يكفي مبلغ {amount}.",
+		"openSoon": "الشحن متاح قريبًا",
+		"youGetWithBonus": "تحصل على {credits}، منها {bonus} مكافأة"
+	},
+	"offlineRequest": {
+		"title": "طلب الشحن خارج المنصة قيد الانتظار",
+		"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
+		"amountLabel": "المبلغ",
+		"createdLabel": "تاريخ الإرسال",
+		"cancel": "إلغاء الطلب",
+		"cancelling": "جارٍ الإلغاء…",
+		"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
+		"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
+		"keep": "الاحتفاظ بالطلب",
+		"confirmCancel": "إلغاء الطلب",
+		"cancelSuccess": "تم إلغاء طلبك."
+	},
+	"history": {
+		"plans": {
+			"starter": "خطة Starter",
+			"pro": "خطة Pro",
+			"business": "خطة Business"
+		},
+		"month": "شهري",
+		"year": "سنوي"
 	}
 }

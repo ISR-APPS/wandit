@@ -26,10 +26,10 @@ import {
 	type BillingReturnCopy,
 	getBillingReturnCopy,
 } from "@/features/billing/lib/billing-return-copy";
-import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
-import { formatDzd } from "@/features/billing/lib/plan-pricing";
-import { creditsKeys } from "@/features/credits/api/credits.queries";
-import { useDictionary, useTranslation } from "@/lib/i18n";
+import { formatDzd } from "@/features/billing/lib/price-format";
+import { usePurchaseSummary } from "@/features/billing/lib/purchase-summary";
+import { creditsKeys, formatCreditAmount } from "@/features/credits";
+import { useTranslation } from "@/lib/i18n";
 
 // The same cadence and limit as the Stripe order return page (billing-success-page.tsx).
 const POLL_INTERVAL_MS = 3_000;
@@ -87,7 +87,7 @@ function SlickpayPaymentFlow({ paymentId }: { paymentId: string }) {
 			return;
 		}
 
-		// The buyer paid in the active workspace, so its subscription and credits reload.
+		// The buyer paid in the active workspace, so its wallet, payments, and credits reload.
 		void queryClient.invalidateQueries({ queryKey: billingKeys.scope() });
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 	}, [isFulfilled, queryClient]);
@@ -197,25 +197,35 @@ function returnStateFor(
 	}
 }
 
+/** A v8 row shows its USD amount and the credits that the server stored, bonus included. A row from before v8 shows its plan. */
 function PaymentDetails({ view }: { view: SlickpayPaymentView }) {
 	const { locale, t } = useTranslation();
-	const planPickerCopy = useDictionary().billing.planPicker;
 	const copy = getBillingReturnCopy(locale).slickpay;
+	const purchaseSummary = usePurchaseSummary();
 
 	return (
 		<dl className="grid gap-3 sm:grid-cols-2">
 			<div className="min-w-0">
-				<dt className="text-[11px] text-muted-foreground">{copy.planLabel}</dt>
+				<dt className="text-[11px] text-muted-foreground">
+					{copy.purchaseLabel}
+				</dt>
 				<dd className="mt-1 font-medium text-[13px]">
-					{getBillingPlanName(view.plan, planPickerCopy)}
-					{" · "}
-					{t("credits.creditUnit", { count: view.tierCredits })}
-					{" · "}
-					{view.interval === "year"
-						? planPickerCopy.yearly
-						: planPickerCopy.monthly}
+					{purchaseSummary(view)}
 				</dd>
 			</div>
+			{view.credits !== null ? (
+				<div className="min-w-0">
+					<dt className="text-[11px] text-muted-foreground">
+						{copy.creditsLabel}
+					</dt>
+					<dd className="mt-1 font-medium text-[13px] tabular-nums">
+						{t("credits.creditUnit", {
+							count: view.credits,
+							countDisplay: formatCreditAmount(view.credits, locale),
+						})}
+					</dd>
+				</div>
+			) : null}
 			<div className="min-w-0">
 				<dt className="text-[11px] text-muted-foreground">
 					{copy.amountLabel}

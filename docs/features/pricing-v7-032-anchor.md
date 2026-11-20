@@ -1,5 +1,7 @@
 # Pricing v7 — 1 credit = $0.032 of AI, the 250-credit Pro ladder returns
 
+> **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
+
 Decision date: 2026-09-04 (founder + co-founder). Supersedes the credit unit of
 `pricing-v5-usd-anchor.md` §1, the catalog of `pricing-v6-starter-plan.md` §2
 and the grant of `pricing-v6-starter-plan.md` §3 (all stay as history).

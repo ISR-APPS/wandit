@@ -1,3 +1,15 @@
+/**
+ * Pure money and date rules of affiliate commissions: base, rate, window, hold, clawback.
+ * Called by the commission, clawback, and payout services and the affiliates repository.
+ */
+
+/**
+ * `billing_reason` of a candidate whose source is a top-up Checkout Session (`cs_` id).
+ * Stripe has no such value; the reconcile sweep reads it to call `retrieveCheckoutSession`.
+ */
+export const TOPUP_BILLING_REASON = "topup";
+
+/** Stripe invoice reasons that earn. Kept for old invoices after pay as you go. */
 export const COMMISSIONABLE_BILLING_REASONS = [
 	"subscription_create",
 	"subscription_cycle",

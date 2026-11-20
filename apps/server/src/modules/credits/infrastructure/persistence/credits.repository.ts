@@ -9,7 +9,7 @@ import {
 	type CreditKind,
 	type PaginationQuery,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "@wandit/db";
 import {
 	aiUsageEvents,
 	type aiUsageOperation,
@@ -185,20 +185,47 @@ export class CreditsRepository {
 	 * reverse those rows with narrowly keyed grants, so subtracting the matching
 	 * refunds keeps failed or over-reserved work from counting as credits used.
 	 * Organization rows are deliberately excluded even when user_id records the
-	 * acting member.
+	 * acting member. The sum is a bigint: a lifetime total can pass the int
+	 * range (21.4M credits). The lifecycle emails and the spend badges read it.
 	 */
 	async netConsumedCentiCredits(
 		userId: string,
 		client: CreditsDbClient = this.db,
 	): Promise<number> {
 		const result = await client.execute(sql`
-			select coalesce(-sum(${creditLedger.delta}), 0)::int as total
+			select coalesce(-sum(${creditLedger.delta}), 0)::bigint as total
 			from ${creditLedger}
 			where ${creditLedger.userId} = ${userId}
 				and ${creditLedger.organizationId} is null
 				and ${this.netConsumptionRowPredicate()}
 		`);
 		const row = result.rows[0] as { total?: unknown } | undefined;
+
+		return Number(row?.total ?? 0);
+	}
+
+	/**
+	 * Net consumption of the pool of `owner` since `since`, in integer centi-credits.
+	 * It uses the same rows as netConsumedCentiCredits, and it includes in-flight reserves.
+	 * The wallet view calls it through CreditsService. The result can be negative when a refund is late.
+	 */
+	async netConsumedCentiCreditsSince(
+		owner: CreditOwner,
+		since: Date,
+	): Promise<number> {
+		// The user_id or organization_id index with created_at serves the owner and date filters.
+		const [row] = await this.db
+			.select({
+				total: sql<string>`coalesce(-sum(${creditLedger.delta}), 0)::bigint`,
+			})
+			.from(creditLedger)
+			.where(
+				and(
+					this.ledgerOwnerPredicate(owner),
+					gte(creditLedger.createdAt, since),
+					this.netConsumptionRowPredicate(),
+				),
+			);
 
 		return Number(row?.total ?? 0);
 	}
@@ -571,25 +598,6 @@ export class CreditsRepository {
 		return existing;
 	}
 
-	listRefundablePlanHolds(
-		owner: CreditOwner,
-		client: CreditsDbClient = this.db,
-	): Promise<CreditPlanHoldRow[]> {
-		return client
-			.select()
-			.from(creditPlanHolds)
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			)
-			.orderBy(
-				asc(creditPlanHolds.createdAt),
-				asc(creditPlanHolds.consumeIdempotencyKey),
-			);
-	}
-
 	async findPlanHoldPools(
 		poolIds: string[],
 		client: CreditsDbClient = this.db,
@@ -602,50 +610,6 @@ export class CreditsRepository {
 			.select()
 			.from(creditPlanHoldPools)
 			.where(inArray(creditPlanHoldPools.id, poolIds));
-	}
-
-	async insertPlanHoldPool(
-		input: {
-			boundaryIdempotencyKey: string;
-			remainingCredits: number;
-			owner: CreditOwner;
-		},
-		client: CreditsDbClient = this.db,
-	): Promise<CreditPlanHoldPoolRow> {
-		const [inserted] = await client
-			.insert(creditPlanHoldPools)
-			.values({
-				boundaryIdempotencyKey: input.boundaryIdempotencyKey,
-				remainingCredits: input.remainingCredits,
-				...ownerColumns(input.owner),
-			})
-			.onConflictDoNothing({
-				target: creditPlanHoldPools.boundaryIdempotencyKey,
-			})
-			.returning();
-
-		if (inserted) {
-			return inserted;
-		}
-
-		const [existing] = await client
-			.select()
-			.from(creditPlanHoldPools)
-			.where(
-				eq(
-					creditPlanHoldPools.boundaryIdempotencyKey,
-					input.boundaryIdempotencyKey,
-				),
-			)
-			.limit(1);
-
-		if (!existing) {
-			throw new Error(
-				`Credit plan hold pool ${input.boundaryIdempotencyKey} disappeared after conflict`,
-			);
-		}
-
-		return existing;
 	}
 
 	async updatePlanHoldRefundable(
@@ -733,87 +697,6 @@ export class CreditsRepository {
 			.returning();
 
 		return updated ?? null;
-	}
-
-	async applyPlanHoldBoundary(
-		owner: CreditOwner,
-		poolId: string | null,
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		await client
-			.update(creditPlanHolds)
-			.set({ poolId: null, refundableCredits: 0, updatedAt: new Date() })
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					eq(creditPlanHolds.active, false),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-
-		await client
-			.update(creditPlanHolds)
-			.set(
-				poolId
-					? { poolId, updatedAt: new Date() }
-					: { poolId: null, refundableCredits: 0, updatedAt: new Date() },
-			)
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					eq(creditPlanHolds.active, true),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-	}
-
-	async closePlanHoldPools(
-		owner: CreditOwner,
-		poolIds: string[],
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		if (poolIds.length === 0) {
-			return;
-		}
-
-		await client
-			.update(creditPlanHoldPools)
-			.set({
-				closedAt: new Date(),
-				remainingCredits: 0,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					this.poolOwnerPredicate(owner),
-					inArray(creditPlanHoldPools.id, poolIds),
-				),
-			);
-	}
-
-	async forfeitAllPlanHolds(
-		owner: CreditOwner,
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		const holds = await this.listRefundablePlanHolds(owner, client);
-		const poolIds = [...new Set(holds.flatMap((hold) => hold.poolId ?? []))];
-
-		await client
-			.update(creditPlanHolds)
-			.set({
-				active: false,
-				poolId: null,
-				refundableCredits: 0,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-
-		await this.closePlanHoldPools(owner, poolIds, client);
 	}
 
 	// Personal predicates require organization_id IS NULL so an org row whose

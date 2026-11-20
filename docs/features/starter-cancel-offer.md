@@ -1,5 +1,7 @@
 # Starter cancel-time retention offer
 
+> **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
+
 Decision date: 2026-09-12 (Zack). Status: current product decision.
 
 The Starter A/B sales test ends with this decision. Starter becomes a retention offer.

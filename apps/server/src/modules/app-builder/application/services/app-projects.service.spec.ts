@@ -490,10 +490,10 @@ describe("AppProjectsService.create", () => {
 		errorLog.mockRestore();
 	});
 
-	it("still answers the ids and logs no error when the plan has no backend slot", async () => {
+	it("still answers the ids and logs no error when the payer has no backend slot", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(
-			new BackendLimitReachedError("starter", 0),
+			new BackendLimitReachedError(0, "user"),
 		);
 		const errorLog = vi.spyOn(Logger.prototype, "error");
 

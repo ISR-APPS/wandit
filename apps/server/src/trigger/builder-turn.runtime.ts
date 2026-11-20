@@ -242,6 +242,12 @@ const HARNESS_CAUSE_MAX_CHARS = 1_000;
  */
 const SESSION_BOUND_FAILURE_PATTERN =
 	/No conversation found with session ID|Failed to resume session|Start a new session|safeguards flagged this (?:message|session)|This plan may not call that model/u;
+/**
+ * The `plan` claim of the LLM run token and the chat binding. The API of
+ * pricing v8 does not read it. An old API instance requires it during a
+ * deploy, and `business` allows every model there. The next release deletes it.
+ */
+const LEGACY_LLM_TOKEN_PLAN: BillingPlanId = "business";
 // 15 MB, the image upload limit. A bigger answer file is a video or an
 // audio file, and a copy in public/ grows every commit of the app repo.
 const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
@@ -552,8 +558,6 @@ export type BuilderTurnDeps = {
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
 	mintToken: (claims: LlmProxyTokenClaimsInput) => string;
-	/** Subscription plan lookup; the task binds `SubscriptionsRepository`. */
-	resolvePlan: (subject: MeteringSubject) => Promise<BillingPlanId>;
 	/**
 	 * The payer's settled balance in cc; the task binds
 	 * `CreditsService.getSettledBalance(subjectPayer(subject)).settledBalance`.
@@ -683,7 +687,7 @@ export async function runBuilderTurn(
 	// only this run's lease.
 	const leaseToken = randomUUID();
 	// The payer of the turn. With billing on, the hold row replaces this
-	// value before the plan read (workspaces-sharing.md 4). With billing off
+	// value before the payer reads (workspaces-sharing.md 4). With billing off
 	// no hold exists, so the payload actor and org, plus the personal owner, stand in.
 	let subject: MeteringSubject = {
 		actorUserId: input.actorUserId,
@@ -1759,8 +1763,7 @@ export async function runBuilderTurn(
 		const resumeState: HarnessResumeEnvelope | null =
 			parsedResume?.success === true ? parsedResume.data : null;
 		// Waiting cards make this turn continue the paused Claude Code process.
-		// That process keeps its start model. The proxy allows the plan list
-		// plus the bound model only. So the paused model wins over a new pick.
+		// That process keeps its start model, so the paused model wins over a new pick.
 		// `saveResumeState` writes the session `model` with the cards.
 		const pausedModel =
 			resumeState !== null && resumeState.pending.length > 0
@@ -1943,7 +1946,6 @@ export async function runBuilderTurn(
 			// hold would say, so set_secret and enable_ai find the owner's project.
 			subject = { ...subject, payerUserId: project.userId };
 		}
-		const plan = await deps.resolvePlan(subject);
 		// The stranded-hold sweep refunds a hold that waited too long in the
 		// queue. A turn without a hold would run for free, so it fails here.
 		if (hold?.status === "refunded" && !deps.billingDisabled) {
@@ -2029,10 +2031,9 @@ export async function runBuilderTurn(
 
 		const billing = {
 			capUsd,
-			// The turn model: the proxy allows it on top of the plan list, so
-			// a pick outside the plan list runs.
+			// The turn model; the proxy bills it at its price row.
 			model,
-			plan,
+			plan: LEGACY_LLM_TOKEN_PLAN,
 			projectId,
 			runId,
 			turnId,

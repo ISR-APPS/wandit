@@ -1,5 +1,7 @@
 # Pricing v6 — Starter plan, 175-credit Pro base, 7-credit grant
 
+> **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
+
 > **Superseded on 2026-09-04 by `pricing-v7-032-anchor.md`**: the credit anchor is
 > $0.032, the 250-credit Pro/Business ladder is back at the same prices, Starter is
 > 60 credits and the grant is 20 credits. This file stays as the v6 record.

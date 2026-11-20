@@ -1,5 +1,5 @@
 /**
- * Row menu in the users table: grant credits, change role, refund the last payment, and ban.
+ * Row menu in the users table: grant credits, change role, refund the last plan payment, and ban.
  * The users table and the mobile list render it. Each item needs its staff permission.
  */
 import { Link } from "@tanstack/react-router";
@@ -135,7 +135,7 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 										onSelect={() => setActiveDialog("refund")}
 									>
 										<RotateCcwIcon />
-										Refund last payment
+										Refund last plan payment
 									</DropdownMenuItem>
 								) : null}
 								{canToggleBanned ? (

@@ -1,9 +1,9 @@
 /**
  * Hooks of the user referral program that are not queries: the program switch, the reward amounts, and the credit phrase.
  * The components of this feature call them. The entry points in other features call them through the barrel.
- * They read the public settings, and the local pricing of the billing feature.
+ * They read the public settings, and the purchase switch of the billing feature.
  */
-import { useLocalPricingQuery } from "@/features/billing";
+import { usePurchasesEnabled } from "@/features/billing";
 import { formatCreditAmount } from "@/features/credits";
 import { usePublicSettingsQuery } from "@/features/settings";
 import { useTranslation } from "@/lib/i18n";
@@ -26,34 +26,13 @@ export function useUserReferralsEnabled(): boolean {
 }
 
 /**
- * True when a friend can buy a plan, so the paid reward is reachable. Undefined while the answer loads.
- * This is not `usePurchasesEnabled` of the billing feature: a top-up is a purchase, but it gives no paid reward.
- */
-function usePaidRewardReachable(): boolean | undefined {
-	const settings = usePublicSettingsQuery().data;
-	const localPricingQuery = useLocalPricingQuery();
-
-	if (!settings) return undefined;
-
-	if (settings.paidSubscriptionsEnabled || settings.manualPaymentsEnabled) {
-		return true;
-	}
-
-	// SlickPay sells plans too. It does not depend on the switches above: it is on when the visitor is in Algeria.
-	if (!localPricingQuery.data) {
-		return localPricingQuery.isError ? false : undefined;
-	}
-
-	return localPricingQuery.data.slickpay !== null;
-}
-
-/**
  * The reward amounts for the texts of the program.
  * Undefined while the program is off, and while the settings or the purchase switch load. Callers then show no amount.
  */
 export function useUserReferralRewards(): UserReferralRewards | undefined {
 	const settings = usePublicSettingsQuery().data;
-	const isPaidRewardReachable = usePaidRewardReachable();
+	// Any purchase is a first payment: a top-up counts as much as a plan.
+	const isPaidRewardReachable = usePurchasesEnabled();
 
 	if (!settings?.userReferralsEnabled || isPaidRewardReachable === undefined) {
 		return undefined;

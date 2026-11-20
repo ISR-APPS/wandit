@@ -414,8 +414,8 @@
 	"credits": {
 		"title": "الرصيد",
 		"left": "{count} متبقّية",
-		"betaNote": "إجمالي رصيد الخطة والعروض والشحن",
-		"bucketPlan": "الخطة",
+		"betaNote": "محفظتك. لا تنتهي صلاحية الأرصدة أبدًا.",
+		"bucketPlan": "مضمّنة",
 		"bucketPromo": "العروض",
 		"bucketTopup": "الشحن"
 	},

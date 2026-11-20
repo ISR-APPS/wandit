@@ -1,95 +1,28 @@
-import { BadRequestException } from "@nestjs/common";
-import { GUARDS_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
-import type { AuthUser } from "@wandit/auth";
-import { describe, expect, it, vi } from "vitest";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
+import { describe, expect, it } from "vitest";
 
-import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import {
-	SubscriptionsEnabledGuard,
-	TopupsEnabledGuard,
-} from "../../../../settings";
-import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
-import type { BillingService } from "../../../application/services/billing.service";
+import { TopupsEnabledGuard } from "../../../../settings";
+import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { WebOriginWriteGuard } from "../guards/web-origin-write.guard";
 import { BillingController } from "./billing.controller";
 
-function guardsFor(
-	method: "change" | "checkout" | "previewChange" | "resume" | "topup",
-): unknown[] {
-	return (
-		Reflect.getMetadata(GUARDS_METADATA, BillingController.prototype[method]) ??
-		[]
-	);
-}
-
-function setup() {
-	const service = { cancel: vi.fn(async () => ({})) };
-	const controller = new BillingController(
-		service as unknown as BillingService,
-	);
-
-	return { controller, service };
-}
-
-function cancelBodyPipe(): ZodValidationPipe<unknown> {
-	const routeArguments = Reflect.getMetadata(
-		ROUTE_ARGS_METADATA,
-		BillingController,
-		"cancel",
-	) as Record<string, { index: number; pipes: unknown[] }>;
-	const bodyArgument = Object.values(routeArguments).find(
-		(argument) => argument.index === 2,
-	);
-	const pipe = bodyArgument?.pipes.find(
-		(candidate) => candidate instanceof ZodValidationPipe,
-	);
-
-	if (!(pipe instanceof ZodValidationPipe)) {
-		throw new Error("Billing cancel body does not have a ZodValidationPipe");
-	}
-
-	return pipe;
-}
-
-describe("BillingController admission guards", () => {
-	it.each([
-		"checkout",
-		"previewChange",
-		"change",
-	] as const)("gates %s behind the subscriptions switch", (method) => {
-		expect(guardsFor(method)).toEqual([SubscriptionsEnabledGuard]);
-	});
-
-	it("leaves resume unguarded so manual subscriptions can resume in an offline-only rollout", () => {
-		// BillingService.resume enforces the switch for Stripe subscriptions.
-		expect(guardsFor("resume")).toEqual([]);
-	});
-
-	it("gates top-ups behind the top-ups switch", () => {
-		expect(guardsFor("topup")).toEqual([TopupsEnabledGuard]);
-	});
-
-	it("validates the required cancellation survey body", () => {
-		const pipe = cancelBodyPipe();
-
+describe("BillingController money guards", () => {
+	it("starts a top-up only with the top-up switch and the web origin check", () => {
 		expect(
-			pipe.transform(
-				{ details: "  Another reason  ", reason: "other" },
-				{ type: "body" },
-			),
-		).toEqual({ details: "Another reason", reason: "other" });
-		expect(() => pipe.transform({ reason: "other" }, { type: "body" })).toThrow(
-			BadRequestException,
-		);
+			Reflect.getMetadata(GUARDS_METADATA, BillingController.prototype.topup),
+		).toEqual([TopupsEnabledGuard, WebOriginWriteGuard]);
 	});
 
-	it("delegates cancellation with the validated body and workspace", async () => {
-		const { controller, service } = setup();
-		const user = { id: "user_1" } as AuthUser;
-		const workspace = { kind: "personal" } satisfies WorkspaceContext;
-		const body = { reason: "too_expensive" } as const;
-
-		await controller.cancel(user, workspace, body);
-
-		expect(service.cancel).toHaveBeenCalledWith(user, body, workspace);
+	it.each([
+		"topup",
+		"payments",
+		"portal",
+	] as const)("lets only the billing manager call %s", (method) => {
+		expect(
+			Reflect.getMetadata(
+				WORKSPACE_PERMISSION_KEY,
+				BillingController.prototype[method],
+			),
+		).toEqual({ actions: ["manage"], resource: "billing" });
 	});
 });

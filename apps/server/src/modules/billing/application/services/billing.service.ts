@@ -1,51 +1,39 @@
 /**
- * Implements billing application workflows.
- * Billing controllers call this file for subscription, top-up, and portal operations.
- * This file calls billing repositories, credit services, and the payment-provider port.
+ * Implements the wallet routes of billing: the top-up checkout, the wallet view,
+ * the payment history, the top-up status, and the Stripe portal.
+ * BillingController calls it. It calls billing repositories, CreditsService, and the payment-provider port.
  */
 import { randomUUID } from "node:crypto";
-import {
-	BadRequestException,
-	ConflictException,
-	Inject,
-	Injectable,
-	Logger,
-} from "@nestjs/common";
+import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	BILLING_CATALOG,
-	type BillingCancelRequest,
 	type BillingCheckoutResponse,
-	type BillingInterval,
-	type BillingPlanId,
+	type BillingPaymentsResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
-	type BillingSubscriptionChangeOutcomeResponse,
-	type BillingSubscriptionChangePreviewResponse,
 	type BillingSubscriptionViewResponse,
-	billingPlanIdSchema,
+	type BillingTopupStatusResponse,
+	type BillingWalletResponse,
 	billingPlanIds,
-	type ChangeBillingSubscriptionBody,
-	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
-	type CreditTier,
+	type CreditBalanceResponse,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
-	ENTITLED_SUBSCRIPTION_STATUSES,
-	isKnownTier,
 	isManualSubscription,
-	isNewSubscriptionPlan,
-	isPurchasableTier,
 	PERSISTED_TOPUP_PACKS,
-	type PreviewBillingSubscriptionChangeBody,
-	parsePriceLookupKey,
 	persistedTopupPackIdSchema,
 	priceLookupKey,
 	priceUsdFor,
-	purchasableTierForLegacy,
 	purchasableTiersFor,
+	TOPUP_CREDITS_PER_USD,
+	TOPUP_MAX_AMOUNT_USD,
+	TOPUP_MIN_AMOUNT_USD,
 	TOPUP_PACKS,
+	TOPUP_PRESET_AMOUNTS_USD,
+	topupCreditsForUsd,
 	topupPackIds,
+	topupReceiptProviderSchema,
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -56,44 +44,35 @@ import {
 } from "../../../credits/domain/credit-owner";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
-import { SubscriptionsDisabledError } from "../../../settings/domain/errors/subscriptions-disabled.error";
-import {
-	WorkspaceNotSupportedError,
-	WorkspacePermissionDeniedError,
-} from "../../../workspaces/domain/errors/workspace.errors";
+import { WorkspacePermissionDeniedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
-import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
-import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
 import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
 import { NoActiveSubscriptionError } from "../../domain/errors/no-active-subscription.error";
-import { PaymentPastDueError } from "../../domain/errors/payment-past-due.error";
-import {
-	BillingChangeIntentExpiredError,
-	BillingChangeIntentInvalidError,
-	SubscriptionChangePendingError,
-	YearlyToMonthlyUnsupportedError,
-} from "../../domain/errors/subscription-change.errors";
 import {
 	PAYMENT_PROVIDER,
 	type PaymentProvider,
-	type SubscriptionChangeProviderResult,
 } from "../../domain/ports/payment-provider.port";
 import { mapSubscriptionRow } from "../../infrastructure/mappers/subscription.mapper";
-import {
-	type BillingChangeIntentRow,
-	BillingChangeIntentsRepository,
-} from "../../infrastructure/persistence/billing-change-intents.repository";
-import {
-	type BillingCheckoutAttemptRow,
-	BillingCheckoutAttemptsRepository,
-} from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
-import { CancellationReasonsRepository } from "../../infrastructure/persistence/cancellation-reasons.repository";
+import {
+	type BillingTopupReceiptRow,
+	BillingTopupReceiptsRepository,
+} from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
+import { PaidOwnerRepository } from "../../infrastructure/persistence/paid-owner.repository";
 import { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 import { BillingCustomerService } from "./billing-customer.service";
-import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
+
+/**
+ * 5 min. An attempt with no session and younger than this has its Stripe call in flight.
+ * The Stripe SDK makes 3 tries of 80 s each (240 s) before it gives up.
+ */
+const TOPUP_IN_FLIGHT_MS = 5 * 60 * 1000;
+
+/** 30 days in ms. The window of `spentLast30DaysCredits` in the wallet view. The web derives the runway from it. */
+const SPENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Coordinates billing operations after controllers validate each request.
@@ -113,18 +92,16 @@ export class BillingService {
 		private readonly paymentProvider: PaymentProvider,
 		@Inject(BillingCustomerService)
 		private readonly billingCustomerService: BillingCustomerService,
-		@Inject(StripeSubscriptionSyncService)
-		private readonly subscriptionSyncService: StripeSubscriptionSyncService,
 		@Inject(BillingCheckoutAttemptsRepository)
 		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
-		@Inject(BillingChangeIntentsRepository)
-		private readonly changeIntentsRepository: BillingChangeIntentsRepository,
 		@Inject(OrganizationBillingCustomersRepository)
 		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 		@Inject(ProductSettingsService)
 		private readonly productSettingsService: ProductSettingsService,
-		@Inject(CancellationReasonsRepository)
-		private readonly cancellationReasonsRepository: CancellationReasonsRepository,
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwnerRepository: PaidOwnerRepository,
+		@Inject(BillingTopupReceiptsRepository)
+		private readonly topupReceiptsRepository: BillingTopupReceiptsRepository,
 	) {}
 
 	/**
@@ -160,35 +137,6 @@ export class BillingService {
 			organizationId: workspace.organizationId,
 			owner: orgOwner(workspace.organizationId),
 		};
-	}
-
-	/** Org workspaces buy Business; personal workspaces buy Starter or Pro. */
-	private assertPlanMatchesScope(
-		plan: BillingPlanId,
-		organizationId: string | null,
-	): void {
-		const matches = organizationId
-			? plan === "business"
-			: plan === "starter" || plan === "pro";
-
-		if (!matches) {
-			throw new WorkspaceNotSupportedError(
-				organizationId
-					? "Team workspaces use the Business plan"
-					: "Personal workspaces use the Starter or Pro plan",
-			);
-		}
-	}
-
-	private assertPurchasableSelection(
-		plan: BillingPlanId,
-		tierCredits: number,
-	): void {
-		if (!isPurchasableTier(plan, tierCredits)) {
-			throw new BadRequestException(
-				"The selected credit tier is not available for this plan",
-			);
-		}
 	}
 
 	plans(): BillingPlansResponse {
@@ -227,175 +175,54 @@ export class BillingService {
 		]);
 
 		return {
-			// CreditsService balances are internal centi-credits; the API carries
-			// decimal credits.
-			balance: {
-				balance: centiCreditsToCredits(balance.balance),
-				plan: centiCreditsToCredits(balance.plan),
-				promo: centiCreditsToCredits(balance.promo),
-				settledBalance: centiCreditsToCredits(balance.settledBalance),
-				settledPlan: centiCreditsToCredits(balance.settledPlan),
-				settledPromo: centiCreditsToCredits(balance.settledPromo),
-				settledTopup: centiCreditsToCredits(balance.settledTopup),
-				topup: centiCreditsToCredits(balance.topup),
-			},
+			balance: this.balanceResponse(balance),
 			subscription: subscription ? mapSubscriptionRow(subscription) : null,
 		};
 	}
 
-	async hasActiveSubscription(userId: string): Promise<boolean> {
-		const subscription = await this.subscriptionsRepository.findActiveByOwner(
-			userOwner(userId),
-		);
-
-		return subscription !== null && this.isEntitled(subscription.status);
-	}
-
-	async checkout(
-		user: AuthUser,
-		body: CreateBillingCheckoutBody,
+	/** Wallet of the active workspace. Each member can read it, as the pooled balance is shared context. */
+	async getWallet(
+		userId: string,
 		workspace?: WorkspaceContext,
-	): Promise<BillingCheckoutResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: true,
+	): Promise<BillingWalletResponse> {
+		const scope = await this.resolveBillingScope({ id: userId }, workspace, {
+			admission: false,
 		});
-		this.assertPlanMatchesScope(body.plan, scope.organizationId);
-		// New subscriptions exclude Starter because only current subscribers receive its renewal offer.
-		if (!isNewSubscriptionPlan(body.plan)) {
-			throw new BadRequestException(
-				"The Starter plan is only offered to current subscribers",
-			);
-		}
-		this.assertPurchasableSelection(body.plan, body.tierCredits);
-		const visibleSubscription =
-			await this.subscriptionsRepository.findActiveByOwner(scope.owner);
-
-		if (visibleSubscription) {
-			this.throwCheckoutBlocked(visibleSubscription.status);
-		}
-
-		const customer = scope.organizationId
-			? await this.billingCustomerService.ensureOrgCustomer(
-					scope.organizationId,
-					user,
-				)
-			: await this.billingCustomerService.ensureCustomer(user);
-		await this.expireStaleCheckoutAttempts(scope.owner, "subscription");
-		const attemptId = randomUUID();
-		const lookupKey = priceLookupKey(
-			body.plan,
-			body.tierCredits,
-			body.interval,
-		);
-
-		await this.checkoutAttemptsRepository.withOwnerLock(
-			scope.owner,
-			async (tx) => {
-				const lockedSubscription =
-					await this.subscriptionsRepository.findActiveByOwner(scope.owner, tx);
-
-				if (lockedSubscription) {
-					this.throwCheckoutBlocked(lockedSubscription.status);
-				}
-
-				const open = await this.checkoutAttemptsRepository.findOpenForOwner(
+		const spentSince = new Date(Date.now() - SPENT_WINDOW_MS);
+		const [balance, isPaidOwner, customer, settings, spentCentiCredits] =
+			await Promise.all([
+				this.creditsService.getSettledBalance(scope.owner),
+				this.paidOwnerRepository.isPaidOwner(scope.owner),
+				this.findBillingCustomer(userId, scope.organizationId),
+				this.productSettingsService.get(),
+				this.creditsService.netConsumedCentiCreditsSince(
 					scope.owner,
-					"subscription",
-					tx,
-				);
-
-				if (open.length > 0) {
-					throw this.checkoutPendingError();
-				}
-
-				const providerSubscriptions =
-					await this.paymentProvider.listSubscriptionsForCustomer(
-						customer.providerCustomerId,
-					);
-				const entitledSubscription = providerSubscriptions.find(
-					(subscription) => this.isEntitled(subscription.status),
-				);
-				const blockingSubscription =
-					entitledSubscription ??
-					providerSubscriptions.find((subscription) =>
-						this.isNonTerminal(subscription.status),
-					);
-
-				if (blockingSubscription) {
-					this.throwCheckoutBlocked(blockingSubscription.status);
-				}
-
-				await this.checkoutAttemptsRepository.create(
-					{
-						id: attemptId,
-						organizationId: scope.organizationId,
-						priceLookupKey: lookupKey,
-						purpose: "subscription",
-						userId: user.id,
-					},
-					tx,
-				);
-			},
-		);
-
-		let checkout: Awaited<
-			ReturnType<PaymentProvider["createSubscriptionCheckout"]>
-		>;
-
-		try {
-			checkout = await this.paymentProvider.createSubscriptionCheckout({
-				attemptId,
-				customerId: customer.providerCustomerId,
-				email: user.email,
-				interval: body.interval,
-				organizationId: scope.organizationId,
-				plan: body.plan,
-				tierCredits: body.tierCredits,
-				userId: user.id,
-			});
-		} catch (error) {
-			await this.handleCheckoutCreationFailure(attemptId, user.id, error);
-			throw error;
-		}
-
-		const attached = await this.checkoutAttemptsRepository.withUserLock(
-			user.id,
-			(tx) =>
-				this.checkoutAttemptsRepository.attachSession(
-					attemptId,
-					checkout.id,
-					tx,
+					spentSince,
 				),
-		);
+			]);
 
-		if (!attached) {
-			await this.compensateUnattachedCheckout(attemptId, checkout.id, user.id);
-			throw new Error(
-				`Checkout attempt ${attemptId} could not attach its session`,
-			);
-		}
-
-		try {
-			if (scope.organizationId) {
-				await this.organizationBillingCustomersRepository.setOpenCheckoutSessionId(
-					scope.organizationId,
-					checkout.id,
-				);
-			} else {
-				await this.billingCustomersRepository.setOpenCheckoutSessionId(
-					user.id,
-					checkout.id,
-				);
-			}
-		} catch (error) {
-			this.logger.warn(
-				`Checkout attempt ${attemptId} attached but legacy customer session pointer could not be updated: ${this.errorMessage(error)}`,
-			);
-		}
-
-		return { url: checkout.url };
+		return {
+			balance: this.balanceResponse(balance),
+			hasStripeCustomer: customer?.provider === "stripe",
+			isPaidOwner,
+			// A refund of older usage can make the window sum negative. The wallet shows 0 then.
+			spentLast30DaysCredits: centiCreditsToCredits(
+				Math.max(0, spentCentiCredits),
+			),
+			topup: {
+				creditsPerUsd: TOPUP_CREDITS_PER_USD,
+				enabled: settings.topupsEnabled,
+				maxAmountUsd: TOPUP_MAX_AMOUNT_USD,
+				minAmountUsd: TOPUP_MIN_AMOUNT_USD,
+				presetAmountsUsd: [...TOPUP_PRESET_AMOUNTS_USD],
+			},
+		};
 	}
 
+	/**
+	 * Starts a Stripe Checkout of a wallet top-up and returns its URL.
+	 * The server computes the credits. The webhook grants the credits of the attempt row.
+	 */
 	async topup(
 		user: AuthUser,
 		body: CreateBillingTopupBody,
@@ -404,16 +231,19 @@ export class BillingService {
 		const scope = await this.resolveBillingScope(user, workspace, {
 			admission: true,
 		});
+		// A cached pricing v7 web bundle sends a pack id. Its USD price enters the amount flow.
+		const amountUsd =
+			"amountUsd" in body ? body.amountUsd : TOPUP_PACKS[body.packId].usd;
 		const customer = scope.organizationId
 			? await this.billingCustomerService.ensureOrgCustomer(
 					scope.organizationId,
 					user,
 				)
 			: await this.billingCustomerService.ensureCustomer(user);
-		await this.expireStaleCheckoutAttempts(scope.owner, "topup");
-		const attemptId = randomUUID();
+		// Stripe calls stay outside the owner lock: that lock also serializes every debit of the owner.
+		await this.expireOpenTopupSessions(scope.owner);
 
-		await this.checkoutAttemptsRepository.withOwnerLock(
+		const attempt = await this.checkoutAttemptsRepository.withOwnerLock(
 			scope.owner,
 			async (tx) => {
 				const open = await this.checkoutAttemptsRepository.findOpenForOwner(
@@ -421,17 +251,27 @@ export class BillingService {
 					"topup",
 					tx,
 				);
+				const inFlightAfter = Date.now() - TOPUP_IN_FLIGHT_MS;
+				// An attempt with a session is still open here: Stripe did not expire it, or a concurrent
+				// request attached it after the expire step. A young attempt with no session is in flight.
+				// An old attempt with no session does not block: no customer has its URL.
+				const blocking = open.some(
+					(openAttempt) =>
+						openAttempt.providerSessionId !== null ||
+						openAttempt.createdAt.getTime() > inFlightAfter,
+				);
 
-				if (open.length > 0) {
+				if (blocking) {
 					throw this.checkoutPendingError();
 				}
 
-				await this.checkoutAttemptsRepository.create(
+				return this.checkoutAttemptsRepository.create(
 					{
-						id: attemptId,
+						// Whole USD to USD cents.
+						amountUsdCents: amountUsd * 100,
+						credits: creditsToCentiCredits(topupCreditsForUsd(amountUsd)),
+						id: randomUUID(),
 						organizationId: scope.organizationId,
-						packId: body.packId,
-						purpose: "topup",
 						userId: user.id,
 					},
 					tx,
@@ -439,20 +279,29 @@ export class BillingService {
 			},
 		);
 
-		const pack = TOPUP_PACKS[body.packId];
+		if (attempt.amountUsdCents === null || attempt.credits === null) {
+			throw new Error(
+				`Top-up checkout attempt ${attempt.id} was stored with no amount`,
+			);
+		}
+
+		// USD cents to whole USD, then the base rate. The stored credits above the base are the bonus.
+		const baseCredits = (attempt.amountUsdCents / 100) * TOPUP_CREDITS_PER_USD;
 		let checkout: Awaited<ReturnType<PaymentProvider["createTopupCheckout"]>>;
 
 		try {
+			// Every value comes from the attempt row: a replay of the same key sends the same bytes.
 			checkout = await this.paymentProvider.createTopupCheckout({
-				attemptId,
-				credits: pack.credits,
+				amountUsdCents: attempt.amountUsdCents,
+				attemptId: attempt.id,
+				baseCredits,
+				bonusCredits: centiCreditsToCredits(attempt.credits) - baseCredits,
 				customerId: customer.providerCustomerId,
-				organizationId: scope.organizationId,
-				packId: body.packId,
-				userId: user.id,
+				organizationId: attempt.organizationId,
+				userId: attempt.userId,
 			});
 		} catch (error) {
-			await this.handleCheckoutCreationFailure(attemptId, user.id, error);
+			await this.handleCheckoutCreationFailure(attempt.id, user.id, error);
 			throw error;
 		}
 
@@ -460,20 +309,72 @@ export class BillingService {
 			user.id,
 			(tx) =>
 				this.checkoutAttemptsRepository.attachSession(
-					attemptId,
+					attempt.id,
 					checkout.id,
 					tx,
 				),
 		);
 
 		if (!attached) {
-			await this.compensateUnattachedCheckout(attemptId, checkout.id, user.id);
+			await this.compensateUnattachedCheckout(attempt.id, checkout.id, user.id);
 			throw new Error(
-				`Top-up checkout attempt ${attemptId} could not attach its session`,
+				`Top-up checkout attempt ${attempt.id} could not attach its session`,
 			);
 		}
 
 		return { url: checkout.url };
+	}
+
+	/**
+	 * "credited" with the granted credits when the Stripe receipt of the session exists and the caller paid it.
+	 * Reads no workspace: the payer is the caller, and a wrong session id gives "pending".
+	 */
+	async getTopupStatus(
+		userId: string,
+		sessionId: string,
+	): Promise<BillingTopupStatusResponse> {
+		const receipt =
+			await this.topupReceiptsRepository.findStripeReceiptForPayer(
+				sessionId,
+				userId,
+			);
+		if (receipt === null) {
+			return { status: "pending" };
+		}
+
+		return { status: "credited", credits: receiptDisplayCredits(receipt) };
+	}
+
+	/** The last 50 receipts of the pool, any provider. The controller allows the billing manager only. */
+	async listPayments(
+		user: Pick<AuthUser, "id">,
+		workspace?: WorkspaceContext,
+	): Promise<BillingPaymentsResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: false,
+		});
+		const rows = await this.topupReceiptsRepository.listRecentForOwner(
+			scope.owner,
+		);
+
+		return {
+			items: rows.map(({ receipt, revokedCentiCredits }) => ({
+				amountMinor: receipt.amountCents,
+				amountUsdCents: receipt.amountUsdCents,
+				credits: receiptDisplayCredits(receipt),
+				currency: receipt.currency,
+				id: receipt.id,
+				method: receipt.method,
+				paidAt: receipt.paidAt.toISOString(),
+				// The column is text with a CHECK of the same list.
+				provider: topupReceiptProviderSchema.parse(receipt.provider),
+				reversedAt: receipt.reversedAt?.toISOString() ?? null,
+				revokedCredits:
+					revokedCentiCredits === null
+						? null
+						: centiCreditsToCredits(revokedCentiCredits),
+			})),
+		};
 	}
 
 	async portal(
@@ -491,14 +392,10 @@ export class BillingService {
 			throw new ManualSubscriptionUnsupportedError();
 		}
 
-		// Structural isolation: personal scope can only ever reach the personal
-		// customer, org scope only the org's — the two tables partition Stripe
-		// customer ids (design §5.1/§5.4).
-		const customer = scope.organizationId
-			? await this.organizationBillingCustomersRepository.findByOrganizationId(
-					scope.organizationId,
-				)
-			: await this.billingCustomersRepository.findByUserId(user.id);
+		const customer = await this.findBillingCustomer(
+			user.id,
+			scope.organizationId,
+		);
 
 		if (!customer) {
 			throw new NoActiveSubscriptionError();
@@ -511,986 +408,72 @@ export class BillingService {
 		return { url };
 	}
 
-	async previewChange(
-		user: AuthUser,
-		body: PreviewBillingSubscriptionChangeBody,
-		workspace?: WorkspaceContext,
-	): Promise<BillingSubscriptionChangePreviewResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: true,
-		});
-		const subscription = await this.requireActiveSubscription(scope.owner);
-
-		if (isManualSubscription(subscription)) {
-			throw new ManualSubscriptionUnsupportedError();
-		}
-
-		this.assertSupportedIntervalChange(subscription.interval, body.interval);
-
-		if (
-			await this.paymentProvider.hasPendingSubscriptionUpdate(
-				subscription.providerSubscriptionId,
-			)
-		) {
-			throw new SubscriptionChangePendingError();
-		}
-
-		const plan = body.plan ?? billingPlanIdSchema.parse(subscription.plan);
-		this.assertPlanMatchesScope(plan, scope.organizationId);
-		const targetLookupKey = priceLookupKey(
-			plan,
-			body.tierCredits,
-			body.interval,
-		);
-
-		const cancelsPendingDowngrade =
-			targetLookupKey === subscription.priceLookupKey &&
-			subscription.pendingTierCredits !== null &&
-			isPurchasableTier(subscription.plan, subscription.tierCredits);
-
-		if (
-			!cancelsPendingDowngrade &&
-			!isPurchasableTier(plan, body.tierCredits)
-		) {
-			throw new BillingChangeIntentInvalidError();
-		}
-
-		if (
-			targetLookupKey === subscription.priceLookupKey &&
-			!cancelsPendingDowngrade
-		) {
-			throw new BillingChangeIntentInvalidError();
-		}
-		const currentPrice = parsePriceLookupKey(subscription.priceLookupKey);
-
-		if (!currentPrice) {
-			throw new BillingChangeIntentInvalidError();
-		}
-
-		const prorationDate = new Date(Math.floor(Date.now() / 1000) * 1000);
-		const isDowngrade =
-			priceUsdFor(plan, body.tierCredits, "month") <
-			priceUsdFor(currentPrice.plan, currentPrice.tierCredits, "month");
-		const anchorReset = this.anchorResetsForChange({
-			cancelsPendingDowngrade,
-			isDowngrade,
-		});
-		const preview = cancelsPendingDowngrade
-			? { amountDueMinor: 0, currency: "usd" }
-			: await this.paymentProvider.previewSubscriptionChange({
-					billingCycleAnchorNow: anchorReset,
-					newPriceLookupKey: targetLookupKey,
-					prorationDate,
-					providerSubscriptionId: subscription.providerSubscriptionId,
-				});
-		const balance = await this.creditsService.getBalance(scope.owner);
-		const expiresAt = new Date(prorationDate.getTime() + 15 * 60 * 1000);
-		const intent = await this.changeIntentsRepository.create({
-			anchorReset,
-			currency: preview.currency.toLowerCase(),
-			currentPriceLookupKey: subscription.priceLookupKey,
-			expiresAt,
-			organizationId: scope.organizationId,
-			previewTotalMinor: isDowngrade ? 0 : Math.max(0, preview.amountDueMinor),
-			prorationDate,
-			status: "open",
-			subscriptionId: subscription.id,
-			targetPriceLookupKey: targetLookupKey,
-			userId: user.id,
-		});
-
-		return {
-			amountDueMinor: intent.previewTotalMinor,
-			creditsDelta: this.previewCreditsDelta(
-				body,
-				balance.plan,
-				intent.anchorReset,
-			),
-			currency: intent.currency,
-			expiresAt: intent.expiresAt.toISOString(),
-			intentId: intent.id,
-		};
-	}
-
-	async change(
-		user: AuthUser,
-		body: ChangeBillingSubscriptionBody,
-		workspace?: WorkspaceContext,
-	): Promise<BillingSubscriptionChangeOutcomeResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: true,
-		});
-		const currentSubscription =
-			await this.subscriptionsRepository.findActiveByOwner(scope.owner);
-
-		if (isManualSubscription(currentSubscription)) {
-			throw new ManualSubscriptionUnsupportedError();
-		}
-
-		const customer = scope.organizationId
-			? await this.organizationBillingCustomersRepository.findByOrganizationId(
-					scope.organizationId,
-				)
-			: await this.billingCustomersRepository.findByUserId(user.id);
-
-		if (!customer) {
-			throw new NoActiveSubscriptionError();
-		}
-
-		const initialIntent = await this.changeIntentsRepository.findById(
-			body.intentId,
-		);
-
-		// The intent must belong to BOTH this actor and this workspace scope: an
-		// org intent consumed from personal scope (or vice versa) is invalid.
-		if (
-			!initialIntent ||
-			initialIntent.userId !== user.id ||
-			(initialIntent.organizationId ?? null) !== scope.organizationId
-		) {
-			throw new BillingChangeIntentInvalidError();
-		}
-
-		if (
-			initialIntent.status === "open" &&
-			initialIntent.expiresAt > new Date()
-		) {
-			const initialSubscription =
-				await this.subscriptionsRepository.findActiveByOwner(scope.owner);
-
-			if (
-				initialSubscription?.id === initialIntent.subscriptionId &&
-				initialSubscription.priceLookupKey ===
-					initialIntent.currentPriceLookupKey &&
-				(await this.paymentProvider.hasPendingSubscriptionUpdate(
-					initialSubscription.providerSubscriptionId,
-				))
-			) {
-				throw new SubscriptionChangePendingError();
-			}
-		}
-
-		const operation = await this.changeIntentsRepository.withOwnerLock(
-			scope.owner,
-			async (tx) => {
-				const now = new Date();
-				const intent = await this.changeIntentsRepository.findById(
-					body.intentId,
-					tx,
-				);
-
-				if (
-					!intent ||
-					intent.userId !== user.id ||
-					(intent.organizationId ?? null) !== scope.organizationId
-				) {
-					return { error: "invalid" as const };
-				}
-
-				if (
-					intent.status === "expired" ||
-					(intent.status === "open" && intent.expiresAt <= now)
-				) {
-					await this.changeIntentsRepository.expireIfOpen(intent.id, now, tx);
-
-					return { error: "expired" as const };
-				}
-
-				const target = parsePriceLookupKey(intent.targetPriceLookupKey);
-				const original = parsePriceLookupKey(intent.currentPriceLookupKey);
-
-				if (!target || !original) {
-					return { error: "invalid" as const };
-				}
-
-				this.assertPlanMatchesScope(target.plan, scope.organizationId);
-				this.assertSupportedIntervalChange(original.interval, target.interval);
-				const isDowngrade =
-					priceUsdFor(target.plan, target.tierCredits, "month") <
-					priceUsdFor(original.plan, original.tierCredits, "month");
-				const cancelsDowngrade =
-					intent.targetPriceLookupKey === intent.currentPriceLookupKey &&
-					isPurchasableTier(original.plan, original.tierCredits);
-
-				if (
-					!cancelsDowngrade &&
-					!isPurchasableTier(target.plan, target.tierCredits)
-				) {
-					return { error: "invalid" as const };
-				}
-
-				if (intent.status === "consumed") {
-					return this.persistedChangeResult(intent)
-						? {
-								cancelsDowngrade,
-								intent,
-								isDowngrade,
-								kind: "replay" as const,
-							}
-						: { error: "invalid" as const };
-				}
-
-				if (intent.status !== "open" && intent.status !== "processing") {
-					return { error: "invalid" as const };
-				}
-
-				const subscription =
-					await this.subscriptionsRepository.findActiveByOwner(scope.owner, tx);
-
-				if (
-					!subscription ||
-					subscription.id !== intent.subscriptionId ||
-					(intent.status === "open" &&
-						subscription.priceLookupKey !== intent.currentPriceLookupKey) ||
-					(intent.status === "open" &&
-						cancelsDowngrade &&
-						subscription.pendingTierCredits === null)
-				) {
-					return { error: "invalid" as const };
-				}
-
-				if (intent.status === "open") {
-					const competing =
-						await this.changeIntentsRepository.findOtherProcessingForSubscription(
-							intent.subscriptionId,
-							intent.id,
-							tx,
-						);
-
-					if (competing) {
-						throw new SubscriptionChangePendingError();
-					}
-
-					const started =
-						await this.changeIntentsRepository.beginProviderAttempt(
-							intent.id,
-							user.id,
-							now,
-							tx,
-						);
-
-					if (!started) {
-						return { error: "invalid" as const };
-					}
-
-					return {
-						cancelsDowngrade,
-						intent: started,
-						isDowngrade,
-						kind: "execute" as const,
-						subscription,
-						target,
-					};
-				}
-
-				return {
-					cancelsDowngrade,
-					intent,
-					isDowngrade,
-					kind: "execute" as const,
-					subscription,
-					target,
-				};
-			},
-		);
-
-		if ("error" in operation) {
-			if (operation.error === "expired") {
-				throw new BillingChangeIntentExpiredError();
-			}
-
-			throw new BillingChangeIntentInvalidError();
-		}
-
-		let completedIntent: BillingChangeIntentRow;
-
-		if (operation.kind === "replay") {
-			completedIntent = operation.intent;
-		} else {
-			const idempotencyKey = scope.organizationId
-				? `sub-change:org:${scope.organizationId}:${operation.intent.id}`
-				: `sub-change:${user.id}:${operation.intent.id}`;
-			let scheduleId: string | null = null;
-			let providerResult: SubscriptionChangeProviderResult | null = null;
-			const releasesPendingDowngrade =
-				!operation.cancelsDowngrade &&
-				!operation.isDowngrade &&
-				operation.subscription.pendingTierCredits !== null;
-			const releasedMigrationTarget =
-				releasesPendingDowngrade &&
-				!isPurchasableTier(
-					operation.subscription.plan,
-					operation.subscription.tierCredits,
-				) &&
-				operation.subscription.pendingTierCredits !== null &&
-				(operation.subscription.pendingPlan ?? operation.subscription.plan) ===
-					operation.subscription.plan &&
-				(operation.subscription.pendingInterval ??
-					operation.subscription.interval) ===
-					operation.subscription.interval &&
-				purchasableTierForLegacy(
-					operation.subscription.plan,
-					operation.subscription.tierCredits,
-				) === operation.subscription.pendingTierCredits &&
-				isKnownTier(operation.subscription.pendingTierCredits)
-					? operation.subscription.pendingTierCredits
-					: null;
-			let releasedPendingDowngrade = false;
-			let restoredMigrationSchedule = false;
-			const restoreReleasedMigrationSchedule = async () => {
-				if (
-					releasedMigrationTarget === null ||
-					!releasedPendingDowngrade ||
-					restoredMigrationSchedule
-				) {
-					return;
-				}
-
-				await this.restoreMigrationSchedule({
-					currentPriceLookupKey: operation.subscription.priceLookupKey,
-					idempotencyKey: `${idempotencyKey}:restore-schedule`,
-					interval: operation.subscription.interval,
-					owner: scope.owner,
-					plan: operation.subscription.plan,
-					providerSubscriptionId: operation.subscription.providerSubscriptionId,
-					tierCredits: releasedMigrationTarget,
-				});
-				restoredMigrationSchedule = true;
-			};
-
-			if (releasesPendingDowngrade) {
-				try {
-					await this.paymentProvider.cancelScheduledSubscriptionDowngrade(
-						operation.subscription.providerSubscriptionId,
-						`${idempotencyKey}:release-schedule`,
-					);
-					releasedPendingDowngrade = true;
-				} catch (error) {
-					if (error instanceof AmbiguousPaymentProviderWriteError) {
-						throw error;
-					}
-
-					this.logDefiniteChangeFailure(operation.intent.id, error);
-					providerResult = { outcome: "failed" };
-				}
-
-				if (!providerResult) {
-					try {
-						// Persist the completed release as its own saga step so a retry does
-						// not mistake stale local pending state for a live Stripe schedule.
-						providerResult =
-							await this.clearPendingDowngradeForProcessingChange(
-								scope.owner,
-								operation.intent.id,
-								operation.subscription.providerSubscriptionId,
-								releasedMigrationTarget,
-							);
-					} catch (error) {
-						await restoreReleasedMigrationSchedule();
-						throw error;
-					}
-				}
-			}
-
-			if (!providerResult) {
-				try {
-					if (operation.cancelsDowngrade) {
-						await this.paymentProvider.cancelScheduledSubscriptionDowngrade(
-							operation.subscription.providerSubscriptionId,
-							`${idempotencyKey}:cancel-schedule`,
-						);
-						providerResult = { outcome: "applied" };
-					} else if (operation.isDowngrade) {
-						const pendingTierCredits =
-							operation.subscription.pendingTierCredits;
-
-						if (
-							pendingTierCredits !== null &&
-							!isKnownTier(pendingTierCredits)
-						) {
-							throw new Error(
-								`Subscription ${operation.subscription.providerSubscriptionId} has unknown pending tier ${pendingTierCredits}`,
-							);
-						}
-
-						scheduleId =
-							await this.paymentProvider.scheduleSubscriptionDowngrade({
-								allowSameIntentRecovery: true,
-								currentPriceLookupKey: operation.subscription.priceLookupKey,
-								expectedScheduleTarget:
-									pendingTierCredits === null
-										? null
-										: priceLookupKey(
-												operation.subscription.pendingPlan ??
-													operation.subscription.plan,
-												pendingTierCredits,
-												operation.subscription.pendingInterval ??
-													operation.subscription.interval,
-											),
-								idempotencyKey,
-								newPriceLookupKey: operation.intent.targetPriceLookupKey,
-								providerSubscriptionId:
-									operation.subscription.providerSubscriptionId,
-							});
-						providerResult = { outcome: "applied" };
-					} else {
-						providerResult = await this.paymentProvider.changeSubscription({
-							// The preview persisted this decision on the intent; recomputing
-							// it from live state could let preview and execution disagree.
-							billingCycleAnchorNow: operation.intent.anchorReset,
-							idempotencyKey,
-							newPriceLookupKey: operation.intent.targetPriceLookupKey,
-							prorationDate: operation.intent.prorationDate,
-							providerSubscriptionId:
-								operation.subscription.providerSubscriptionId,
-						});
-					}
-				} catch (error) {
-					if (error instanceof AmbiguousPaymentProviderWriteError) {
-						await restoreReleasedMigrationSchedule();
-						throw error;
-					}
-
-					this.logDefiniteChangeFailure(operation.intent.id, error);
-					providerResult = { outcome: "failed" };
-				}
-			}
-
-			if (!providerResult) {
-				await restoreReleasedMigrationSchedule();
-				throw new Error(
-					`Subscription change ${operation.intent.id} produced no provider outcome`,
-				);
-			}
-
-			if (providerResult.outcome === "failed") {
-				await restoreReleasedMigrationSchedule();
-			}
-
-			completedIntent = await this.changeIntentsRepository.withOwnerLock(
-				scope.owner,
-				async (tx) => {
-					const currentIntent = await this.changeIntentsRepository.findById(
-						operation.intent.id,
-						tx,
-					);
-
-					if (
-						currentIntent?.status === "consumed" &&
-						this.persistedChangeResult(currentIntent)
-					) {
-						return currentIntent;
-					}
-
-					if (currentIntent?.status !== "processing") {
-						throw new Error(
-							`Billing change intent ${operation.intent.id} lost its provider-attempt claim`,
-						);
-					}
-
-					if (providerResult.outcome !== "failed" && operation.isDowngrade) {
-						const pending =
-							await this.subscriptionsRepository.setPendingTierCredits(
-								operation.subscription.providerSubscriptionId,
-								operation.target.tierCredits,
-								tx,
-								{
-									plan: operation.target.plan,
-									interval: operation.target.interval,
-								},
-							);
-						const marked = scheduleId
-							? await this.subscriptionsRepository.markPendingTierApplied(
-									operation.subscription.providerSubscriptionId,
-									scheduleId,
-									tx,
-								)
-							: null;
-
-						if (!pending || !marked) {
-							throw new Error(
-								`Scheduled downgrade ${operation.intent.id} could not be persisted`,
-							);
-						}
-					} else if (providerResult.outcome !== "failed") {
-						const cleared =
-							await this.subscriptionsRepository.setPendingTierCredits(
-								operation.subscription.providerSubscriptionId,
-								null,
-								tx,
-							);
-
-						if (!cleared) {
-							throw new Error(
-								`Subscription ${operation.subscription.providerSubscriptionId} disappeared while completing change ${operation.intent.id}`,
-							);
-						}
-					}
-
-					const completed =
-						await this.changeIntentsRepository.completeProviderAttempt(
-							{
-								...(providerResult.hostedInvoiceUrl
-									? {
-											hostedInvoiceUrl: providerResult.hostedInvoiceUrl,
-										}
-									: {}),
-								id: operation.intent.id,
-								now: new Date(),
-								outcome: providerResult.outcome,
-								...(providerResult.pendingExpiresAt
-									? {
-											pendingExpiresAt: providerResult.pendingExpiresAt,
-										}
-									: {}),
-								userId: user.id,
-							},
-							tx,
-						);
-
-					if (!completed) {
-						throw new Error(
-							`Billing change intent ${operation.intent.id} could not persist its provider result`,
-						);
-					}
-
-					return completed;
-				},
-			);
-		}
-
-		const result = this.persistedChangeResult(completedIntent);
-
-		if (!result) {
-			throw new Error(
-				`Billing change intent ${completedIntent.id} has no persisted provider result`,
-			);
-		}
-
-		if (
-			!operation.isDowngrade &&
-			!operation.cancelsDowngrade &&
-			result.outcome === "applied"
-		) {
-			await this.subscriptionSyncService.syncFromStripe(
-				customer.providerCustomerId,
-			);
-		}
-
-		const view = await this.getSubscriptionView(user.id, workspace);
-
-		if (!view.subscription) {
-			throw new NoActiveSubscriptionError();
-		}
-
-		return {
-			balance: view.balance,
-			...(result.hostedInvoiceUrl
-				? { hostedInvoiceUrl: result.hostedInvoiceUrl }
-				: {}),
-			outcome: result.outcome,
-			...(result.pendingExpiresAt
-				? { pendingExpiresAt: result.pendingExpiresAt.toISOString() }
-				: {}),
-			subscription: view.subscription,
-		};
-	}
-
-	async sync(
-		user: AuthUser,
-		workspace?: WorkspaceContext,
-	): Promise<BillingSubscriptionViewResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: false,
-		});
-		const customer = scope.organizationId
-			? await this.organizationBillingCustomersRepository.findByOrganizationId(
-					scope.organizationId,
-				)
-			: await this.billingCustomersRepository.findByUserId(user.id);
-
-		if (!customer) {
-			return this.getSubscriptionView(user.id, workspace);
-		}
-
-		try {
-			await this.subscriptionSyncService.syncFromStripe(
-				customer.providerCustomerId,
-			);
-		} catch (error) {
-			if (!(error instanceof BillingNotConfiguredError)) {
-				throw error;
-			}
-		}
-
-		return this.getSubscriptionView(user.id, workspace);
-	}
-
-	async cancel(
-		user: AuthUser,
-		body: BillingCancelRequest,
-		workspace?: WorkspaceContext,
-	): Promise<BillingSubscriptionViewResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: false,
-		});
-		const subscription = await this.requireActiveSubscription(scope.owner);
-		const cancellationReason =
-			await this.cancellationReasonsRepository.createPending({
-				details: body.details ?? null,
-				organizationId: subscription.organizationId,
-				reason: body.reason,
-				stripeSubscriptionId: subscription.providerSubscriptionId,
-				submittedByUserId: user.id,
-				subscriptionId: subscription.id,
-				subscriptionUserId: subscription.userId,
-			});
-
-		if (!isManualSubscription(subscription)) {
-			try {
-				await this.paymentProvider.setCancelAtPeriodEnd(
-					subscription.providerSubscriptionId,
-					true,
-				);
-			} catch (error) {
-				await this.markCancellationProviderFailure(cancellationReason.id);
-				throw error;
-			}
-
-			if (subscription.pendingTierCredits !== null) {
-				const cleared =
-					await this.subscriptionsRepository.setPendingTierCredits(
-						subscription.providerSubscriptionId,
-						null,
-					);
-				if (!cleared) {
-					throw new Error(
-						`Subscription ${subscription.providerSubscriptionId} disappeared while canceling its pending change`,
-					);
-				}
-			}
-		}
-
-		const scheduled =
-			await this.cancellationReasonsRepository.markPendingOutcome(
-				cancellationReason.id,
-				"scheduled",
-			);
-
-		if (!scheduled) {
-			throw new Error(
-				`Cancellation reason ${cancellationReason.id} could not be marked scheduled`,
-			);
-		}
-
-		await this.subscriptionsRepository.updateCancelAtPeriodEnd(
-			subscription.providerSubscriptionId,
-			true,
-		);
-
-		return this.getSubscriptionView(user.id, workspace);
-	}
-
-	async resume(
-		user: AuthUser,
-		workspace?: WorkspaceContext,
-	): Promise<BillingSubscriptionViewResponse> {
-		const scope = await this.resolveBillingScope(user, workspace, {
-			admission: false,
-		});
-		const subscription = await this.requireActiveSubscription(scope.owner);
-
-		if (!isManualSubscription(subscription)) {
-			// The controller no longer applies SubscriptionsEnabledGuard (a
-			// manual resume must work in an offline-only rollout), so the
-			// Stripe path enforces the kill switch here.
-			const settings = await this.productSettingsService.get();
-
-			if (!settings.paidSubscriptionsEnabled) {
-				throw new SubscriptionsDisabledError();
-			}
-
-			await this.paymentProvider.setCancelAtPeriodEnd(
-				subscription.providerSubscriptionId,
-				false,
-			);
-
-			const v6Tier = !isPurchasableTier(
-				subscription.plan,
-				subscription.tierCredits,
-			)
-				? purchasableTierForLegacy(subscription.plan, subscription.tierCredits)
-				: null;
-
-			if (v6Tier !== null && subscription.plan !== "starter") {
-				const targetLookupKey = priceLookupKey(
-					subscription.plan,
-					v6Tier,
-					subscription.interval,
-				);
-				const migrationIdempotencyKey = `billing-migrate-v6:${subscription.interval}:${subscription.providerSubscriptionId}:${targetLookupKey}`;
-
-				if (
-					subscription.interval === "year" &&
-					subscription.pendingTierCredits === null
-				) {
-					await this.restoreMigrationSchedule({
-						currentPriceLookupKey: subscription.priceLookupKey,
-						idempotencyKey: migrationIdempotencyKey,
-						interval: subscription.interval,
-						owner: scope.owner,
-						plan: subscription.plan,
-						providerSubscriptionId: subscription.providerSubscriptionId,
-						tierCredits: v6Tier,
-					});
-				} else if (subscription.interval === "month") {
-					await this.paymentProvider.switchSubscriptionPriceWithoutProration({
-						currentPriceLookupKey: subscription.priceLookupKey,
-						idempotencyKey: migrationIdempotencyKey,
-						newPriceLookupKey: targetLookupKey,
-						providerSubscriptionId: subscription.providerSubscriptionId,
-					});
-					const updated = await this.subscriptionsRepository.updateTierAndPrice(
-						subscription.providerSubscriptionId,
-						v6Tier,
-						targetLookupKey,
-					);
-
-					if (!updated) {
-						throw new Error(
-							`Subscription ${subscription.providerSubscriptionId} disappeared while resuming onto its v6 tier`,
-						);
-					}
-				}
-			}
-		}
-		await this.subscriptionsRepository.updateCancelAtPeriodEnd(
-			subscription.providerSubscriptionId,
-			false,
-		);
-		await this.cancellationReasonsRepository.markNewestScheduledResumed(
-			subscription.providerSubscriptionId,
-		);
-
-		return this.getSubscriptionView(user.id, workspace);
-	}
-
-	private async markCancellationProviderFailure(
-		cancellationReasonId: string,
-	): Promise<void> {
-		try {
-			const marked =
-				await this.cancellationReasonsRepository.markPendingOutcome(
-					cancellationReasonId,
-					"provider_failed",
-				);
-
-			if (!marked) {
-				this.logger.warn(
-					`Cancellation reason ${cancellationReasonId} was not pending after the provider failed`,
-				);
-			}
-		} catch (persistenceError) {
-			this.logger.warn(
-				`Could not mark cancellation reason ${cancellationReasonId} provider_failed after provider error: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`,
-				persistenceError instanceof Error ? persistenceError.stack : undefined,
-			);
-		}
-	}
-
-	private async requireActiveSubscription(owner: CreditOwner) {
-		const subscription =
-			await this.subscriptionsRepository.findActiveByOwner(owner);
-
-		if (!subscription) {
-			throw new NoActiveSubscriptionError();
-		}
-
-		return subscription;
-	}
-
-	private isEntitled(status: string) {
-		return (ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-			status,
-		);
-	}
-
-	private isNonTerminal(status: string) {
-		return status !== "canceled" && status !== "incomplete_expired";
-	}
-
-	private throwCheckoutBlocked(status: string): never {
-		if (status === "past_due") {
-			throw new PaymentPastDueError();
-		}
-
-		throw new ActiveSubscriptionExistsError();
-	}
-
-	private async expireStaleCheckoutAttempts(
-		owner: CreditOwner,
-		purpose: "subscription" | "topup",
-	): Promise<void> {
+	/**
+	 * Expires the open Stripe session of each open top-up attempt of the owner, before a new one.
+	 * An attempt with no session stays as it is: the check under the owner lock reads its age.
+	 * Never sets a session-less attempt to expired: a paid session attaches later by metadata.attemptId.
+	 */
+	private async expireOpenTopupSessions(owner: CreditOwner): Promise<void> {
 		const attempts = await this.checkoutAttemptsRepository.findOpenForOwner(
 			owner,
-			purpose,
+			"topup",
 		);
-		const staleBefore = Date.now() - 30 * 60 * 1000;
 
 		for (const attempt of attempts) {
-			if (attempt.createdAt.getTime() > staleBefore) {
+			if (attempt.providerSessionId === null) {
 				continue;
 			}
 
-			try {
-				const providerSessionId =
-					attempt.providerSessionId ??
-					(await this.recoverUnattachedCheckoutAttempt(attempt));
+			const terminalStatus = await this.paymentProvider.expireCheckoutSession(
+				attempt.providerSessionId,
+			);
 
-				if (!providerSessionId) {
-					continue;
-				}
-
-				const session =
-					await this.paymentProvider.retrieveCheckoutSession(providerSessionId);
-
-				if (session.status === "complete") {
-					// Fulfillment owns the completed transition. Leaving this row open
-					// makes a missing webhook visible and retryable instead of discarding it.
-					continue;
-				}
-
-				if (session.status === "open") {
-					const terminalStatus =
-						await this.paymentProvider.expireCheckoutSession(providerSessionId);
-
-					if (terminalStatus === "complete") {
-						// Completion won the retrieve/expire race. The fulfillment webhook
-						// must still be able to attach and complete this attempt.
-						continue;
-					}
-
-					if (terminalStatus !== "expired") {
-						this.logger.warn(
-							`Checkout attempt ${attempt.id} remained ${String(terminalStatus)} after provider expiration and stays open`,
-						);
-						continue;
-					}
-				} else if (session.status !== "expired") {
-					this.logger.warn(
-						`Checkout attempt ${attempt.id} returned unknown provider status ${String(session.status)} and remains open`,
-					);
-					continue;
-				}
-
-				await this.checkoutAttemptsRepository.withOwnerLock(owner, (tx) =>
-					this.checkoutAttemptsRepository.markExpired(attempt.id, tx),
-				);
-			} catch (error) {
-				this.logger.warn(
-					`Could not reconcile stale checkout attempt ${attempt.id}; it remains open: ${this.errorMessage(error)}`,
-				);
+			if (terminalStatus === "complete") {
+				// The customer paid. The webhook owns the completed transition and grants the credits.
+				throw this.checkoutPendingError();
 			}
-		}
-	}
 
-	private async recoverUnattachedCheckoutAttempt(
-		attempt: BillingCheckoutAttemptRow,
-	): Promise<string | null> {
-		// Recovery must replay the ORIGINAL owner's provider call byte-for-byte:
-		// the org customer + org idempotency key for org attempts, personal for
-		// personal. Resolving via the actor's personal customer here minted a
-		// session on the WRONG Stripe customer and, for org-first owners with no
-		// personal customer row, permanently locked the org out of checkout
-		// (confirmed money-review finding).
-		const attemptOwner = attempt.organizationId
-			? orgOwner(attempt.organizationId)
-			: userOwner(attempt.userId);
-		const customer = attempt.organizationId
-			? await this.organizationBillingCustomersRepository.findByOrganizationId(
-					attempt.organizationId,
-				)
-			: await this.billingCustomersRepository.findByUserId(attempt.userId);
+			if (terminalStatus !== "expired") {
+				// The attempt stays open, so the check under the owner lock answers 409.
+				this.logger.warn(
+					`Checkout attempt ${attempt.id} remained ${String(terminalStatus)} after provider expiration and stays open`,
+				);
+				continue;
+			}
 
-		if (!customer) {
-			throw new Error(
-				`Checkout attempt ${attempt.id} has no billing customer for idempotent session recovery`,
+			await this.checkoutAttemptsRepository.withOwnerLock(owner, (tx) =>
+				this.checkoutAttemptsRepository.markExpired(attempt.id, tx),
 			);
 		}
-
-		let recovered: Awaited<
-			ReturnType<PaymentProvider["createSubscriptionCheckout"]>
-		>;
-
-		if (attempt.purpose === "subscription") {
-			const parsed = attempt.priceLookupKey
-				? parsePriceLookupKey(attempt.priceLookupKey)
-				: null;
-
-			if (!parsed || attempt.packId !== null) {
-				throw new Error(
-					`Subscription checkout attempt ${attempt.id} violates its persisted purpose invariants`,
-				);
-			}
-			this.assertPlanMatchesScope(parsed.plan, attempt.organizationId);
-
-			recovered = await this.paymentProvider.createSubscriptionCheckout({
-				attemptId: attempt.id,
-				customerId: customer.providerCustomerId,
-				email: "",
-				interval: parsed.interval,
-				organizationId: attempt.organizationId,
-				plan: parsed.plan,
-				tierCredits: parsed.tierCredits,
-				userId: attempt.userId,
-			});
-		} else {
-			const packId = persistedTopupPackIdSchema.safeParse(attempt.packId);
-
-			if (!packId.success || attempt.priceLookupKey !== null) {
-				throw new Error(
-					`Top-up checkout attempt ${attempt.id} violates its persisted purpose invariants`,
-				);
-			}
-
-			const pack = PERSISTED_TOPUP_PACKS[packId.data];
-			recovered = await this.paymentProvider.createTopupCheckout({
-				attemptId: attempt.id,
-				credits: pack.credits,
-				customerId: customer.providerCustomerId,
-				organizationId: attempt.organizationId,
-				packId: packId.data,
-				userId: attempt.userId,
-			});
-		}
-
-		const attached = await this.checkoutAttemptsRepository.withOwnerLock(
-			attemptOwner,
-			(tx) =>
-				this.checkoutAttemptsRepository.attachSession(
-					attempt.id,
-					recovered.id,
-					tx,
-				),
-		);
-
-		if (attached?.providerSessionId) {
-			return attached.providerSessionId;
-		}
-
-		const concurrentlyAttached = await this.checkoutAttemptsRepository.findById(
-			attempt.id,
-		);
-
-		if (concurrentlyAttached?.providerSessionId) {
-			return concurrentlyAttached.providerSessionId;
-		}
-
-		throw new Error(
-			`Recovered checkout session ${recovered.id} could not attach to attempt ${attempt.id}`,
-		);
 	}
 
+	// Structural isolation: personal scope only reaches the personal customer, org scope
+	// only the org customer. The two tables partition Stripe customer ids (design §5.1/§5.4).
+	private findBillingCustomer(userId: string, organizationId: string | null) {
+		return organizationId
+			? this.organizationBillingCustomersRepository.findByOrganizationId(
+					organizationId,
+				)
+			: this.billingCustomersRepository.findByUserId(userId);
+	}
+
+	// CreditsService balances are internal centi-credits. The API carries decimal credits.
+	private balanceResponse(
+		balance: Awaited<ReturnType<CreditsService["getSettledBalance"]>>,
+	): CreditBalanceResponse {
+		return {
+			balance: centiCreditsToCredits(balance.balance),
+			plan: centiCreditsToCredits(balance.plan),
+			promo: centiCreditsToCredits(balance.promo),
+			settledBalance: centiCreditsToCredits(balance.settledBalance),
+			settledPlan: centiCreditsToCredits(balance.settledPlan),
+			settledPromo: centiCreditsToCredits(balance.settledPromo),
+			settledTopup: centiCreditsToCredits(balance.settledTopup),
+			topup: centiCreditsToCredits(balance.topup),
+		};
+	}
+
+	/** 409 BILLING_CHECKOUT_PENDING: a paid session waits for its webhook, or a request is in flight. */
 	private checkoutPendingError(): ConflictException {
 		return new ConflictException({
 			code: "BILLING_CHECKOUT_PENDING",
@@ -1505,7 +488,7 @@ export class BillingService {
 	): Promise<void> {
 		if (error instanceof AmbiguousPaymentProviderWriteError) {
 			this.logger.warn(
-				`Checkout attempt ${attemptId} remains created after an ambiguous provider failure and will be recovered with the same idempotency key: ${this.errorMessage(error)}`,
+				`Checkout attempt ${attemptId} remains created after an ambiguous provider failure. A paid session attaches by metadata.attemptId, and the attempt stops blocking after 5 minutes: ${this.errorMessage(error)}`,
 			);
 			return;
 		}
@@ -1550,204 +533,21 @@ export class BillingService {
 		}
 	}
 
-	private assertSupportedIntervalChange(
-		currentInterval: string,
-		targetInterval: string,
-	): void {
-		if (currentInterval === "year" && targetInterval === "month") {
-			throw new YearlyToMonthlyUnsupportedError();
-		}
-	}
-
-	/**
-	 * Ruling 7: every non-downgrade, non-cancel change (same-interval price
-	 * increase or equal-price catalog move, plan upgrade, non-downgrade month->year) resets
-	 * the Stripe billing anchor —
-	 * the customer pays the full new price now, Stripe credits the unused
-	 * remainder of the old price, and fulfillment grants the full allotment.
-	 * Compare monthly catalog prices across intervals so a cheaper annual
-	 * tier cannot refund already-spent Pro time. Downgrades are scheduled at
-	 * period end and a pending-downgrade cancel
-	 * changes nothing about the cycle.
-	 */
-	private anchorResetsForChange(change: {
-		cancelsPendingDowngrade: boolean;
-		isDowngrade: boolean;
-	}): boolean {
-		return !change.cancelsPendingDowngrade && !change.isDowngrade;
-	}
-
-	/**
-	 * Preview delta in DECIMAL display credits. tierCredits are whole credits
-	 * (Stripe tier identity) while planBalanceCentiCredits is the internal
-	 * centi-credit pool — the math runs in centi-credits and divides once.
-	 */
-	private previewCreditsDelta(
-		target: PreviewBillingSubscriptionChangeBody,
-		planBalanceCentiCredits: number,
-		anchorReset: boolean,
-	): number {
-		if (!anchorReset) {
-			return 0;
-		}
-
-		// Every anchor-reset change is a capped refill. This is the exact ledger
-		// delta: expire balance above one target allotment, then grant it.
-		const targetCentiCredits = creditsToCentiCredits(target.tierCredits);
-		const positivePlanBalance = Math.max(0, planBalanceCentiCredits);
-		const expired = Math.max(0, positivePlanBalance - targetCentiCredits);
-
-		return centiCreditsToCredits(targetCentiCredits - expired);
-	}
-
-	private persistedChangeResult(
-		intent: BillingChangeIntentRow,
-	): SubscriptionChangeProviderResult | null {
-		if (
-			intent.providerOutcome !== "applied" &&
-			intent.providerOutcome !== "failed" &&
-			intent.providerOutcome !== "payment_required"
-		) {
-			return null;
-		}
-
-		return {
-			...(intent.providerHostedInvoiceUrl
-				? { hostedInvoiceUrl: intent.providerHostedInvoiceUrl }
-				: {}),
-			outcome: intent.providerOutcome,
-			...(intent.providerPendingExpiresAt
-				? { pendingExpiresAt: intent.providerPendingExpiresAt }
-				: {}),
-		};
-	}
-
-	private async clearPendingDowngradeForProcessingChange(
-		owner: CreditOwner,
-		intentId: string,
-		providerSubscriptionId: string,
-		retainedMigrationTarget: CreditTier | null,
-	): Promise<SubscriptionChangeProviderResult | null> {
-		// Same owner lock as the change execution: this saga step must never
-		// interleave with another owner's concurrent change on the same pool.
-		return this.changeIntentsRepository.withOwnerLock(owner, async (tx) => {
-			const intent = await this.changeIntentsRepository.findById(intentId, tx);
-
-			if (intent?.status !== "processing" && intent?.status !== "consumed") {
-				throw new Error(
-					`Billing change intent ${intentId} lost its provider-attempt claim after releasing its downgrade schedule`,
-				);
-			}
-
-			// Mandatory legacy migration targets stay durable while the replacement
-			// provider write is in flight. setPendingTierCredits clears their stale
-			// schedule id; success clears the target, while failure re-marks it with
-			// the replacement schedule id. Voluntary downgrades are cleared outright.
-			const cleared = await this.subscriptionsRepository.setPendingTierCredits(
-				providerSubscriptionId,
-				retainedMigrationTarget,
-				tx,
-			);
-
-			if (!cleared) {
-				throw new Error(
-					`Subscription ${providerSubscriptionId} disappeared after releasing its downgrade schedule`,
-				);
-			}
-
-			if (intent.status !== "consumed") {
-				return null;
-			}
-
-			const result = this.persistedChangeResult(intent);
-
-			if (!result) {
-				throw new Error(
-					`Consumed billing change intent ${intentId} has no persisted provider result`,
-				);
-			}
-
-			return result;
-		});
-	}
-
-	private async restoreMigrationSchedule(input: {
-		currentPriceLookupKey: string;
-		idempotencyKey: string;
-		interval: BillingInterval;
-		owner: CreditOwner;
-		plan: BillingPlanId;
-		providerSubscriptionId: string;
-		tierCredits: CreditTier;
-	}): Promise<void> {
-		const newPriceLookupKey = priceLookupKey(
-			input.plan,
-			input.tierCredits,
-			input.interval,
-		);
-		const scheduleId = await this.paymentProvider.scheduleSubscriptionDowngrade(
-			{
-				allowSameIntentRecovery: true,
-				currentPriceLookupKey: input.currentPriceLookupKey,
-				expectedScheduleTarget: null,
-				idempotencyKey: input.idempotencyKey,
-				newPriceLookupKey,
-				providerSubscriptionId: input.providerSubscriptionId,
-			},
-		);
-
-		await this.changeIntentsRepository.withOwnerLock(
-			input.owner,
-			async (tx) => {
-				const subscription =
-					await this.subscriptionsRepository.findActiveByOwner(input.owner, tx);
-
-				if (
-					!subscription ||
-					subscription.providerSubscriptionId !==
-						input.providerSubscriptionId ||
-					subscription.priceLookupKey !== input.currentPriceLookupKey ||
-					(subscription.pendingTierCredits !== null &&
-						subscription.pendingTierCredits !== input.tierCredits)
-				) {
-					throw new Error(
-						`Subscription ${input.providerSubscriptionId} changed while restoring its v6 renewal schedule`,
-					);
-				}
-
-				const pending =
-					await this.subscriptionsRepository.setPendingTierCredits(
-						input.providerSubscriptionId,
-						input.tierCredits,
-						tx,
-					);
-				// pendingAppliedBy remains the replacement Stripe schedule id, preserving
-				// the marker that lets renewal clear an applied migration target.
-				const marked = pending
-					? await this.subscriptionsRepository.markPendingTierApplied(
-							input.providerSubscriptionId,
-							scheduleId,
-							tx,
-						)
-					: null;
-
-				if (!pending || !marked) {
-					throw new Error(
-						`Subscription ${input.providerSubscriptionId} could not persist its restored v6 renewal schedule`,
-					);
-				}
-			},
-		);
-	}
-
-	private logDefiniteChangeFailure(intentId: string, error: unknown): void {
-		this.logger.error(
-			`Subscription change ${intentId} ended in a definite provider failure: ${this.errorMessage(error)}`,
-			error instanceof Error ? error.stack : undefined,
-		);
-	}
-
 	private errorMessage(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
+}
+
+/**
+ * Decimal credits of a receipt for the API. The receipt column stores centi-credits.
+ * A receipt from before pricing v8 has only its pack id. Null when that pack id is unknown or absent.
+ */
+function receiptDisplayCredits(
+	receipt: Pick<BillingTopupReceiptRow, "credits" | "packId">,
+): number | null {
+	if (receipt.credits !== null) {
+		return centiCreditsToCredits(receipt.credits);
+	}
+	const parsed = persistedTopupPackIdSchema.safeParse(receipt.packId);
+	return parsed.success ? PERSISTED_TOPUP_PACKS[parsed.data].credits : null;
 }

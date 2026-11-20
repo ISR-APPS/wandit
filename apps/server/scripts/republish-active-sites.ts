@@ -53,6 +53,7 @@ import { env } from "@wandit/env/server";
 import type { AnalyticsService } from "../src/infrastructure/analytics/analytics.service";
 import type { Database } from "../src/infrastructure/database/database.constants";
 import { getPageHtml, isR2Configured } from "../src/infrastructure/storage/r2";
+import { PaidOwnerRepository } from "../src/modules/billing/infrastructure/persistence/paid-owner.repository";
 import { DomainRoutingService } from "../src/modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { DomainsRepository } from "../src/modules/domains/infrastructure/persistence/domains.repository";
 import {
@@ -382,6 +383,7 @@ async function main(): Promise<void> {
 			// The pipeline never touches analytics — only SitesService.publish()
 			// does — so a no-op stub keeps PostHog out of a fleet-wide script.
 			{ capture: () => undefined } as unknown as AnalyticsService,
+			new PaidOwnerRepository(db),
 		);
 		const pipeline = service as unknown as PublishPipeline;
 

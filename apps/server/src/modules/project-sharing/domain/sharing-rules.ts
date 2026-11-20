@@ -104,9 +104,9 @@ export type MoveFacts = {
 	desktopBuildInFlight: boolean;
 	deviceSessionActive: boolean;
 	customDomainAttached: boolean;
-	/** The project has a backend that the source payer's plan counts. */
+	/** The project has a backend that counts against the backend limit of the source payer. */
 	projectHasBackend: boolean;
-	/** The destination payer's plan allows one more backend. */
+	/** The backend limit of the destination payer allows one more backend. */
 	destinationHasBackendSlot: boolean;
 };
 

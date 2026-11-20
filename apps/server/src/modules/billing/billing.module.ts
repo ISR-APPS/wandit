@@ -25,7 +25,6 @@ import { SubscriptionCreditsService } from "./application/services/subscription-
 import { SubscriptionLifecycleService } from "./application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "./application/services/subscription-refill.service";
 import { BillingPaymentsModule } from "./billing-payments.module";
-import { BillingChangeIntentsRepository } from "./infrastructure/persistence/billing-change-intents.repository";
 import { BillingCheckoutAttemptsRepository } from "./infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "./infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingPaymentAdjustmentsRepository } from "./infrastructure/persistence/billing-payment-adjustments.repository";
@@ -35,6 +34,7 @@ import { CancellationReasonsRepository } from "./infrastructure/persistence/canc
 import { FinancialReconciliationOutboxRepository } from "./infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { ManualSubscriptionPaymentsRepository } from "./infrastructure/persistence/manual-subscription-payments.repository";
 import { ManualSubscriptionRequestsRepository } from "./infrastructure/persistence/manual-subscription-requests.repository";
+import { PaidOwnerRepository } from "./infrastructure/persistence/paid-owner.repository";
 import { SlickpayPaymentsRepository } from "./infrastructure/persistence/slickpay-payments.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
@@ -78,7 +78,6 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 	providers: [
 		WebOriginWriteGuard,
 		AdminUserRefundsService,
-		BillingChangeIntentsRepository,
 		BillingCheckoutAttemptsRepository,
 		BillingCreditLedgerRepository,
 		BillingPaymentAdjustmentsRepository,
@@ -92,6 +91,7 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 		ManualSubscriptionRequestsRepository,
 		ManualSubscriptionRequestsService,
 		ManualSubscriptionsService,
+		PaidOwnerRepository,
 		PaymentRefundsService,
 		SlickpayPaymentsRepository,
 		SlickpayPaymentsService,

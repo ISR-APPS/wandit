@@ -1,7 +1,8 @@
 /**
  * Admin HTTP routes for offline (cash or transfer) billing.
- * Lists and updates manual requests. Grants, renews, and ends manual subscriptions.
- * Called by the admin SPA. Calls ManualSubscriptionsService and ProductSettingsService.
+ * Lists and updates offline requests. Records and reverses wallet top-ups, and lists receipts.
+ * Old manual subscriptions stay readable as history. Called by the admin SPA.
+ * Calls ManualSubscriptionsService and ProductSettingsService.
  */
 import {
 	Body,
@@ -16,23 +17,25 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
-	type AdminEndManualSubscriptionInput,
-	type AdminGrantManualSubscriptionInput,
 	type AdminListManualRequestsQuery,
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsQuery,
 	type AdminListManualSubscriptionsResponse,
+	type AdminListTopupReceiptsQuery,
+	type AdminListTopupReceiptsResponse,
 	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualRequest,
 	type AdminManualSubscriptionDetail,
-	type AdminRenewManualSubscriptionInput,
+	type AdminRecordTopupInput,
+	type AdminReverseTopupInput,
+	type AdminTopupReceipt,
 	type AdminUpdateManualRequestBody,
-	adminEndManualSubscriptionInputSchema,
-	adminGrantManualSubscriptionInputSchema,
 	adminListManualRequestsQuerySchema,
 	adminListManualSubscriptionsQuerySchema,
-	adminRenewManualSubscriptionInputSchema,
+	adminListTopupReceiptsQuerySchema,
+	adminRecordTopupInputSchema,
+	adminReverseTopupInputSchema,
 	adminUpdateManualRequestBodySchema,
 	uuidSchema,
 } from "@wandit/contracts";
@@ -83,7 +86,7 @@ export class AdminManualBillingController {
 	}
 
 	@Patch("manual-requests/:id")
-	// Support records the call outcome here. Grant, renew, and end stay behind "manage".
+	// Support records the call outcome here. Record and reverse top-up stay behind "manage".
 	@AdminPermission({ billing: ["update-request"] })
 	updateRequest(
 		@CurrentUser() admin: AuthUser,
@@ -102,17 +105,6 @@ export class AdminManualBillingController {
 		return this.manualSubscriptionsService.listSubscriptions(query);
 	}
 
-	@Post("manual-subscriptions")
-	@AdminPermission({ billing: ["manage"] })
-	@HttpCode(200)
-	grant(
-		@CurrentUser() admin: AuthUser,
-		@Body(new ZodValidationPipe(adminGrantManualSubscriptionInputSchema))
-		body: AdminGrantManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
-		return this.manualSubscriptionsService.grant(admin.id, body);
-	}
-
 	@Get("manual-subscriptions/:id")
 	getSubscription(
 		@Param("id", new ZodValidationPipe(uuidSchema)) id: string,
@@ -120,27 +112,34 @@ export class AdminManualBillingController {
 		return this.manualSubscriptionsService.getSubscription(id);
 	}
 
-	@Post("manual-subscriptions/:id/renew")
-	@AdminPermission({ billing: ["manage"] })
-	@HttpCode(200)
-	renew(
-		@CurrentUser() admin: AuthUser,
-		@Param("id", new ZodValidationPipe(uuidSchema)) id: string,
-		@Body(new ZodValidationPipe(adminRenewManualSubscriptionInputSchema))
-		body: AdminRenewManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
-		return this.manualSubscriptionsService.renew(admin.id, id, body);
+	@Get("topup-receipts")
+	listTopupReceipts(
+		@Query(new ZodValidationPipe(adminListTopupReceiptsQuerySchema))
+		query: AdminListTopupReceiptsQuery,
+	): Promise<AdminListTopupReceiptsResponse> {
+		return this.manualSubscriptionsService.listTopupReceipts(query);
 	}
 
-	@Post("manual-subscriptions/:id/end")
+	// Money becomes credits here, so only "manage" can record it.
+	@Post("topup-receipts")
 	@AdminPermission({ billing: ["manage"] })
 	@HttpCode(200)
-	end(
+	recordTopup(
 		@CurrentUser() admin: AuthUser,
-		@Param("id", new ZodValidationPipe(uuidSchema)) id: string,
-		@Body(new ZodValidationPipe(adminEndManualSubscriptionInputSchema))
-		body: AdminEndManualSubscriptionInput,
-	): Promise<AdminManualSubscriptionDetail> {
-		return this.manualSubscriptionsService.end(admin.id, id, body);
+		@Body(new ZodValidationPipe(adminRecordTopupInputSchema))
+		body: AdminRecordTopupInput,
+	): Promise<AdminTopupReceipt> {
+		return this.manualSubscriptionsService.recordTopup(admin.id, body);
+	}
+
+	@Post("topup-receipts/reverse")
+	@AdminPermission({ billing: ["manage"] })
+	@HttpCode(200)
+	reverseTopup(
+		@CurrentUser() admin: AuthUser,
+		@Body(new ZodValidationPipe(adminReverseTopupInputSchema))
+		body: AdminReverseTopupInput,
+	): Promise<AdminTopupReceipt> {
+		return this.manualSubscriptionsService.reverseTopup(admin.id, body);
 	}
 }

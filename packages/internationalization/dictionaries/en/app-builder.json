@@ -63,7 +63,7 @@
 	},
 	"devicePreview": {
 		"start": "Turn on",
-		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
+		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes, which come with the first top-up.",
 		"starting": "Starting the device…",
 		"timeLeft": "{time} left",
 		"idleWarning": "The device stops in {seconds} s without activity.",

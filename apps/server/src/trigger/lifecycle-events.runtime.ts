@@ -1,5 +1,10 @@
+/**
+ * Builds the lifecycle dispatcher for the `lifecycle-events` Trigger task.
+ * It wires the repositories on the task database with no Nest container.
+ */
 import type { createDb } from "@wandit/db";
 
+import { PaidOwnerRepository } from "../modules/billing/infrastructure/persistence/paid-owner.repository";
 import { EmailService } from "../modules/email/application/services/email.service";
 import { LifecycleEventsDispatcher } from "../modules/lifecycle-events/application/services/lifecycle-events-dispatcher.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
@@ -17,6 +22,7 @@ export function createLifecycleEventsRuntime(db: TriggerDatabase) {
 			repository,
 			new ProductSettingsService(new ProductSettingsRepository(db)),
 			new EmailService(),
+			new PaidOwnerRepository(db),
 		),
 	};
 }

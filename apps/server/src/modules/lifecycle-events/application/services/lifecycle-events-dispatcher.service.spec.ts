@@ -2,6 +2,7 @@ import { Logger } from "@nestjs/common";
 import type { ProductSettings } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import type { EmailService } from "../../../email/application/services/email.service";
 import type { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import type { LifecycleEventDropReason } from "../../domain/lifecycle-event";
@@ -88,28 +89,17 @@ describe("LifecycleEventsDispatcher", () => {
 	});
 
 	it.each([
+		["a paid personal pool", { isPaidOwner: true }],
 		[
-			"personal entitlement",
-			dispatchContext({
-				entitledSubscription: {
-					currentPeriodEnd: new Date("2026-09-24T12:00:00.000Z"),
-					plan: "starter",
-					provider: "stripe",
-					status: "active",
-				},
-			}),
+			"an open personal manual request",
+			{
+				context: dispatchContext({ hasOpenPersonalManualRequest: true }),
+				isPaidOwner: false,
+			},
 		],
-		[
-			"personal top-up history",
-			dispatchContext({ hasPersonalTopupReceipt: true }),
-		],
-		[
-			"open personal manual request",
-			dispatchContext({ hasOpenPersonalManualRequest: true }),
-		],
-	] as const)("drops a free-only event for a user with %s", async (_label, context) => {
+	] as const)("drops a free-only event for a user with %s", async (_label, input) => {
 		const row = eventRow({ event: "credits_25_used" });
-		const harness = createHarness({ context });
+		const harness = createHarness(input);
 
 		await expect(harness.dispatcher.dispatch(row)).resolves.toBe("dropped");
 		expect(harness.repository.markDropped).toHaveBeenCalledExactlyOnceWith(
@@ -119,7 +109,7 @@ describe("LifecycleEventsDispatcher", () => {
 		expect(harness.email.sendLifecycleEvent).not.toHaveBeenCalled();
 	});
 
-	it("still dispatches milestone events to a paid user", async () => {
+	it("still dispatches milestone events to a paid owner, with plan paid", async () => {
 		const row = eventRow({
 			event: "website_generated",
 			payload: {
@@ -132,14 +122,9 @@ describe("LifecycleEventsDispatcher", () => {
 		const harness = createHarness({
 			context: dispatchContext({
 				capturedEvents: ["landing_page_generated"],
-				entitledSubscription: {
-					currentPeriodEnd: new Date("2026-09-24T12:00:00.000Z"),
-					plan: "business",
-					provider: "manual",
-					status: "trialing",
-				},
 				user: { email: "canonical@example.com", name: "  Amina Benali  " },
 			}),
+			isPaidOwner: true,
 		});
 
 		await expect(harness.dispatcher.dispatch(row)).resolves.toBe("dispatched");
@@ -149,7 +134,7 @@ describe("LifecycleEventsDispatcher", () => {
 			payload: {
 				done_landing_page: true,
 				first_name: "Amina",
-				plan: "business",
+				plan: "paid",
 				surface: "capture-value",
 			},
 		});
@@ -303,10 +288,8 @@ function dispatchContext(
 	return {
 		acceptedInvitation: false,
 		capturedEvents: [],
-		entitledSubscription: null,
 		hasFirstPromptEvent: false,
 		hasOpenPersonalManualRequest: false,
-		hasPersonalTopupReceipt: false,
 		user: { email: "canonical@example.com", name: "Amina Benali" },
 		...overrides,
 	};
@@ -342,6 +325,8 @@ function productSettings(
 function createHarness(
 	input: {
 		context?: LifecycleDispatchContext | null;
+		/** Answer of the paid-owner fake; false by default, a free user. */
+		isPaidOwner?: boolean;
 		lifecycleEmailsEnabled?: boolean;
 		signupGrantCredits?: number;
 	} = {},
@@ -355,10 +340,8 @@ function createHarness(
 			async (_limit: number, _now?: Date): Promise<LifecycleEventRow[]> => [],
 		),
 		loadDispatchContext: vi.fn(
-			async (
-				_userId: string,
-				_now?: Date,
-			): Promise<LifecycleDispatchContext | null> => context,
+			async (_userId: string): Promise<LifecycleDispatchContext | null> =>
+				context,
 		),
 		markDispatched: vi.fn(
 			async (id: string, at = new Date()): Promise<void> => {
@@ -410,7 +393,17 @@ function createHarness(
 			): Promise<void> => {},
 		),
 	} satisfies Pick<EmailService, "sendLifecycleEvent">;
-	const dispatcher = new LifecycleEventsDispatcher(repository, settings, email);
+	const paidOwners = {
+		isPaidOwner: vi.fn(
+			async (): Promise<boolean> => input.isPaidOwner ?? false,
+		),
+	} satisfies Pick<PaidOwnerRepository, "isPaidOwner">;
+	const dispatcher = new LifecycleEventsDispatcher(
+		repository,
+		settings,
+		email,
+		paidOwners,
+	);
 
 	return {
 		dispatcher,

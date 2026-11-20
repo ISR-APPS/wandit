@@ -1,6 +1,6 @@
 /**
  * Read and write of the `app_backends` row of one project (D18).
- * `BackendsService` writes the `creating` row under the plan limit: a new
+ * `BackendsService` writes the `creating` row under the backend limit: a new
  * row, or a retry of an `error` row. The `provision-backend` runtime marks
  * it created, active, or error, only while the row holds its request key.
  * The lifecycle (WANDIT-184) stamps activity, pauses, restores, and deletes
@@ -173,14 +173,14 @@ export class AppBackendsRepository {
 			/** New dedupe key; a retry replaces the old key, so a run of the old key exits. */
 			requestKey: string;
 		},
-		/** The payer whose backends count against the plan: the org, else the user. */
+		/** The payer whose backends count against the limit: the org, else the user. */
 		owner: CreditOwner,
-		/** The plan rule: `assertBackendEntitlement` bound to the payer's plan. */
+		/** The limit rule: `assertBackendEntitlement` bound to the payer's `backendLimitFor`. */
 		check: (ownedBackends: number) => BackendEntitlement,
 	): Promise<WriteCreatingOutcome> {
 		return this.db.transaction(async (tx) => {
 			// Two parallel creates or retries of one payer must not both pass
-			// the plan limit, and two retry clicks must not both start a run.
+			// the backend limit, and two retry clicks must not both start a run.
 			// The prefix keeps this lock apart from the credit lock.
 			await tx.execute(
 				sql`select pg_advisory_xact_lock(hashtext(${`app-backends:${creditOwnerLockValue(owner)}`}))`,
@@ -195,7 +195,7 @@ export class AppBackendsRepository {
 				return { kind: "exists", row: existing };
 			}
 			// An `error` row is not in the count, and the retry adds it again,
-			// so a retry passes the same plan check as a new row.
+			// so a retry passes the same limit check as a new row.
 			const entitlement = check(await this.countActiveForOwner(owner, tx));
 			if (!entitlement.allowed) {
 				return { kind: "refused", refusal: entitlement };
@@ -724,8 +724,8 @@ export class AppBackendsRepository {
 
 	/**
 	 * Counts the backends one owner holds: `creating`, `active`, `paused`,
-	 * or `restoring`, on a project that is not soft-deleted. The plan
-	 * entitlement check reads it. An org owner counts the org rows only.
+	 * or `restoring`, on a project that is not soft-deleted. The backend
+	 * limit check reads it. An org owner counts the org rows only.
 	 */
 	async countActiveForOwner(
 		owner: CreditOwner,

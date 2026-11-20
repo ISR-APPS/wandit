@@ -2,11 +2,8 @@ import {
 	apiErrorCodeSchema,
 	billingIntervals,
 	billingPlanIds,
-	billingRoutes,
 	CREDIT_SPEND_ORDER,
 	CREDIT_TIERS,
-	changeBillingSubscriptionBodySchema,
-	createBillingCheckoutBodySchema,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	isNewSubscriptionPlan,
 	isPurchasableTier,
@@ -16,7 +13,6 @@ import {
 	parsePriceLookupKey,
 	paymentRequiredDetailsSchema,
 	persistedTopupPackIdSchema,
-	previewBillingSubscriptionChangeBodySchema,
 	priceLookupKey,
 	priceUsdFor,
 	purchasableTiersFor,
@@ -195,60 +191,6 @@ describe("billing catalog", () => {
 		}
 	});
 
-	it("accepts only purchasable plan-tier pairs at checkout", () => {
-		expect(
-			createBillingCheckoutBodySchema.safeParse({
-				interval: "month",
-				plan: "starter",
-				tierCredits: 60,
-			}).success,
-		).toBe(true);
-		expect(
-			createBillingCheckoutBodySchema.safeParse({
-				interval: "month",
-				plan: "pro",
-				tierCredits: 175,
-			}).success,
-		).toBe(false);
-		expect(
-			createBillingCheckoutBodySchema.safeParse({
-				interval: "month",
-				plan: "starter",
-				tierCredits: 250,
-			}).success,
-		).toBe(false);
-	});
-
-	it("keeps subscription-change input history-safe for service validation", () => {
-		expect(
-			previewBillingSubscriptionChangeBodySchema.parse({
-				interval: "month",
-				tierCredits: 250,
-			}),
-		).toEqual({
-			interval: "month",
-			tierCredits: 250,
-		});
-		expect(
-			previewBillingSubscriptionChangeBodySchema.parse({
-				interval: "year",
-				plan: "starter",
-				tierCredits: 50,
-			}),
-		).toEqual({
-			interval: "year",
-			plan: "starter",
-			tierCredits: 50,
-		});
-		expect(
-			previewBillingSubscriptionChangeBodySchema.safeParse({
-				interval: "month",
-				plan: "free",
-				tierCredits: 175,
-			}).success,
-		).toBe(false);
-	});
-
 	it("exports the exact signup grant and bucket policies", () => {
 		expect(SIGNUP_GRANT_CREDITS).toBe(20);
 		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);
@@ -303,20 +245,5 @@ describe("billing catalog", () => {
 		expect(subscriptionSchema.parse(subscription).entitled).toBe(false);
 		const { entitled: _entitled, ...withoutEntitled } = subscription;
 		expect(subscriptionSchema.safeParse(withoutEntitled).success).toBe(false);
-	});
-
-	it("consumes subscription changes by persisted intent id", () => {
-		const intentId = "11111111-1111-4111-8111-111111111111";
-
-		expect(changeBillingSubscriptionBodySchema.parse({ intentId })).toEqual({
-			intentId,
-		});
-		expect(changeBillingSubscriptionBodySchema.safeParse({}).success).toBe(
-			false,
-		);
-	});
-
-	it("exports the authenticated subscription sync route", () => {
-		expect(billingRoutes.sync).toBe("/api/v1/billing/sync");
 	});
 });

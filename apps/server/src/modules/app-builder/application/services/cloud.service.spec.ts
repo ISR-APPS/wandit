@@ -544,9 +544,9 @@ describe("CloudService backend routes", () => {
 		expect(answer.status).toBe("active");
 	});
 
-	it("ensureBackend answers 403 BACKEND_LIMIT_REACHED when the plan has no free slot", async () => {
+	it("ensureBackend answers 403 BACKEND_LIMIT_REACHED when the payer has no free slot", async () => {
 		const { service } = fixture({
-			provisionError: new BackendLimitReachedError("pro", 1),
+			provisionError: new BackendLimitReachedError(1, "user"),
 		});
 
 		expect(

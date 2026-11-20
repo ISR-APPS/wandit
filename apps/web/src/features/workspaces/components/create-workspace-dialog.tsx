@@ -1,13 +1,10 @@
 /**
- * "Name your workspace" — the Business upgrade flow (teams-workspaces.md
- * §5.6): name → create the organization → switch the app into it → send the
- * OWNER to Business checkout (the workspace header now scopes the checkout to
- * the new org, so the subscription lands on the org, never the person).
- * Visitors in Algeria go to the plan picker instead: Card, CIB / Edahabia, or Cash / transfer.
+ * "Name your workspace": name, create the organization, switch the app into it, close.
+ * workspace-switcher.tsx opens it. It calls the Better Auth organization endpoint
+ * through createWorkspace, and starts no checkout (pricing-v8-pay-as-you-go.md section 6).
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import type { BillingInterval } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -18,22 +15,7 @@ import {
 } from "@wandit/ui/components/dialog";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@wandit/ui/components/select";
-import { useMemo, useState } from "react";
-import {
-	formatPlanPrice,
-	useBillingModal,
-	useLocalPricingQuery,
-} from "@/features/billing";
-import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
-import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
+import { useState } from "react";
 import { createWorkspace } from "@/features/workspaces/api/workspace-members.services";
 import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
@@ -55,7 +37,10 @@ function slugify(name: string): string {
 	return safeBase ? `${safeBase}-${suffix}` : `workspace-${suffix}`;
 }
 
-/** The team workspace dialog of the switcher, the pricing page, and the plan picker. It ends in the Business checkout. */
+/**
+ * The team workspace dialog of the switcher. It creates the organization and switches the app into it.
+ * A team needs no plan and no checkout (pricing-v8 D11): the owner tops up the team wallet later.
+ */
 export function CreateWorkspaceDialog({
 	open,
 	onOpenChange,
@@ -63,43 +48,19 @@ export function CreateWorkspaceDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const { locale, t } = useTranslation();
+	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	const { switchWorkspace } = useWorkspace();
-	const { openPlanPicker } = useBillingModal();
-	const plansQuery = useBillingPlansQuery();
-	const localPricingQuery = useLocalPricingQuery();
-	const checkout = useCreateBillingCheckout();
-	// Not null only for visitors in Algeria. They see DZD prices.
-	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
 
 	const [name, setName] = useState("");
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [interval, setInterval] = useState<BillingInterval>("month");
-	// Set once the org exists so a retry after a failed checkout leg reuses it
-	// instead of minting a duplicate workspace per click.
-	const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
-
-	const business = useMemo(
-		() => plansQuery.data?.plans.find((plan) => plan.id === "business") ?? null,
-		[plansQuery.data],
-	);
-	const [tierCredits, setTierCredits] = useState<number | null>(null);
-	const selectedTier =
-		business?.tiers.find((tier) => tier.tierCredits === tierCredits) ??
-		business?.tiers[0] ??
-		null;
 
 	const submit = async () => {
 		const trimmed = name.trim();
 
-		if (!createdOrgId && !trimmed) {
+		if (!trimmed) {
 			setError(t("workspaces.create.errors.nameRequired"));
-			return;
-		}
-		if (!selectedTier) {
-			setError(t("workspaces.create.errors.checkoutFailed"));
 			return;
 		}
 
@@ -107,47 +68,18 @@ export function CreateWorkspaceDialog({
 		setCreating(true);
 
 		try {
-			if (!createdOrgId) {
-				const organizationId = await createWorkspace({
-					name: trimmed,
-					slug: slugify(trimmed),
-				});
+			const organizationId = await createWorkspace({
+				name: trimmed,
+				slug: slugify(trimmed),
+			});
 
-				setCreatedOrgId(organizationId);
-				await queryClient.invalidateQueries({
-					queryKey: workspacesKeys.list(),
-				});
-				// From here every request — including the checkout below — acts as
-				// the new org workspace.
-				switchWorkspace(organizationId);
-			}
-
-			// Visitors in Algeria pick Card, SlickPay, or Cash / transfer in the plan picker, not in a direct Stripe checkout.
-			if (dzdPerUsdRate !== null) {
-				// The dialog stays mounted. Clear the org so that the next "Create team" makes a new one.
-				setCreatedOrgId(null);
-				setName("");
-				onOpenChange(false);
-				openPlanPicker("create_workspace", {
-					interval,
-					plan: "business",
-					tierCredits: selectedTier.tierCredits,
-				});
-				return;
-			}
-
-			try {
-				const { url } = await checkout.mutateAsync({
-					plan: "business",
-					tierCredits: selectedTier.tierCredits,
-					interval,
-				});
-				await completeCardCheckoutStart(url, "create_workspace");
-			} catch {
-				// The workspace exists — only payment failed to start. Distinct
-				// copy so the user retries checkout instead of re-creating.
-				setError(t("workspaces.create.errors.checkoutFailed"));
-			}
+			await queryClient.invalidateQueries({
+				queryKey: workspacesKeys.list(),
+			});
+			switchWorkspace(organizationId);
+			// The dialog stays mounted in the switcher, so the next open starts with an empty name.
+			setName("");
+			onOpenChange(false);
 		} catch (error) {
 			// Better Auth reports a refused allowUserToCreateOrganization
 			// callback (the organizationsEnabled kill switch) with its own
@@ -185,63 +117,10 @@ export function CreateWorkspaceDialog({
 							id="workspace-name"
 							value={name}
 							autoFocus
-							disabled={Boolean(createdOrgId)}
 							placeholder={t("workspaces.create.namePlaceholder")}
 							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
-					{business && selectedTier ? (
-						<div className="grid grid-cols-2 gap-3">
-							<div className="flex flex-col gap-2">
-								<Label>{t("billing.planPicker.creditTier")}</Label>
-								<Select
-									value={String(selectedTier.tierCredits)}
-									onValueChange={(value) => setTierCredits(Number(value))}
-								>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{business.tiers.map((tier) => (
-											<SelectItem
-												key={tier.tierCredits}
-												value={String(tier.tierCredits)}
-											>
-												{tier.tierCredits} ·{" "}
-												{formatPlanPrice(
-													tier.monthlyUsd,
-													locale,
-													dzdPerUsdRate,
-												)}{" "}
-												{t("billing.planPicker.perMonth")}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="flex flex-col gap-2">
-								<Label>{t("billing.planPicker.billingCycle")}</Label>
-								<Select
-									value={interval}
-									onValueChange={(value) =>
-										setInterval(value as BillingInterval)
-									}
-								>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="month">
-											{t("billing.planPicker.monthly")}
-										</SelectItem>
-										<SelectItem value="year">
-											{t("billing.planPicker.yearly")}
-										</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-					) : null}
 					{error ? (
 						<p className="text-destructive text-sm" role="alert">
 							{error}
@@ -249,20 +128,12 @@ export function CreateWorkspaceDialog({
 					) : null}
 					<Button
 						type="button"
-						disabled={
-							!selectedTier ||
-							creating ||
-							checkout.isPending ||
-							// The answer decides between Stripe and the plan picker, so submit waits for it.
-							localPricingQuery.isPending
-						}
+						disabled={creating}
 						onClick={() => void submit()}
 					>
-						{creating || checkout.isPending
+						{creating
 							? t("workspaces.create.creating")
-							: createdOrgId
-								? t("workspaces.create.retryCheckout")
-								: t("workspaces.create.submit")}
+							: t("workspaces.create.submit")}
 					</Button>
 				</div>
 			</DialogContent>

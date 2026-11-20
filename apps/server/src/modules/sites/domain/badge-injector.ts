@@ -10,9 +10,9 @@
  * the badge exists only on published pages, exactly like the ad pixels.
  *
  * Visibility follows the Lovable/Webflow norm: free publishes always carry
- * the badge; an entitled (paid) owner may hide it with the per-project
- * setting. Because injection happens at publish time, a plan downgrade
- * brings the badge back on the NEXT publish — never retroactively.
+ * the badge; a paid owner (one top-up, or an old subscription) may hide it
+ * with the per-project setting. Injection happens at publish time, so a
+ * change of the setting shows on the NEXT publish, never retroactively.
  *
  * The badge is self-contained: inline CSS only, no external requests (the
  * published page must not gain new origins), no script. Position uses

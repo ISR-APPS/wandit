@@ -3,12 +3,7 @@
 // Copy is English-only for v1 — the sender has no reliable locale signal for
 // a recipient who has never signed in.
 
-import type {
-	BillingInterval,
-	BillingPlanId,
-	ProjectMemberRole,
-	WorkspaceRoleName,
-} from "@wandit/contracts";
+import type { ProjectMemberRole, WorkspaceRoleName } from "@wandit/contracts";
 
 export type EmailContent = {
 	subject: string;
@@ -22,34 +17,16 @@ export type ExternalDomainDelegationReminderEmailData = {
 	nameServers: readonly string[];
 };
 
-/** Data of the expiry reminder that the subscription-renewal-reminders Trigger task sends for a manual plan. */
-export type SubscriptionRenewalReminderEmailData = {
-	interval: BillingInterval;
-	/** Display name of the recipient. User text. */
-	name: string;
-	/** Workspace name of an organization plan. Null for a personal plan. User text. */
-	organizationName: string | null;
-	/** subscriptions.current_period_end: the moment the plan expires. */
-	periodEnd: Date;
-	plan: BillingPlanId;
-};
-
+/** Data of the staff email for a new offline top-up request. ManualSubscriptionRequestsService sends it. */
 export type ManualRequestEmailData = {
 	adminUrl: string;
+	/** Whole USD that the customer asks to top up. */
+	amountUsd: number;
 	fullName: string;
-	interval: "month" | "year";
 	phone: string;
-	plan: BillingPlanId;
-	tierCredits: number;
 };
 
 const EMBER = "#d16022";
-const PLAN_NAMES = {
-	starter: "Starter",
-	pro: "Pro",
-	business: "Business",
-} as const satisfies Record<BillingPlanId, string>;
-
 const DEFAULT_FOOTER =
 	"If you didn't request this email, you can safely ignore it.";
 
@@ -197,86 +174,23 @@ export function externalDomainDelegationReminderEmail(
 	};
 }
 
-// UTC because the server does not know the time zone of the recipient. The output ends in "UTC".
-const RENEWAL_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
-	day: "numeric",
-	hour: "numeric",
-	minute: "2-digit",
-	month: "long",
-	timeZone: "UTC",
-	timeZoneName: "short",
-	year: "numeric",
-});
-
-/**
- * Expiry notice of a manual plan (SlickPay, offline) about 3 days before the period end.
- * `billingUrl` is the absolute URL of the web billing page. It shows the active workspace.
- */
-export function subscriptionRenewalReminderEmail(
-	data: SubscriptionRenewalReminderEmailData,
-	billingUrl: string,
-): EmailContent {
-	const name = sanitizeHeaderText(data.name);
-	const organizationName =
-		data.organizationName === null
-			? null
-			: sanitizeHeaderText(data.organizationName);
-	const planName = PLAN_NAMES[data.plan];
-	const planLabel = `${planName} plan (${data.interval === "year" ? "yearly" : "monthly"})`;
-	const owner =
-		organizationName === null
-			? `Your ${planLabel}`
-			: `The ${planLabel} of the ${organizationName} workspace`;
-	const billingPage =
-		organizationName === null
-			? "the billing page"
-			: `the billing page of the ${organizationName} workspace`;
-	const date = RENEWAL_DATE_FORMAT.format(data.periodEnd);
-	const lines = [
-		name ? `Hi ${name},` : "Hi,",
-		`${owner} expires on ${date}. It does not renew automatically.`,
-		`To keep the plan, renew it on ${billingPage} before that date.`,
-	];
-	const footer = "You get this email because you bought this Wandit plan.";
-	const htmlLines = lines
-		.map(
-			(line) =>
-				`<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">${escapeHtml(line)}</td></tr>`,
-		)
-		.join("\n");
-
-	return {
-		subject: `Your Wandit ${planName} plan expires soon`,
-		html: shell(
-			`
-${htmlLines}
-<tr><td style="padding-top:8px;padding-bottom:24px;"><a href="${escapeHtml(billingUrl)}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">Open billing</a></td></tr>
-<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">Button not working? Paste this link into your browser:<br><a href="${escapeHtml(billingUrl)}" style="color:${EMBER};word-break:break-all;">${escapeHtml(billingUrl)}</a></td></tr>`,
-			footer,
-		),
-		text: `${lines.join("\n\n")}\n\nOpen billing:\n${billingUrl}\n\n${footer}`,
-	};
-}
-
 export function manualRequestEmail(data: ManualRequestEmailData): EmailContent {
 	const fullName = sanitizeHeaderText(data.fullName);
 	const phone = sanitizeHeaderText(data.phone);
-	const plan = PLAN_NAMES[data.plan];
-	const interval = data.interval === "year" ? "yearly" : "monthly";
-	const planSummary = `${plan} / ${data.tierCredits} credits / ${interval}`;
+	const amount = `${data.amountUsd} USD`;
 	const adminUrl = sanitizeHeaderText(data.adminUrl);
 
 	return {
-		subject: `New offline subscription request — ${fullName}`,
+		subject: `New offline top-up request — ${fullName}`,
 		html: `<!doctype html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1815;line-height:1.6;">
-<h1 style="font-size:20px;">New offline subscription request</h1>
+<h1 style="font-size:20px;">New offline top-up request</h1>
 <p><strong>Name:</strong> ${escapeHtml(fullName)}<br>
 <strong>Phone:</strong> ${escapeHtml(phone)}<br>
-<strong>Plan:</strong> ${escapeHtml(planSummary)}</p>
+<strong>Amount:</strong> ${escapeHtml(amount)}</p>
 <p><a href="${escapeHtml(adminUrl)}">Open offline billing in admin</a></p>
 </body></html>`,
-		text: `New offline subscription request\n\nName: ${fullName}\nPhone: ${phone}\nPlan: ${planSummary}\n\nOpen offline billing in admin:\n${adminUrl}`,
+		text: `New offline top-up request\n\nName: ${fullName}\nPhone: ${phone}\nAmount: ${amount}\n\nOpen offline billing in admin:\n${adminUrl}`,
 	};
 }
 

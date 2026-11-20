@@ -12,18 +12,23 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Zap } from "lucide-react";
 import { useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
-import { UpgradeButton } from "@/features/billing/components/upgrade-button";
+import {
+	useBillingModal,
+	useBillingWalletQuery,
+	usePurchasesEnabled,
+} from "@/features/billing";
 import { CreditsChip } from "@/features/credits";
 import { FeedbackButton } from "@/features/feedback";
 import {
 	ReferralDialog,
 	useUserReferralsEnabled,
 } from "@/features/user-referrals";
+import { useWorkspace } from "@/features/workspaces";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
@@ -77,7 +82,7 @@ export function WorkspaceHeader() {
 				<FeedbackButton chatId={chatId} />
 				<ReferralEntry />
 				<CreditsChip />
-				<UpgradeButton />
+				<TopupButton />
 				<PublishButton />
 				<UserMenu />
 			</div>
@@ -113,5 +118,39 @@ function ReferralEntry() {
 			</Button>
 			<ReferralDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
 		</>
+	);
+}
+
+/**
+ * Compact "Top up" button next to Publish. Only a billing owner with no top-up yet sees it.
+ * A paid owner tops up from the credits chip. app-sidebar.tsx holds the same rule.
+ */
+function TopupButton() {
+	const { t } = useTranslation();
+	const { openTopup } = useBillingModal();
+	const { actorCanManageBilling, isPersonal } = useWorkspace();
+	const purchasesEnabled = usePurchasesEnabled();
+	const walletQuery = useBillingWalletQuery();
+	// Wait for the wallet: a top-up call to action that flashes at a paying customer is worse than a late one.
+	const visible =
+		(isPersonal || actorCanManageBilling) &&
+		purchasesEnabled !== false &&
+		walletQuery.data?.isPaidOwner === false;
+
+	if (!visible) {
+		return null;
+	}
+
+	return (
+		<Button
+			type="button"
+			size="sm"
+			variant="secondary"
+			className="h-8 px-3.5"
+			onClick={() => openTopup("workspace_header")}
+		>
+			<Zap className="text-ember-text" aria-hidden />
+			{t("workspace.topup")}
+		</Button>
 	);
 }

@@ -1,17 +1,20 @@
+/**
+ * Stores the Stripe Checkout attempts of billing: one row per started checkout.
+ * BillingService writes top-up attempts. The webhook services attach, complete, and expire them.
+ * Reads and writes `billing_checkout_attempts` through Drizzle.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import type { CheckoutPurpose } from "@wandit/contracts";
 import { and, asc, eq, inArray, isNull, sql } from "@wandit/db";
 import { billingCheckoutAttempts } from "@wandit/db/schema/billing";
-
-import {
-	type CreditOwner,
-	creditOwnerLockValue,
-} from "../../../credits/domain/credit-owner";
-
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 
 export type BillingCheckoutAttemptRow =
 	typeof billingCheckoutAttempts.$inferSelect;
@@ -55,26 +58,42 @@ export class BillingCheckoutAttemptsRepository {
 		});
 	}
 
+	/**
+	 * Inserts a wallet top-up attempt. Call it under `withOwnerLock`.
+	 * The webhook later grants `credits` and compares `amountUsdCents` with the Stripe subtotal.
+	 */
 	async create(
 		input: {
 			id: string;
-			organizationId?: string | null;
-			packId?: string;
-			priceLookupKey?: string;
-			purpose: PersistedCheckoutPurpose;
+			organizationId: string | null;
+			/** UNIT: USD cents. A positive integer. */
+			amountUsdCents: number;
+			/** UNIT: centi-credits. A positive integer. */
+			credits: number;
 			userId: string;
 		},
 		client: BillingCheckoutAttemptClient = this.db,
 	): Promise<BillingCheckoutAttemptRow> {
-		this.assertPurposeInvariant(input);
+		// A wrong amount here grants wrong credits later. Fail before the insert.
+		if (
+			!Number.isSafeInteger(input.amountUsdCents) ||
+			input.amountUsdCents <= 0 ||
+			!Number.isSafeInteger(input.credits) ||
+			input.credits <= 0
+		) {
+			throw new Error(
+				`Top-up checkout attempt ${input.id} needs positive integer amounts`,
+			);
+		}
+
 		const [row] = await client
 			.insert(billingCheckoutAttempts)
 			.values({
+				amountUsdCents: input.amountUsdCents,
+				credits: input.credits,
 				id: input.id,
-				organizationId: input.organizationId ?? null,
-				packId: input.packId ?? null,
-				priceLookupKey: input.priceLookupKey ?? null,
-				purpose: input.purpose,
+				organizationId: input.organizationId,
+				purpose: "topup",
 				status: "created",
 				userId: input.userId,
 			})
@@ -135,14 +154,6 @@ export class BillingCheckoutAttemptsRepository {
 			.limit(1);
 
 		return row ?? null;
-	}
-
-	async findOpenForUser(
-		userId: string,
-		purpose: PersistedCheckoutPurpose,
-		client: BillingCheckoutAttemptClient = this.db,
-	): Promise<BillingCheckoutAttemptRow[]> {
-		return this.findOpenForOwner({ type: "user", userId }, purpose, client);
 	}
 
 	/**
@@ -224,23 +235,5 @@ export class BillingCheckoutAttemptsRepository {
 			.returning({ id: billingCheckoutAttempts.id });
 
 		return row !== undefined;
-	}
-
-	private assertPurposeInvariant(input: {
-		packId?: string;
-		priceLookupKey?: string;
-		purpose: PersistedCheckoutPurpose;
-	}): void {
-		const valid =
-			(input.purpose === "subscription" &&
-				!!input.priceLookupKey &&
-				!input.packId) ||
-			(input.purpose === "topup" && !!input.packId && !input.priceLookupKey);
-
-		if (!valid) {
-			throw new Error(
-				`Billing checkout attempt violates ${input.purpose} purpose invariants`,
-			);
-		}
 	}
 }

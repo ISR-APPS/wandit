@@ -1,6 +1,6 @@
 /**
  * Records the "upgrade clicked" product event of each checkout, then continues the checkout.
- * The plan picker, the SlickPay panel, the offline panel, and the create-team dialog call it.
+ * The card tab of the top-up dialog, the SlickPay panel, and the offline panel call it.
  */
 import type { ProductEventSurface } from "@wandit/contracts";
 

@@ -1,3 +1,7 @@
+/**
+ * Card "Paid and revenue retention": monthly subscription cohorts with paid and MRR retention.
+ * RevenueAnalyticsPage renders it. After pricing v8 it shows history only.
+ */
 import type { AdminAnalyticsRetention } from "@wandit/contracts";
 import { CalendarRangeIcon, DatabaseIcon } from "lucide-react";
 
@@ -54,7 +58,8 @@ function RevenueRetentionCard({ retention }: RevenueRetentionCardProps) {
 							</h2>
 						</CardTitle>
 						<CardDescription className="mt-1">
-							Monthly subscription cohorts, with paid owners and MRR retained
+							History (plans ended). Monthly subscription cohorts, with paid
+							owners and MRR retained
 						</CardDescription>
 					</div>
 					<Badge variant="outline" className="shrink-0 bg-muted/30">

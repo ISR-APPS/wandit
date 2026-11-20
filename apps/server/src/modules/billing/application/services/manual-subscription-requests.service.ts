@@ -1,22 +1,14 @@
 /**
- * Implements requests for offline subscriptions.
- * Manual billing controllers call this service for request reads, creates, and cancellations.
- * This file calls billing repositories, email, settings, and analytics services.
+ * Implements the offline top-up requests of customers: the customer asks for an amount, an admin calls back.
+ * ManualBillingController calls this service for request reads, creates, and cancellations.
+ * This file calls the request repository, the owner lock, email, settings, and analytics services.
  */
-import {
-	BadRequestException,
-	Inject,
-	Injectable,
-	Logger,
-} from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
-import {
-	type BillingPlanId,
-	type CreateManualSubscriptionRequestBody,
-	isNewSubscriptionPlan,
-	type ManualSubscriptionRequest,
-	type ManualSubscriptionRequestViewResponse,
-	SUBSCRIPTION_PROVIDERS,
+import type {
+	CreateManualSubscriptionRequestBody,
+	ManualSubscriptionRequest,
+	ManualSubscriptionRequestViewResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
@@ -30,12 +22,8 @@ import { EmailService } from "../../../email/application/services/email.service"
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { ManualPaymentsDisabledError } from "../../../settings/domain/errors/manual-payments-disabled.error";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
-import {
-	WorkspaceNotSupportedError,
-	WorkspacePermissionDeniedError,
-} from "../../../workspaces/domain/errors/workspace.errors";
+import { WorkspacePermissionDeniedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
-import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import {
 	ManualRequestPendingError,
 	NoActiveManualRequestError,
@@ -45,16 +33,13 @@ import {
 	ManualSubscriptionRequestsRepository,
 } from "../../infrastructure/persistence/manual-subscription-requests.repository";
 import { SubscriptionCreditsRepository } from "../../infrastructure/persistence/subscription-credits.repository";
-import { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 
 type BillingScope = {
 	organizationId: string | null;
 	owner: CreditOwner;
 };
 
-/**
- * Coordinates offline requests and limits new personal requests to Pro.
- */
+/** Coordinates offline top-up requests. One open request per owner. */
 @Injectable()
 export class ManualSubscriptionRequestsService {
 	private readonly logger = new Logger(ManualSubscriptionRequestsService.name);
@@ -62,8 +47,6 @@ export class ManualSubscriptionRequestsService {
 	constructor(
 		@Inject(ManualSubscriptionRequestsRepository)
 		private readonly requestsRepository: ManualSubscriptionRequestsRepository,
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptionsRepository: SubscriptionsRepository,
 		@Inject(SubscriptionCreditsRepository)
 		private readonly subscriptionCreditsRepository: SubscriptionCreditsRepository,
 		@Inject(ProductSettingsService)
@@ -101,27 +84,10 @@ export class ManualSubscriptionRequestsService {
 			throw new OrganizationsDisabledError();
 		}
 
-		this.assertPlanMatchesScope(body.plan, scope.organizationId);
-		// New subscriptions exclude Starter because only current subscribers receive its renewal offer.
-		if (!isNewSubscriptionPlan(body.plan)) {
-			throw new BadRequestException(
-				"The Starter plan is only offered to current subscribers",
-			);
-		}
-
+		// The owner lock makes the open-request check and the insert one step.
 		const request = await this.subscriptionCreditsRepository.withOwnerLock(
 			scope.owner,
 			async (tx) => {
-				const subscription =
-					await this.subscriptionsRepository.findActiveByOwner(scope.owner, tx);
-
-				if (
-					subscription &&
-					subscription.provider !== SUBSCRIPTION_PROVIDERS.manual
-				) {
-					throw new ActiveSubscriptionExistsError();
-				}
-
 				if (await this.requestsRepository.findOpenByOwner(scope.owner, tx)) {
 					throw new ManualRequestPendingError();
 				}
@@ -129,18 +95,17 @@ export class ManualSubscriptionRequestsService {
 				try {
 					return await this.requestsRepository.insert(
 						{
+							// topupAmountUsdSchema parsed whole USD. The column holds USD cents.
+							amountUsdCents: body.amountUsd * 100,
 							city: body.city ?? null,
 							company: body.company ?? null,
 							country: body.country,
 							fullName: body.fullName,
-							interval: body.interval,
 							notes: body.notes ?? null,
 							organizationId: scope.organizationId,
 							phone: body.phone,
-							plan: body.plan,
 							preferredPaymentMethod: body.preferredPaymentMethod ?? null,
 							status: "pending",
-							tierCredits: body.tierCredits,
 							userId: user.id,
 						},
 						tx,
@@ -156,7 +121,7 @@ export class ManualSubscriptionRequestsService {
 		);
 
 		this.captureRequested(user.id, body);
-		this.notifyAdmins(request);
+		this.notifyAdmins(request, body.amountUsd);
 
 		return { request: mapManualRequest(request) };
 	}
@@ -197,33 +162,14 @@ export class ManualSubscriptionRequestsService {
 		};
 	}
 
-	private assertPlanMatchesScope(
-		plan: BillingPlanId,
-		organizationId: string | null,
-	): void {
-		const supported = organizationId
-			? plan === "business"
-			: plan === "starter" || plan === "pro";
-
-		if (!supported) {
-			throw new WorkspaceNotSupportedError(
-				organizationId
-					? "Organization workspaces support the Business plan only"
-					: "Personal workspaces support the Starter and Pro plans only",
-			);
-		}
-	}
-
 	private captureRequested(
 		userId: string,
 		body: CreateManualSubscriptionRequestBody,
 	): void {
 		try {
 			this.analytics.capture(userId, "manual_subscription_requested", {
+				amountUsd: body.amountUsd,
 				country: body.country,
-				interval: body.interval,
-				plan: body.plan,
-				tierCredits: body.tierCredits,
 			});
 		} catch (error) {
 			this.logger.warn(
@@ -233,7 +179,10 @@ export class ManualSubscriptionRequestsService {
 		}
 	}
 
-	private notifyAdmins(request: ManualSubscriptionRequestRow): void {
+	private notifyAdmins(
+		request: ManualSubscriptionRequestRow,
+		amountUsd: number,
+	): void {
 		try {
 			const recipients = parseAdminEmails(env.ADMIN_EMAILS);
 
@@ -248,11 +197,9 @@ export class ManualSubscriptionRequestsService {
 			void this.emailService
 				.sendManualRequestEmail(recipients, {
 					adminUrl,
+					amountUsd,
 					fullName: request.fullName,
-					interval: request.interval,
 					phone: request.phone,
-					plan: request.plan,
-					tierCredits: request.tierCredits,
 				})
 				.catch((error: unknown) => {
 					this.logger.warn(
@@ -269,10 +216,16 @@ export class ManualSubscriptionRequestsService {
 	}
 }
 
-function mapManualRequest(
+/**
+ * Maps one request row to the customer view. ManualSubscriptionsService uses it for the admin view too.
+ * A request from before pricing v8 has a plan and a null amount.
+ */
+export function mapManualRequest(
 	row: ManualSubscriptionRequestRow,
 ): ManualSubscriptionRequest {
 	return {
+		// amount_usd_cents holds USD cents. The view shows USD.
+		amountUsd: row.amountUsdCents === null ? null : row.amountUsdCents / 100,
 		city: row.city,
 		company: row.company,
 		country: row.country,

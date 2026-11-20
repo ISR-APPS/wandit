@@ -9,11 +9,11 @@ import {
 	WorkspaceNotSupportedError,
 	WorkspacePermissionDeniedError,
 } from "../../../domain/errors/workspace.errors";
+import type { WorkspacePermissionRequirement } from "../../../domain/workspace-context";
 import type { WorkspaceMembersRepository } from "../../../infrastructure/persistence/members.repository";
 import {
 	PERSONAL_WORKSPACE_ONLY_KEY,
 	WORKSPACE_PERMISSION_KEY,
-	type WorkspacePermissionRequirement,
 } from "../decorators/workspace.decorators";
 import { WorkspaceContextGuard } from "./workspace-context.guard";
 

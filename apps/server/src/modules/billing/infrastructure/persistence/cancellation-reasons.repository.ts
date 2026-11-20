@@ -1,3 +1,8 @@
+/**
+ * Moves rows of `cancellation_reasons` (pre-v8 plan cancellations) to `resumed` or `ended`.
+ * SubscriptionLifecycleService calls it from the Stripe subscription webhooks.
+ * Pricing v8 has no cancel route, so no code inserts a new row.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, sql } from "@wandit/db";
 import { cancellationReasons } from "@wandit/db/schema/cancellation-reasons";
@@ -8,7 +13,6 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 
 export type CancellationReasonRow = typeof cancellationReasons.$inferSelect;
-export type InsertCancellationReason = typeof cancellationReasons.$inferInsert;
 type CancellationReasonStatus = CancellationReasonRow["status"];
 type CancellationReasonTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
@@ -17,39 +21,6 @@ type CancellationReasonTransaction = Parameters<
 @Injectable()
 export class CancellationReasonsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
-
-	async createPending(
-		input: Omit<InsertCancellationReason, "status">,
-	): Promise<CancellationReasonRow> {
-		const [row] = await this.db
-			.insert(cancellationReasons)
-			.values({ ...input, status: "pending" })
-			.returning();
-
-		if (!row) {
-			throw new Error("Cancellation reason insert returned no row");
-		}
-
-		return row;
-	}
-
-	async markPendingOutcome(
-		id: string,
-		status: "provider_failed" | "scheduled",
-	): Promise<boolean> {
-		const [row] = await this.db
-			.update(cancellationReasons)
-			.set({ status, updatedAt: new Date() })
-			.where(
-				and(
-					eq(cancellationReasons.id, id),
-					eq(cancellationReasons.status, "pending"),
-				),
-			)
-			.returning({ id: cancellationReasons.id });
-
-		return row !== undefined;
-	}
 
 	markNewestScheduledResumed(stripeSubscriptionId: string): Promise<boolean> {
 		return this.transitionNewest(

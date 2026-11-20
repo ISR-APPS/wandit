@@ -2,7 +2,7 @@
  * The out-of-credits strip around a prompt composer.
  * The landing hero, the dashboard, and the chat panes of the two builders render it.
  * It reads the workspace, the purchase switch, and the public settings.
- * It opens the plan picker and links to the /refer page.
+ * It opens the top-up dialog and links to the /refer page.
  */
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
@@ -10,8 +10,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Zap } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
+import { useBillingModal, usePurchasesEnabled } from "@/features/billing";
 import { usePublicSettingsQuery } from "@/features/settings";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
@@ -22,7 +21,7 @@ import { useTranslation } from "@/lib/i18n";
  * top — the same fused silhouette as the PromptBox beta banner, so the
  * blocked composer still reads as one component. Billing is owner-only
  * (teams-workspaces.md §9): org members get "ask an owner" copy instead of
- * an upgrade CTA, and while purchases are paused (beta) the CTA disappears.
+ * the top-up CTA, and while purchases are paused the CTA disappears.
  * In a Personal workspace, while the referral program is on, the strip also
  * links to the /refer page.
  *
@@ -41,7 +40,7 @@ export function OutOfCreditsBanner({
 }) {
 	const { t } = useTranslation();
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
-	const { openPlanPicker } = useBillingModal();
+	const { openTopup } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
 	const isUserReferralsEnabled =
 		usePublicSettingsQuery().data?.userReferralsEnabled === true;
@@ -51,7 +50,7 @@ export function OutOfCreditsBanner({
 	}
 
 	const isBillingOwner = isPersonal || actorCanManageBilling;
-	const canUpgrade = isBillingOwner && purchasesEnabled !== false;
+	const canTopup = isBillingOwner && purchasesEnabled !== false;
 	const detail = !isBillingOwner
 		? t("credits.outOfCredits.memberBody")
 		: purchasesEnabled === false
@@ -86,12 +85,12 @@ export function OutOfCreditsBanner({
 						</>
 					) : null}
 				</p>
-				{canUpgrade ? (
+				{canTopup ? (
 					<Button
 						type="button"
 						size="sm"
 						className="h-7 shrink-0 rounded-full px-3 text-xs"
-						onClick={() => openPlanPicker("out_of_credits")}
+						onClick={() => openTopup("out_of_credits")}
 					>
 						{t("credits.outOfCredits.cta")}
 					</Button>

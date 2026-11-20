@@ -355,25 +355,39 @@ describe("LlmProxyService", () => {
 
 	it.each([
 		{
-			// No turn pick: the starter list holds no opus, so it is denied.
-			tokenModel: undefined,
-			status: 403,
-			code: "V2_MODEL_DENIED",
-			rowStatus: "model_denied",
-			reason: "anthropic/claude-opus-5",
-			upstreamCalls: 0,
-		},
-		{
-			// The turn picked opus, so its token allows it on any plan.
-			tokenModel: "anthropic/claude-opus-5",
+			// Pricing v8 D10: a priced model is open to every user. The old
+			// plan list denied opus to a starter token with no turn pick.
+			plan: "starter",
+			requestedModel: "anthropic/claude-opus-5",
 			status: 200,
 			code: undefined,
 			rowStatus: "ok",
 			reason: null,
 			upstreamCalls: 1,
 		},
-	] as const)("answers $status for opus on starter when the token model is $tokenModel", async ({
-		tokenModel,
+		{
+			// A new minter can drop the claim; the proxy never reads it.
+			plan: undefined,
+			requestedModel: "anthropic/claude-opus-5",
+			status: 200,
+			code: undefined,
+			rowStatus: "ok",
+			reason: null,
+			upstreamCalls: 1,
+		},
+		{
+			// A named model with no price row is denied before the provider.
+			plan: "starter",
+			requestedModel: "x/unpriced",
+			status: 403,
+			code: "V2_MODEL_DENIED",
+			rowStatus: "model_denied",
+			reason: "x/unpriced",
+			upstreamCalls: 0,
+		},
+	] as const)("answers $status for $requestedModel with plan claim $plan", async ({
+		plan,
+		requestedModel,
 		status,
 		code,
 		rowStatus,
@@ -386,9 +400,9 @@ describe("LlmProxyService", () => {
 			const { service, inserted } = makeService(env);
 			const reply = new FakeReply();
 			const { input } = inbound(env, {
-				authorization: token(env, { plan: "starter", model: tokenModel }),
+				authorization: token(env, { plan }),
 				body: Buffer.from(
-					JSON.stringify({ model: "anthropic/claude-opus-5", messages: [] }),
+					JSON.stringify({ model: requestedModel, messages: [] }),
 					"utf8",
 				),
 			});

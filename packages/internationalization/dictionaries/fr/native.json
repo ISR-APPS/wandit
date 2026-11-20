@@ -381,8 +381,8 @@
 	"credits": {
 		"title": "Crédits",
 		"left": "{count} restants",
-		"betaNote": "Crédits de forfait, promo et recharges cumulés",
-		"bucketPlan": "Forfait",
+		"betaNote": "Votre portefeuille. Les crédits n’expirent jamais.",
+		"bucketPlan": "Inclus",
 		"bucketPromo": "Promo",
 		"bucketTopup": "Recharge"
 	},

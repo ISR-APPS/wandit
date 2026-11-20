@@ -676,10 +676,10 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
-  refuses at the plan limit (`backendsPerPlan`: starter 0, pro 1,
-  business 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
+  refuses at the paid-owner limit (`backendLimitFor`: free owner 0, paid
+  personal owner 1, paid team 1000) with 403 `BACKEND_LIMIT_REACHED`. The count and the
   insert run under one advisory lock per payer. Project creation then goes on without a
-  backend. `BACKEND_LIMIT_OFF=true` skips the limit; set it only on staging for tests.
+  backend. `BACKEND_LIMIT_OFF=true` skips the limit; set it only on staging or on a local API for tests; production forces it off.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
   the doc for what a later issue must do.
 
@@ -1715,14 +1715,13 @@ Check order, per request:
    expired token gets 401 `V2_TOKEN_INVALID` and writes no row. A token
    whose run was revoked (`llm:revoked:run:{runId}` exists — the turn
    ended) gets the same 401 and also writes no row.
-2. **Model.** The body's `model` must be in `allowedLlmModels(plan)` —
-   `V2_DEFAULT_MODEL` plus the plan's paid list in
-   `@wandit/contracts` (`llmProxyAllowedModels`) — or be the token
-   `model`. A bound chat gives the model of the turn that runs now. A dated bare id like
+2. **Model.** The body's `model` must be `V2_DEFAULT_MODEL` or have a
+   row in the price table (pricing v8 D10: every priced model for every
+   user). The proxy does not read the token `plan`. A dated bare id like
    `claude-haiku-4-5-20251001` — what Claude Code sends for its aliases —
    is normalized to `anthropic/claude-haiku-4-5` before the check. An
    absent model means the default. A denied model gets 403
-   `V2_MODEL_DENIED` with `allowed` and a `model_denied` row.
+   `V2_MODEL_DENIED` and a `model_denied` row.
 3. **Rate limit.** Redis `llm:rl:run:{runId}`, `INCR` + `PEXPIRE`, fixed
    60 s window, 120 requests per minute (ESTIMATE). Over the limit: 429
    `V2_RATE_LIMITED` with `retry-after: 60` and a `rate_limited` row.
@@ -2501,8 +2500,8 @@ minute), and `@RequireWorkspacePermission("project", "update")`.
 1. The project is a V2 `mobile-app` project in scope, else 404.
 2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
    503 `V2_ENV_MISSING`.
-3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
-   starter 0, pro 60, business 180),
+3. The payer has minutes left this UTC month (`deviceMinutesPerMonth`:
+   free owner 0, paid personal owner 60, paid team 180),
    else 402 `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count
    their billed minutes, or their elapsed minutes before the bill.
 4. The user holds no open session: Redis `SET NX PX` on

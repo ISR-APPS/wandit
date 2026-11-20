@@ -3,21 +3,15 @@ import {
 	HttpException,
 	NotFoundException,
 } from "@nestjs/common";
-import {
-	type BillingPlanId,
-	startDeviceSessionResponseSchema,
-} from "@wandit/contracts";
+import { startDeviceSessionResponseSchema } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-	SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import type { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import {
 	type ProjectScope,
 	projectScopeFrom,
 } from "../../../projects/domain/project-scope";
-import { DEVICE_MINUTES_PER_PLAN } from "../../domain/device-minutes";
+import { DEVICE_MINUTES_PER_PAID_OWNER } from "../../domain/device-minutes";
 import type { DeviceSessionLock } from "../../domain/ports/device-session-lock";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
@@ -44,33 +38,6 @@ const MOBILE_PROJECT: ScopedAppProject = {
 	userId: "user-1",
 };
 
-// Copy of the fixture in `backends.service.spec.ts`: a spec must not
-// import from another spec file.
-function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
-	return {
-		cancelAtPeriodEnd: false,
-		createdAt: NOW,
-		currentPeriodEnd: NOW,
-		currentPeriodStart: NOW,
-		id: "sub_1",
-		interval: "month",
-		organizationId: null,
-		pendingAppliedBy: null,
-		pendingInterval: null,
-		pendingPlan: null,
-		pendingTierCredits: null,
-		plan,
-		priceLookupKey: "pro_250_month",
-		provider: "stripe",
-		providerSubscriptionId: "sub_stripe_1",
-		renewalReminderPeriodEnd: null,
-		status: "active",
-		tierCredits: 250,
-		updatedAt: NOW,
-		userId: "user-1",
-	};
-}
-
 /** An in-memory lock with the SET NX and compare-and-delete rules. */
 function fakeLock() {
 	const holders = new Map<string, string>();
@@ -95,6 +62,8 @@ function setup(options?: {
 	/** Minutes that the locked insert counts; another member started after the first read. */
 	lockedUsedMinutes?: number;
 	metroRunning?: boolean;
+	/** False makes the payer a free owner with no device minutes. */
+	isPaidOwner?: boolean;
 }) {
 	const rows = new Map<string, DeviceSessionRow>();
 	const sessions = {
@@ -149,9 +118,9 @@ function setup(options?: {
 			async () => options?.metroRunning ?? true,
 		),
 	};
-	const subscriptions = {
-		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
-			async () => subscriptionRow("pro"),
+	const paidOwners = {
+		isPaidOwner: vi.fn<PaidOwnerRepository["isPaidOwner"]>(
+			async () => options?.isPaidOwner ?? true,
 		),
 	};
 	const env: V2EnvSource = {
@@ -168,7 +137,7 @@ function setup(options?: {
 		lock,
 		previewTokens,
 		previewProxy,
-		subscriptions,
+		paidOwners,
 		env,
 	);
 	return { holders, previewProxy, previewTokens, rows, service, sessions };
@@ -207,10 +176,18 @@ describe("DeviceSessionsService.start", () => {
 		expect(holders.get("user-1")).toBe(answer.deviceSessionId);
 	});
 
-	it("answers 402 DEVICE_MINUTES_EXHAUSTED for a spent Pro month", async () => {
-		const { holders, rows, service } = setup({
-			usedMinutes: DEVICE_MINUTES_PER_PLAN.pro,
-		});
+	it.each([
+		{
+			name: "a spent month of a paid personal owner",
+			isPaidOwner: true,
+			usedMinutes: DEVICE_MINUTES_PER_PAID_OWNER.user,
+		},
+		{ name: "a free owner", isPaidOwner: false, usedMinutes: 0 },
+	])("answers 402 DEVICE_MINUTES_EXHAUSTED for $name", async ({
+		isPaidOwner,
+		usedMinutes,
+	}) => {
+		const { holders, rows, service } = setup({ isPaidOwner, usedMinutes });
 
 		const failure = await service
 			.start(SCOPE, PROJECT_ID, "ios")
@@ -225,8 +202,8 @@ describe("DeviceSessionsService.start", () => {
 
 	it("answers 402 and frees the user lock when the payer-locked insert finds the month spent", async () => {
 		const { holders, rows, service } = setup({
-			lockedUsedMinutes: DEVICE_MINUTES_PER_PLAN.pro,
-			usedMinutes: DEVICE_MINUTES_PER_PLAN.pro - 1,
+			lockedUsedMinutes: DEVICE_MINUTES_PER_PAID_OWNER.user,
+			usedMinutes: DEVICE_MINUTES_PER_PAID_OWNER.user - 1,
 		});
 
 		const failure = await service
