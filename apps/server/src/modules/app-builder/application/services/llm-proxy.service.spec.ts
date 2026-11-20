@@ -644,6 +644,144 @@ describe("LlmProxyService", () => {
 		expect(sent[0]?.get("anthropic-beta")).toBe(sentBeta);
 	});
 
+	const wanditIdentityLine =
+		"You are the Wandit builder, an AI assistant that builds apps for Wandit users.";
+
+	it("swaps the Claude Code identity for the Wandit persona in system and user text", async () => {
+		const sentBodies: string[] = [];
+		const upstreamFetch: typeof fetch = (_input, init) => {
+			sentBodies.push(String(init?.body ?? ""));
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const env = makeEnv("https://api.anthropic.com");
+		const { service } = makeService(env, upstreamFetch);
+		const cacheControl = { type: "ephemeral", ttl: "1h" };
+		const billingHeader = {
+			type: "text",
+			text: "x-anthropic-billing-header: cc_version=2.1.281; cc_entrypoint=sdk-ts;",
+		};
+		const userText = { type: "text", text: "Build a todo app." };
+		const { input } = inbound(env, {
+			body: Buffer.from(
+				JSON.stringify({
+					model: "claude-sonnet-5",
+					system: [
+						billingHeader,
+						{
+							type: "text",
+							text: "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+							cache_control: cacheControl,
+						},
+						{
+							type: "text",
+							text: "# Doing tasks\n - Read code before you change it.\n - If the user asks for help or wants to give feedback inform them of the following:\n  - /help: Get help with using Claude Code\n  - To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues\n\n# Environment\n - Primary working directory: /vercel/sandbox\n - The most recent Claude models are the Claude 5 family. Model IDs are claude-opus-5.\n - Claude Code is available as a CLI in the terminal, a desktop app, and a web app.\n - Fast mode for Claude Code uses the same model with faster output.\n",
+							cache_control: cacheControl,
+						},
+					],
+					messages: [
+						{
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: "<system-reminder>\nYou are powered by the model named Opus 4.8. The exact model ID is claude-opus-4-8[1m]. Assistant knowledge cutoff is January 2026.\n</system-reminder>",
+								},
+								userText,
+							],
+						},
+					],
+				}),
+				"utf8",
+			),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(JSON.parse(sentBodies[0] ?? "{}")).toEqual({
+			model: "claude-sonnet-5",
+			system: [
+				billingHeader,
+				{ type: "text", text: wanditIdentityLine, cache_control: cacheControl },
+				{
+					type: "text",
+					text: "# Doing tasks\n - Read code before you change it.\n\n# Environment\n - Primary working directory: /vercel/sandbox\n",
+					cache_control: cacheControl,
+				},
+			],
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "<system-reminder>\n\n</system-reminder>" },
+						userText,
+					],
+				},
+			],
+		});
+	});
+
+	// A gateway model has no marketing name, so its sentence names only the id.
+	const gatewayModelSentence =
+		"You are powered by the model deepseek/deepseek-v4.1-flash-1017.";
+	it.each([
+		{
+			where: "a string system",
+			body: {
+				system: `You are Claude Code, Anthropic's official CLI for Claude.\n${gatewayModelSentence} Assistant knowledge cutoff is May 2025.\nBuild apps.`,
+				messages: [],
+			},
+			sent: { system: `${wanditIdentityLine}\n\nBuild apps.`, messages: [] },
+		},
+		{
+			where: "a string user content, not the assistant",
+			body: {
+				messages: [
+					{ role: "user", content: `${gatewayModelSentence}\nHi` },
+					{ role: "assistant", content: gatewayModelSentence },
+				],
+			},
+			sent: {
+				messages: [
+					{ role: "user", content: "\nHi" },
+					{ role: "assistant", content: gatewayModelSentence },
+				],
+			},
+		},
+	])("removes the gateway model sentence from $where", async ({
+		body,
+		sent,
+	}) => {
+		const sentBodies: string[] = [];
+		const upstreamFetch: typeof fetch = (_input, init) => {
+			sentBodies.push(String(init?.body ?? ""));
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const model = "deepseek/deepseek-v4.1-flash-1017";
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			V2_DEFAULT_MODEL: model,
+		};
+		const { service } = makeService(env, upstreamFetch);
+		const { input } = inbound(env, {
+			body: Buffer.from(JSON.stringify({ model, ...body }), "utf8"),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(JSON.parse(sentBodies[0] ?? "{}")).toEqual({ model, ...sent });
+	});
+
 	it("streams SSE chunks as they arrive and writes the usage row", async () => {
 		const upstream = await startUpstream((_req, res) => {
 			res.writeHead(200, { "content-type": "text/event-stream" });
