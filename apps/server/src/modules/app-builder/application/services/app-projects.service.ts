@@ -1,8 +1,8 @@
 /**
  * Orchestration behind the V2 app-project routes: create, get, the
  * conversations of a project, the cost of one chat, and the project cost
- * caps. Called by `app-projects.controller.ts`
- * and `cost-caps.controller.ts`. Create order: 1. the template version of the
+ * caps. Called by `app-projects.controller.ts`, `cost-caps.controller.ts`,
+ * and the MCP tools (`mcp-tools.ts`). Create order: 1. the template version of the
  * platform. 2. the attachment and model checks. 3. the settled-balance gate. 4. one
  * transaction (project, chat, first message, builder session). 5. the
  * backend provision handoff. 6. the first builder turn, which adopts the
@@ -175,13 +175,21 @@ export class AppProjectsService {
 	) {}
 
 	/**
-	 * `POST /v2/projects`. Answers the ids of the project, its first chat,
-	 * and the first builder turn (null when the turn could not start).
+	 * `POST /v2/projects` and the MCP `create_project` tool. Answers the ids of the project,
+	 * its first chat, and the first builder turn (null when the turn could not start).
+	 * A second create with the same `request.ids` fails on the project primary key, before any credit hold.
 	 */
 	async create(
 		scope: ProjectScope,
 		body: CreateAppProjectRequest,
-		request: { countryCode: string | null },
+		request: {
+			/** Edge geo header of the request, or null. It picks the backend region. */
+			countryCode: string | null;
+			/** Fixed ids from the MCP `create_project` request key. The web route passes none: each create gets new ids. */
+			ids?: { projectId: string; chatId: string };
+			/** Dedupe key of the first builder turn, for the replay of `create_project`. Default: the new turn id. */
+			firstTurnRequestKey?: string;
+		},
 	): Promise<CreateAppProjectResponse> {
 		// First, before any row: a server without the mobile or desktop
 		// template answers 503 for a create of that platform.
@@ -199,8 +207,8 @@ export class AppProjectsService {
 
 		await this.assertPayerHasCredits(scope);
 
-		const projectId = randomUUID();
-		const chatId = randomUUID();
+		const projectId = request.ids?.projectId ?? randomUUID();
+		const chatId = request.ids?.chatId ?? randomUUID();
 		const messageId = randomUUID();
 		const derivedName = deriveProjectName(body.prompt);
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
@@ -249,7 +257,10 @@ export class AppProjectsService {
 					mode: body.mode,
 					model: body.model,
 				},
-				{ existingMessageId: messageId },
+				{
+					existingMessageId: messageId,
+					requestKey: request.firstTurnRequestKey,
+				},
 			);
 			turnId = turn.turnId;
 		} catch (error) {

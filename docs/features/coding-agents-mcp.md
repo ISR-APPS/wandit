@@ -2,7 +2,7 @@
 
 **Status:** in build on branch `feat/v2-mcp-server` · **Decision:** D29 in `docs/v2/DECISIONS.md` · **Date:** 2026-11-04
 
-A user connects an external coding agent (Claude Code, Codex CLI, Cursor, VS Code) to the Wandit account. The agent then reads and edits the code of the user's V2 projects, prompts the Wandit builder agent, and publishes the app. The agent talks to one remote MCP server on the API origin. The user signs in once with OAuth in the browser.
+A user connects an external coding agent (Claude Code, Codex CLI, Cursor, VS Code) to the Wandit account. The agent then creates V2 projects, reads and edits the code of the user's V2 projects, prompts the Wandit builder agent, and publishes the app. The agent talks to one remote MCP server on the API origin. The user signs in once with OAuth in the browser.
 
 ## Founder decisions (2026-11-04)
 
@@ -38,6 +38,7 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 - DPoP is not supported: the token endpoint refuses a request with a `dpop` header, because the MCP guard accepts only bearer tokens.
 - Consent: always, for every client and every new grant. Never `skip_consent` on a CIMD or DCR client.
 - Scopes: `projects:read`, `projects:write`, `builder:run`, `projects:deploy`, plus `offline_access` for the refresh token. A client asks for all of them on the first login, because Claude Code does not step up after a 403.
+- `create_project` adds no scope. It needs both `projects:write` and `builder:run`, so a connected agent needs no new login.
 - Tokens: JWT access token, audience = the MCP resource URL, 15 minutes. Refresh token 30 days, rotated on each use, with family revocation. Tokens are hashed at rest.
 - Revoke: a consent delete removes the access and refresh tokens of (user, client). A token exchange that ends with no consent row answers `invalid_grant`. A code or a refresh token older than the current consent row also answers `invalid_grant`, to one-second precision. So a credential from before a revoke or a ban stays dead after a new grant, also when a refresh races the revoke. An admin ban deletes all OAuth tokens and consents of the user.
 - `jwt()` runs with `disableSettingJwtHeader: true`. `/token` is in `disabledPaths`, so a cookie session cannot mint a JWT.
@@ -61,8 +62,12 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 - A tool takes a `projectId`. On every call the server proves the project role of the token user with `ProjectAccessService.resolve`, the rule of `ProjectAccessGuard` (workspaces-sharing.md 3.3). It then builds the `ProjectScope` with `projectScopeFromAccess`, so the pool of the project pays.
 - Role gates are the web gates (workspaces-sharing.md 2.2): the read tools and `wake_sandbox` need `viewer`; `apply_changes`, `send_prompt`, `cancel_turn`, and `publish_app` need `editor`. A role that is too low gives 403.
 - A missing project, a project out of scope, a V1 project, and a deleted project give the same "Project not found" error.
+- `create_project` takes a `workspaceId`, not a `projectId`. Absent or `personal` means the own personal workspace. The server reads the membership row again on each call. A workspace without a member row gives `WORKSPACE_NOT_FOUND`. `shared` gives `WORKSPACE_NOT_SUPPORTED`.
+- The create gate is the gate of `POST /v2/projects`: the workspace permission `project:create`. The personal workspace always passes. A Viewer gets 403. `assertWorkspacePermission` holds the rule for `WorkspaceContextGuard` and for the tool.
 
-## Tools v1
+## Tools
+
+Server version `1.1.0` added `create_project`. The other tools are the v1 set.
 
 | Tool | Scope | Reuses | Rule |
 |---|---|---|---|
@@ -73,11 +78,24 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 | `read_file` | projects:read | `CodeService.file` | Same path guard. Paged by offset, so one answer fits the 25k-token output cap of Claude Code. |
 | `list_versions` | projects:read | `VersionsService.list` | Recent commits. |
 | `get_turn` | projects:read | `TurnsService` scoped read | Status, result, and pending cards. Optional bounded wait (at most 25 s). |
+| `create_project` | projects:write and builder:run | `AppProjectsService.create` | Spends credits: it starts the first builder turn. Returns at once with the project, chat, and turn ids and the builder link. Client `requestKey`. Same rate bucket as the web. |
 | `wake_sandbox` | projects:write | `SandboxWakeService.wake` | Same rate bucket as the web. |
 | `apply_changes` | projects:write | the `AppThemeService.save` pattern, `commitTurn` | One lock, one batch, one commit with source `mcp`. |
 | `send_prompt` | builder:run | `TurnsService.create` | Spends credits with the web holds and caps. Returns at once. Client `requestKey` makes a retry a no-op. |
 | `cancel_turn` | builder:run | `TurnsService.cancel` | Same rate bucket as the web. |
 | `publish_app` | projects:deploy | `PublishService.publishHead` | Client `requestKey`. Same rate bucket as the web. Never `overrideGate`, rollback, or unpublish. |
+
+## Project create (`create_project`)
+
+- Input: `workspaceId`, `requestKey`, `prompt`, `targetPlatform` (default `web`), and `languages` (1 to 3, default `["en"]`). No attachments, composer, model, mode, or desktop engine in this version.
+- Flow: the scope check, the workspace gate, the replay check, the `project-create` rate bucket, then `AppProjectsService.create`. So the credit gate, the backend provision, the first turn, and the title job are the web steps.
+- `requestKey` becomes the key `mcp:<clientId>:<userId>:<requestKey>`. The server makes the project id and the chat id from a SHA-256 of that key, as version 8 uuids. So another client or another user never gets the same ids.
+- A retry with the same key finds the project and answers the same ids. It counts no rate hit and takes no credit hold. A retry with another prompt answers `REQUEST_KEY_REUSED`. The server compares the prompt of the turn row. Without a turn row, it compares the first message of the chat.
+- When the first turn failed, the chat holds an error reply after the prompt. The retry then answers `turnId: null`, and the agent can call `send_prompt`.
+- Without a turn row and without a second chat message, the first call still runs. The retry answers `CREATE_IN_PROGRESS` (409). The agent calls `create_project` again with the same key. A `turnId: null` answer here makes the agent send the prompt again and pay for it two times.
+- `CREATE_IN_PROGRESS` stops 2 minutes after the first chat message (`CREATE_IN_PROGRESS_MAX_MS`). After that time, the first call stopped, for example on a deploy restart or a crash. Or the write of the error reply failed, and the server logged it. The retry then answers `turnId: null`, and the agent can call `send_prompt`.
+- Two calls with one key at the same time: the second insert fails on the project primary key. That call then gives the replay answer, usually `CREATE_IN_PROGRESS`. When the caller cannot open a project with that id (deleted, or no access now), the call answers `REQUEST_KEY_REUSED`.
+- Rate limit: the `project-create` bucket of `POST /v2/projects` (`PROJECT_CREATE_RATE_LIMIT`, 10 per user and 30 per IP in 24 h). The agent and the web app of one user count together.
 
 ## Direct edits (`apply_changes`)
 
@@ -98,7 +116,8 @@ Production: `https://api.wandit.dev/api/mcp`. Staging: `https://api-staging.wand
 
 ## Audit
 
-- One `audit_events` row for each write, builder, and deploy tool call: action `mcp.tool_call`, metadata `{ tool, clientId, outcome }` plus the commit sha or the turn id. Never arguments, file content, or tokens.
+- One `audit_events` row for each create, write, builder, and deploy tool call: action `mcp.tool_call`, metadata `{ tool, clientId, outcome }` plus the commit sha or the turn id. Never arguments, file content, or tokens.
+- A successful `create_project` row names the new project and its team (null for a personal project). A failed row names no project. Its `targetId` holds the derived project id.
 - `mcp.consent_granted` and `mcp.consent_revoked` rows for grants.
 
 ## Prompt injection
