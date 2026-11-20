@@ -139,6 +139,19 @@ export const APP_PUBLISH_RATE_LIMIT = {
 } satisfies RateLimitOptions;
 
 /**
+ * `POST /v2/projects` and the MCP `create_project` tool: 10 per user and 30 per IP in 24 h (WANDIT-181).
+ * Each create can provision a backend and starts a first turn, so the cap stops a script that farms them.
+ * The IP cap is three times the user cap: three people behind one office IP fit, one person with many accounts does not.
+ * `POST /v2/projects/from-starter-template` takes the same numbers with its own key.
+ */
+export const PROJECT_CREATE_RATE_LIMIT = {
+	ipLimit: 30,
+	key: "project-create",
+	limit: 10,
+	windowMs: 24 * 60 * 60_000,
+} satisfies RateLimitOptions;
+
+/**
  * Full Redis key for one subject in one bucket. The subject is a user id,
  * or `ip:<client ip>` for the IP cap.
  */

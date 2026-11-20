@@ -1138,8 +1138,9 @@ export class TurnsService {
 /**
  * Throws 409 REQUEST_KEY_REUSED when a replayed row holds another prompt than `message`.
  * An MCP agent writes its own `requestKey` and can reuse one by mistake. The new prompt then must not drop silently.
+ * `create` and the MCP `create_project` replay call it.
  */
-function assertSameReplayedMessage(
+export function assertSameReplayedMessage(
 	replayed: BuilderTurnRow,
 	message: string,
 ): void {
@@ -1147,7 +1148,18 @@ function assertSameReplayedMessage(
 	const spec = builderTurnSpecSchema
 		.pick({ message: true })
 		.safeParse(replayed.spec);
-	if (!spec.success || spec.data.message !== message) {
+	assertSameReplayedPrompt(spec.success ? spec.data.message : null, message);
+}
+
+/**
+ * The rule of `assertSameReplayedMessage` for a stored prompt text. Null (no stored prompt) also refuses.
+ * The MCP `create_project` replay calls it with the first chat message when no turn row exists.
+ */
+export function assertSameReplayedPrompt(
+	storedPrompt: string | null,
+	message: string,
+): void {
+	if (storedPrompt !== message) {
 		throw new ConflictException({
 			code: "REQUEST_KEY_REUSED",
 			message:
