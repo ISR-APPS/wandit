@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildCodeTree,
+	isAgentFilePath,
 	isReadableCodePath,
 	isWritableCodePath,
 	pickDefaultFilePath,
@@ -82,6 +83,20 @@ describe("isWritableCodePath", () => {
 		["a DEL character", "src/app.tsx\u007f", false],
 	])("%s: %s -> %s", (_label, path, expected) => {
 		expect(isWritableCodePath(path)).toBe(expected);
+	});
+});
+
+describe("isAgentFilePath", () => {
+	// The GitHub Update keeps these paths, so a false positive drops a legit GitHub change.
+	it.each([
+		["a nested CLAUDE.md", "apps/web/CLAUDE.md", true],
+		["the root .mcp.json", ".mcp.json", true],
+		["a nested .claude skill", "src/.claude/skills/x/SKILL.md", true],
+		["the root .gitignore", ".gitignore", false],
+		["the root theme.json", "src/styles/theme.json", false],
+		["a file named like the folder", "src/claude.md", false],
+	])("%s: %s -> %s", (_label, path, expected) => {
+		expect(isAgentFilePath(path)).toBe(expected);
 	});
 });
 
