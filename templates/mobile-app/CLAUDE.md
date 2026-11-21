@@ -135,6 +135,8 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
   5. Search `src/` for `@/features/auth` and `@/features/profile`. Only the files of this step
      may still import them. Then delete `src/features/auth/`, `src/features/profile/`,
      `src/app/sign-in.tsx`, and `src/app/(tabs)/account/` in one step.
+     Then delete the `signUpAuth` export and its header line from `src/shared/lib/supabase.ts`:
+     only `auth` uses it.
 
 ## Navigation
 
@@ -341,18 +343,51 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
 - `useSession()` gives `loading`, `signed-out`, or `signed-in` with the session.
 - The sign-up form has three fields: email, password, and confirm password.
   A zod schema with `refine` checks that the two passwords match.
-- Email confirmation is off for this project. `signUp` returns a session at once.
-  Do not build a "check your email" step.
+- Some backends send a 6-digit code by email at sign-up. The other backends send no email:
+  `signUp` returns a session at once. You cannot know which one the project has.
+  Never tell the user as a fact that the app sends an email.
+- `useSignUp()` reads the answer of `signUp` and gives a tagged result:
+  - `signed-in`: the backend sends no email. The session arrives at once.
+  - `confirm-email`: the backend sends the code email and gives no session.
+    The sign-in screen then shows its code view (`EmailCodeView` in `sign-in-screen.tsx`).
+    The user types the code, `useEmailCodeConfirmation()` checks it, and the session arrives.
+- The code view also opens when a sign-in fails with `email_not_confirmed`.
+- Keep the code view and the two modes in every app that keeps sign-in. When you redesign
+  the sign-in screen, redesign the code view with it. Never remove it, and never move it to
+  a new route. It keeps these parts:
+  - the address
+  - the code field: `keyboardType="number-pad"`, `autoComplete="one-time-code"`,
+    `textContentType="oneTimeCode"`, 6 digits
+  - the confirm button, "Send a new code", and "Use another email"
+  - the hint line
+- Keep `emailCodeSchema` as the check of the code: it changes Arabic and Persian digits to 0-9.
+- After a right code, the code view saves the password of the form on the account.
+  Only then, the app gets the session (`useEmailCodeConfirmation`, with `signUpAuth`).
+  Never remove this step, and never check a code with `supabase.auth`.
+  Without it, an older sign-up of another person with the same address keeps its password.
+  A direct call to the backend can also clear the password of an account that waits for its code.
+- On a backend that sends the code email, the code view never says if an address has an account.
+  That backend answers a sign-up the same for a new address and for a confirmed account.
+  It sends no email to an address with a confirmed account.
+  Keep the neutral hint line of the code view, and the neutral line after "Send a new code".
+- On a backend that sends no email, a sign-up with a used address gives the `emailTaken` text.
+  Keep that text.
+- The email holds a code, not a link. Do not build a confirmation link or a deep link.
+  Do not build a "check your email" step that waits for a link. Expo Go cannot receive a link.
 - Do not build OAuth sign-in (Google, Apple, or another provider), magic link sign-in,
   or phone code sign-in. Do not build them when the user asks for them.
   Tell the user that only email and password sign-in is available for now.
-- Create one test account per app, in the first build turn of an app that keeps sign-in:
-  `node --env-file=.env scripts/create-test-user.mjs`. The script calls the sign-up
-  endpoint of the app backend with the anon key and prints a new email and password.
-  Do not create another one in a later turn.
-- On an error, read its text: `Cannot reach the app backend` means the backend is paused
-  or not ready; tell the user. Never print the anon key or another value of `.env`.
-- Give the email and the password to the user in your final answer.
+  The email code confirms the address at sign-up. It is not a sign-in method.
+- Do not build a password reset by email, even when the user asks. The reset email holds no link,
+  or a link that Expo Go cannot receive. Tell the user that it is not available for now.
+- You have no account in the app. Never create one: no script, no `curl`, no sign-up in the headless browser.
+- Never write a password in the chat. Never print the anon key or another value of `.env`.
+- The user creates the accounts on the sign-up screen of the app. On a backend that sends the
+  code email, the user also types the code from the email.
+- The base schema holds `public.app_access` and the schema `private`. This app does not use them.
+  Never read, change, or drop them. Never build an approval step on them.
+- Policies keep `auth.uid()`. Never use `private.data_owner_id()` in this app.
+- The headless browser: check only the screens that open without sign-in, and the sign-in screen.
 
 ## Payment rule
 
@@ -371,10 +406,11 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
 1. Run `pnpm run typecheck` and `pnpm run lint`. Fix every error and warning.
 2. Check that every button and link works, and that no screen shows fake data.
 3. End with a short answer in plain words for a person who does not code:
-   - At most 100 words, plus the test account. No headings, no tables, no file names, no code.
+   - At most 100 words. No headings, no tables, no file names, no code.
    - One sentence: what is ready.
    - 2 to 4 short points: what the app does now and what to try in the preview.
-   - The test account, in the turn that created it.
+   - The first build of an app that keeps sign-in: tell the user to create an account on the sign-up screen.
+     Say that the sign-up can send a 6-digit code by email. Never give an email or a password of an account.
    - One line: what is still missing or not available, and one next step. For example a feature
      that is not available, a paused backend, a missing secret, or a database warning in plain words.
 

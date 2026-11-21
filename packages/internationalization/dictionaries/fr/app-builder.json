@@ -278,7 +278,7 @@
 				"description": "Lien sans mot de passe par e-mail"
 			}
 		},
-		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Ils ne reçoivent aucun e-mail de confirmation."
+		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Certaines applications demandent aussi un code qu'elles envoient par e-mail."
 	},
 	"ai": {
 		"gateway": "Passerelle IA",

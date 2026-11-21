@@ -10,6 +10,8 @@ import { AppSidebar } from "./app-sidebar";
 import { NavUser } from "./nav-user";
 
 type AppShellProps = {
+	/** `auth.users.id` of the signed-in user, from the session of the /app layout route. The user menu reads its `app_access` row. */
+	userId: string;
 	/** Email of the signed-in user, from the session of the /app layout route. */
 	email: string;
 	/** The page of the current child route. */
@@ -33,7 +35,7 @@ const SIDEBAR_COLLAPSIBLES = {
 } as const satisfies Record<ThemeSelection["sidebarCollapse"], string>;
 
 /** The sidebar, then the page column. The other theme axes sit on <html> as data-* attributes. */
-export function AppShell({ email, children }: AppShellProps) {
+export function AppShell({ userId, email, children }: AppShellProps) {
 	const { sidebarStyle, sidebarCollapse, sidebarStart, userMenu } =
 		useAppTheme().selection;
 
@@ -46,6 +48,7 @@ export function AppShell({ email, children }: AppShellProps) {
 			data-surface="app"
 		>
 			<AppSidebar
+				userId={userId}
 				email={email}
 				variant={SIDEBAR_VARIANTS[sidebarStyle]}
 				collapsible={SIDEBAR_COLLAPSIBLES[sidebarCollapse]}
@@ -55,7 +58,7 @@ export function AppShell({ email, children }: AppShellProps) {
 				<AppHeader
 					userMenu={
 						userMenu === "header" ? (
-							<NavUser email={email} placement="header" />
+							<NavUser userId={userId} email={email} placement="header" />
 						) : null
 					}
 				/>

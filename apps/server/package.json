@@ -78,6 +78,7 @@
 	},
 	"devDependencies": {
 		"@ai-sdk/provider": "4.0.19",
+		"@electric-sql/pglite": "^0.5.16",
 		"@nestjs/testing": "^11.1.27",
 		"@sentry/esbuild-plugin": "catalog:",
 		"@trigger.dev/build": "4.5.3",

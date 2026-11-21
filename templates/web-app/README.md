@@ -45,8 +45,11 @@ and i18n with one language by default (more on request, RTL ready).
   installed dev tree (the same tree the sandbox installs; workerd alone is about
   146 MB of it).
 - `pnpm run pack` — write the distributable archive.
-- `node --env-file=.env scripts/create-test-user.mjs` — the agent creates one test
-  account with the anon key and gives its email and password to the user.
+- No command creates an account. The first account with a confirmed email is the owner.
+  Some backends send a 6-digit code by email at sign-up. The login page (`src/features/auth/`) has the code step.
+  The other backends send no email: they confirm the account at sign-up, and the code step never shows.
+  The app code cannot know which one the project has before the answer of `signUp`.
+  In a team app, the owner approves each later account (`public.app_access` in `supabase/migrations/0000_base.sql`).
 
 ## Theme engine
 

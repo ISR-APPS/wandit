@@ -621,11 +621,25 @@ It creates the Supabase project when the row has no `ref`, with one fetch only: 
 It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout. A paused (`INACTIVE`) or `RESTORE_FAILED` project of a retried row gets one restore call.
 It reads the anon key and the service-role key, stores the service-role key as the `system` secret `SUPABASE_SERVICE_ROLE_KEY`, and sets `service_role_secret_id`.
 It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral, serves both templates, and can run twice. A reused project that was active before keeps its schema and auth config: the run skips this step and the next one.
+The file also creates the table `public.app_access` and the schema `private`: the access rule of the generated app.
+The first account with a confirmed email is the owner. Each later account waits until the owner approves it.
+An account gets its `app_access` row when its email is confirmed, not at the insert. On a backend that sends no code email, Supabase confirms the email at sign-up, so the row comes at once.
+With the row `audience = 'public'` in `private.app_config`, each later account is approved at once.
+No task applies the file again to a backend that became active before this change.
+The builder agent applies it with `apply_destructive_migration` when the access gate of the web app fails (`templates/web-app/CLAUDE.md`, "Sign-in").
+The file then gives a row to each account with a confirmed email. The oldest of them is the owner when the table is empty.
+Because of this `insert ... select`, `isDestructiveMigration` is true for the file, so the user approves that call.
 It sets the auth `site_url` to the preview apex with the `previewAuthRedirectPattern` allow list (`r-` plus 12 hex characters, never `*`: a `*` also matches `@` and lets a login token go to another host).
 `BackendAuthUrlsService` (Trigger task `sync-backend-auth-urls`) replaces both URL fields after a publish, an unpublish, and a custom domain change: `site_url` becomes the primary domain, else the slug host, and the allow list keeps the preview pattern and adds each live host.
-It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
-No task changes the email setting on a backend after its provisioning.
-Without `PREVIEW_DOMAIN`, the task still sends the two email settings, but it skips the two URL fields and logs `supabase.provisioning.auth-urls-skipped`.
+It sets `external_email_enabled` to true and chooses the sign-up mode of the backend (D40). The mode never changes after provisioning.
+- Code email: the worker has `APP_AUTH_EMAIL_FROM` and `RESEND_PLATFORM_API_KEY`, and `supportsEmailCode(project.templateVersion)` is true (`web-app@1.2.0` and later, `mobile-app@1.3.0` and later). The same PATCH sets `mailer_autoconfirm` to false, the Resend SMTP sender (`smtp.resend.com`, port `"465"`, user `resend`, the key as `smtp_pass`), the sender name, the subject "Confirm your email", the HTML body, 100 emails per hour, and a 6-digit code that works for 1 hour. Sign-up then sends the code, and the person types it in the app. The same PATCH gives the recovery, magic link, and email change emails one static body and the subject "No action is needed" (`APP_AUTH_NO_LINK_HTML`). That body holds no template value, so no link and no code leaves the backend. One GET of a default Supabase link confirms an account with no code.
+- No email: in each other case the PATCH sets `mailer_autoconfirm` to true, and sign-up gives a session at once. The run logs the warning `supabase.provisioning.email-confirmation-off` with the reason.
+The lines of the task go to the Trigger.dev logger. An operator reads them in the run log of the `provision-backend` task, not in Sentry. The Sentry client of the worker drops log lines.
+The sender name is the project name after `appEmailSenderName` (`domain/app-auth-email.ts`): no control character, none of `< > " { }`, no `=?`, at most 60 characters, and "Your app" for an empty name, a name with a phishing term, or a name that holds "Wandit". `confirmationEmailHtml` builds the body. Its only template values are `{{ .Token }}` and `{{ .Email }}`; it holds no link.
+The key is a secret in the request body. When this PATCH fails, the error holds a fixed text and never the answer of Supabase, so the key cannot reach `failure_provider_message`, a log, or Sentry.
+When Supabase refuses the code email PATCH with a 4xx (not 429), the run logs `supabase.provisioning.email-confirmation-refused` in the run log, sends the error to Sentry as an event, and sends the PATCH of the mode without email. The backend still becomes active.
+`BackendAuthUrlsService` also keeps the sender name. When the auth config has the host `smtp.resend.com` and another `smtp_sender_name` than the project name gives, it PATCHes the name and the HTML body of the code email. It never sends `smtp_pass`. A backend that is not active gets no PATCH: its code email keeps the old name until the next publish or rename. `ProjectsService` starts the task after a manual rename and after the title job writes a name, for a `v2_app` project.
+Without `PREVIEW_DOMAIN`, the task still sends the email settings, but it skips the two URL fields and logs `supabase.provisioning.auth-urls-skipped`.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
 When the sandbox runs, the run then writes the backend values to its `.env` (see "Backend values" above).

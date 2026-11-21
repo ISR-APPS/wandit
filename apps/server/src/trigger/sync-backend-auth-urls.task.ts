@@ -1,9 +1,11 @@
 /**
  * `sync-backend-auth-urls` Trigger.dev task (WANDIT-190): one run writes the
- * login URLs of one V2 app into its Supabase auth config.
- * `TriggerSyncBackendAuthUrlsTaskStarter` queues it after a publish and
- * after a custom domain change. The rules live in `BackendAuthUrlsService`;
- * this file only wires the real repositories and the Management API client.
+ * login URLs of one V2 app into its Supabase auth config. It also keeps the
+ * From name of the sign-up code email equal to the project name.
+ * `TriggerSyncBackendAuthUrlsTaskStarter` queues it after a publish, a
+ * custom domain change, and a project rename. The rules live in
+ * `BackendAuthUrlsService`; this file only wires the real repositories and
+ * the Management API client.
  */
 import "./undici-timeouts";
 
@@ -30,8 +32,8 @@ const syncBackendAuthUrlsPayloadSchema = z.object({
 /** One sync per run. The sync reads the full state, so a repeated run writes nothing. */
 export const syncBackendAuthUrlsTask = schemaTask({
 	id: SYNC_BACKEND_AUTH_URLS_TASK_ID,
-	// 600 s: two Management API calls of up to 165 s each (5 attempts of
-	// 30 s plus backoff), and time for rate-limit waits. A kill at
+	// 600 s: at most three Management API calls of up to 165 s each (5
+	// attempts of 30 s plus backoff), and time for rate-limit waits. A kill at
 	// maxDuration gets no retry and no Sentry event, so the margin is wide.
 	maxDuration: 600,
 	// One run at a time: an older run that writes last would bring back a
@@ -60,6 +62,8 @@ export const syncBackendAuthUrlsTask = schemaTask({
 				domains: new DomainsRepository(db),
 				findLiveSlug: async (projectId) =>
 					(await publish.findLiveDeployment(projectId))?.slug ?? null,
+				findProjectName: async (projectId) =>
+					(await publish.findProject(projectId))?.name ?? null,
 				logger: Sentry.logger,
 				previewDomain: env.PREVIEW_DOMAIN ?? null,
 				sitesDomain: env.SITES_DOMAIN,

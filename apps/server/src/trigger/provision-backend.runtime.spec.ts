@@ -16,8 +16,20 @@ import {
 	FAKE_WORKSPACE_DIR,
 	FakeSandboxProvider,
 } from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
-import type { BackendRef } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
-import { SupabaseManagementError } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import {
+	jsonResponse,
+	type RecordedRequest,
+	scriptedFetch,
+} from "../modules/app-builder/infrastructure/supabase/fake-supabase-fetch";
+import { FakeSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/fake-supabase-rate-limiter";
+import type {
+	BackendRef,
+	ConfirmationEmailSender,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import {
+	SupabaseManagementClient,
+	SupabaseManagementError,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import {
 	instanceSizeFromEnv,
 	type ProvisionBackendDeps,
@@ -33,6 +45,10 @@ const ANON_KEY = "anon-key-1";
 const SERVICE_ROLE_KEY = "service-role-key-1";
 const BASE_SQL = "create extension if not exists pg_cron;";
 const PREVIEW_DOMAIN = "preview.test";
+const EMAIL_FROM = "no-reply@auth.test";
+const RESEND_KEY = "re_test_key_1";
+// A project whose template has the code step on its login page.
+const PROJECT = { name: "Nour Objets", templateVersion: "web-app@1.2.0" };
 
 const INPUT = { projectId: PROJECT_ID, requestKey: REQUEST_KEY };
 
@@ -60,7 +76,7 @@ type AuthConfigCall = {
 		siteUrl?: string;
 		uriAllowList?: string[];
 		externalEmailEnabled: boolean;
-		skipEmailConfirmation: boolean;
+		confirmationEmail: ConfirmationEmailSender | null;
 	};
 };
 
@@ -227,6 +243,12 @@ function setup(
 		statuses?: SupabaseProjectStatus[];
 		previewDomain?: string | null;
 		noClient?: boolean;
+		/** `APP_AUTH_EMAIL_FROM` of the worker. Default: unset. */
+		appAuthEmailFrom?: string;
+		/** `RESEND_PLATFORM_API_KEY` of the worker. Default: unset. */
+		resendPlatformApiKey?: string;
+		/** The project row; null means that no row exists. Default: `PROJECT`. */
+		project?: { name: string; templateVersion: string | null } | null;
 	} = {},
 ) {
 	const backends = createBackendsFake(row);
@@ -256,7 +278,9 @@ function setup(
 	let fakeNow = 0;
 	const sandboxes = new FakeSandboxProvider();
 	const secrets = createSecretsFake();
+	const project = options.project === undefined ? PROJECT : options.project;
 	const deps = {
+		appAuthEmailFrom: options.appAuthEmailFrom ?? null,
 		auditEvents: {
 			insert: vi.fn(async (input: AuditEventInput) => {
 				audits.push(input);
@@ -278,7 +302,9 @@ function setup(
 			options.previewDomain === undefined
 				? PREVIEW_DOMAIN
 				: options.previewDomain,
+		projects: { findProject: async (_projectId: string) => project },
 		readBaseSql: vi.fn(async () => BASE_SQL),
+		resendPlatformApiKey: options.resendPlatformApiKey ?? null,
 		sandboxes,
 		secrets,
 		sleep: async (ms: number) => {
@@ -351,7 +377,7 @@ describe("runProvisionBackend", () => {
 						previewAuthRedirectPattern(PROJECT_ID, PREVIEW_DOMAIN),
 					],
 					externalEmailEnabled: true,
-					skipEmailConfirmation: true,
+					confirmationEmail: null,
 				},
 			},
 		]);
@@ -653,11 +679,11 @@ describe("runProvisionBackend", () => {
 		const result = await runProvisionBackend(deps, INPUT);
 
 		expect(result.outcome).toBe("active");
-		// Product rule: sign-up in the generated app needs no confirmation email.
+		// The email settings need no preview domain, so they still go out.
 		expect(client.authCalls).toEqual([
 			{
 				scope: { projectId: PROJECT_ID, ref: REF },
-				input: { externalEmailEnabled: true, skipEmailConfirmation: true },
+				input: { externalEmailEnabled: true, confirmationEmail: null },
 			},
 		]);
 		expect(backends.markActive).toHaveBeenCalledTimes(1);
@@ -765,6 +791,192 @@ describe("runProvisionBackend", () => {
 					line.message === "supabase.provisioning.mark-error-failed",
 			),
 		).toBe(true);
+	});
+});
+
+// A real worker client on the scripted fetch answers the auth config call.
+// So the case reads what the runtime stores when Supabase echoes the body.
+function scriptAuthConfigAnswers(
+	fixture: ReturnType<typeof setup>,
+	answers: Response[],
+): RecordedRequest[] {
+	const requests: RecordedRequest[] = [];
+	const realClient = new SupabaseManagementClient({
+		fetch: scriptedFetch(answers, requests),
+		logger: fixture.deps.logger,
+		organizationSlug: "wandit-org",
+		ownsRef: async () => true,
+		rateLimiter: new FakeSupabaseRateLimiter(),
+		sleep: async () => undefined,
+		token: "sbp_test_token",
+	});
+	fixture.client.updateAuthConfig.mockImplementation((scope, input) =>
+		realClient.updateAuthConfig(scope, input),
+	);
+	return requests;
+}
+
+// Every text that leaves the run: the failure row, the log lines, and the
+// errors that go to Sentry.
+function textThatLeavesTheRun(fixture: ReturnType<typeof setup>): string {
+	return JSON.stringify({
+		captures: fixture.captures.map(({ error }) =>
+			error instanceof SupabaseManagementError
+				? [error.message, error.detail]
+				: String(error),
+		),
+		failures: fixture.backends.failures,
+		logs: fixture.logs,
+	});
+}
+
+// A Supabase error answer that repeats the SMTP password of the request.
+function echoAnswer(status: number): Response {
+	return jsonResponse(
+		status,
+		JSON.stringify({ message: `smtp_pass ${RESEND_KEY} is not valid` }),
+	);
+}
+
+describe("runProvisionBackend sign-up code email", () => {
+	const SENDER_ENV = {
+		appAuthEmailFrom: EMAIL_FROM,
+		resendPlatformApiKey: RESEND_KEY,
+	};
+
+	it("sends the sender when the worker has the two values and the template has the code step", async () => {
+		const fixture = setup(backendRow(), {
+			...SENDER_ENV,
+			// The braces would start a Go template action in the email body.
+			project: { ...PROJECT, name: "Nour {{ .SiteURL }} Objets" },
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+
+		const result = await runProvisionBackend(fixture.deps, INPUT);
+
+		expect(result.outcome).toBe("active");
+		expect(fixture.client.authCalls[0]?.input.confirmationEmail).toEqual({
+			confirmationHtml: expect.stringContaining("<b>Nour .SiteURL Objets</b>"),
+			fromAddress: EMAIL_FROM,
+			resendApiKey: RESEND_KEY,
+			senderName: "Nour .SiteURL Objets",
+		});
+		expect(textThatLeavesTheRun(fixture)).not.toContain(RESEND_KEY);
+	});
+
+	it.each([
+		{
+			case: "the worker has only one of the two values",
+			options: { appAuthEmailFrom: EMAIL_FROM },
+			reason: "RESEND_PLATFORM_API_KEY-unset",
+		},
+		{
+			case: "the template is older than the code step",
+			options: {
+				...SENDER_ENV,
+				project: { ...PROJECT, templateVersion: "web-app@1.1.0" },
+			},
+			reason: "template-without-code-step",
+		},
+		{
+			case: "the project row is gone",
+			options: { ...SENDER_ENV, project: null },
+			reason: "project-missing",
+		},
+	])("gives a session at sign-up and warns when $case", async ({
+		options,
+		reason,
+	}) => {
+		const { client, deps, logs } = setup(backendRow(), {
+			...options,
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+
+		const result = await runProvisionBackend(deps, INPUT);
+
+		expect(result.outcome).toBe("active");
+		expect(
+			client.authCalls.map((call) => call.input.confirmationEmail),
+		).toEqual([null]);
+		expect(
+			logs.filter(
+				(line) =>
+					line.message === "supabase.provisioning.email-confirmation-off",
+			),
+		).toEqual([
+			{
+				fields: { projectId: PROJECT_ID, ref: REF, reason },
+				level: "warn",
+				message: "supabase.provisioning.email-confirmation-off",
+			},
+		]);
+	});
+
+	it("keeps the backend alive without email when Supabase refuses the sender", async () => {
+		const fixture = setup(backendRow(), {
+			...SENDER_ENV,
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+		const requests = scriptAuthConfigAnswers(fixture, [
+			echoAnswer(400),
+			jsonResponse(
+				200,
+				JSON.stringify({
+					external_email_enabled: true,
+					site_url: null,
+					smtp_host: null,
+					smtp_sender_name: null,
+					uri_allow_list: null,
+				}),
+			),
+		]);
+
+		const result = await runProvisionBackend(fixture.deps, INPUT);
+
+		expect(result).toEqual({ outcome: "active", failureCode: null });
+		expect(fixture.backends.markError).not.toHaveBeenCalled();
+		// The second PATCH is the mode without email: no SMTP field goes out.
+		const bodies = requests.map((request) => request.body ?? "");
+		expect(bodies).toHaveLength(2);
+		expect(bodies[0]).toContain(RESEND_KEY);
+		expect(bodies[1]).toContain('"mailer_autoconfirm":true');
+		expect(bodies[1]).not.toContain("smtp_");
+		// An operator learns of the refusal from the log and from Sentry.
+		expect(fixture.captures).toHaveLength(1);
+		expect(
+			fixture.logs.find(
+				(line) =>
+					line.message === "supabase.provisioning.email-confirmation-refused",
+			)?.fields,
+		).toEqual({ projectId: PROJECT_ID, ref: REF, status: "400" });
+		expect(textThatLeavesTheRun(fixture)).not.toContain(RESEND_KEY);
+	});
+
+	// A 5xx and a rate limit are not a refusal of the sender: no fallback.
+	it.each([
+		500, 429,
+	])("fails the run on HTTP %s and keeps the SMTP password out of the failure row, the logs, and Sentry", async (status) => {
+		const fixture = setup(backendRow(), {
+			...SENDER_ENV,
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+		// The worker client makes 5 attempts.
+		const requests = scriptAuthConfigAnswers(
+			fixture,
+			Array.from({ length: 5 }, () => echoAnswer(status)),
+		);
+
+		const result = await runProvisionBackend(fixture.deps, INPUT);
+
+		expect(result).toEqual({
+			outcome: "error",
+			failureCode: "backend_provision_failed",
+		});
+		expect(requests).toHaveLength(5);
+		expect(fixture.backends.failures[0]?.failure.failureProviderMessage).toBe(
+			`Supabase answered the auth config call with HTTP ${status}`,
+		);
+		expect(textThatLeavesTheRun(fixture)).not.toContain(RESEND_KEY);
 	});
 });
 

@@ -95,6 +95,8 @@ describe("templates/starters/scripts: protected paths", () => {
 		{ file: "claude.md", refused: true },
 		{ file: ".git/hooks/pre-commit", refused: true },
 		{ file: ".env.local", refused: true },
+		// The access gate keeps an account out until the owner approves it.
+		{ file: "src/features/access/api/access.queries.ts", refused: true },
 		{ file: "src/shared/i18n/translate.ts", refused: true },
 		{ file: "src/shared/i18n/messages.ts", refused: false },
 		// button.tsx exists in the base template. rating.tsx is a new kit file.

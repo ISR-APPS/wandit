@@ -50,6 +50,8 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D36 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
 | D37 | Electron as a second, experimental desktop engine | confirmed | 2026-11-12 |
 | D38 | Starter templates as an overlay on the web template | default | 2026-11-13 |
+| D39 | The first account owns a generated app | default | 2026-11-17 |
+| D40 | A code by email confirms a sign-up in a generated app | default | 2026-11-19 |
 
 ## D1. Sandbox vendor
 
@@ -516,9 +518,33 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: A keeps one template snapshot and its boot of about 4 s. B needs one snapshot build per starter template. C needs a publish pipeline per code.storage org. No install runs and no credit is spent. A failed apply sets `projects.starter_template_id` to NULL.
 
+## D39. The first account owns a generated app
+
+- Question: Who gets the first account of a generated app, and who lets later accounts in?
+- Options: A. The agent makes a test account and writes its password in the chat. B. The agent makes no account. The first account with a confirmed email is the owner. Later accounts wait for the owner (audience `team`), or work at once with their own rows (audience `public`).
+- Default: B. The base schema `0000_base.sql` holds the rule.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-17
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: A backend that sends the code email confirms with the code (D40). A backend that sends no email confirms at sign-up. The mobile template has no gate screen. A backend from before this rule gets it only when the agent applies the file.
+
+## D40. A code by email confirms a sign-up in a generated app
+
+- Question: How does a generated app prove the email address of a new account?
+- Options: A. No proof: a session at sign-up. B. A link in an email. C. A 6-digit code in an email from a shared Wandit sender.
+- Default: C at provisioning, when the worker has `APP_AUTH_EMAIL_FROM` and `RESEND_PLATFORM_API_KEY` and the template has the code step. Else A.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-11-19
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: A link cannot land in the app: the preview host needs a Wandit token, and Expo Go takes no redirect. The sender is `<App name> <APP_AUTH_EMAIL_FROM>` through Resend SMTP. A refused sender gives A. With C, the recovery, magic link, and email change emails hold no link. Open: no password reset by email. Steps: `docs/v2/runbook.md`.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D39.
+1. Take the next number. The next number is D41.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

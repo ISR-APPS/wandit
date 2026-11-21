@@ -64,6 +64,19 @@ const DEMO_PROFILE = {
 	created_at: NOW_ISO,
 	updated_at: NOW_ISO,
 };
+/** One row of public.app_access: the demo account is the approved owner, so the gate of /app opens. */
+const DEMO_ACCESS = {
+	user_id: DEMO_USER.id,
+	email: DEMO_USER.email,
+	role: "owner",
+	status: "approved",
+	requested_at: NOW_ISO,
+};
+/** The fixed row of each table that the base template reads, by request path. */
+const DEMO_ROWS = {
+	"/rest/v1/profiles": DEMO_PROFILE,
+	"/rest/v1/app_access": DEMO_ACCESS,
+};
 
 /** A session that auth-js accepts from storage: it reads `access_token`, `refresh_token`, and `expires_at`. */
 function demoSession() {
@@ -106,12 +119,13 @@ function answerSupabase(request, session) {
 	if (pathname.startsWith("/auth/v1/")) {
 		return { status: 200, body: {} };
 	}
-	if (pathname === "/rest/v1/profiles" && request.method() === "GET") {
+	const row = DEMO_ROWS[pathname];
+	if (row !== undefined && request.method() === "GET") {
 		// `.single()` asks for one object. All other reads get a list of rows.
 		const wantsObject = (request.headers().accept ?? "").includes(
 			"vnd.pgrst.object",
 		);
-		return { status: 200, body: wantsObject ? DEMO_PROFILE : [DEMO_PROFILE] };
+		return { status: 200, body: wantsObject ? row : [row] };
 	}
 	// A starter makes no other Supabase call. The author sees the line and removes the call.
 	console.warn(

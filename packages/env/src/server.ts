@@ -476,7 +476,17 @@ export const env = createEnv({
 		// script prints them; the device-session route answers them to the browser.
 		APPETIZE_IOS_PUBLIC_KEY: z.string().min(1).optional(),
 		APPETIZE_ANDROID_PUBLIC_KEY: z.string().min(1).optional(),
+		// Resend API key of the shared sender of generated apps. Provisioning
+		// writes it as the SMTP password into each app backend that sends the
+		// code email. Use a `sending_access` key that is restricted to the
+		// domain of APP_AUTH_EMAIL_FROM. The Trigger.dev environment needs it.
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
+		// Sender address of the sign-up code email of generated apps, for
+		// example "no-reply@auth.wandit.app". A bare address: the sender name
+		// is the app name. With RESEND_PLATFORM_API_KEY it turns on email
+		// confirmation for each new app backend whose template has the code
+		// step. The Trigger.dev environment needs it.
+		APP_AUTH_EMAIL_FROM: z.email().optional(),
 		// The Wandit GitHub App of the GitHub sync. The API and the `github-sync`
 		// Trigger task read them; a missing value answers 503 V2_ENV_MISSING.
 		// Numeric App ID: the `iss` claim of the App JWT.

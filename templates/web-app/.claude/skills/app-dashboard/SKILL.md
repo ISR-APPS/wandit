@@ -21,7 +21,7 @@ Name features, tables, and messages after the user's business.
 ## Public pages
 
 - An internal tool: replace `src/routes/index.tsx` with the file below. Delete `src/features/landing/`,
-  and the `landing` and `nav` groups of `messages.ts`. Keep `/login`.
+  and the `landing` and `nav` groups of `messages.ts`. Keep `/login` and its email code step ("Sign-in" in `CLAUDE.md`).
 - Keep the route `/`. The build crawls links from `/`. A redirect builds. A missing `/` breaks the publish.
 - A public product: one short page at `/` in the app theme, with no world. It has a hero, three facts
   from the brief, and a footer. The hero has the product sentence and the sign-up action.
@@ -226,7 +226,7 @@ The kpi files and tables.md use these names. Import them so:
 - An empty frame is the panel at its full size: its title, its head (the table head, the axis, the slots),
   one muted sentence, and the action that fills it.
 - Zero events in the period is real data. Show the zero.
-- Never insert sample rows. Sample data only when the user asks: `run_sql_write` for the test account.
+- Never insert sample rows. Sample data only when the user asks: `run_sql_write`.
 
 ## Never
 

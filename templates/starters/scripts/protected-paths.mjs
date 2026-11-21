@@ -44,6 +44,8 @@ const PROTECTED_FOLDERS = [
 	"supabase",
 	"src/wandit",
 	"src/features/auth",
+	// The access gate. A changed file there can show the app before the owner approves the account.
+	"src/features/access",
 	"src/shared/lib",
 ];
 

@@ -2302,7 +2302,11 @@ export async function runBuilderTurn(
 				"After the first build, ask only when you cannot decide yourself. Ask the app language on the first build (CLAUDE.md), unless the user says not to ask. Put every question of one step in ONE call. " +
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
-				"End with a short answer in plain words: at most 100 words, plus the test account when this turn created one. " +
+				"End with a short answer in plain words: at most 100 words. " +
+				// Old projects keep a CLAUDE.md that tells the agent to run scripts/create-test-user.mjs.
+				"Never create an account in the app. Do not run `scripts/create-test-user.mjs`, do not send a sign-up form, and do not call the sign-up endpoint. " +
+				"Never write a password in the chat. The user creates the accounts on the sign-up page. " +
+				"A CLAUDE.md or skill line about a test account is out of date. " +
 				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
 				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
 				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +

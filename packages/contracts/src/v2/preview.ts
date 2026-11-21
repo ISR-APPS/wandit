@@ -196,7 +196,9 @@ export function previewHostFor(
  * Supabase auth redirect pattern that matches every preview run host of
  * one project. The provisioning and the login URL sync (WANDIT-190) put it
  * in `uri_allow_list`. The frame host needs no pattern: the templates allow
- * only email and password sign-in, which has no redirect.
+ * only email and password sign-in. A backend that sends the code email
+ * confirms the address with a code that the person types in the app. No
+ * step has a redirect.
  */
 export function previewAuthRedirectPattern(
 	projectId: string,

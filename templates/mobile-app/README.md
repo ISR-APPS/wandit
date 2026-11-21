@@ -64,8 +64,12 @@ To run the template locally: `pnpm install`, export the two Supabase values, the
   line above it.
 - `pnpm run lint`: `biome check --error-on-warnings .`
 - `pnpm run allow-list`: writes `native-modules.json` and the allow-list block in `CLAUDE.md`.
-- `node --env-file=.env scripts/create-test-user.mjs`: the agent runs it once to create a
-  test account in the app backend (sign-up with the anon key) and give it to the user.
+- No command creates an account. The user creates each account on the sign-up screen of the app.
+  Some backends send a 6-digit code by email at sign-up. The user types it in the code view of
+  the sign-in screen. The other backends send no email: `signUp` returns a session at once.
+  The app cannot know which one the project has before the answer of `signUp`.
+  The base SQL writes a row in `public.app_access` for each account when its email is confirmed.
+  This app does not read that row.
 - `pnpm run smoke`: frozen install, typecheck (with the effect check), lint, the allow-list
   check, the base SQL compare, Metro (web page, iOS manifest, iOS bundle), the web export,
   and a 500 MB ceiling on `node_modules`.

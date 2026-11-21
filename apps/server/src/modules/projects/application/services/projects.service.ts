@@ -29,6 +29,7 @@ import type {
 	UpdateProjectBody,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import { getErrorMessage } from "@wandit/observability/error";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import {
@@ -47,11 +48,18 @@ import { ModelPricingService } from "../../../metering/application/services/mode
 import { ModelPriceUnavailableError } from "../../../metering/domain/model-pricing";
 import { operationPricing } from "../../../metering/domain/operation-registry";
 import {
+	PROJECT_NAME_HOOK,
+	type ProjectNameHook,
+} from "../../domain/ports/project-name-hook.port";
+import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../domain/project-scope";
 import { mapProjectRow } from "../../infrastructure/mappers/project.mapper";
-import { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
+import {
+	type ProjectQueryRow,
+	ProjectsRepository,
+} from "../../infrastructure/persistence/projects.repository";
 import { ProjectTitleService } from "./project-title.service";
 
 // `@Injectable()` lets Nest create this class and inject it into controllers.
@@ -75,6 +83,10 @@ export class ProjectsService {
 		@Optional()
 		@Inject(DELETE_APP_PROJECT_TASK_STARTER)
 		private readonly deleteAppProjectStarter: DeleteAppProjectTaskStarter | null = null,
+		// Absent on a V1 deploy: the module binds null when V2 is off.
+		@Optional()
+		@Inject(PROJECT_NAME_HOOK)
+		private readonly projectNameHook: ProjectNameHook | null = null,
 	) {}
 
 	// List the workspace's projects for the dashboard.
@@ -312,7 +324,8 @@ export class ProjectsService {
 	 * Best-effort background rename: generates a title and writes it while the
 	 * row still carries `derivedName`. A title failure falls back to
 	 * `derivedName`; only a database error rejects, so every caller attaches
-	 * `.catch`. The `expectedName` guard makes a manual rename win.
+	 * `.catch`. The `expectedName` guard makes a manual rename win. A written
+	 * title of a V2 app also starts the sync of the code email sender name.
 	 */
 	async startBackgroundTitle(input: {
 		attachments: CreateProjectBody["attachments"];
@@ -338,15 +351,21 @@ export class ProjectsService {
 
 		// expectedName makes this a single atomic guard: a manual rename that lands
 		// first wins, and the background title update becomes a no-op.
-		await this.projectsRepository.updateByIdForScope(
+		const row = await this.projectsRepository.updateByIdForScope(
 			input.scope,
 			input.projectId,
 			{ name: generatedTitle },
 			{ expectedName: input.derivedName },
 		);
+
+		// Null means that a manual rename came first. That rename started the sync.
+		if (row) {
+			await this.syncProjectName(row);
+		}
 	}
 
-	// Update editable project fields.
+	// Update editable project fields. A new name of a V2 app also starts the
+	// sync of the code email sender name.
 	async update(
 		scope: ProjectScope,
 		projectId: string,
@@ -368,7 +387,28 @@ export class ProjectsService {
 			throw new NotFoundException();
 		}
 
+		if (body.name !== undefined) {
+			await this.syncProjectName(row);
+		}
+
 		return mapProjectRow(row);
+	}
+
+	// Product rule: the sign-up code email of a V2 app shows the project name
+	// as its sender. The name is already stored, so a failed start only logs.
+	private async syncProjectName(row: ProjectQueryRow): Promise<void> {
+		if (row.engine !== "v2_app" || this.projectNameHook === null) {
+			return;
+		}
+
+		try {
+			await this.projectNameHook.onProjectNameChanged(row.id);
+		} catch (error) {
+			// LIMIT: after a failed start, the sender name is stale until the next rename or publish. Upgrade: a sweep that compares the names.
+			this.logger.error(
+				`Sender name sync start failed for ${row.id}: ${getErrorMessage(error)}`,
+			);
+		}
 	}
 
 	private assertValidLogoUrl(userId: string, logoUrl: string): void {

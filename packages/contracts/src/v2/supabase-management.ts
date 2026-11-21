@@ -188,16 +188,21 @@ export type SupabaseApiKeysResponse = z.infer<
 >;
 
 /**
- * The fields the client reads out of the `PATCH /projects/{ref}/config/auth`
- * answer (200). The response carries over 200 fields; zod strips the rest.
+ * The fields the client reads out of the `GET` and the `PATCH
+ * /projects/{ref}/config/auth` answer (200). The response carries over 200
+ * fields; zod strips the rest. Security: never add `smtp_pass` here.
  */
 export const supabaseAuthConfigResponseSchema = z.object({
 	site_url: z.string().nullable(),
 	uri_allow_list: z.string().nullable(),
 	external_email_enabled: z.boolean().nullable(),
+	/** Custom SMTP host. Null means that the backend sends no sign-up email through Wandit. */
+	smtp_host: z.string().nullable(),
+	/** From name of the auth emails. The login URL sync keeps it equal to the app name. */
+	smtp_sender_name: z.string().nullable(),
 });
 
-/** Parsed answer of `SupabaseManagementClient.updateAuthConfig`. */
+/** Parsed answer of `SupabaseManagementClient.getAuthConfig` and `updateAuthConfig`. */
 export type SupabaseAuthConfigResponse = z.infer<
 	typeof supabaseAuthConfigResponseSchema
 >;

@@ -7,6 +7,7 @@ import type { DeleteAppProjectTaskStarter } from "../../../app-builder/domain/po
 import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
+import type { ProjectNameHook } from "../../domain/ports/project-name-hook.port";
 import {
 	type ProjectScope,
 	projectScopeFrom,
@@ -31,7 +32,10 @@ beforeEach(() => {
 	).GENERATION_BILLING_MODE = "enforce";
 });
 
-function setup(starter: DeleteAppProjectTaskStarter | null = null) {
+function setup(
+	starter: DeleteAppProjectTaskStarter | null = null,
+	nameHook: ProjectNameHook | null = null,
+) {
 	const projectsRepository = {
 		createWithChatAndFirstMessage: vi.fn(
 			(input: { chatId: string; messageId: string; projectId: string }) =>
@@ -72,6 +76,7 @@ function setup(starter: DeleteAppProjectTaskStarter | null = null) {
 		projectTitleService as unknown as ProjectTitleService,
 		lifecycleEvents as unknown as LifecycleEventsService,
 		starter,
+		nameHook,
 	);
 
 	return {
@@ -494,13 +499,112 @@ describe("ProjectsService.delete", () => {
 	});
 });
 
-function projectRow(overrides: { logoUrl: string | null }): ProjectQueryRow {
+describe("ProjectsService sender name sync", () => {
+	const TITLE_INPUT = {
+		attachments: undefined,
+		derivedName: "Build a shop for my",
+		projectId: "project_1",
+		prompt: "Build a shop for my brand",
+		scope: personalScope,
+	};
+
+	it.each<{
+		case: string;
+		engine: ProjectQueryRow["engine"];
+		body: { name?: string; logoUrl?: null };
+		synced: string[][];
+	}>([
+		{
+			case: "a rename of a v2_app",
+			engine: "v2_app",
+			body: { name: "Nour Objets" },
+			synced: [["project_1"]],
+		},
+		{
+			case: "a rename of a v1_page",
+			engine: "v1_page",
+			body: { name: "Nour Objets" },
+			synced: [],
+		},
+		{
+			case: "an update of a v2_app that sends no name",
+			engine: "v2_app",
+			body: { logoUrl: null },
+			synced: [],
+		},
+	])("starts the sync only for a V2 rename: $case", async (input) => {
+		const hook = { onProjectNameChanged: vi.fn(async () => undefined) };
+		const { projectsRepository, service } = setup(null, hook);
+		projectsRepository.updateByIdForScope.mockResolvedValue(
+			projectRow({ engine: input.engine, logoUrl: null }),
+		);
+
+		await service.update(personalScope, "project_1", input.body);
+
+		expect(hook.onProjectNameChanged.mock.calls).toEqual(input.synced);
+	});
+
+	it("still answers the rename when the sync start fails", async () => {
+		const error = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const hook = {
+			onProjectNameChanged: vi.fn(async () => {
+				throw new Error("trigger down");
+			}),
+		};
+		const { projectsRepository, service } = setup(null, hook);
+		projectsRepository.updateByIdForScope.mockResolvedValue(
+			projectRow({ engine: "v2_app", logoUrl: null }),
+		);
+
+		await expect(
+			service.update(personalScope, "project_1", { name: "Nour Objets" }),
+		).resolves.toMatchObject({ id: "project_1" });
+		expect(error).toHaveBeenCalledWith(
+			"Sender name sync start failed for project_1: trigger down",
+		);
+		error.mockRestore();
+	});
+
+	it.each<{ case: string; row: ProjectQueryRow | null; synced: string[][] }>([
+		{
+			case: "starts the sync after the title job writes a name",
+			row: projectRow({ engine: "v2_app", logoUrl: null }),
+			synced: [["project_1"]],
+		},
+		{
+			// The guard on the old name failed: the row holds the manual name.
+			case: "starts nothing when a manual rename came first",
+			row: null,
+			synced: [],
+		},
+	])("$case", async ({ row, synced }) => {
+		const hook = { onProjectNameChanged: vi.fn(async () => undefined) };
+		const { projectsRepository, projectTitleService, service } = setup(
+			null,
+			hook,
+		);
+		projectTitleService.generate.mockResolvedValue("Nour Objets");
+		projectsRepository.updateByIdForScope.mockResolvedValue(row);
+
+		await service.startBackgroundTitle(TITLE_INPUT);
+
+		expect(hook.onProjectNameChanged.mock.calls).toEqual(synced);
+	});
+});
+
+function projectRow(overrides: {
+	logoUrl: string | null;
+	/** Default "v1_page". */
+	engine?: ProjectQueryRow["engine"];
+}): ProjectQueryRow {
 	return {
 		access: null,
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
 		desktopEngine: null,
-		engine: "v1_page",
+		engine: overrides.engine ?? "v1_page",
 		framework: null,
 		hideWanditBadge: false,
 		id: "project_1",

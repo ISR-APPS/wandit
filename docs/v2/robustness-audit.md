@@ -41,9 +41,10 @@ The order matters. Do the first block before you invite people.
    `VITE_POSTHOG_HOST=https://preview.wandit.dev/lumen` for the branch `staging`, and build the
    staging web again.
 4. **Check `PREVIEW_DOMAIN` in Trigger.dev staging (P0-08).** It must be `wanditpreview.app`.
-   With this branch, backend creation always turns off email confirmation. The auth URLs and
-   the mobile Trigger fallback still need the value. Backends that went active before the
-   deploy keep "Confirm email" on: turn it off in the Supabase dashboard.
+   With this branch, backend creation always sends the email settings, and a backend with no
+   email sender gets email confirmation off. Since D40, a backend with the code email sender
+   keeps it on. The auth URLs and the mobile Trigger fallback still need the value. Backends
+   that went active before the deploy keep "Confirm email" on: turn it off in the Supabase dashboard.
 5. **Decide about Publish (P0-11).** Publish has never completed on staging. The link goes to the
    production zone and shows "This site isn't available", or a production site with the same
    slug. If Publish is not fixed, do not click it on stage. Tell testers not to use Publish,
@@ -140,7 +141,7 @@ during an event".
 | P0-05 | Every push to staging ends every running build. The new host fails the turns of the old host at boot, and the old host exits at once on SIGTERM. | "The build server restarted. Send your message again." A 10 to 30 minute build is lost. | Freeze deploys. Code: each host turn keeps a run mark in Redis (90 s TTL, refreshed every 30 s). The recovery skips a turn with a fresh mark. On SIGTERM, the host takes no new turns and waits for the live turns until 5 s before Railway's SIGKILL. | Fixed in branch. Needs `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`. |
 | P0-06 | An empty AI Gateway balance or a budget refusal fails every turn. Claude Code does not retry a 402. | Every turn fails. Zack learns it from the users. | Ops: balance and auto top-up. Code: a 402 now opens a Sentry issue, and every upstream refusal is logged with its status. | Fixed in branch, plus Ops |
 | P0-07 | Ad blockers hide the PostHog flag, so attendees get the V1 builder. | A V1 page project, or 403 `V2_BUILDER_DISABLED`. | Flag at 100 %. A PostHog proxy path in `apps/web/vercel.json` with a neutral name, and `VITE_POSTHOG_HOST`. | Ops (flag at 100 %), plus Fixed in branch (`/lumen` proxy path; needs `VITE_POSTHOG_HOST` on Vercel) |
-| P0-08 | Without `PREVIEW_DOMAIN` in Trigger.dev staging, generated apps keep email confirmation on. | Sign-up in a generated app never completes. | Set the value. Code later: always send `mailer_autoconfirm`. | Fixed in branch (email confirmation is always off), plus Ops (the auth URLs and the mobile Trigger fallback still need the value) |
+| P0-08 | Without `PREVIEW_DOMAIN` in Trigger.dev staging, generated apps keep email confirmation on. | Sign-up in a generated app never completes. | Set the value. Code later: always send `mailer_autoconfirm`. | Fixed in branch (the email settings always go out; confirmation is off, or by code since D40), plus Ops (the auth URLs and the mobile Trigger fallback still need the value) |
 | P0-09 | Better Auth allows 3 sign-in requests per 10 s per IP. | Most of the room gets "Too many requests" on "Continue with Google". | A custom rule: 100 per 10 s for `/sign-in/social`. Email sign-in keeps the default. | Fixed in branch |
 | P0-10 | One harness host runs every build with no cap and no heap flag. One crash ends every live build. | "The build server restarted" for everyone at the same time. | A cap of live turns on the host (the API then uses Trigger), `--max-old-space-size`, no trace sampling on the host. | Fixed in branch (cap of 20 live turns, heap flag, no traces). Run the load check. |
 | P0-11 | Publish on staging fails at the build (`pnpm install` exit 137), and the link points to the production zone. | A green "Live" chip, then "This site isn't available", or a stranger's site. | Decided 2026-11-07: staging slugs end with `-stg` (`SITES_SLUG_SUFFIX=-stg` on Railway and Trigger.dev staging), and the staging edge route is `*-stg.wandit.app/*`. The free `*.wandit.app` certificate covers these hosts. The exit 137 build failure is still open. | Partly fixed |

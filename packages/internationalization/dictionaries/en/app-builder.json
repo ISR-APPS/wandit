@@ -278,7 +278,7 @@
 				"description": "Passwordless link by email"
 			}
 		},
-		"signUpNote": "New users sign up with an email and a password. They get no confirmation email."
+		"signUpNote": "New users sign up with an email and a password. Some apps also ask for a code that they send by email."
 	},
 	"ai": {
 		"gateway": "AI gateway",

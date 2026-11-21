@@ -20,6 +20,8 @@ import { findActiveNavItem, NAV_ITEMS } from "../lib/nav-items";
 import { NavUser } from "./nav-user";
 
 type AppSidebarProps = {
+	/** `auth.users.id` of the signed-in user, from the session of the /app layout route. The user menu reads its `app_access` row. */
+	userId: string;
 	/** Email of the signed-in user, from the session of the /app layout route. */
 	email: string;
 	/** The desktop look: a column with an edge rule, a detached panel, or a column beside the page panel. */
@@ -35,6 +37,7 @@ type AppSidebarProps = {
  * On a phone the kit Sidebar ignores variant and collapsible.
  */
 export function AppSidebar({
+	userId,
 	email,
 	variant,
 	collapsible,
@@ -44,7 +47,7 @@ export function AppSidebar({
 	const { setOpenMobile } = useSidebar();
 	const activeItem = findActiveNavItem(useMatchRoute());
 	const appName = t("common.appName");
-	const navUser = <NavUser email={email} placement="sidebar" />;
+	const navUser = <NavUser userId={userId} email={email} placement="sidebar" />;
 
 	return (
 		<Sidebar label={appName} variant={variant} collapsible={collapsible}>
