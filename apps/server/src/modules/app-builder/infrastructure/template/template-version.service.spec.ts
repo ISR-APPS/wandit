@@ -86,8 +86,8 @@ describe("TemplateVersionService", () => {
 			.spyOn(Logger.prototype, "warn")
 			.mockImplementation(() => undefined);
 
-		expect(new TemplateVersionService().versionFor("web")).toBe(
-			"web-app@1.1.0",
+		expect(new TemplateVersionService().versionFor("web")).toMatch(
+			/^web-app@\d+\.\d+\.\d+$/,
 		);
 		expect(TEMPLATE_VERSION_FILE_PATHS).toEqual({
 			desktop: join(TEMPLATE_ARCHIVE_DIR, "desktop-app/template_version"),

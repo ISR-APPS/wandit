@@ -36,6 +36,17 @@ import {
 import { getErrorMessage } from "@wandit/observability/error";
 import { z } from "zod";
 
+import {
+	APP_AUTH_CODE_LENGTH,
+	APP_AUTH_CODE_TTL_SEC,
+	APP_AUTH_CONFIRMATION_SUBJECT,
+	APP_AUTH_EMAILS_PER_HOUR,
+	APP_AUTH_NO_LINK_HTML,
+	APP_AUTH_NO_LINK_SUBJECT,
+	APP_AUTH_SMTP_HOST,
+	APP_AUTH_SMTP_PORT,
+	APP_AUTH_SMTP_USER,
+} from "../../domain/app-auth-email";
 import type { SandboxLogger } from "../../domain/ports/sandbox-provider";
 import type { V2EnvSource } from "../env/v2-env";
 import type { AppBackendsRepository } from "../persistence/app-backends.repository";
@@ -127,6 +138,21 @@ export type BackendRef = {
 export type StorageRef = BackendRef & {
 	/** Service-role key of the project; sent as the bearer and as `apikey`. Never logged. */
 	serviceRoleKey: string;
+};
+
+/**
+ * The sender of the sign-up code email of one app backend. The four values
+ * travel as one object, so a request never holds half of a sender.
+ */
+export type ConfirmationEmailSender = {
+	/** Bare From address, from `APP_AUTH_EMAIL_FROM`, for example `no-reply@auth.wandit.app`. */
+	fromAddress: string;
+	/** `RESEND_PLATFORM_API_KEY`. Supabase stores it as the SMTP password. Never logged. */
+	resendApiKey: string;
+	/** From name, already clean: the answer of `appEmailSenderName`. */
+	senderName: string;
+	/** Email body, a Go template: the answer of `confirmationEmailHtml`. */
+	confirmationHtml: string;
 };
 
 /** Dependencies of `SupabaseManagementClient`; the worker composes them. */
@@ -688,8 +714,10 @@ export class SupabaseManagementClient {
 	}
 
 	/**
-	 * Sets the email flag, the email confirmation switch (`mailer_autoconfirm`),
-	 * and, when given, the auth site URL and the redirect allow list.
+	 * Sets the email flag, the sign-up mode, and, when given, the auth site URL
+	 * and the redirect allow list. With a sender, sign-up sends a code email,
+	 * and the recovery, magic link, and email change emails hold no link.
+	 * A refusal then carries a fixed detail instead of the upstream message.
 	 */
 	async updateAuthConfig(
 		scope: BackendRef,
@@ -701,34 +729,81 @@ export class SupabaseManagementClient {
 			/** Turns the email provider on. */
 			externalEmailEnabled: boolean;
 			/**
-			 * True confirms a new email user at sign-up. `signUp` then returns a
-			 * session at once, and Supabase sends no confirmation email.
+			 * The sender of the sign-up code email. Null confirms a new email user
+			 * at sign-up: `signUp` returns a session at once, and Supabase sends no email.
 			 */
-			skipEmailConfirmation: boolean;
+			confirmationEmail: ConfirmationEmailSender | null;
 		},
 	): Promise<void> {
 		await this.requireOwnedRef(scope);
-		await this.request({
-			method: "PATCH",
-			path: `/projects/${scope.ref}/config/auth`,
-			bucket: supabaseRateLimitKeys.project(scope.ref),
-			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
-			// `JSON.stringify` drops an undefined field. Supabase then keeps the
-			// value of each absent URL field.
-			body: {
-				site_url: input.siteUrl,
-				// The API takes one comma-separated string, not an array.
-				uri_allow_list: input.uriAllowList?.join(","),
-				external_email_enabled: input.externalEmailEnabled,
-				mailer_autoconfirm: input.skipEmailConfirmation,
-			},
-			schema: supabaseAuthConfigResponseSchema,
-		});
+		const sender = input.confirmationEmail;
+		try {
+			await this.request({
+				method: "PATCH",
+				path: `/projects/${scope.ref}/config/auth`,
+				bucket: supabaseRateLimitKeys.project(scope.ref),
+				limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+				// `JSON.stringify` drops an undefined field. Supabase then keeps the
+				// value of each absent URL field.
+				body: {
+					site_url: input.siteUrl,
+					// The API takes one comma-separated string, not an array.
+					uri_allow_list: input.uriAllowList?.join(","),
+					external_email_enabled: input.externalEmailEnabled,
+					mailer_autoconfirm: sender === null,
+					...(sender === null
+						? {}
+						: {
+								smtp_admin_email: sender.fromAddress,
+								smtp_host: APP_AUTH_SMTP_HOST,
+								smtp_port: APP_AUTH_SMTP_PORT,
+								smtp_user: APP_AUTH_SMTP_USER,
+								smtp_pass: sender.resendApiKey,
+								smtp_sender_name: sender.senderName,
+								mailer_subjects_confirmation: APP_AUTH_CONFIRMATION_SUBJECT,
+								mailer_templates_confirmation_content: sender.confirmationHtml,
+								// Security check: the default body of these three emails
+								// holds a link. A caller with only the anon key starts a
+								// recovery or a magic link email. One GET of the link
+								// confirms the account with no code.
+								mailer_subjects_recovery: APP_AUTH_NO_LINK_SUBJECT,
+								mailer_templates_recovery_content: APP_AUTH_NO_LINK_HTML,
+								mailer_subjects_magic_link: APP_AUTH_NO_LINK_SUBJECT,
+								mailer_templates_magic_link_content: APP_AUTH_NO_LINK_HTML,
+								mailer_subjects_email_change: APP_AUTH_NO_LINK_SUBJECT,
+								mailer_templates_email_change_content: APP_AUTH_NO_LINK_HTML,
+								rate_limit_email_sent: APP_AUTH_EMAILS_PER_HOUR,
+								mailer_otp_exp: APP_AUTH_CODE_TTL_SEC,
+								mailer_otp_length: APP_AUTH_CODE_LENGTH,
+							}),
+				},
+				schema: supabaseAuthConfigResponseSchema,
+			});
+		} catch (error) {
+			if (
+				sender === null ||
+				error instanceof SupabaseRateLimitedError ||
+				!(error instanceof SupabaseManagementError)
+			) {
+				throw error;
+			}
+			// Security check: the body holds the SMTP password, and the upstream
+			// message can echo the body. So the error travels on with a fixed detail.
+			throw new SupabaseManagementError(
+				error.message,
+				error.status,
+				error.requestId,
+				error.status === null
+					? "Supabase did not answer the auth config call"
+					: `Supabase answered the auth config call with HTTP ${error.status}`,
+			);
+		}
 	}
 
 	/**
-	 * Reads the auth site URL and the redirect allow list. The login URL sync
-	 * compares them first and sends no PATCH when nothing changed.
+	 * Reads the auth site URL, the redirect allow list, the SMTP host, and the
+	 * From name. The login URL sync compares them first and sends no PATCH
+	 * when nothing changed.
 	 */
 	async getAuthConfig(scope: BackendRef): Promise<SupabaseAuthConfigResponse> {
 		await this.requireOwnedRef(scope);
@@ -765,6 +840,28 @@ export class SupabaseManagementClient {
 				site_url: input.siteUrl,
 				// The API takes one comma-separated string, not an array.
 				uri_allow_list: input.uriAllowList.join(","),
+			},
+		});
+	}
+
+	/**
+	 * Replaces only the From name and the body of the sign-up code email; the
+	 * body shows the name. It sends no password and keeps the sign-up mode.
+	 * The answer body stays unread.
+	 */
+	async updateAuthSenderName(
+		scope: BackendRef,
+		input: Pick<ConfirmationEmailSender, "senderName" | "confirmationHtml">,
+	): Promise<void> {
+		await this.requireOwnedRef(scope);
+		await this.request<void>({
+			method: "PATCH",
+			path: `/projects/${scope.ref}/config/auth`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			body: {
+				smtp_sender_name: input.senderName,
+				mailer_templates_confirmation_content: input.confirmationHtml,
 			},
 		});
 	}

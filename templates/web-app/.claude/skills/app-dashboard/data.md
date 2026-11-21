@@ -9,15 +9,22 @@ Section 8 holds the complete example. It is tested.
 - Write all tables, policies, triggers, and read functions of the first build in ONE `apply_migration` call.
 - Every business table has these columns:
   `id uuid primary key default gen_random_uuid()`,
-  `owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade`,
+  `owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade`,
   `created_at timestamptz not null default now()`.
 - Enable RLS. Add four policies: select, insert, update, and delete, each `to authenticated`,
-  with `owner_id = (select auth.uid())`. The `select` wrapper runs `auth.uid()` once per query, not once per row.
-- Sign-up is open: any person can make an account. So never give `authenticated` a `using (true)` policy on business data.
+  with `owner_id = (select private.data_owner_id())`. The `select` wrapper runs the function once per query, not once per row.
+- An account that waits for the owner has a session too. So every policy on business data uses
+  `private.data_owner_id()`: it is null until the owner approves the account. Never give `authenticated` a `using (true)` policy.
+- `private.data_owner_id()` comes from `0000_base.sql`. In a team app it is the id of the app owner for every approved account.
+  So the team shares the rows. In an app for the public it is the id of the caller ("Sign-in" in CLAUDE.md).
+- A row that must show its author also gets `created_by uuid not null default auth.uid()`.
+  Its insert policy also checks `created_by = (select auth.uid())`.
+- A public form table has no `owner_id`. In a team app, the back office reads it with `grant select ... to authenticated`
+  and a policy `to authenticated using ((select private.data_owner_id()) is not null)`.
 - A status is a `text` column with a `check (status in (...))` constraint.
   The same values are a `const` tuple in the `lib/` folder of the feature.
 - A child row points to its parent with `foreign key (parent_id, owner_id)`, and the parent has `unique (id, owner_id)`.
-  Then a user cannot attach a row to a row of another user.
+  Then a row cannot point to a parent row of another owner.
 - Index `owner_id` (RLS reads it on every query) and every foreign key.
 
 ## 2. Event tables
@@ -229,7 +236,7 @@ One `apply_migration` call with the name `create_factory`. Then call `get_adviso
 -- Business tables. unique (id, owner_id) lets a child row point to a row of the same owner only.
 create table public.machines (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	name text not null check (length(name) between 1 and 120),
 	zone text check (length(zone) <= 60),
 	status text not null default 'idle' check (status in ('running', 'idle', 'down', 'maintenance')),
@@ -240,7 +247,7 @@ create index machines_owner_id_idx on public.machines (owner_id);
 
 create table public.work_orders (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	reference text not null check (length(reference) between 1 and 60),
 	product text not null check (length(product) between 1 and 120),
 	status text not null default 'planned' check (status in ('planned', 'in_progress', 'blocked', 'done')),
@@ -256,7 +263,7 @@ create index work_orders_owner_id_due_at_idx on public.work_orders (owner_id, du
 
 create table public.stock_items (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	name text not null check (length(name) between 1 and 120),
 	unit text not null check (length(unit) between 1 and 20),
 	-- The trigger on stock_movements keeps this sum. Forms never write it.
@@ -271,7 +278,7 @@ create index stock_items_owner_id_idx on public.stock_items (owner_id);
 -- A deleted parent sets its id to null in the event, so a past day keeps its value.
 create table public.production_events (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	machine_id uuid,
 	work_order_id uuid,
 	-- Good units and scrap units. A correction is a new event with negative values and the occurred_at of the wrong event.
@@ -288,7 +295,7 @@ create index production_events_work_order_id_owner_id_idx on public.production_e
 
 create table public.downtime_events (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	machine_id uuid,
 	reason text not null check (reason in ('breakdown', 'changeover', 'no_material', 'no_operator', 'planned')),
 	started_at timestamptz not null default now(),
@@ -302,7 +309,7 @@ create index downtime_events_machine_id_owner_id_idx on public.downtime_events (
 
 create table public.stock_movements (
 	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+	owner_id uuid not null default private.data_owner_id() references auth.users (id) on delete cascade,
 	stock_item_id uuid not null,
 	-- Positive for a receipt, negative for a consumption.
 	delta numeric(12, 2) not null check (delta <> 0),
@@ -314,7 +321,7 @@ create table public.stock_movements (
 create index stock_movements_owner_id_occurred_at_idx on public.stock_movements (owner_id, occurred_at);
 create index stock_movements_stock_item_id_owner_id_idx on public.stock_movements (stock_item_id, owner_id);
 
--- RLS: each user reads and writes only the rows that they own.
+-- RLS: private.data_owner_id() is the owner of the rows that the caller can use. Null: no rows.
 alter table public.machines enable row level security;
 alter table public.work_orders enable row level security;
 alter table public.stock_items enable row level security;
@@ -322,27 +329,27 @@ alter table public.production_events enable row level security;
 alter table public.downtime_events enable row level security;
 alter table public.stock_movements enable row level security;
 
-create policy machines_select on public.machines for select to authenticated using (owner_id = (select auth.uid()));
-create policy machines_insert on public.machines for insert to authenticated with check (owner_id = (select auth.uid()));
-create policy machines_update on public.machines for update to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
-create policy machines_delete on public.machines for delete to authenticated using (owner_id = (select auth.uid()));
-create policy work_orders_select on public.work_orders for select to authenticated using (owner_id = (select auth.uid()));
-create policy work_orders_insert on public.work_orders for insert to authenticated with check (owner_id = (select auth.uid()));
-create policy work_orders_update on public.work_orders for update to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
-create policy work_orders_delete on public.work_orders for delete to authenticated using (owner_id = (select auth.uid()));
-create policy stock_items_select on public.stock_items for select to authenticated using (owner_id = (select auth.uid()));
-create policy stock_items_insert on public.stock_items for insert to authenticated with check (owner_id = (select auth.uid()));
-create policy stock_items_update on public.stock_items for update to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
-create policy stock_items_delete on public.stock_items for delete to authenticated using (owner_id = (select auth.uid()));
+create policy machines_select on public.machines for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy machines_insert on public.machines for insert to authenticated with check (owner_id = (select private.data_owner_id()));
+create policy machines_update on public.machines for update to authenticated using (owner_id = (select private.data_owner_id())) with check (owner_id = (select private.data_owner_id()));
+create policy machines_delete on public.machines for delete to authenticated using (owner_id = (select private.data_owner_id()));
+create policy work_orders_select on public.work_orders for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy work_orders_insert on public.work_orders for insert to authenticated with check (owner_id = (select private.data_owner_id()));
+create policy work_orders_update on public.work_orders for update to authenticated using (owner_id = (select private.data_owner_id())) with check (owner_id = (select private.data_owner_id()));
+create policy work_orders_delete on public.work_orders for delete to authenticated using (owner_id = (select private.data_owner_id()));
+create policy stock_items_select on public.stock_items for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy stock_items_insert on public.stock_items for insert to authenticated with check (owner_id = (select private.data_owner_id()));
+create policy stock_items_update on public.stock_items for update to authenticated using (owner_id = (select private.data_owner_id())) with check (owner_id = (select private.data_owner_id()));
+create policy stock_items_delete on public.stock_items for delete to authenticated using (owner_id = (select private.data_owner_id()));
 -- Append-only: a counter trigger reads these rows, so no update and no delete.
-create policy production_events_select on public.production_events for select to authenticated using (owner_id = (select auth.uid()));
-create policy production_events_insert on public.production_events for insert to authenticated with check (owner_id = (select auth.uid()));
-create policy stock_movements_select on public.stock_movements for select to authenticated using (owner_id = (select auth.uid()));
-create policy stock_movements_insert on public.stock_movements for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy production_events_select on public.production_events for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy production_events_insert on public.production_events for insert to authenticated with check (owner_id = (select private.data_owner_id()));
+create policy stock_movements_select on public.stock_movements for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy stock_movements_insert on public.stock_movements for insert to authenticated with check (owner_id = (select private.data_owner_id()));
 -- A stop gets its end time later, so downtime events allow an update.
-create policy downtime_events_select on public.downtime_events for select to authenticated using (owner_id = (select auth.uid()));
-create policy downtime_events_insert on public.downtime_events for insert to authenticated with check (owner_id = (select auth.uid()));
-create policy downtime_events_update on public.downtime_events for update to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+create policy downtime_events_select on public.downtime_events for select to authenticated using (owner_id = (select private.data_owner_id()));
+create policy downtime_events_insert on public.downtime_events for insert to authenticated with check (owner_id = (select private.data_owner_id()));
+create policy downtime_events_update on public.downtime_events for update to authenticated using (owner_id = (select private.data_owner_id())) with check (owner_id = (select private.data_owner_id()));
 
 -- Counter triggers. security invoker: RLS also applies to the update.
 create function public.add_production_to_work_order()
@@ -457,7 +464,7 @@ begin
 		raise exception 'invalid_input';
 	end;
 	return query
-	-- LIMIT: the filter has no lower bound on started_at, so it reads every stop of the user.
+	-- LIMIT: the filter has no lower bound on started_at, so it reads every stop that the caller can use.
 	-- Upgrade: a lower bound on started_at with a maximum stop length.
 	with stops as (
 		-- Cut each stop to the period. A stop with no end counts until now.

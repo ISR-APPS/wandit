@@ -52,6 +52,16 @@ export const messages = {
 		signOut: "Sign out",
 		toSignUp: "No account yet? Create one",
 		toSignIn: "Already have an account? Sign in",
+		codeTitle: "Confirm your email",
+		codeHeadline: "Enter your code",
+		codeBody: "Enter the 6-digit code from the sign-up email for {email}.",
+		code: "Code",
+		confirmCode: "Confirm",
+		resendCode: "Send a new code",
+		resendDone: "If this address waits for a code, a new code is on its way.",
+		changeEmail: "Use another email",
+		codeHint:
+			"No email? Look in your spam folder. This address can already have an account: go back and sign in.",
 		errors: {
 			email: "Enter a valid email address.",
 			passwordRequired: "Enter your password.",
@@ -60,6 +70,14 @@ export const messages = {
 			wrongCredentials: "Wrong email or password.",
 			emailTaken: "An account with this email exists. Sign in instead.",
 			weakPassword: "Choose a stronger password.",
+			code: "Enter the 6 digits of the code.",
+			wrongCode: "This code is wrong or too old. Send a new code.",
+			emailNotConfirmed:
+				"Confirm your email first. Enter the code from the email, or send a new code.",
+			emailRateLimit:
+				"Too many emails in a short time. Wait a minute, then try again.",
+			signUpNotFinished:
+				"Your email is confirmed, but the sign-up is not complete. Try again.",
 			general: "Something went wrong. Try again.",
 		},
 	},

@@ -15,19 +15,34 @@ const PATTERN = previewAuthRedirectPattern("project-1", PREVIEW_DOMAIN);
 
 type Domain = { name: string; isPrimary: boolean };
 
-// The PATCH body; `strictObject` fails on any key past the two URL fields.
+// The two PATCH bodies of a sync. `strictObject` fails on any other key, so
+// no PATCH can hold `smtp_pass` or the sign-up mode `mailer_autoconfirm`.
 const sentAuthUrlsSchema = z.strictObject({
 	site_url: z.string(),
 	uri_allow_list: z.string(),
 });
+const sentSenderNameSchema = z.strictObject({
+	smtp_sender_name: z.string(),
+	mailer_templates_confirmation_content: z.string(),
+});
+
+type CurrentAuthConfig = {
+	site_url: string | null;
+	uri_allow_list: string | null;
+	/** Default null: a backend that sends no email through the Wandit sender. */
+	smtp_host?: string | null;
+	smtp_sender_name?: string | null;
+};
 
 // The service on the fixture's real client. The first scripted answer is
-// the current auth config; the second one answers the PATCH.
+// the current auth config; the next ones answer the PATCH calls.
 async function runSync(input: {
 	domains?: Domain[];
 	slug?: string | null;
 	previewDomain?: string | null;
-	current?: { site_url: string | null; uri_allow_list: string | null };
+	current?: CurrentAuthConfig;
+	/** `projects.name`; null means that no project row exists. */
+	projectName?: string | null;
 	backend?: AppBackendRow | null;
 	withClient?: boolean;
 }) {
@@ -36,8 +51,14 @@ async function runSync(input: {
 		answers: [
 			jsonResponse(
 				200,
-				JSON.stringify({ ...current, external_email_enabled: true }),
+				JSON.stringify({
+					smtp_host: null,
+					smtp_sender_name: null,
+					...current,
+					external_email_enabled: true,
+				}),
 			),
+			jsonResponse(200, "{}"),
 			jsonResponse(200, "{}"),
 		],
 		backend: input.backend,
@@ -48,6 +69,8 @@ async function runSync(input: {
 		client: fixture.deps.client,
 		domains: { findActiveByProject: async () => input.domains ?? [] },
 		findLiveSlug: async () => input.slug ?? null,
+		findProjectName: async () =>
+			input.projectName === undefined ? "Nour Objets" : input.projectName,
 		logger: {
 			error: () => undefined,
 			info: () => undefined,
@@ -58,12 +81,17 @@ async function runSync(input: {
 		sitesDomain: "wandit.app",
 	});
 	const result = await service.sync("project-1");
-	const patch = fixture.requests.find((request) => request.method === "PATCH");
+	const patchBodies = fixture.requests
+		.filter((request) => request.method === "PATCH")
+		.map((request) =>
+			z
+				.union([sentAuthUrlsSchema, sentSenderNameSchema])
+				.parse(JSON.parse(request.body ?? "null")),
+		);
 	return {
-		patchBody:
-			patch === undefined
-				? null
-				: sentAuthUrlsSchema.parse(JSON.parse(patch.body ?? "null")),
+		patchBody: patchBodies.find((body) => "site_url" in body) ?? null,
+		senderNameBody:
+			patchBodies.find((body) => "smtp_sender_name" in body) ?? null,
 		requests: fixture.requests,
 		result,
 	};
@@ -163,12 +191,66 @@ describe("BackendAuthUrlsService uri_allow_list", () => {
 	});
 });
 
+describe("BackendAuthUrlsService sender name", () => {
+	// A backend that sends the code email through the Wandit sender. The
+	// project name changed after provisioning; the URLs are up to date.
+	const STALE_NAME = {
+		site_url: "https://my-app.wandit.app",
+		uri_allow_list: `${PATTERN},https://my-app.wandit.app/**`,
+		smtp_host: "smtp.resend.com",
+		smtp_sender_name: "Build a shop for my",
+	};
+
+	it.each<{ case: string; previewDomain?: string | null; slug: string | null }>(
+		[
+			{ case: "the URLs are up to date", slug: "my-app" },
+			{
+				case: "the worker has no host for the URLs",
+				previewDomain: null,
+				slug: null,
+			},
+		],
+	)("sends only the new name and the email body when $case", async (input) => {
+		const { requests, result, senderNameBody } = await runSync({
+			...input,
+			current: STALE_NAME,
+			// The braces would start a Go template action in the email body.
+			projectName: "Nour {{ .SiteURL }} Objets",
+		});
+
+		expect(result).toBe("updated");
+		expect(requests.map((request) => request.method)).toEqual(["GET", "PATCH"]);
+		expect(senderNameBody).toEqual({
+			smtp_sender_name: "Nour .SiteURL Objets",
+			mailer_templates_confirmation_content: expect.stringContaining(
+				"<b>Nour .SiteURL Objets</b>",
+			),
+		});
+	});
+
+	it.each<{ case: string; current: CurrentAuthConfig; projectName?: null }>([
+		{
+			case: "the name is equal",
+			current: { ...STALE_NAME, smtp_sender_name: "Nour Objets" },
+		},
+		{
+			case: "the backend has no Wandit sender",
+			current: { ...STALE_NAME, smtp_host: null, smtp_sender_name: null },
+		},
+		{ case: "the project row is gone", current: STALE_NAME, projectName: null },
+	])("answers unchanged and sends no PATCH when $case", async (input) => {
+		const { requests, result } = await runSync({ ...input, slug: "my-app" });
+
+		expect(result).toBe("unchanged");
+		expect(requests.map((request) => request.method)).toEqual(["GET"]);
+	});
+});
+
 describe("BackendAuthUrlsService skip", () => {
 	it.each<{
 		case: string;
 		backend?: AppBackendRow | null;
 		withClient?: boolean;
-		previewDomain?: string | null;
 	}>([
 		{ case: "no backend row", backend: null },
 		{
@@ -176,7 +258,6 @@ describe("BackendAuthUrlsService skip", () => {
 			backend: { ...ACTIVE_BACKEND_ROW, status: "paused" },
 		},
 		{ case: "no Management API client", withClient: false },
-		{ case: "no host and no preview domain", previewDomain: null },
 	])("answers skipped with no call for $case", async (input) => {
 		const { requests, result } = await runSync({ ...input, slug: null });
 

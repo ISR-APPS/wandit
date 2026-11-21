@@ -253,7 +253,7 @@ export function formatRelativeTime(
 ```ts
 // Reads of work orders: the list, one work order, and its production events.
 // The list and detail routes prefetch them in their loaders. The pages read them with useSuspenseQuery.
-// RLS returns only the rows of the signed-in user.
+// RLS returns only the rows that the signed-in account can use: owner_id = private.data_owner_id().
 import { queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 import { getSupabase } from "~/shared/lib/supabase";
@@ -297,7 +297,7 @@ export function workOrdersQueryOptions() {
 	});
 }
 
-/** One work order, or null when the id does not exist or belongs to another user. */
+/** One work order, or null when the id does not exist or RLS hides the row. */
 export function workOrderQueryOptions(id: string) {
 	return queryOptions({
 		queryKey: ["work-orders", "detail", id],
@@ -360,7 +360,7 @@ export function workOrderEventsQueryOptions(id: string) {
 
 ```ts
 // Writes of work orders: save (create or edit) and delete.
-// The form dialog and the delete dialog call these hooks. RLS lets a user write only their own rows.
+// The form dialog and the delete dialog call these hooks. RLS lets an account write only the rows that it can use.
 // A success refetches the work order queries and the home KPIs, which count work orders.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSupabase } from "~/shared/lib/supabase";
@@ -372,7 +372,7 @@ import {
 /** Input of a save. No `id` creates a work order; an `id` edits that work order. */
 type SaveWorkOrderInput = { id?: string; values: WorkOrderFormValues };
 
-/** Creates or edits a work order. owner_id comes from the column default auth.uid(). */
+/** Creates or edits a work order. owner_id comes from the column default private.data_owner_id(). */
 export function useSaveWorkOrderMutation() {
 	const queryClient = useQueryClient();
 	return useMutation({
@@ -1352,7 +1352,7 @@ import {
 	workOrdersQueryOptions,
 } from "~/features/work-orders";
 
-/** /app/work-orders: the list of every work order of the user. */
+/** /app/work-orders: the list of every work order that the account can use. */
 export const Route = createFileRoute("/app/work-orders/")({
 	loader: ({ context }) => context.queryClient.query(workOrdersQueryOptions()),
 	pendingComponent: WorkOrdersPageSkeleton,

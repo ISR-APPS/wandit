@@ -7,9 +7,11 @@
  * and create the project. Poll
  * to `ACTIVE_HEALTHY`, with one restore of a paused project. Read the keys
  * and store the service-role key. Apply the base schema. Set the auth
- * config. Mark active. Write the `.env` of a running sandbox. Write the
- * audit row. It calls `AppBackendsRepository`, `SupabaseManagementClient`,
- * `ProjectSecretsService`, `SandboxProvider.findRunning`,
+ * config, with the sender of the sign-up code email when the worker and the
+ * template have it. Mark active. Write the `.env` of a running sandbox.
+ * Write the audit row. It calls `AppBackendsRepository`,
+ * `SupabaseManagementClient`, `ProjectSecretsService`,
+ * `AppPublishRepository.findProject`, `SandboxProvider.findRunning`,
  * `AuditEventsRepository`, and Sentry. `provision-backend.task.ts` calls it
  * through `createProvisionBackendRuntime`; the spec runs
  * `runProvisionBackend` on fakes. No Nest here: Trigger workers compose
@@ -19,7 +21,7 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { wait } from "@trigger.dev/sdk";
+import { logger as triggerLogger, wait } from "@trigger.dev/sdk";
 import {
 	previewAuthRedirectPattern,
 	type SupabaseInstanceSize,
@@ -38,6 +40,11 @@ import {
 	SUPABASE_DB_PASSWORD_SECRET,
 	SUPABASE_SERVICE_ROLE_KEY_SECRET,
 } from "../modules/app-builder/application/services/project-secrets.service";
+import {
+	appEmailSenderName,
+	confirmationEmailHtml,
+	supportsEmailCode,
+} from "../modules/app-builder/domain/app-auth-email";
 import type {
 	SandboxLogger,
 	SandboxProvider,
@@ -45,6 +52,7 @@ import type {
 import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
 import type { AppBackendFailure } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import { AppPublishRepository } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
@@ -55,6 +63,8 @@ import {
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
 import {
+	type BackendRef,
+	type ConfirmationEmailSender,
 	projectStatusOrRemoved,
 	type SupabaseManagementClient,
 	SupabaseManagementError,
@@ -123,6 +133,25 @@ export type ProvisionBackendDeps = {
 	instanceSize: SupabaseInstanceSize;
 	/** `env.PREVIEW_DOMAIN`; null skips only the auth URL fields, not the email settings. */
 	previewDomain: string | null;
+	/**
+	 * `env.APP_AUTH_EMAIL_FROM`: the From address of the sign-up code email,
+	 * for example `no-reply@auth.wandit.app`. Null when the worker has none.
+	 */
+	appAuthEmailFrom: string | null;
+	/**
+	 * `env.RESEND_PLATFORM_API_KEY`: the SMTP password of the sender. Null
+	 * when the worker has none. Never logged.
+	 */
+	resendPlatformApiKey: string | null;
+	/**
+	 * Reads `projects.name` and `projects.template_version` for the code
+	 * email. `AppPublishRepository` in production; null means no project row.
+	 */
+	projects: {
+		findProject(
+			projectId: string,
+		): Promise<{ name: string; templateVersion: string | null } | null>;
+	};
 	/** Reads the base schema file; a throw fails `backend_base_schema_missing`. */
 	readBaseSql: () => Promise<string>;
 	/** `wait.for` in production; the spec adds the ms to a fake clock. */
@@ -134,7 +163,10 @@ export type ProvisionBackendDeps = {
 		error: unknown,
 		tags: { projectId: string; ref: string | null },
 	) => string | undefined;
-	/** `Sentry.logger` in production; the spec records lines. */
+	/**
+	 * The Trigger.dev `logger` in production: each line is in the run log of
+	 * the `provision-backend` task. The spec records lines.
+	 */
 	logger: SandboxLogger;
 };
 
@@ -418,34 +450,54 @@ export async function runProvisionBackend(
 					requestKey,
 				});
 			}
-			await client.runSql({ projectId, ref }, baseSql);
+			const scope = { projectId, ref };
+			await client.runSql(scope, baseSql);
 
-			// Product rule: a new app account works at sign-up, with no
-			// confirmation email. This needs no PREVIEW_DOMAIN, so it always goes out.
-			const emailSettings = {
-				externalEmailEnabled: true,
-				skipEmailConfirmation: true,
-			};
 			if (deps.previewDomain === null) {
 				deps.logger.warn("supabase.provisioning.auth-urls-skipped", {
 					projectId,
 					ref,
 				});
-				await client.updateAuthConfig({ projectId, ref }, emailSettings);
-			} else {
-				// Provisioning sets the preview apex as `site_url` at creation.
-				// `BackendAuthUrlsService` replaces it after the first publish or a
-				// domain change.
-				await client.updateAuthConfig(
-					{ projectId, ref },
-					{
-						...emailSettings,
-						siteUrl: `https://${deps.previewDomain}`,
-						uriAllowList: [
-							previewAuthRedirectPattern(projectId, deps.previewDomain),
-						],
-					},
-				);
+			}
+			// The email settings need no PREVIEW_DOMAIN, so they always go out.
+			// Provisioning sets the preview apex as `site_url` at creation.
+			// `BackendAuthUrlsService` replaces it after the first publish or a
+			// domain change.
+			const urlFields =
+				deps.previewDomain === null
+					? {}
+					: {
+							siteUrl: `https://${deps.previewDomain}`,
+							uriAllowList: [
+								previewAuthRedirectPattern(projectId, deps.previewDomain),
+							],
+						};
+			const confirmationEmail = await confirmationEmailFor(deps, scope);
+			try {
+				await client.updateAuthConfig(scope, {
+					...urlFields,
+					externalEmailEnabled: true,
+					confirmationEmail,
+				});
+			} catch (error) {
+				if (confirmationEmail === null || !isRefusedRequest(error)) {
+					throw error;
+				}
+				// Product rule: a refused sender must not cost the user the
+				// backend. The app then gets the mode without email, and an
+				// operator gets the status. A 429, a 5xx, and a network error
+				// are not a refusal of the settings: they fail the run as before.
+				deps.logger.error("supabase.provisioning.email-confirmation-refused", {
+					projectId,
+					ref,
+					status: String(error.status),
+				});
+				deps.captureException(error, scope);
+				await client.updateAuthConfig(scope, {
+					...urlFields,
+					externalEmailEnabled: true,
+					confirmationEmail: null,
+				});
 			}
 		} else {
 			deps.logger.info("supabase.provisioning.setup-kept", { projectId, ref });
@@ -527,6 +579,66 @@ export async function runProvisionBackend(
 }
 
 /**
+ * The sender of the sign-up code email of the backend of this run. Null
+ * gives the mode without email: a session at sign-up. Null logs the reason
+ * as a warning.
+ */
+async function confirmationEmailFor(
+	deps: ProvisionBackendDeps,
+	scope: BackendRef,
+): Promise<ConfirmationEmailSender | null> {
+	const { appAuthEmailFrom, resendPlatformApiKey } = deps;
+	// The two env values are the rollout switch. Only one of them is a
+	// configuration error: the sender needs the address and the password.
+	if (appAuthEmailFrom === null || resendPlatformApiKey === null) {
+		deps.logger.warn("supabase.provisioning.email-confirmation-off", {
+			...scope,
+			reason:
+				appAuthEmailFrom === null && resendPlatformApiKey === null
+					? "sender-env-unset"
+					: appAuthEmailFrom === null
+						? "APP_AUTH_EMAIL_FROM-unset"
+						: "RESEND_PLATFORM_API_KEY-unset",
+		});
+		return null;
+	}
+	// The read is here, right before the auth config call: the title job
+	// renames the project during the status poll.
+	// LIMIT: the sender name can be stale until the next publish or rename when the title job ends after this read. Upgrade: start `sync-backend-auth-urls` after `markActive`.
+	const project = await deps.projects.findProject(scope.projectId);
+	// Product rule: the email holds a code, so only a template whose login
+	// page has the code step may get it. An app with no code step keeps a
+	// session at sign-up.
+	if (project === null || !supportsEmailCode(project.templateVersion)) {
+		deps.logger.warn("supabase.provisioning.email-confirmation-off", {
+			...scope,
+			reason:
+				project === null ? "project-missing" : "template-without-code-step",
+		});
+		return null;
+	}
+	const senderName = appEmailSenderName(project.name);
+	return {
+		confirmationHtml: confirmationEmailHtml(senderName),
+		fromAddress: appAuthEmailFrom,
+		resendApiKey: resendPlatformApiKey,
+		senderName,
+	};
+}
+
+// True for a final "no" to the request itself: a 4xx that is not the rate
+// limit answer 429.
+function isRefusedRequest(error: unknown): error is SupabaseManagementError {
+	return (
+		error instanceof SupabaseManagementError &&
+		error.status !== null &&
+		error.status >= 400 &&
+		error.status < 500 &&
+		error.status !== 429
+	);
+}
+
+/**
  * One failure path for every step. A `SupabaseManagementError` fills kind,
  * source, provider, message, and request id from the error. Any other
  * error takes the step's kind and source. Always captures to Sentry,
@@ -590,19 +702,22 @@ async function fail(
 }
 
 /**
- * Composes the real repositories, the Management API client, the base-SQL
- * reader, the Trigger wait, and the Sentry capture for the worker. `close`
- * quits the rate limiter's Redis client; the task ends the pool itself.
+ * Composes the real repositories, the Management API client, and the base-SQL
+ * reader for the worker. It adds the Trigger wait and logger and the Sentry
+ * capture. `close` quits the rate-limit Redis client. The task ends the pool.
  */
 export function createProvisionBackendRuntime(db: TriggerDatabase): {
 	run(input: ProvisionBackendInput): Promise<ProvisionBackendResult>;
 	close(): Promise<void>;
 } {
 	const backends = new AppBackendsRepository(db);
+	// The Trigger logger, not `Sentry.logger`: the Sentry client of the worker
+	// has no `enableLogs` and drops each line. An operator reads the mode
+	// choice of the code email in the run log.
 	const { client, close } = supabaseWorkerClientFromEnv(
 		env,
 		backends,
-		Sentry.logger,
+		triggerLogger,
 	);
 	const auditEvents = new AuditEventsRepository(db);
 	// The `.env` write only calls `findRunning`, which never restores a repo
@@ -625,16 +740,19 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 					client,
 					instanceSize: instanceSizeFromEnv(
 						env.SUPABASE_PLATFORM_INSTANCE_SIZE,
-						Sentry.logger,
+						triggerLogger,
 					),
-					logger: Sentry.logger,
+					logger: triggerLogger,
 					now: Date.now,
 					previewDomain: env.PREVIEW_DOMAIN ?? null,
+					appAuthEmailFrom: env.APP_AUTH_EMAIL_FROM ?? null,
+					projects: new AppPublishRepository(db),
 					readBaseSql: () =>
 						readFile(
 							resolve(TEMPLATE_ARCHIVE_DIR, BASE_SQL_RELATIVE_PATH),
 							"utf8",
 						),
+					resendPlatformApiKey: env.RESEND_PLATFORM_API_KEY ?? null,
 					sandboxes,
 					secrets: new ProjectSecretsService(
 						new ProjectSecretsRepository(db),

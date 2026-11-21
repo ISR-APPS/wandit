@@ -1,4 +1,4 @@
-// The fixed Supabase answers for a starter that has no backend: one demo user and one profiles row.
+// The fixed Supabase answers for a starter that has no backend: one demo user, its profiles row, and its access row.
 // shot.mjs answers the browser requests of a screenshot with it.
 // preview-worker.mjs answers the requests of a live preview with it. deploy-previews.mjs copies this file next to it.
 // It uses only web platform APIs, so it runs in Node and in a Cloudflare Worker.
@@ -74,22 +74,33 @@ export function demoSupabaseAnswer({ method, pathname, accept, email }) {
 	if (pathname.startsWith("/auth/v1/")) {
 		return { status: 200, body: {} };
 	}
-	if (pathname === "/rest/v1/profiles") {
-		if (method !== "GET") {
-			// A save looks done. The next page load shows the demo row again.
-			return { status: 204, body: null };
-		}
-		// One row of public.profiles, with the columns of supabase/migrations/0000_base.sql.
-		const now = new Date().toISOString();
-		const profile = {
+	const now = new Date().toISOString();
+	// One row of each table that the base template reads, with the columns of supabase/migrations/0000_base.sql.
+	const demoRows = {
+		"/rest/v1/profiles": {
 			id: DEMO_USER_ID,
 			full_name: "Demo User",
 			created_at: now,
 			updated_at: now,
-		};
+		},
+		// The demo user is the approved owner, so the access gate of /app opens.
+		"/rest/v1/app_access": {
+			user_id: DEMO_USER_ID,
+			email,
+			role: "owner",
+			status: "approved",
+			requested_at: now,
+		},
+	};
+	const row = demoRows[pathname];
+	if (row !== undefined) {
+		if (method !== "GET") {
+			// A save looks done. The next page load shows the demo row again.
+			return { status: 204, body: null };
+		}
 		// `.single()` asks for one object. All other reads get a list of rows.
 		const wantsObject = accept.includes("vnd.pgrst.object");
-		return { status: 200, body: wantsObject ? profile : [profile] };
+		return { status: 200, body: wantsObject ? row : [row] };
 	}
 	return {
 		status: 404,

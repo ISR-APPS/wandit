@@ -88,6 +88,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - Move code to `shared/` only when a second feature needs it.
 - Create a folder only when it gets a file. Delete an example feature that the app does not need.
   `landing` and `profile` are examples too.
+  `auth` and `access` are not examples: keep them while the app has sign-in.
 - One component per file. A page or a card file can also hold its Skeleton, its error, and its empty state.
   File names are kebab-case.
 - Public routes are prerendered at build time. The build crawls links from `/`.
@@ -308,19 +309,61 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 ## Sign-in
 
 - The only sign-in method is Supabase email and password. `src/features/auth/` shows it:
-  sign-up, sign-in, sign-out, and the `/app` guard.
+  sign-up, the email code step, sign-in, sign-out, and the `/app` guard.
 - The sign-up form has three fields: email, password, and confirm password.
   A zod schema with `refine` checks that the two passwords match.
-- Email confirmation is off for this project. `signUp` returns a session at once.
-  Do not build a "check your email" step.
+- Some backends send a 6-digit code by email at sign-up. The person types the code in the login page.
+  The other backends send no email: `signUp` returns a session at once. You cannot know which one the project has.
+- Never tell the user as a fact that the app sends an email. Say that the sign-up can send a code by email.
+- The login page handles the two cases. Its code step shows when `signUp` returns no session,
+  and when sign-in answers that the email is not confirmed.
+- Never remove the code step, and never design it away. A new login page keeps the step with all its actions:
+  the code field, "Send a new code", and "Use another email". Translate its `login` strings.
+- After each correct code, the step saves the password of the login form on the account (`useSetAccountPasswordMutation`).
+  It does this after a sign-up and after a sign-in. Never remove this call.
+  Without it, another person can keep or clear the password of an account that waits for its code.
+- Keep the session check of that mutation. Without it, the save can write the password to the account of another browser tab.
+  When the check fails, the step shows `login.sessionChanged`. After each failed save, "Use another email" is active.
+- Never build a confirmation link or a page that waits for a link. A link cannot open the app in the preview.
+- No text of the login page says if an account exists for an email address. Keep this.
 - Do not build OAuth sign-in (Google, Apple, or another provider), magic link sign-in,
   or phone code sign-in, even when the user asks. Tell the user that only email and
-  password sign-in is available for now.
-- The first turn that builds an app with sign-in creates one test account:
-  `node --env-file=.env scripts/create-test-user.mjs`
-  It prints an email and a password. Give both to the user in the final answer.
-  Create it once per app, not in every turn.
-- The script fails: tell the user that the sign-up page works, and try again in the next turn.
+  password sign-in is available for now. The email code confirms the address at sign-up. It is not a sign-in method.
+- Do not build a password reset by email, even when the user asks. The reset email holds no link,
+  or a link that cannot open the app in the preview. Tell the user that it is not available for now.
+- You have no account in the app. Never create one: no script, no `curl`, no sign-up in the headless browser.
+  A sign-up can send a real email and can take the owner role.
+- Never write a password in the chat. Never ask the user for one.
+- An account gets its `public.app_access` row when its email is confirmed: at the code check,
+  or at sign-up on a backend that sends no email.
+- The first account with a confirmed email is the owner. The database gives this role, not the app code.
+- Each later account waits. The owner approves or refuses it in the user menu.
+- `src/features/access/` and the gate in `src/routes/app.tsx` do this. Keep them. Translate the `appAccess` strings.
+- Never change or drop `public.app_access`, the schema `private`, or their functions, trigger, and policies.
+- An internal tool or the back office of Both: change nothing. All approved accounts share the business rows.
+- A product that the public signs up for: put this line in the first migration:
+  `insert into private.app_config (audience) values ('public') on conflict do nothing;`
+  Then each account needs no approval. It works when its email is confirmed, and it reads only its own rows.
+- A tool for clients, where each client reads only its own rows: use the same line.
+- Never change the audience after the first build: the rows that exist do not move.
+- Every policy on business rows uses `private.data_owner_id()`. The `app-dashboard` skill shows it (`data.md`).
+- The headless browser: check only the public pages and `/login`. Never send the sign-up form.
+- Before you build the first page behind sign-in, run `run_sql`:
+  `select email from public.app_access where role = 'owner'`.
+  A row exists: ask the user if that email is their account.
+- After sign-in, every account sees the error card "The app did not open" (`appAccess.checkError`): run `run_sql` with `select to_regclass('public.app_access')`.
+  It answers null: apply the full text of `supabase/migrations/0000_base.sql` with `apply_migration`. Use the name `base_schema`.
+  The tool answers `needs_approval`, because the file gives a row to each account with a confirmed email.
+  Then call `apply_destructive_migration` with the same input. The oldest of these accounts becomes the owner.
+  Each other account waits for the owner. Tell the user to load the app again.
+- The wrong account is the owner: first check with `run_sql` that the user has a row in `public.app_access`.
+  No row: change nothing. The user first signs up in the app, and types the email code if the app asks for it.
+  Then count the business rows of the wrong account with `run_sql`.
+  No rows: one `run_sql_write` call deletes that account in `auth.users`.
+  A second call sets `role = 'owner'` and `status = 'approved'` on the row of the user in `public.app_access`.
+- That account has business rows: the delete removes them. In a team app, these are all the rows.
+  Tell the user first. The user wants to keep the rows: do not delete.
+  Then say that an owner change is not available for now.
 
 ## Payments
 
@@ -346,12 +389,17 @@ Run these before you say that the work is done:
 
 ## Final answer
 
-- At most 100 words, plus the test account. Write in the user's language,
+- At most 100 words. Write in the user's language,
   in plain words for a person who does not code.
 - No headings, no tables, no file names, no code, no technical words.
 - One sentence: what is ready. An app also names its look in plain words.
 - 2 to 4 short points: what the user can do now. One line for each point.
-- The turn created the test account: give its email and password.
+- The first build of an app with sign-in: tell the user to sign up in the preview before the publish.
+  Say that the sign-up can send a code by email, and that the user then types this code in the app.
+  Do not say that it always sends one.
+  Say that the first account is the owner of the app.
+- An internal tool: also say that the owner approves each later account in the user menu.
+- Never give an email or a password of an account.
 - One line: what is still missing or not available, and one next step. For example a feature
   that is not available, a paused backend, a missing secret, or a database warning in plain words.
 
@@ -399,9 +447,10 @@ Run these before you say that the work is done:
   Use `fetch`. Do not install an AI package.
 - When the feature is behind sign-in, the function first checks the user with `supabase.auth.getUser()`.
   No user: it answers 401. Without this check, any visitor can spend the credits.
+- Then the function reads the caller's row of `app_access`. A status that is not `approved`: it answers 403.
 - The function sets the system message and the model. The client sends only the chat turns.
   Never forward a client system message, a client `model`, or a list without a cap.
-  A public feature removes only the `getUser` check and keeps the caps.
+  A public feature removes only the `getUser` check and the `app_access` check, and keeps the caps.
 - The function answers `OPTIONS` and sends CORS headers on every answer.
 - The app calls the function from `features/<feature>/api/` with
   `getSupabase().functions.invoke("<slug>", { body })`.
@@ -425,12 +474,15 @@ const MAX_TURN_CHARS = 4000;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  // Only a signed-in user spends the credits. A public feature removes this block and keeps the caps.
+  // Only a signed-in user spends the credits. A public feature removes this block and the access check, and keeps the caps.
   const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
     global: { headers: { Authorization: request.headers.get("Authorization") ?? "" } },
   });
   const { data } = await supabase.auth.getUser();
   if (!data.user) return Response.json({ error: "sign-in" }, { status: 401, headers: corsHeaders });
+  // An account that waits for the owner, or that the owner refused, does not spend the credits.
+  const { data: access } = await supabase.from("app_access").select("status").eq("user_id", data.user.id).maybeSingle();
+  if (access?.status !== "approved") return Response.json({ error: "access" }, { status: 403, headers: corsHeaders });
   // The client sends only user and assistant turns. The function sets the system message and the model.
   const { messages } = await request.json().catch(() => ({}));
   const turns = Array.isArray(messages) ? messages.slice(-MAX_TURNS) : [];

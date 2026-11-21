@@ -240,10 +240,153 @@ and before the event.
 - The `backend-provisioning` queue runs 10 at the same time (was 3). If you
   set a concurrency override in the Trigger dashboard, remove it after the
   event: an override stays after a deploy.
-- Provisioning now always turns off email confirmation, also without
-  `PREVIEW_DOMAIN`. Backends that went active before this change keep email
-  confirmation on: turn it off in the Supabase dashboard (Authentication >
-  Email > "Confirm email").
+- Provisioning always sends the email settings, also without
+  `PREVIEW_DOMAIN`. Without the sender of the code email (see "Sign-up code
+  email of generated apps"), it turns off email confirmation. A backend that
+  went active before the P0-08 fix can have email confirmation on with no
+  sender: turn it off in the Supabase dashboard (Authentication > Email >
+  "Confirm email").
+
+## Sign-up code email of generated apps (D41)
+
+An app backend can send a 6-digit code by email at sign-up. The sender is
+`<App name> <APP_AUTH_EMAIL_FROM>`, through Resend SMTP. Provisioning chooses
+the mode one time for each backend. A backend that is active keeps its mode.
+
+### Setup
+
+Do these steps after the API and the Trigger worker have the code of D41.
+The two env values are the switch.
+
+1. In Resend, add the domain of the sender, for example `auth.wandit.app`.
+   Use a subdomain that sends only these emails. Add the DKIM, SPF, and DMARC
+   records that Resend shows. Wait until the domain is verified.
+2. Keep open tracking and click tracking off on that domain. They are off by
+   default.
+3. Create a Resend API key with the permission `sending_access`, restricted
+   to that domain. Do not use a `full_access` key: Supabase stores the key
+   as the SMTP password of each backend that sends the code email. Never
+   paste the key in a chat.
+4. Set two values in the Trigger.dev environment and on the API service in
+   Railway, for staging first:
+   - `APP_AUTH_EMAIL_FROM`: a bare address on the domain, for example
+     `no-reply@auth.wandit.app`. No name and no angle brackets: a value that
+     is not an email address stops the boot.
+   - `RESEND_PLATFORM_API_KEY`: the key of step 3.
+   The Trigger worker reads them at provisioning. `GET /api/v2/health`
+   reports the two names for the API process only.
+5. Check the Resend plan. The free plan stops at 100 emails per day for all
+   apps together. Each backend sends at most 100 emails per hour.
+
+With only one of the two values, provisioning logs the warning
+`supabase.provisioning.email-confirmation-off` and uses the mode without
+email. A project older than `web-app@1.2.0` or `mobile-app@1.3.0` also gets
+the mode without email, because its login page has no code step. The
+warning holds the reason. Read it in the run log of the `provision-backend`
+task in Trigger.dev. Sentry does not show it: the Sentry client of the
+worker drops log lines.
+
+You can stop the feature for the backends that provisioning creates later.
+Remove one of the two values from the Trigger.dev environment. Backends
+that have the sender keep it.
+
+### Change the Resend key
+
+Each backend that sends the code email holds the key that was set at its
+provisioning. A new env value changes only the backends that provisioning
+creates after the change.
+
+1. Create the new key in Resend (step 3 of "Setup"). Set it as
+   `RESEND_PLATFORM_API_KEY` in the Trigger.dev environment and on the API
+   service. Each later provisioning uses the new key.
+2. Do not delete the old key while a backend holds it.
+3. To move one backend, open its Supabase dashboard: Authentication >
+   Emails > SMTP Settings. Set the new key as the password and save.
+   When all backends are moved, delete the old key in Resend.
+
+To find the backends that hold the key: no database column holds the mode.
+Start with the `app_backends` rows that have a `ref` and whose project has
+`template_version` `web-app@1.2.0` or later, or `mobile-app@1.3.0` or
+later. A backend holds the key when its Supabase dashboard shows the SMTP
+host `smtp.resend.com`.
+
+To stop the code email of one active backend, turn off "Confirm email" in
+its Supabase dashboard. Do this when the key leaked or when Resend stopped
+the account. Each later sign-up then gives a session with no email. An
+account that waits for a code stays not confirmed, and its sign-in still
+answers `email_not_confirmed`. But a new sign-up call with its address
+confirms it and gives a session. That call needs no code and does not
+check the password, and the account keeps its first password. The account
+gets its `app_access` row only at that confirmation. So check these
+accounts first: open Authentication > Users and delete each account that
+is not confirmed. The person can then sign up again. Source: the Supabase
+Auth code of 2026-11-17 (`signup.go`, `token.go`). The hosted version can
+be different.
+
+### Staging checks
+
+Before a local test, run `node templates/pack-all.mjs` from the repo root.
+The local archives can be older than the template files with the same
+version text. Such an archive has no code step on its login page.
+
+1. Create a new web project and wait until its backend is active. In the
+   Supabase dashboard of the backend, Authentication > Email shows "Confirm
+   email" on and the SMTP host `smtp.resend.com`.
+2. Sign up in the preview with a real address. One email arrives from
+   `<project name> <APP_AUTH_EMAIL_FROM>` with the subject "Confirm your
+   email" and a 6-digit code. The code opens the app.
+3. Rename the project with an active backend. After the
+   `sync-backend-auth-urls` run, the sender name in the Supabase dashboard
+   is the new name. A paused backend keeps the old name until the next
+   publish or rename.
+4. Set a wrong `RESEND_PLATFORM_API_KEY` in the Trigger.dev staging
+   environment and create one more project. Each sign-up in that app then
+   answers HTTP 500 "Error sending confirmation email", and no account is
+   created. Set the correct key again. The backend of this test keeps the
+   wrong key: delete the project.
+5. Open the email templates in the Supabase dashboard of the backend of
+   check 1. Look at three templates: password reset, magic link, and email
+   change. Each one shows the subject "No action is needed" and a body with
+   no `{{`. Then ask for a password recovery for the address of check 2.
+   Send `POST https://<ref>.supabase.co/auth/v1/recover` with the header
+   `apikey: <anon key>` and the JSON body `{"email":"<address>"}`. One
+   email arrives with the subject "No action is needed". It holds no link
+   and no code. If it holds a link, Supabase did not apply the templates.
+   This is a defect. See the symptom about an email with a link.
+
+### Symptoms
+
+- Each sign-up of one app answers 500: the key of that backend is wrong or
+  revoked, the Resend domain is not verified, or the Resend quota is used
+  up. Look at the Resend dashboard first. No task writes a new key to a
+  backend that is active. So a deleted Resend key breaks sign-up in every
+  backend that holds it. See "Change the Resend key".
+- Sign-up answers 429 `over_email_send_rate_limit`: the app sent 100 emails
+  in one hour, or the same address asked again too soon (Supabase waits 60
+  seconds by default).
+- The line `supabase.provisioning.email-confirmation-refused` in the run log
+  of the `provision-backend` task in Trigger.dev, and a Sentry event with
+  `Supabase answered the auth config call with HTTP <status>`:
+  Supabase refused the sender settings. The backend is active in the mode
+  without email. The error never holds the answer text of Supabase, because
+  that text can repeat the key. Status 402 is the plan gate of Supabase.
+- The sender is "Your app": the project name is empty, holds the name
+  "Wandit", or holds a phishing term (`findPhishingTerm`). Look-alike letters
+  count. Two adjacent words can also make a term or the platform name:
+  "Design Inc" holds "signin", and "Wand Items" holds "wandit". Rename the
+  project.
+- A person gets an email with the subject "No action is needed" from an
+  app: someone asked that backend for a password recovery, a magic link, or
+  an email change. On a backend that sends the code email, these three
+  emails hold no link and no code. They cannot confirm an account or open
+  a session. Password reset by email is not available.
+- A person gets an email with a link from an app that sends the code
+  email: this is a defect. One GET of such a link confirms the account
+  with no code. Supabase Auth sends its default text, with a link, when it
+  cannot load the body of the backend. A staging backend that got its
+  sender before the emails with no link existed also has the default text.
+  Open the Supabase dashboard of the backend. Give the recovery, magic
+  link, and email change templates a body with no `{{`.
 
 ## Rotate `APP_SECRETS_ENCRYPTION_KEY` (WANDIT-185)
 

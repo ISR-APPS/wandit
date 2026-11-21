@@ -31,6 +31,8 @@ const destinations = [
 const home = { to: "/app", activeOptions: { exact: true } } as const;
 
 type AppShellProps = {
+	/** `auth.users.id` of the signed-in user, from the session of the /app layout route. The user menu reads its `app_access` row. */
+	userId: string;
 	/** Email of the signed-in account from the app route. */
 	email: string;
 	/** Active child of the app route. */
@@ -38,7 +40,7 @@ type AppShellProps = {
 };
 
 /** Keeps the account actions available when a narrow screen uses the menu sheet. */
-export function AppShell({ email, children }: AppShellProps) {
+export function AppShell({ userId, email, children }: AppShellProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	return (
 		<SidebarProvider className="flex-col lg:flex-row" data-surface="app">
@@ -128,7 +130,7 @@ export function AppShell({ email, children }: AppShellProps) {
 					</div>
 					<div className="flex shrink-0 items-center gap-2">
 						<LocaleSwitcher />
-						<NavUser email={email} placement="header" />
+						<NavUser userId={userId} email={email} placement="header" />
 					</div>
 				</header>
 				<main className="min-w-0 flex-1 border-t p-5 md:p-7">{children}</main>

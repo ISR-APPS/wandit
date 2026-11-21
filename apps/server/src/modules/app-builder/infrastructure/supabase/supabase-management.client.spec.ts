@@ -450,36 +450,114 @@ describe("SupabaseManagementClient guards", () => {
 	});
 });
 
+// The fields of the auth config answer that the client parses.
+const AUTH_CONFIG_ANSWER = JSON.stringify({
+	site_url: "https://preview.example",
+	uri_allow_list: "https://a,https://b",
+	external_email_enabled: true,
+	smtp_host: null,
+	smtp_sender_name: null,
+});
+
+const RESEND_KEY = "re_test_key_1";
+const CONFIRMATION_EMAIL = {
+	fromAddress: "no-reply@auth.example",
+	resendApiKey: RESEND_KEY,
+	senderName: "Nour Objets",
+	confirmationHtml: "<p>{{ .Token }}</p>",
+};
+
 describe("SupabaseManagementClient.updateAuthConfig", () => {
 	it("joins the allow list with a comma and turns email confirmation off", async () => {
-		const fixture = makeClient([
-			jsonResponse(
-				200,
-				JSON.stringify({
-					site_url: "https://preview.example",
-					uri_allow_list: "https://a,https://b",
-					external_email_enabled: true,
-				}),
-			),
-		]);
+		const fixture = makeClient([jsonResponse(200, AUTH_CONFIG_ANSWER)]);
 
 		await fixture.client.updateAuthConfig(SCOPE, {
 			siteUrl: "https://preview.example",
 			uriAllowList: ["https://a", "https://b"],
 			externalEmailEnabled: true,
-			skipEmailConfirmation: true,
+			confirmationEmail: null,
 		});
 
 		expect(fixture.requests[0]?.method).toBe("PATCH");
 		expect(fixture.requests[0]?.url).toBe(
 			`https://api.supabase.com/v1/projects/${REF}/config/auth`,
 		);
+		// No sender means no SMTP field at all.
 		expect(JSON.parse(fixture.requests[0]?.body ?? "null")).toEqual({
 			site_url: "https://preview.example",
 			uri_allow_list: "https://a,https://b",
 			external_email_enabled: true,
 			mailer_autoconfirm: true,
 		});
+	});
+
+	it("sends the whole sender and turns email confirmation on", async () => {
+		const fixture = makeClient([jsonResponse(200, AUTH_CONFIG_ANSWER)]);
+
+		await fixture.client.updateAuthConfig(SCOPE, {
+			externalEmailEnabled: true,
+			confirmationEmail: CONFIRMATION_EMAIL,
+		});
+
+		// Security: a Go template action in one of these texts puts a link or a
+		// code in the email. An absent or empty text gives the Supabase default,
+		// which holds a link. The pattern takes a text that has no "{{".
+		const textWithNoAction = expect.stringMatching(/^(?![\s\S]*\{\{)[\s\S]+$/);
+		// The Management API takes `smtp_port` as a string and the three
+		// limits as numbers; a wrong type answers 400.
+		expect(JSON.parse(fixture.requests[0]?.body ?? "null")).toEqual({
+			external_email_enabled: true,
+			mailer_autoconfirm: false,
+			smtp_admin_email: "no-reply@auth.example",
+			smtp_host: "smtp.resend.com",
+			smtp_port: "465",
+			smtp_user: "resend",
+			smtp_pass: RESEND_KEY,
+			smtp_sender_name: "Nour Objets",
+			mailer_subjects_confirmation: "Confirm your email",
+			mailer_templates_confirmation_content: "<p>{{ .Token }}</p>",
+			mailer_subjects_recovery: textWithNoAction,
+			mailer_templates_recovery_content: textWithNoAction,
+			mailer_subjects_magic_link: textWithNoAction,
+			mailer_templates_magic_link_content: textWithNoAction,
+			mailer_subjects_email_change: textWithNoAction,
+			mailer_templates_email_change_content: textWithNoAction,
+			rate_limit_email_sent: 100,
+			mailer_otp_exp: 3600,
+			mailer_otp_length: 6,
+		});
+	});
+
+	it("keeps the SMTP password out of the error when the upstream echoes it", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				400,
+				JSON.stringify({ message: `smtp_pass ${RESEND_KEY} is not valid` }),
+				{ "x-request-id": "req-1" },
+			),
+		]);
+
+		const failure = await fixture.client
+			.updateAuthConfig(SCOPE, {
+				externalEmailEnabled: true,
+				confirmationEmail: CONFIRMATION_EMAIL,
+			})
+			.then(
+				() => null,
+				(error: unknown) => error,
+			);
+
+		if (!(failure instanceof SupabaseManagementError)) {
+			throw new Error("expected a SupabaseManagementError");
+		}
+		// The status and the request id stay: provisioning reads the status.
+		expect(failure.status).toBe(400);
+		expect(failure.requestId).toBe("req-1");
+		expect(failure.detail).toBe(
+			"Supabase answered the auth config call with HTTP 400",
+		);
+		expect(failure.message).not.toContain(RESEND_KEY);
+		expect(JSON.stringify(fixture.warnings)).not.toContain(RESEND_KEY);
 	});
 });
 

@@ -24,6 +24,8 @@ import { findActiveNavItem, NAV_GROUPS } from "../lib/nav-items";
 import { NavUser } from "./nav-user";
 
 type AppSidebarProps = {
+	/** `auth.users.id` of the signed-in user, from the session of the /app layout route. The user menu reads its `app_access` row. */
+	userId: string;
 	/** Email of the signed-in user, from the session of the /app layout route. */
 	email: string;
 	/** The desktop look: a column with an edge rule, a detached panel, or a column beside the page panel. */
@@ -40,6 +42,7 @@ type AppSidebarProps = {
  * In the icon and rail states a parent row is a plain link to its first child.
  */
 export function AppSidebar({
+	userId,
 	email,
 	variant,
 	collapsible,
@@ -49,7 +52,7 @@ export function AppSidebar({
 	const { setOpenMobile } = useSidebar();
 	const activeItem = findActiveNavItem(useMatchRoute());
 	const appName = t("common.appName");
-	const navUser = <NavUser email={email} placement="sidebar" />;
+	const navUser = <NavUser userId={userId} email={email} placement="sidebar" />;
 	// A click closes the mobile Sheet in the handler, so no effect watches the route.
 	const closeMobile = () => setOpenMobile(false);
 

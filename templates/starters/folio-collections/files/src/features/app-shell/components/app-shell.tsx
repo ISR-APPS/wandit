@@ -14,6 +14,8 @@ import { SidebarProvider } from "~/shared/ui/sidebar";
 import { NavUser } from "./nav-user";
 
 type AppShellProps = {
+	/** `auth.users.id` of the signed-in user, from the session of the /app layout route. The user menu reads its `app_access` row. */
+	userId: string;
 	/** Email from the Supabase session. The user menu shows this address. */
 	email: string;
 	/** The content from the current TanStack child route. */
@@ -21,7 +23,7 @@ type AppShellProps = {
 };
 
 /** Holds the app navigation and the session menu on each protected page. */
-export function AppShell({ email, children }: AppShellProps) {
+export function AppShell({ userId, email, children }: AppShellProps) {
 	const { t } = useT();
 	return (
 		<SidebarProvider className="flex-col md:flex-row" data-surface="app">
@@ -50,7 +52,7 @@ export function AppShell({ email, children }: AppShellProps) {
 							<IdentificationBadgeIcon size="19" />
 						</Link>
 					</div>
-					<NavUser email={email} placement="header" />
+					<NavUser userId={userId} email={email} placement="header" />
 				</div>
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-4 px-4 py-3 md:flex-col md:items-stretch md:py-7">
 					<h2 className="font-display text-2xl leading-none">

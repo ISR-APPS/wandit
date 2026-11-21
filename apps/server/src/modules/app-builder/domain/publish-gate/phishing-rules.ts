@@ -1,8 +1,8 @@
 /**
  * The phishing name check (WANDIT-181). It finds a login, bank, or wallet
  * term in an app slug or a custom domain name. Look-alike letters do not hide
- * the term. The publish gate and the custom domain routes call
- * `findPhishingTerm`. Pure code, no IO.
+ * the term. The publish gate, the custom domain routes, and the sender name
+ * of the sign-up code email call it. Pure code, no IO.
  */
 import { domainToUnicode } from "node:url";
 
@@ -187,4 +187,18 @@ export function findPhishingTerm(name: string): string | null {
 		}
 	}
 	return null;
+}
+
+// The pair folds ("rn", "vv") cannot change a letter of this name. So one
+// folded form of the text is sufficient.
+const PLATFORM_NAME_FORM = lookAlikeTokens("wandit", true).join("");
+
+/**
+ * True when free text holds the platform name "Wandit". Look-alike letters,
+ * upper case, and separators between the letters do not hide it. The name is
+ * not in `PHISHING_TERMS`, because that list also gates slugs and domains.
+ */
+// LIMIT: the fold table holds Cyrillic, Greek, and some Latin look-alikes. Small capital letters and symbol letters pass. Upgrade: the Unicode confusables table.
+export function holdsPlatformName(text: string): boolean {
+	return lookAlikeTokens(text, true).join("").includes(PLATFORM_NAME_FORM);
 }

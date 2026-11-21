@@ -60,6 +60,7 @@ The first screens decide if the app looks premium. Build them with the world rec
   opens on its home, and its sign-in modal carries the brand.
 - **Sign-in and sign-up**: they carry the brand. Use the world recipe: a hero band or a brand
   row, the `title`, the fields, and the primary button. Never a bare form under a native header.
+  The code view of the sign-in screen (CLAUDE.md, "Sign-in rule") gets the same recipe. Keep it.
 - **Onboarding**: only when the app needs setup facts before it works (a business name, the
   opening days, a goal). One question per screen, at most 3 screens, a progress mark, and the
   "Next" button pinned at the bottom. Save each answer for real.

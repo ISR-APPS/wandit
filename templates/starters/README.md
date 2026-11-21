@@ -46,7 +46,7 @@ A starter cannot add, change, or remove these paths. The tools refuse them and n
 - `biome.json`, `tsconfig.json`, `wrangler.jsonc`, `vite.config.ts`
 - `vite-plugins/**`, `scripts/**`, `supabase/**`, `src/wandit/**`
 - `src/router.tsx`, `src/routes/__root.tsx`, `src/routes/app.tsx`, `src/routes/login.tsx`
-- `src/features/auth/**`, `src/shared/lib/**`
+- `src/features/auth/**`, `src/features/access/**`, `src/shared/lib/**`
 - `src/shared/i18n/**`, except `messages.ts`
 - `src/styles/theme.ts`, `src/styles/theme-options.ts`, `src/styles/engine.css`
 - Each file of `src/shared/ui/**` that the base has. A new file there is allowed.
@@ -113,7 +113,8 @@ A work folder has no backend. `shot.mjs` does not change the project code:
 
 - It writes `<work>/.env` with a dummy Supabase URL. `extract.mjs` ignores that file.
 - It puts a session into the `localStorage` of the browser before the page loads.
-- It answers each request to the dummy host with fixed JSON: the auth calls and the `profiles` row.
+- It answers each request to the dummy host with fixed JSON: the auth calls, the `profiles` row,
+  and one `app_access` row. That row is the approved owner, so the access gate of `/app` opens.
 
 A starter must make no other Supabase call. `shot.mjs` prints a warning when a page makes one.
 Chromium comes from the Playwright package of `apps/server`. `--publish` uses the sharp package of `apps/server`.
