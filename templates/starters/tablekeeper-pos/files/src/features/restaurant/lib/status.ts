@@ -1,11 +1,11 @@
-// The live status of a table and the look of each status: the Badge variant and the dot color.
-// The floor wall, the table panel, the order screen, and the orders list read this file.
+// The live status of a table and of a check, and the look of each: the dot color and the Badge variant.
+// The order screen reads the table dots. The orders list, the home, the report, and the check page read the check badges.
 // A status always shows as a dot or a badge plus its word, never as a color alone.
 import type { VariantProps } from "class-variance-authority";
 import type { badgeVariants } from "~/shared/ui/badge";
 import type { OrderStatus } from "./sample-orders";
 
-/** The table statuses in the order of a meal. The status line of the floor follows this order. */
+/** The table statuses in the order of a meal. */
 export const TABLE_STATUSES = [
 	"seated",
 	"ordered",
@@ -19,16 +19,6 @@ export const TABLE_STATUSES = [
 export type TableStatus = (typeof TABLE_STATUSES)[number];
 
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
-
-/** Badge variant per table status. Seated waits for an order, so it is the warning one. The bill is the money moment. */
-export const TABLE_STATUS_BADGE = {
-	seated: "warning",
-	ordered: "info",
-	served: "success",
-	bill: "default",
-	reserved: "secondary",
-	free: "outline",
-} satisfies Record<TableStatus, BadgeVariant>;
 
 /**
  * Dot class per table status. A free table has a hollow dot, so it reads as empty.

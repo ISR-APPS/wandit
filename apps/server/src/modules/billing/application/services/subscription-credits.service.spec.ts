@@ -115,19 +115,9 @@ class MemoryCreditsRepository {
 			: row.organizationId === owner.organizationId;
 	}
 
-	async listRefundablePlanHolds() {
-		return [];
-	}
-
 	async findPlanHoldPools() {
 		return [];
 	}
-
-	async applyPlanHoldBoundary() {}
-
-	async closePlanHoldPools() {}
-
-	async forfeitAllPlanHolds() {}
 
 	async insertLedgerEntry(input: InsertCreditLedgerEntry) {
 		if (input.idempotencyKey) {
@@ -220,10 +210,6 @@ class MemorySubscriptionCreditsRepository {
 		}
 	}
 
-	async findCanonicalEntitledByOwner() {
-		return this.canonical;
-	}
-
 	async findSubscriptionByProviderId(providerId: string) {
 		return (
 			[...this.subscriptions.values()].find(
@@ -251,15 +237,21 @@ class MemorySubscriptionCreditsRepository {
 	}
 
 	async findLatestInvoiceApplication(subscriptionId: string) {
+		// Mirrors the repository order: newest period first, then the newest write.
 		return (
-			[...this.applications]
-				.reverse()
-				.find(
-					(row) =>
+			this.applications
+				.map((row, index) => ({ index, row }))
+				.filter(
+					({ row }) =>
 						row.subscriptionId === subscriptionId &&
 						(row.billingReason !== "subscription_create" ||
 							row.creditsDelta > 0),
-				) ?? null
+				)
+				.sort(
+					(left, right) =>
+						right.row.periodEnd.getTime() - left.row.periodEnd.getTime() ||
+						right.index - left.index,
+				)[0]?.row ?? null
 		);
 	}
 
@@ -278,17 +270,6 @@ class MemorySubscriptionCreditsRepository {
 			stripeInvoiceId: `seed_${this.applications.length}`,
 			subscriptionId: this.canonical?.id ?? "sub_local",
 		});
-	}
-
-	async findCycleAtOrAfter(subscriptionId: string, periodEnd: Date) {
-		return (
-			this.applications.find(
-				(row) =>
-					row.subscriptionId === subscriptionId &&
-					row.billingReason === "subscription_cycle" &&
-					row.periodEnd >= periodEnd,
-			) ?? null
-		);
 	}
 
 	async insertInvoiceApplication(input: InsertInvoiceApplication) {
@@ -357,37 +338,6 @@ class MemorySubscriptionCreditsRepository {
 		return count;
 	}
 
-	async cancelPendingSlotsByFunding(input: {
-		chargeId?: string | null;
-		invoiceId?: string | null;
-		paymentIntentId?: string | null;
-	}) {
-		let count = 0;
-
-		for (const slot of this.slots) {
-			if (
-				slot.status === "pending" &&
-				((input.chargeId && slot.fundingChargeId === input.chargeId) ||
-					(input.invoiceId && slot.fundingInvoiceId === input.invoiceId) ||
-					(input.paymentIntentId &&
-						slot.fundingPaymentIntentId === input.paymentIntentId))
-			) {
-				slot.status = "canceled";
-				count += 1;
-			}
-		}
-
-		return count;
-	}
-
-	async listDueSlotIds(now: Date, limit: number) {
-		return this.slots
-			.filter((slot) => slot.status === "pending" && slot.dueAt <= now)
-			.sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime())
-			.slice(0, limit)
-			.map((slot) => slot.id);
-	}
-
 	async findDuePendingSlotsForSubscription(
 		subscriptionId: string,
 		dueThrough: Date,
@@ -430,16 +380,17 @@ class MemorySubscriptionCreditsRepository {
 		return slot;
 	}
 
-	async cancelPendingSlot(slotId: string, provenance: RefillSlotCancellation) {
+	async claimPendingSlot(slotId: string, grantedAt: Date) {
 		const slot = this.slots.find((row) => row.id === slotId);
 
 		if (slot?.status !== "pending") {
-			return false;
+			return null;
 		}
 
-		Object.assign(slot, canceledSlotValues(provenance));
+		slot.status = "granted";
+		slot.grantedAt = grantedAt;
 
-		return true;
+		return slot;
 	}
 }
 
@@ -661,6 +612,7 @@ function setup(initial = subscription()) {
 		reconciliationOutbox as never,
 		receipts as never,
 		lifecycleEvents as unknown as LifecycleEventsService,
+		{ grantIfAbsent: vi.fn(async () => null) },
 	);
 
 	return {
@@ -688,87 +640,6 @@ function addInvoice(
 }
 
 describe("Subscription credit policy", () => {
-	it("applies capped refill math below and above the rollover cap", async () => {
-		const below = setup();
-		below.creditRepository.seedPlan(60);
-		const belowResult = await below.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:below",
-		});
-		expect(belowResult).toMatchObject({
-			carriedCredits: 60,
-			expiredCredits: 0,
-			preRefillPlanBalance: 60,
-		});
-		expect((await below.credits.getBalance(OWNER)).plan).toBe(160);
-
-		const above = setup();
-		above.creditRepository.seedPlan(150);
-		const aboveResult = await above.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:above",
-		});
-		expect(aboveResult).toMatchObject({
-			carriedCredits: 100,
-			expiredCredits: 50,
-			preRefillPlanBalance: 150,
-		});
-		expect((await above.credits.getBalance(OWNER)).plan).toBe(200);
-	});
-
-	it("rolls back a crash between expiration and grant, then replays once", async () => {
-		const context = setup();
-		context.creditRepository.seedPlan(150);
-		context.creditRepository.failGrantKeyOnce = "refill:crash";
-
-		await expect(
-			context.credits.applyCappedRefill(OWNER, 100, {
-				idempotencyKey: "refill:crash",
-			}),
-		).rejects.toThrow("simulated crash");
-		expect(context.creditRepository.rows).toHaveLength(1);
-
-		await context.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:crash",
-		});
-		const rowCount = context.creditRepository.rows.length;
-		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:crash",
-		});
-		expect(replay.replayed).toBe(true);
-		expect(context.creditRepository.rows).toHaveLength(rowCount);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
-	});
-
-	it("rolls back both executed writes when commit crashes, then replays exactly once", async () => {
-		const context = setup();
-		context.creditRepository.seedPlan(150);
-		context.creditRepository.failAfterCallbackOnce = true;
-
-		await expect(
-			context.credits.applyCappedRefill(OWNER, 100, {
-				idempotencyKey: "refill:atomic",
-			}),
-		).rejects.toThrow("simulated crash before transaction commit");
-		expect(context.creditRepository.insertAttempts).toEqual(
-			expect.arrayContaining(["refill:atomic:expire", "refill:atomic"]),
-		);
-		expect(context.creditRepository.rows).toHaveLength(1);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(150);
-
-		await context.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:atomic",
-		});
-		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
-			idempotencyKey: "refill:atomic",
-		});
-		expect(replay.replayed).toBe(true);
-		expect(
-			context.creditRepository.rows.filter(
-				(row) => row.idempotencyKey === "refill:atomic",
-			),
-		).toHaveLength(1);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
-	});
-
 	it("grants only month one for a yearly create and creates eleven funded slots", async () => {
 		const context = setup(
 			subscription({
@@ -910,12 +781,12 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(downgrade, renewal);
 		await downgrade.service.grantForPaidInvoice(renewal);
-		// Carried min(36_000, 25_000 cap) + 25_000 cycle allotment.
-		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(50_000);
+		// Pricing v8: no rollover cap. 36_000 stays + 25_000 cycle allotment.
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(61_000);
 		expect(downgrade.lifecycleEvents.enqueue).not.toHaveBeenCalled();
 	});
 
-	it("caps Pro rollover at the Starter allotment on renewal and never grants twice on replay", async () => {
+	it("grants one Starter allotment on renewal with no rollover cap and never grants twice on replay", async () => {
 		const context = setup(
 			subscription({
 				pendingAppliedBy: "sub_sched_starter",
@@ -934,7 +805,11 @@ describe("Subscription credit policy", () => {
 		await context.service.grantForPaidInvoice(renewal);
 		await context.service.grantForPaidInvoice(renewal);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+		// 50_000 stays + 6_000 Starter allotment; no `expire` row.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(56_000);
+		expect(
+			context.creditRepository.rows.filter((row) => row.kind === "expire"),
+		).toHaveLength(0);
 		expect(
 			context.creditRepository.rows.filter(
 				(row) => row.idempotencyKey === "inv:in_starter_renewal:grant",
@@ -999,9 +874,9 @@ describe("Subscription credit policy", () => {
 		).not.toHaveBeenCalled();
 	});
 
-	it("grants the full allotment with a capped refill for an anchor-reset same-interval upgrade", async () => {
+	it("grants the full allotment as a plain grant for an anchor-reset same-interval upgrade", async () => {
 		// Ruling 7: the full-price new-plan line plus the negative old-plan
-		// proration marks an anchor reset; the preview promised a capped refill.
+		// proration marks an anchor reset. Pricing v8: the old remainder stays.
 		const above = setup(
 			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
 		);
@@ -1017,13 +892,13 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(above, aboveInvoice);
 		await above.service.grantForPaidInvoice(aboveInvoice);
-		// min(62_000, 50_000 cap) + 50_000 allotment.
-		expect((await above.credits.getBalance(OWNER)).plan).toBe(100_000);
+		// 62_000 stays + 50_000 allotment.
+		expect((await above.credits.getBalance(OWNER)).plan).toBe(112_000);
 		expect(
 			above.repository.applications.find(
 				(row) => row.stripeInvoiceId === "in_anchor_up",
 			)?.creditsDelta,
-		).toBe(38_000);
+		).toBe(50_000);
 		expect(
 			above.creditRepository.rows.find(
 				(row) => row.idempotencyKey === "inv:in_anchor_up:grant",
@@ -1035,27 +910,6 @@ describe("Subscription credit policy", () => {
 		expect(above.reconciliationOutbox.markDoneForCharge).toHaveBeenCalledWith(
 			"ch_anchor_up",
 		);
-
-		const below = setup(
-			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
-		);
-		below.repository.seedApplication("pro_250_month");
-		below.creditRepository.seedPlan(4_000);
-		const belowInvoice = invoice({
-			anchorReset: true,
-			id: "in_anchor_up_below",
-			newKey: "pro_500_month",
-			oldKey: "pro_250_month",
-			reason: "subscription_update",
-		});
-		addInvoice(below, belowInvoice);
-		await below.service.grantForPaidInvoice(belowInvoice);
-		expect((await below.credits.getBalance(OWNER)).plan).toBe(54_000);
-		expect(
-			below.repository.applications.find(
-				(row) => row.stripeInvoiceId === "in_anchor_up_below",
-			)?.creditsDelta,
-		).toBe(50_000);
 	});
 
 	it("grants the anchor-reset allotment when Stripe writes the old-plan line at $0", async () => {
@@ -1320,11 +1174,8 @@ describe("Subscription credit policy", () => {
 		).toBe(50_000);
 	});
 
-	it("reconciles a replayed gross cycle grant even when rollover expiry makes the journal delta non-positive", async () => {
+	it("reconciles a replayed cycle grant when the first post-commit reconcile failed", async () => {
 		const context = setup();
-		// 60_000 cc pre-balance vs the 250-tier cap (25_000 cc) keeps the journal
-		// delta strictly negative: min(60_000, 25_000) + 25_000 = 50_000 →
-		// delta -10_000.
 		context.creditRepository.seedPlan(60_000);
 		context.paymentRefunds.reconcileChargeAfterGrant.mockRejectedValueOnce(
 			new Error("simulated post-commit reconciliation outage"),
@@ -1344,8 +1195,8 @@ describe("Subscription credit policy", () => {
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === renewal.id,
 			)?.creditsDelta,
-		).toBe(-10_000);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(50_000);
+		).toBe(25_000);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(85_000);
 
 		await expect(context.service.grantForPaidInvoice(renewal)).resolves.toBe(
 			true,
@@ -1507,7 +1358,8 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(8);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(75_000);
+		// No rollover cap: 10_000 seeded + 3 due slots of 25_000 + 25_000 update delta.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(110_000);
 
 		const renewal = invoice({
 			id: "in_year_cycle",
@@ -1524,242 +1376,14 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "granted"),
 		).toHaveLength(11);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(100_000);
-	});
-
-	it("sweeps missed slots exactly once with CAS, canonical admission, and stable refill keys", async () => {
-		const context = setup(
-			subscription({ interval: "year", priceLookupKey: "pro_250_year" }),
-		);
-		await context.refill.createYearlySlots(
-			{
-				credits: 25_000,
-				funding: {
-					chargeId: "ch_1",
-					invoiceId: "in_1",
-					paymentIntentId: "pi_1",
-				},
-				remainingAfter: PERIOD_START,
-				subscription: context.repository.canonical as SubscriptionCreditRow,
-			},
-			{} as SubscriptionCreditsTransaction,
-		);
-		const now = new Date("2026-04-01T00:00:00.000Z");
-		const result = await context.refill.sweepDueSlots(now);
-		expect(result).toEqual({ canceled: 0, failed: 0, granted: 2, skipped: 0 });
-		expect(
-			context.creditRepository.rows
-				.filter((row) => row.kind === "grant")
-				.map((row) => row.idempotencyKey),
-		).toEqual(["refill:sub_local:in_1:2", "refill:sub_local:in_1:3"]);
-		const racingOutcomes = await Promise.all([
-			context.refill.grantDueSlot(
-				"slot_3",
-				new Date("2026-05-01T00:00:00.000Z"),
-			),
-			context.refill.grantDueSlot(
-				"slot_3",
-				new Date("2026-05-01T00:00:00.000Z"),
-			),
-		]);
-		expect(racingOutcomes.sort()).toEqual(["granted", "skipped"]);
-		expect(
-			context.creditRepository.rows.filter((row) => row.kind === "grant"),
-		).toHaveLength(3);
-		expect(
-			context.creditRepository.rows.find(
-				(row) => row.idempotencyKey === "refill:sub_local:in_1:4",
-			),
-		).toBeDefined();
-
-		const foreign = subscription({
-			id: "sub_foreign",
-			providerSubscriptionId: "sub_foreign_remote",
-		});
-		const baseSlot = context.repository.slots[0];
-		expect(baseSlot).toBeDefined();
-		if (!baseSlot) {
-			throw new Error(
-				"Expected the yearly subscription to create refill slots",
-			);
-		}
-		context.repository.subscriptions.set(foreign.id, foreign);
-		context.repository.slots.push({
-			...baseSlot,
-			id: "slot_foreign",
-			status: "pending",
-			subscriptionId: foreign.id,
-		});
-		await expect(
-			context.refill.grantDueSlot("slot_foreign", now),
-		).resolves.toBe("canceled");
-	});
-
-	it("holds old annual Pro refills for atomic Starter renewal fulfillment after the mirror advances", async () => {
-		const oldSubscription = subscription({
-			interval: "year",
-			priceLookupKey: "pro_250_year",
-		});
-		const context = setup(oldSubscription);
-		await context.refill.createYearlySlots(
-			{
-				credits: 25_000,
-				funding: {
-					chargeId: null,
-					invoiceId: "in_pro_year",
-					paymentIntentId: null,
-				},
-				remainingAfter: PERIOD_START,
-				subscription: oldSubscription,
-			},
-			{} as SubscriptionCreditsTransaction,
-		);
-		const renewed = subscription({
-			currentPeriodEnd: new Date("2028-01-31T12:00:00.000Z"),
-			currentPeriodStart: PERIOD_END,
-			interval: "year",
-			plan: "starter",
-			priceLookupKey: "starter_60_year",
-			tierCredits: 60,
-		});
-		context.repository.canonical = renewed;
-		context.repository.subscriptions.set(renewed.id, renewed);
-
-		await expect(
-			context.refill.grantDueSlot("slot_1", PERIOD_END),
-		).resolves.toBe("skipped");
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
-		expect(context.repository.slots[0]?.status).toBe("pending");
-
-		const renewal = invoice({
-			id: "in_starter_year_renewal",
-			newKey: "starter_60_year",
-			periodEnd: renewed.currentPeriodEnd,
-			periodStart: PERIOD_END,
-			reason: "subscription_cycle",
-		});
-		addInvoice(context, renewal);
-		await context.service.grantForPaidInvoice(renewal);
-
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
-		expect(
-			context.repository.slots
-				.filter((slot) => slot.status === "pending")
-				.map((slot) => slot.credits),
-		).toEqual(Array.from({ length: 11 }, () => 6_000));
-		await expect(
-			context.refill.grantDueSlot("slot_1", PERIOD_END),
-		).resolves.toBe("skipped");
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
-	});
-
-	it("does not mint unswept annual allotments after the mirrored paid period has expired", async () => {
-		const context = setup(
-			subscription({ interval: "year", priceLookupKey: "pro_250_year" }),
-		);
-		await context.refill.createYearlySlots(
-			{
-				credits: 25_000,
-				funding: {
-					chargeId: null,
-					invoiceId: "in_expired_year",
-					paymentIntentId: null,
-				},
-				remainingAfter: PERIOD_START,
-				subscription: context.repository.canonical as SubscriptionCreditRow,
-			},
-			{} as SubscriptionCreditsTransaction,
-		);
-
-		await expect(
-			context.refill.grantDueSlot("slot_1", PERIOD_END),
-		).resolves.toBe("skipped");
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
-	});
-
-	it("keeps paid cancel-at-period-end slots, but cancels refund-funded pending slots", async () => {
-		const context = setup(
-			subscription({
-				cancelAtPeriodEnd: true,
-				interval: "year",
-				priceLookupKey: "pro_250_year",
-			}),
-		);
-		await context.refill.createYearlySlots(
-			{
-				credits: 25_000,
-				funding: {
-					chargeId: "ch_refund",
-					invoiceId: "in_refund",
-					paymentIntentId: "pi_refund",
-				},
-				remainingAfter: PERIOD_START,
-				subscription: context.repository.canonical as SubscriptionCreditRow,
-			},
-			{} as SubscriptionCreditsTransaction,
-		);
-		await expect(
-			context.refill.grantDueSlot(
-				"slot_1",
-				new Date("2026-03-01T00:00:00.000Z"),
-			),
-		).resolves.toBe("granted");
-		expect(
-			await context.repository.cancelPendingSlotsByFunding({
-				chargeId: "ch_refund",
-			}),
-		).toBe(10);
-		expect(
-			context.repository.slots.filter((slot) => slot.status === "pending"),
-		).toHaveLength(0);
-	});
-
-	it("deletion cancels slots and preserves plan credits when another entitled mirror remains", async () => {
-		const context = setup();
-		context.creditRepository.seedPlan(75);
-		context.repository.slots.push({
-			credits: 25_000,
-			dueAt: new Date(),
-			fundingChargeId: "ch_1",
-			fundingInvoiceId: "in_1",
-			fundingPaymentIntentId: "pi_1",
-			canceledAt: null,
-			canceledReason: null,
-			grantedAt: null,
-			id: "slot_delete",
-			supersededByInvoiceId: null,
-			periodOrdinal: 2,
-			status: "pending",
-			subscriptionId: "sub_local",
-		});
-		const second = subscription({
-			id: "sub_second",
-			providerSubscriptionId: "sub_second_remote",
-		});
-		context.repository.subscriptions.set(second.id, second);
-		context.repository.canonical = second;
-
-		await context.service.expireForDeletedSubscription({
-			customer: "cus_1",
-			id: "sub_remote",
-			metadata: { userId: USER_ID },
-		} as unknown as Stripe.Subscription);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(75);
-		expect(context.repository.slots[0]?.status).toBe("canceled");
-
-		context.repository.canonical = null;
-		await context.service.expireForDeletedSubscription({
-			customer: "cus_1",
-			id: "sub_remote",
-			metadata: { userId: USER_ID },
-		} as unknown as Stripe.Subscription);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+		// 110_000 + 8 due slots of 50_000 + 50_000 cycle allotment.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(560_000);
 	});
 
 	it.each([
 		"month",
 		"year",
-	] as const)("does not revive the original Pro %s allotment after a paid Starter renewal", async (interval) => {
+	] as const)("grants a delayed original Pro %s invoice once after a paid Starter renewal", async (interval) => {
 		const renewedStart =
 			interval === "month" ? new Date("2026-02-28T12:00:00.000Z") : PERIOD_END;
 		const renewedEnd =
@@ -1798,7 +1422,9 @@ describe("Subscription credit policy", () => {
 		await context.service.grantForPaidInvoice(delayedOriginal);
 		await context.service.grantForPaidInvoice(delayedOriginal);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+		// Pricing v8 (I4): a paid invoice always grants. 6_000 seeded + 6_000
+		// Starter renewal + 25_000 delayed Pro month one, granted one time.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(37_000);
 		expect(
 			context.repository.applications.filter(
 				(row) => row.stripeInvoiceId === delayedOriginal.id,
@@ -1806,19 +1432,13 @@ describe("Subscription credit policy", () => {
 		).toEqual([
 			expect.objectContaining({
 				billingReason: "subscription_create",
-				creditsDelta: 0,
+				creditsDelta: 25_000,
 				newPriceLookupKey: `pro_250_${interval}`,
 			}),
 		]);
-		expect(
-			context.repository.slots.filter(
-				(slot) => slot.fundingInvoiceId === delayedOriginal.id,
-			),
-		).toHaveLength(0);
-		expect(context.lifecycleEvents.enqueue).not.toHaveBeenCalled();
 
-		// The skipped audit row must not replace Starter as the paid
-		// predecessor when the customer subsequently upgrades again.
+		// The late row of the older period must not replace Starter as the
+		// paid predecessor when the customer upgrades again.
 		const upgrade = invoice({
 			id: "in_after_stale_create_upgrade",
 			newKey: `pro_250_${interval}`,
@@ -1857,25 +1477,95 @@ describe("Subscription credit policy", () => {
 		expect(context.repository.applications[0]?.creditsDelta).toBe(25_000);
 	});
 
-	it("keeps unresolved entitled invoice mirrors retryable and cycle staleness scoped away from updates", async () => {
-		const noncanonical = setup();
-		noncanonical.creditRepository.seedPlan(10);
-		noncanonical.repository.canonical = subscription({
-			id: "sub_other",
-			providerSubscriptionId: "sub_other_remote",
-		});
-		const rejected = invoice({
-			id: "in_noncanonical",
+	it("grants a pending slot that is not due yet one time, with the refill key and its outbox row", async () => {
+		// The cutover script grants each pending slot, due or not (I3).
+		const context = setup(
+			subscription({ interval: "year", status: "canceled" }),
+		);
+		await context.refill.createYearlySlots(
+			{
+				credits: 25_000,
+				funding: {
+					chargeId: "ch_year",
+					invoiceId: "in_year",
+					paymentIntentId: "pi_year",
+				},
+				remainingAfter: PERIOD_START,
+				subscription: subscription({ interval: "year" }),
+			},
+			// SAFETY: the fake repository ignores the transaction client; createYearlySlots only passes it through.
+			{} as SubscriptionCreditsTransaction,
+		);
+		const lastSlot = context.repository.slots.at(-1);
+
+		await expect(
+			context.refill.grantPendingSlot(lastSlot?.id ?? "", PERIOD_START),
+		).resolves.toBe("granted");
+		await expect(
+			context.refill.grantPendingSlot(lastSlot?.id ?? "", PERIOD_START),
+		).resolves.toBe("skipped");
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
+		expect(
+			context.creditRepository.rows.filter(
+				(row) => row.idempotencyKey === "refill:sub_local:in_year:12",
+			),
+		).toEqual([
+			expect.objectContaining({
+				bucket: "plan",
+				kind: "grant",
+				meta: expect.objectContaining({
+					chargeId: "ch_year",
+					subscriptionId: "sub_local",
+				}),
+			}),
+		]);
+		expect(context.outboxRows).toEqual([
+			{ chargeId: "ch_year", triggerRef: `slot:${lastSlot?.id}` },
+		]);
+	});
+
+	it("grants a paid invoice of a canceled mirror one time (I4)", async () => {
+		// After the cutover no row is entitled. A past_due invoice paid later still grants.
+		const context = setup(subscription({ status: "canceled" }));
+		context.repository.canonical = null;
+		const paid = invoice({
+			id: "in_after_cutover",
 			newKey: "pro_250_month",
 			reason: "subscription_cycle",
 		});
-		addInvoice(noncanonical, rejected);
-		await expect(
-			noncanonical.service.grantForPaidInvoice(rejected),
-		).rejects.toThrow("cannot resolve subscription sub_remote");
-		expect((await noncanonical.credits.getBalance(OWNER)).plan).toBe(10);
-		expect(noncanonical.repository.applications).toHaveLength(0);
+		addInvoice(context, paid);
 
+		await context.service.grantForPaidInvoice(paid);
+		await context.service.grantForPaidInvoice(paid);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
+		expect(
+			context.creditRepository.rows.filter(
+				(row) => row.idempotencyKey === "inv:in_after_cutover:grant",
+			),
+		).toHaveLength(1);
+	});
+
+	it("throws and grants nothing when no local row exists", async () => {
+		const context = setup(
+			subscription({ providerSubscriptionId: "sub_unknown_remote" }),
+		);
+		const paid = invoice({
+			id: "in_unresolved",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, paid);
+
+		await expect(context.service.grantForPaidInvoice(paid)).rejects.toThrow(
+			"has no local subscription row",
+		);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+		expect(context.repository.applications).toHaveLength(0);
+	});
+
+	it("grants a late cycle invoice of an older period and keeps the update chain", async () => {
 		const context = setup(
 			subscription({ priceLookupKey: "pro_1000_month", tierCredits: 1000 }),
 		);
@@ -1900,11 +1590,12 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(context, stale);
 		await context.service.grantForPaidInvoice(stale);
+		// Pricing v8 (I4): the stale-cycle skip is gone. The paid invoice grants.
 		expect(
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === "in_stale",
 			)?.creditsDelta,
-		).toBe(0);
+		).toBe(50_000);
 
 		context.repository.seedApplication("pro_250_month");
 		context.creditRepository.seedPlan(20_000);
@@ -1926,7 +1617,7 @@ describe("Subscription credit policy", () => {
 				(row) => row.billingReason === "subscription_update",
 			),
 		).toHaveLength(2);
-		// 20_000 seeded + 25_000 (250->500) + 50_000 (500->1000) update deltas.
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(95_000);
+		// 50_000 late cycle + 20_000 seeded + 25_000 (250->500) + 50_000 (500->1000).
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(145_000);
 	});
 });

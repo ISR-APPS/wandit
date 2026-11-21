@@ -1,4 +1,5 @@
-// The transactions of the sample studio for the last 90 days, and the daily balance of each account.
+// The transactions of the sample studio for the last 186 days, the scheduled entries of the next days,
+// and the daily balance of each account.
 // The queries of the overview, transactions, accounts, and budgets features call the two list functions.
 // Each calendar day gives the same rows on every load: fixed monthly bills, pay days, and seeded daily entries.
 // To make it real: this file becomes the table `transactions`, and each queryFn reads Supabase.
@@ -17,8 +18,11 @@ import {
 import { type AccountId, accountNameOf } from "./sample-accounts";
 import { createSeededRandom, pickOne, randomInt } from "./seeded-random";
 
-/** The length of the history, in days. The 7, 30, and 90 day controls read inside it. */
-export const HISTORY_DAYS = 90;
+/**
+ * The length of the history, in days. The home bar chart shows six calendar months: this month and the 5 before.
+ * The first day of the month 5 months back is at most 185 days ago. A 90-day period also needs its 90 days before.
+ */
+export const HISTORY_DAYS = 186;
 
 /** The kinds of entry. A transfer moves money between two accounts, so it is not income and not an expense. */
 export const TRANSACTION_TYPES = ["income", "expense", "transfer"] as const;
@@ -829,7 +833,7 @@ function rowsOf(day: string, today: string): Transaction[] {
 let ledgerOfToday: { today: string; rows: Transaction[] } | null = null;
 
 /**
- * Every entry of the last 90 days, newest first. `nowMs` is the current time in milliseconds since 1970.
+ * Every entry of the history (HISTORY_DAYS), newest first. `nowMs` is the current time in milliseconds since 1970.
  * The rows depend only on the calendar day of `nowMs`, so they stay the same from midnight to midnight.
  */
 export function listTransactions(nowMs: number): Transaction[] {
@@ -846,7 +850,7 @@ export function listTransactions(nowMs: number): Transaction[] {
 }
 
 // The balance of each bank and cash account at the end of today, in cents.
-// The series walks back from it, so an old entry that leaves the 90 days never moves the balance of today.
+// The series walks back from it, so an old entry that leaves the history never moves the balance of today.
 const CLOSING_BALANCE_CENTS = {
 	operating: 8_641_257,
 	"tax-reserve": 941_280,
@@ -874,8 +878,8 @@ function openingBalanceCentsOf(
 }
 
 /**
- * The balance of every account at the end of each day, oldest first: 91 points.
- * The first point is the day before the history, so it holds the opening balance. The 90 days of the history follow.
+ * The balance of every account at the end of each day, oldest first: HISTORY_DAYS + 1 points.
+ * The first point is the day before the history, so it holds the opening balance. The days of the history follow.
  * The last point of a bank or cash account is its fixed balance of today. The card owes its unpaid purchases.
  */
 export function listDailyBalances(
@@ -916,4 +920,29 @@ export function listDailyBalances(
 		card: balancesOf("card"),
 		"petty-cash": balancesOf("petty-cash"),
 	};
+}
+
+/** One entry that the calendar fixes in advance: a bill, a receipt, the payroll, or a tax payment. It has no id yet. */
+export type ScheduledEntry = Entry & {
+	/** The day the entry is due, as `YYYY-MM-DD`. Always after today. */
+	day: string;
+};
+
+/**
+ * The fixed entries of the next `days` days, the soonest first. The random daily entries are not in it:
+ * nobody knows them in advance. The transactions page shows the list in its "Upcoming" tab.
+ */
+export function listScheduledEntries(
+	nowMs: number,
+	days: number,
+): ScheduledEntry[] {
+	const today = toIsoDay(nowMs);
+	return Array.from({ length: days }, (_, index) =>
+		addDays(today, index + 1),
+	).flatMap((day) =>
+		[...monthlyEntriesOf(day), ...scheduledEntriesOf(day)].map((entry) => ({
+			...entry,
+			day,
+		})),
+	);
 }

@@ -1,33 +1,34 @@
-import { ConflictException, Logger } from "@nestjs/common";
-import type {
-	AdminGrantManualSubscriptionInput,
-	AdminRenewManualSubscriptionInput,
-	ProductSettings,
-} from "@wandit/contracts";
+import { BadRequestException, ConflictException } from "@nestjs/common";
+import type { AdminRecordTopupInput, ProductSettings } from "@wandit/contracts";
 import { OPEN_MANUAL_REQUEST_STATUSES } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
-import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
-import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
-import type { ManualSubscriptionPaymentRow } from "../../infrastructure/persistence/manual-subscription-payments.repository";
-import type { ManualSubscriptionRequestRow } from "../../infrastructure/persistence/manual-subscription-requests.repository";
+import type { CreditLedgerRow } from "../../../credits/infrastructure/persistence/credits.repository";
 import type {
-	AdminManualSubscriptionRow,
-	ManualBillingOwnerRow,
-	SubscriptionRow,
-	UpdateSubscriptionPeriodInput,
-} from "../../infrastructure/persistence/subscriptions.repository";
-import { ManualSubscriptionsService } from "./manual-subscriptions.service";
+	AdminTopupReceiptRow,
+	BillingTopupReceiptRow,
+	InsertBillingTopupReceipt,
+} from "../../infrastructure/persistence/billing-topup-receipts.repository";
+import type {
+	AdminManualRequestRow,
+	ManualSubscriptionRequestRow,
+	UpdateManualSubscriptionRequestInput,
+} from "../../infrastructure/persistence/manual-subscription-requests.repository";
+import type { StarterPassGrant } from "../../infrastructure/persistence/starter-passes.repository";
+import type { SubscriptionCreditsTransaction } from "../../infrastructure/persistence/subscription-credits.repository";
+import type { ManualBillingOwnerRow } from "../../infrastructure/persistence/subscriptions.repository";
+import {
+	ManualSubscriptionsService,
+	offlineTopupAmounts,
+} from "./manual-subscriptions.service";
 
-const NOW = new Date("2026-08-21T12:00:00.000Z");
-const PERIOD_START = new Date("2026-08-01T00:00:00.000Z");
-const PERIOD_END = new Date("2027-08-01T00:00:00.000Z");
-const SUBSCRIPTION_ID = "11111111-1111-4111-8111-111111111111";
+const NOW = new Date("2026-11-12T12:00:00.000Z");
 const REQUEST_ID = "22222222-2222-4222-8222-222222222222";
-const PAYMENT_ID = "33333333-3333-4333-8333-333333333333";
 const IDEMPOTENCY_KEY = "44444444-4444-4444-8444-444444444444";
-const TRANSACTION = { transaction: true };
+const ADMIN_ID = "admin_1";
+// SAFETY: the fake repositories in this spec never read the transaction.
+const TRANSACTION = {} as SubscriptionCreditsTransaction;
 
 const USER = {
 	email: "owner@example.com",
@@ -36,9 +37,7 @@ const USER = {
 	name: "Owner",
 };
 
-function productSettings(
-	overrides: Partial<ProductSettings> = {},
-): ProductSettings {
+function productSettings(): ProductSettings {
 	return {
 		dzdPerUsdRate: 27_000,
 		emailAuthEnabled: false,
@@ -46,44 +45,21 @@ function productSettings(
 		lifecycleEmailsEnabled: false,
 		manualGraceDays: 0,
 		manualPaymentsEnabled: true,
-		organizationsEnabled: false,
-		paidSubscriptionsEnabled: true,
+		organizationsEnabled: true,
+		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 700,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
+		userReferralActivationCredits: 1000,
+		userReferralFriendCredits: 1000,
+		userReferralPaidCredits: 10_000,
+		userReferralsEnabled: false,
 		v2BuilderEnabled: false,
+		v2DisabledModels: [],
 		version: 1,
-		...overrides,
-	};
-}
-
-function subscription(
-	overrides: Partial<SubscriptionRow> = {},
-): SubscriptionRow {
-	return {
-		cancelAtPeriodEnd: false,
-		createdAt: PERIOD_START,
-		currentPeriodEnd: PERIOD_END,
-		currentPeriodStart: PERIOD_START,
-		id: SUBSCRIPTION_ID,
-		interval: "year",
-		organizationId: null,
-		pendingAppliedBy: null,
-		pendingPlan: null,
-		pendingInterval: null,
-		pendingTierCredits: null,
-		plan: "pro",
-		priceLookupKey: "pro_175_year",
-		provider: "manual",
-		providerSubscriptionId: `manual_${IDEMPOTENCY_KEY}`,
-		renewalReminderPeriodEnd: null,
-		status: "active",
-		tierCredits: 175,
-		updatedAt: PERIOD_START,
-		userId: USER.id,
-		...overrides,
 	};
 }
 
@@ -92,311 +68,224 @@ function request(
 ): ManualSubscriptionRequestRow {
 	return {
 		adminNotes: "Called once",
+		amountUsdCents: 2500,
 		city: "Algiers",
 		company: null,
 		country: "DZ",
-		createdAt: PERIOD_START,
+		createdAt: NOW,
 		fullName: "Owner",
 		handledAt: null,
 		handledByUserId: null,
 		id: REQUEST_ID,
-		interval: "year",
+		interval: null,
 		notes: null,
 		organizationId: null,
 		phone: "+213555000000",
-		plan: "pro",
+		plan: null,
 		preferredPaymentMethod: "bank_transfer",
 		status: "pending",
 		subscriptionId: null,
-		tierCredits: 175,
-		updatedAt: PERIOD_START,
+		tierCredits: null,
+		updatedAt: NOW,
 		userId: USER.id,
 		...overrides,
 	};
 }
 
-function grantInput(
-	overrides: Partial<AdminGrantManualSubscriptionInput> = {},
-): AdminGrantManualSubscriptionInput {
+// 6750 DZD in centimes: 25 USD at 270.00 DZD per USD.
+function recordInput(
+	overrides: Partial<AdminRecordTopupInput> = {},
+): AdminRecordTopupInput {
 	return {
-		adminNotes: "Payment confirmed",
+		amountMinor: 675_000,
+		currency: "dzd",
 		idempotencyKey: IDEMPOTENCY_KEY,
-		interval: "year",
-		payment: {
-			amountMinor: 250_000,
-			currency: "DZD",
-			method: "bank_transfer",
-			reference: "CCP-42",
-		},
-		periodEnd: PERIOD_END.toISOString(),
-		periodStart: PERIOD_START.toISOString(),
-		plan: "pro",
-		requestId: REQUEST_ID,
-		tierCredits: 175,
+		method: "bank_transfer",
+		reference: "CCP-42",
 		userId: USER.id,
 		...overrides,
 	};
 }
 
-function renewalInput(
-	overrides: Partial<AdminRenewManualSubscriptionInput> = {},
-): AdminRenewManualSubscriptionInput {
+function receiptRow(
+	overrides: Partial<BillingTopupReceiptRow> = {},
+): BillingTopupReceiptRow {
 	return {
-		idempotencyKey: "55555555-5555-4555-8555-555555555555",
-		payment: {
-			amountMinor: 30_000,
-			currency: "DZD",
-			method: "cash_on_delivery",
-		},
+		amountCents: 675_000,
+		amountUsdCents: 2500,
+		chargeId: null,
+		createdAt: NOW,
+		credits: 25_000,
+		currency: "dzd",
+		id: "receipt_1",
+		method: "bank_transfer",
+		note: null,
+		organizationId: null,
+		packId: null,
+		paidAt: NOW,
+		paymentIntentId: null,
+		provider: "offline",
+		providerReference: `offline:${IDEMPOTENCY_KEY}`,
+		recordedByUserId: ADMIN_ID,
+		reference: null,
+		requestId: null,
+		reversedAt: null,
+		reversedByUserId: null,
+		userId: USER.id,
 		...overrides,
 	};
+}
+
+/** In-memory credit ledger with the replay rule of CreditsService: a reused key must carry the same owner and amount. */
+class FakeLedger {
+	rows: CreditLedgerRow[] = [];
+
+	async topup(
+		owner: CreditOwner,
+		amount: number,
+		options: { idempotencyKey?: string } = {},
+	): Promise<CreditLedgerRow> {
+		return this.write(owner, amount, "topup", options.idempotencyKey);
+	}
+
+	async revoke(
+		owner: CreditOwner,
+		amount: number,
+		options: { idempotencyKey?: string } = {},
+	): Promise<CreditLedgerRow> {
+		return this.write(owner, -amount, "revoke", options.idempotencyKey);
+	}
+
+	private write(
+		owner: CreditOwner,
+		delta: number,
+		kind: CreditLedgerRow["kind"],
+		idempotencyKey: string | undefined,
+	): CreditLedgerRow {
+		const ownerColumns =
+			owner.type === "user"
+				? { organizationId: null, userId: owner.userId }
+				: { organizationId: owner.organizationId, userId: null };
+		const existing = this.rows.find(
+			(row) => row.idempotencyKey === idempotencyKey,
+		);
+
+		if (existing) {
+			if (
+				existing.delta !== delta ||
+				existing.userId !== ownerColumns.userId ||
+				existing.organizationId !== ownerColumns.organizationId
+			) {
+				throw new Error("Idempotency key replayed with other values");
+			}
+
+			return existing;
+		}
+
+		const row = {
+			bucket: "topup",
+			createdAt: NOW,
+			delta,
+			id: `ledger_${this.rows.length + 1}`,
+			idempotencyKey: idempotencyKey ?? null,
+			kind,
+			meta: null,
+			...ownerColumns,
+		} satisfies CreditLedgerRow;
+
+		this.rows.push(row);
+
+		return row;
+	}
 }
 
 function createContext(
-	seed: SubscriptionRow[] = [],
-	settingsOverrides: Partial<ProductSettings> = {},
+	options: {
+		billingOwner?: ManualBillingOwnerRow | null;
+		receipts?: BillingTopupReceiptRow[];
+		requests?: ManualSubscriptionRequestRow[];
+	} = {},
 ) {
-	const subscriptions = new Map(seed.map((row) => [row.id, row]));
-	const requests = new Map<string, ManualSubscriptionRequestRow>([
-		[REQUEST_ID, request()],
-	]);
-	const payments: ManualSubscriptionPaymentRow[] = [];
-	const creditGrants: unknown[][] = [];
-	let subscriptionSequence = subscriptions.size;
-	let paymentSequence = 0;
+	const requests = new Map(
+		(options.requests ?? [request()]).map((row) => [row.id, row]),
+	);
+	const receipts = new Map(
+		(options.receipts ?? []).map((row) => [row.id, row]),
+	);
+	const ledger = new FakeLedger();
+	// A case can change the DZD rate between two calls, like an admin does.
+	const settings = productSettings();
+	const lockedOwners: CreditOwner[] = [];
+	const ownerLock = {
+		withOwnerLock: async <T>(
+			owner: CreditOwner,
+			fn: (tx: SubscriptionCreditsTransaction) => Promise<T>,
+		): Promise<T> => {
+			lockedOwners.push(owner);
+			// A thrown error rolls the transaction back, like Postgres does.
+			const requestSnapshot = new Map(requests);
+			const receiptSnapshot = new Map(receipts);
+			const ledgerSnapshot = [...ledger.rows];
 
-	const subscriptionsRepository = {
-		countManualActive: vi.fn(async (_now: Date) => 12),
-		countManualExpiringBetween: vi.fn(async (_from: Date, _until: Date) => 2),
-		findActiveByOwner: vi.fn(
-			async (owner: CreditOwner): Promise<SubscriptionRow | null> =>
-				[...subscriptions.values()].find(
-					(row) =>
-						ownerMatches(row, owner) &&
-						row.status !== "canceled" &&
-						row.status !== "incomplete_expired",
-				) ?? null,
-		),
-		findById: vi.fn(
-			async (id: string): Promise<SubscriptionRow | null> =>
-				subscriptions.get(id) ?? null,
-		),
-		findByProviderSubscriptionId: vi.fn(
-			async (providerId: string): Promise<SubscriptionRow | null> =>
-				[...subscriptions.values()].find(
-					(row) => row.providerSubscriptionId === providerId,
-				) ?? null,
-		),
-		findManualAdminById: vi.fn(async (id: string) => {
-			const row = subscriptions.get(id);
-
-			return row?.provider === "manual"
-				? {
-						lastPaymentAt:
-							payments.find((payment) => payment.subscriptionId === id)
-								?.createdAt ?? null,
-						organization: null,
-						paymentsCount: payments.filter(
-							(payment) => payment.subscriptionId === id,
-						).length,
-						subscription: row,
-						user: USER,
-					}
-				: null;
-		}),
-		findManualBillingOwner: vi.fn(
-			async (): Promise<ManualBillingOwnerRow | null> => ({
-				organization: null,
-				user: USER,
-			}),
-		),
-		insertManual: vi.fn(
-			async (
-				input: Omit<
-					SubscriptionRow,
-					| "id"
-					| "createdAt"
-					| "pendingAppliedBy"
-					| "pendingTierCredits"
-					| "provider"
-					| "updatedAt"
-				>,
-			) => {
-				subscriptionSequence += 1;
-				const row = subscription({
-					...input,
-					id:
-						subscriptionSequence === 1
-							? SUBSCRIPTION_ID
-							: `11111111-1111-4111-8111-${String(subscriptionSequence).padStart(12, "0")}`,
-					provider: "manual",
-				});
-				subscriptions.set(row.id, row);
-
-				return row;
-			},
-		),
-		listManualDueForExpiry: vi.fn(
-			async (_now: Date, _limit: number) => [] as SubscriptionRow[],
-		),
-		listManualForAdmin: vi.fn(
-			async (_query: unknown, _entitlementCutoff: Date) => ({
-				items: [] as AdminManualSubscriptionRow[],
-				page: 1,
-				pageSize: 20,
-				total: 0,
-			}),
-		),
-		updatePeriod: vi.fn(
-			async (
-				id: string,
-				input: UpdateSubscriptionPeriodInput,
-			): Promise<SubscriptionRow | null> => {
-				const current = subscriptions.get(id);
-
-				if (!current) {
-					return null;
+			try {
+				return await fn(TRANSACTION);
+			} catch (error) {
+				requests.clear();
+				for (const [id, row] of requestSnapshot) {
+					requests.set(id, row);
 				}
-
-				const updated = { ...current, ...input, updatedAt: NOW };
-				subscriptions.set(id, updated);
-
-				return updated;
-			},
-		),
-	};
-	const subscriptionCreditsRepository = {
-		cancelPendingSlotsForSubscription: vi.fn(async () => 1),
-		findCanonicalEntitledByOwner: vi.fn(
-			async (owner: CreditOwner): Promise<SubscriptionRow | null> =>
-				[...subscriptions.values()].find(
-					(row) =>
-						ownerMatches(row, owner) &&
-						(row.status === "active" || row.status === "trialing"),
-				) ?? null,
-		),
-		insertRefillSlots: vi.fn(async () => []),
-		withOwnerLock: vi.fn(
-			async <T>(
-				_owner: CreditOwner,
-				fn: (transaction: typeof TRANSACTION) => Promise<T>,
-			): Promise<T> => {
-				const subscriptionSnapshot = new Map(subscriptions);
-				const requestSnapshot = new Map(requests);
-				const paymentSnapshot = [...payments];
-				const grantCount = creditGrants.length;
-
-				try {
-					return await fn(TRANSACTION);
-				} catch (error) {
-					subscriptions.clear();
-					for (const [id, row] of subscriptionSnapshot) {
-						subscriptions.set(id, row);
-					}
-					requests.clear();
-					for (const [id, row] of requestSnapshot) {
-						requests.set(id, row);
-					}
-					payments.splice(0, payments.length, ...paymentSnapshot);
-					creditGrants.splice(grantCount);
-
-					throw error;
+				receipts.clear();
+				for (const [id, row] of receiptSnapshot) {
+					receipts.set(id, row);
 				}
-			},
-		),
+				ledger.rows = ledgerSnapshot;
+
+				throw error;
+			}
+		},
 	};
-	const creditsService = {
-		applyCappedRefill: vi.fn(async () => ({})),
-		expirePlanRemainder: vi.fn(async () => 0),
-		grant: vi.fn(async (...args: unknown[]) => {
-			creditGrants.push(args);
+	const updateRequest = async (
+		id: string,
+		input: UpdateManualSubscriptionRequestInput,
+	): Promise<ManualSubscriptionRequestRow | null> => {
+		const current = requests.get(id);
 
-			return {};
-		}),
-	};
-	const subscriptionRefillService = {
-		createYearlySlots: vi.fn(async () => 11),
-	};
-	const paymentsRepository = {
-		sumByCurrencyBetween: vi.fn(async (from: Date) =>
-			from.getUTCMonth() === NOW.getUTCMonth()
-				? [{ amountMinor: 480_000_00, currency: "DZD", payments: 4 }]
-				: [{ amountMinor: 120_000_00, currency: "DZD", payments: 1 }],
-		),
-		findByIdempotencyKey: vi.fn(
-			async (key: string): Promise<ManualSubscriptionPaymentRow | null> =>
-				payments.find((payment) => payment.idempotencyKey === key) ?? null,
-		),
-		insert: vi.fn(
-			async (input: Omit<ManualSubscriptionPaymentRow, "id" | "createdAt">) => {
-				const replay = payments.find(
-					(payment) => payment.idempotencyKey === input.idempotencyKey,
-				);
+		if (!current) {
+			return null;
+		}
 
-				if (replay) {
-					return replay;
-				}
+		const updated = { ...current, ...input, updatedAt: NOW };
+		requests.set(id, updated);
 
-				paymentSequence += 1;
-				const row: ManualSubscriptionPaymentRow = {
-					...input,
-					createdAt: NOW,
-					id:
-						paymentSequence === 1
-							? PAYMENT_ID
-							: `33333333-3333-4333-8333-${String(paymentSequence).padStart(12, "0")}`,
-				};
-				payments.push(row);
-
-				return row;
-			},
-		),
-		listBySubscription: vi.fn(async (id: string) =>
-			payments
-				.filter((payment) => payment.subscriptionId === id)
-				.map((payment) => ({ payment, recordedBy: USER })),
-		),
+		return updated;
 	};
 	const requestsRepository = {
-		countOpen: vi.fn(async () => 3),
-		findAdminById: vi.fn(),
-		findOpenByOwner: vi.fn(
-			async (): Promise<ManualSubscriptionRequestRow | null> =>
-				[...requests.values()].find((row) =>
-					OPEN_MANUAL_REQUEST_STATUSES.some((status) => status === row.status),
-				) ?? null,
-		),
-		findById: vi.fn(
-			async (id: string): Promise<ManualSubscriptionRequestRow | null> =>
-				requests.get(id) ?? null,
-		),
-		findBySubscriptionId: vi.fn(
-			async (id: string): Promise<ManualSubscriptionRequestRow | null> =>
-				[...requests.values()].find((row) => row.subscriptionId === id) ?? null,
-		),
-		listForAdmin: vi.fn(),
-		update: vi.fn(
-			async (
-				id: string,
-				input: Partial<ManualSubscriptionRequestRow>,
-			): Promise<ManualSubscriptionRequestRow | null> => {
-				const current = requests.get(id);
+		countOpen: async () => 0,
+		findAdminById: vi.fn(
+			async (id: string): Promise<AdminManualRequestRow | null> => {
+				const row = requests.get(id);
 
-				if (!current) {
-					return null;
-				}
-
-				const updated = { ...current, ...input, updatedAt: NOW };
-				requests.set(id, updated);
-
-				return updated;
+				return row
+					? {
+							currentSubscription: null,
+							handledBy: null,
+							organization: null,
+							request: row,
+							user: USER,
+						}
+					: null;
 			},
 		),
+		findById: async (id: string) => requests.get(id) ?? null,
+		findBySubscriptionId: async () => null,
+		findOpenByOwner: async () =>
+			[...requests.values()].find((row) =>
+				OPEN_MANUAL_REQUEST_STATUSES.some((status) => status === row.status),
+			) ?? null,
+		listForAdmin: async () => ({ items: [], page: 1, pageSize: 20, total: 0 }),
+		update: vi.fn(updateRequest),
 		updateIfNotTerminal: vi.fn(
-			async (
-				id: string,
-				input: Partial<ManualSubscriptionRequestRow>,
-			): Promise<ManualSubscriptionRequestRow | null> => {
+			async (id: string, input: UpdateManualSubscriptionRequestInput) => {
 				const current = requests.get(id);
 
 				if (
@@ -407,53 +296,119 @@ function createContext(
 					return null;
 				}
 
-				const updated = { ...current, ...input, updatedAt: NOW };
-				requests.set(id, updated);
-
-				return updated;
+				return updateRequest(id, input);
 			},
 		),
 	};
-	const stateEventsRepository = { tryInsert: vi.fn(async () => true) };
-	const checkoutAttemptsRepository = {
-		findOpenForOwner: vi.fn(async () => [] as unknown[]),
+	const findReceipt = async (id: string) => receipts.get(id) ?? null;
+	const receiptsRepository = {
+		findAdminById: async (id: string): Promise<AdminTopupReceiptRow | null> => {
+			const receipt = receipts.get(id);
+
+			return receipt
+				? {
+						organization: null,
+						receipt,
+						recordedBy: null,
+						reversedBy: null,
+						user: USER,
+					}
+				: null;
+		},
+		findById: findReceipt,
+		findByProviderReference: async (providerReference: string) =>
+			[...receipts.values()].find(
+				(row) => row.providerReference === providerReference,
+			) ?? null,
+		insertIfAbsent: async (input: InsertBillingTopupReceipt) => {
+			if (
+				[...receipts.values()].some(
+					(row) => row.providerReference === input.providerReference,
+				)
+			) {
+				return null;
+			}
+
+			const row = receiptRow({ ...input, id: `receipt_${receipts.size + 1}` });
+			receipts.set(row.id, row);
+
+			return row;
+		},
+		listForAdmin: async () => ({ items: [], page: 1, pageSize: 20, total: 0 }),
+		markReversed: async (
+			id: string,
+			reversedByUserId: string,
+			reversedAt: Date,
+		) => {
+			const row = receipts.get(id);
+
+			if (!row || row.reversedAt !== null) {
+				return null;
+			}
+
+			const reversed = { ...row, reversedAt, reversedByUserId };
+			receipts.set(id, reversed);
+
+			return reversed;
+		},
 	};
-	const productSettingsService = {
-		get: vi.fn(async () => productSettings(settingsOverrides)),
+	// The pass writes of the service. The repository decides between a move and a revoke in SQL.
+	const passGrants: Array<{ owner: CreditOwner; grant: StarterPassGrant }> = [];
+	const passRevokes: Array<{ reason: string; receiptId: string }> = [];
+	const starterPasses = {
+		grantIfAbsent: async (owner: CreditOwner, grant: StarterPassGrant) => {
+			passGrants.push({ grant, owner });
+
+			return null;
+		},
+		revokeOrMoveForReceipt: async (
+			receipt: Pick<BillingTopupReceiptRow, "id">,
+			reason: string,
+		) => {
+			passRevokes.push({ reason, receiptId: receipt.id });
+
+			return null;
+		},
 	};
-	const analyticsService = { capture: vi.fn() };
-	const lifecycleEvents = { enqueue: vi.fn(async () => null) };
 	const service = new ManualSubscriptionsService(
-		subscriptionsRepository as never,
-		subscriptionCreditsRepository as never,
-		creditsService as never,
-		subscriptionRefillService as never,
-		paymentsRepository as never,
-		requestsRepository as never,
-		stateEventsRepository as never,
-		checkoutAttemptsRepository as never,
-		productSettingsService as never,
-		lifecycleEvents as unknown as LifecycleEventsService,
-		analyticsService as never,
+		{
+			countManualActive: async () => 0,
+			countManualExpiringBetween: async () => 0,
+			findManualAdminById: async () => null,
+			findManualBillingOwner: async () =>
+				options.billingOwner === undefined
+					? { organization: null, user: USER }
+					: options.billingOwner,
+			listManualForAdmin: async () => ({
+				items: [],
+				page: 1,
+				pageSize: 20,
+				total: 0,
+			}),
+		},
+		ownerLock,
+		ledger,
+		{
+			listBySubscription: async () => [],
+			sumByCurrencyBetween: async () => [],
+		},
+		requestsRepository,
+		receiptsRepository,
+		{ get: async () => settings },
+		{ enqueue: async () => null },
+		starterPasses,
 	);
 
 	return {
-		analyticsService,
-		checkoutAttemptsRepository,
-		creditGrants,
-		creditsService,
-		lifecycleEvents,
-		payments,
-		paymentsRepository,
-		productSettingsService,
+		ledger,
+		lockedOwners,
+		passGrants,
+		passRevokes,
+		receipts,
 		requests,
 		requestsRepository,
 		service,
-		stateEventsRepository,
-		subscriptionCreditsRepository,
-		subscriptionRefillService,
-		subscriptions,
-		subscriptionsRepository,
+		settings,
 	};
 }
 
@@ -467,893 +422,237 @@ describe("ManualSubscriptionsService", () => {
 		vi.useRealTimers();
 	});
 
-	it("grants credits, yearly slots, approves the request, and replays safely", async () => {
-		const context = createContext();
-		const input = grantInput();
+	describe("recordTopup", () => {
+		it("grants once, approves the open request, and returns the first receipt on a replay", async () => {
+			const context = createContext();
 
-		await expect(
-			context.service.grant("admin_1", input),
-		).resolves.toMatchObject({
-			id: SUBSCRIPTION_ID,
-			provider: "manual",
-			status: "active",
-		});
+			const first = await context.service.recordTopup(ADMIN_ID, recordInput());
+			// The request is approved now. A replay must still return the receipt, not "no longer open".
+			const replay = await context.service.recordTopup(ADMIN_ID, recordInput());
 
-		expect(context.creditsService.grant).toHaveBeenCalledWith(
-			{ type: "user", userId: USER.id },
-			17_500,
-			expect.objectContaining({
-				bucket: "plan",
-				idempotencyKey: `manual:${SUBSCRIPTION_ID}:initial`,
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).toHaveBeenCalledWith(
-			expect.objectContaining({
-				credits: 17_500,
-				funding: {
-					chargeId: null,
-					invoiceId: `manual:${PAYMENT_ID}`,
-					paymentIntentId: null,
-				},
-			}),
-			TRANSACTION,
-		);
-		expect(context.requests.get(REQUEST_ID)).toMatchObject({
-			adminNotes: "Called once\nPayment confirmed",
-			handledByUserId: "admin_1",
-			status: "approved",
-			subscriptionId: SUBSCRIPTION_ID,
-		});
-		expect(context.analyticsService.capture).toHaveBeenCalledWith(
-			USER.id,
-			"subscription_started",
-			{ plan: "pro", provider: "manual" },
-		);
-		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
-			{
-				event: "payment_completed",
-				idempotencyKey: `payment_completed:${USER.id}`,
-				payload: { interval: "year" },
-				userId: USER.id,
-			},
-			TRANSACTION,
-		);
-
-		await context.service.grant("admin_1", input);
-
-		expect(context.subscriptionsRepository.insertManual).toHaveBeenCalledOnce();
-		expect(context.paymentsRepository.insert).toHaveBeenCalledOnce();
-		expect(context.creditsService.grant).toHaveBeenCalledOnce();
-		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledOnce();
-		expect(context.analyticsService.capture).toHaveBeenCalledOnce();
-	});
-
-	it("captures a monthly manual payment inside the owner transaction", async () => {
-		const context = createContext();
-
-		await context.service.grant("admin_1", grantInput({ interval: "month" }));
-
-		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
-			expect.objectContaining({
-				idempotencyKey: `payment_completed:${USER.id}`,
-				payload: { interval: "month" },
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).not.toHaveBeenCalled();
-	});
-
-	it("accepts a Starter grant for a personal billing owner", async () => {
-		const context = createContext();
-		context.requests.clear();
-
-		await expect(
-			context.service.grant(
-				"admin_1",
-				grantInput({
-					plan: "starter",
-					requestId: undefined,
-					tierCredits: 50,
+			expect(replay).toEqual(first);
+			expect(first).toMatchObject({
+				amountMinor: 675_000,
+				amountUsdCents: 2500,
+				credits: 250,
+				currency: "dzd",
+				provider: "offline",
+				providerReference: `offline:${IDEMPOTENCY_KEY}`,
+				requestId: REQUEST_ID,
+			});
+			expect(context.ledger.rows).toEqual([
+				expect.objectContaining({
+					delta: 25_000,
+					idempotencyKey: `offline-topup:${IDEMPOTENCY_KEY}`,
+					userId: USER.id,
 				}),
-			),
-		).resolves.toMatchObject({ plan: "starter", tierCredits: 50 });
-		expect(context.subscriptionsRepository.insertManual).toHaveBeenCalledWith(
-			expect.objectContaining({
-				plan: "starter",
-				priceLookupKey: "starter_50_year",
-				tierCredits: 50,
-			}),
-			TRANSACTION,
-		);
-	});
-
-	it("rejects a Starter grant for an organization billing owner", async () => {
-		const context = createContext();
-
-		await expect(
-			context.service.grant(
-				"admin_1",
-				grantInput({
-					organizationId: "org_1",
-					plan: "starter",
-					tierCredits: 50,
-				}),
-			),
-		).rejects.toMatchObject({ status: 400 });
-		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
-	});
-
-	it("rejects a grant to the org of a personal workspace", async () => {
-		const context = createContext();
-		context.subscriptionsRepository.findManualBillingOwner.mockResolvedValueOnce(
-			{
-				organization: {
-					id: "personal_org_1",
-					name: "Zack",
-					personalOwnerUserId: USER.id,
-					slug: "personal-0123456789abcdef",
-				},
-				user: USER,
-			},
-		);
-
-		await expect(
-			context.service.grant(
-				"admin_1",
-				grantInput({
-					organizationId: "personal_org_1",
-					plan: "business",
-					tierCredits: 500,
-				}),
-			),
-		).rejects.toThrow("A personal workspace cannot have its own plan");
-		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
-		expect(context.creditsService.grant).not.toHaveBeenCalled();
-	});
-
-	it("propagates manual payment lifecycle capture failures", async () => {
-		const context = createContext();
-		context.lifecycleEvents.enqueue.mockRejectedValueOnce(
-			new Error("outbox unavailable"),
-		);
-
-		await expect(
-			context.service.grant("admin_1", grantInput()),
-		).rejects.toThrow("outbox unavailable");
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).not.toHaveBeenCalled();
-		expect(context.analyticsService.capture).not.toHaveBeenCalled();
-		expect(context.creditGrants).toHaveLength(0);
-		expect(context.payments).toHaveLength(0);
-		expect(context.subscriptions.size).toBe(0);
-		expect(context.requests.get(REQUEST_ID)).toMatchObject({
-			status: "pending",
-			subscriptionId: null,
-		});
-	});
-
-	it("rejects a grant when the owner already has a live subscription", async () => {
-		const context = createContext([
-			subscription({
-				id: "66666666-6666-4666-8666-666666666666",
-				provider: "stripe",
-				providerSubscriptionId: "sub_live",
-			}),
-		]);
-
-		await expect(
-			context.service.grant("admin_1", grantInput()),
-		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
-		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
-		expect(context.creditsService.grant).not.toHaveBeenCalled();
-	});
-
-	it("rejects a grant while a Stripe subscription checkout is open", async () => {
-		const context = createContext();
-		context.checkoutAttemptsRepository.findOpenForOwner.mockResolvedValueOnce([
-			{ id: "attempt_1" },
-		]);
-
-		await expect(
-			context.service.grant("admin_1", grantInput()),
-		).rejects.toMatchObject({
-			response: { code: "BILLING_CHECKOUT_PENDING" },
-			status: 409,
-		});
-		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
-		expect(context.creditsService.grant).not.toHaveBeenCalled();
-	});
-
-	it("aggregates grace-aware offline stats on UTC month boundaries", async () => {
-		const context = createContext([], { manualGraceDays: 3 });
-		const now = new Date("2026-08-21T18:00:00.000Z");
-		context.subscriptionsRepository.countManualExpiringBetween
-			.mockResolvedValueOnce(2)
-			.mockResolvedValueOnce(4);
-
-		const stats = await context.service.getStats(now);
-
-		expect(stats).toEqual({
-			activeSubscriptions: 12,
-			collectedPreviousMonth: [
-				{ amountMinor: 120_000_00, currency: "DZD", payments: 1 },
-			],
-			collectedThisMonth: [
-				{ amountMinor: 480_000_00, currency: "DZD", payments: 4 },
-			],
-			expiringWithin7Days: 2,
-			inGrace: 4,
-			openRequests: 3,
-		});
-		expect(
-			context.paymentsRepository.sumByCurrencyBetween,
-		).toHaveBeenCalledWith(
-			new Date("2026-08-01T00:00:00.000Z"),
-			new Date("2026-09-01T00:00:00.000Z"),
-		);
-		expect(
-			context.paymentsRepository.sumByCurrencyBetween,
-		).toHaveBeenCalledWith(
-			new Date("2026-07-01T00:00:00.000Z"),
-			new Date("2026-08-01T00:00:00.000Z"),
-		);
-		expect(
-			context.subscriptionsRepository.countManualActive,
-		).toHaveBeenCalledWith(new Date("2026-08-18T18:00:00.000Z"));
-		expect(
-			context.subscriptionsRepository.countManualExpiringBetween,
-		).toHaveBeenCalledWith(
-			new Date("2026-08-18T18:00:00.000Z"),
-			new Date("2026-08-25T18:00:00.000Z"),
-		);
-		expect(
-			context.subscriptionsRepository.countManualExpiringBetween,
-		).toHaveBeenCalledWith(new Date("2026-08-18T18:00:00.000Z"), now);
-		expect(context.productSettingsService.get).toHaveBeenCalledOnce();
-	});
-
-	it("maps grace state and effective access end for admin subscriptions", async () => {
-		const gracePeriodEnd = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
-		const inGrace = createContext(
-			[subscription({ currentPeriodEnd: gracePeriodEnd })],
-			{ manualGraceDays: 3 },
-		);
-
-		await expect(
-			inGrace.service.getSubscription(SUBSCRIPTION_ID),
-		).resolves.toMatchObject({
-			accessEndsAt: new Date(
-				gracePeriodEnd.getTime() + 3 * 24 * 60 * 60 * 1000,
-			).toISOString(),
-			entitled: true,
-			inGrace: true,
-		});
-		expect(inGrace.productSettingsService.get).toHaveBeenCalledOnce();
-
-		const strict = createContext([
-			subscription({ currentPeriodEnd: gracePeriodEnd }),
-		]);
-
-		await expect(
-			strict.service.getSubscription(SUBSCRIPTION_ID),
-		).resolves.toMatchObject({
-			accessEndsAt: gracePeriodEnd.toISOString(),
-			entitled: false,
-			inGrace: false,
-		});
-	});
-
-	it("keeps in-grace subscriptions in the active admin list", async () => {
-		const gracePeriodEnd = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
-		const row = subscription({ currentPeriodEnd: gracePeriodEnd });
-		const context = createContext([], { manualGraceDays: 3 });
-		context.subscriptionsRepository.listManualForAdmin.mockResolvedValueOnce({
-			items: [
+			]);
+			expect(context.receipts.size).toBe(1);
+			expect(context.requests.get(REQUEST_ID)).toMatchObject({
+				handledByUserId: ADMIN_ID,
+				status: "approved",
+			});
+			// Cash an admin recorded unlocks the pool once. The replay returns before any write.
+			expect(context.passGrants).toEqual([
 				{
-					lastPaymentAt: null,
-					organization: null,
-					paymentsCount: 0,
-					subscription: row,
+					grant: { receiptId: first.id, source: "offline" },
+					owner: { type: "user", userId: USER.id },
+				},
+			]);
+		});
+
+		it("returns the first receipt on a replay after an admin changes the DZD rate", async () => {
+			const context = createContext();
+			const first = await context.service.recordTopup(ADMIN_ID, recordInput());
+			context.settings.dzdPerUsdRate = 30_000;
+
+			await expect(
+				context.service.recordTopup(ADMIN_ID, recordInput()),
+			).resolves.toEqual(first);
+			expect(context.ledger.rows).toHaveLength(1);
+		});
+
+		it.each([
+			["other credits", recordInput({ credits: 300 })],
+			["another user", recordInput({ requestId: undefined, userId: "user_2" })],
+		])("answers 409, not 500, for a replayed key with %s", async (_label, replayInput) => {
+			const context = createContext();
+			await context.service.recordTopup(ADMIN_ID, recordInput());
+
+			await expect(
+				context.service.recordTopup(ADMIN_ID, replayInput),
+			).rejects.toBeInstanceOf(ConflictException);
+			expect(context.ledger.rows).toHaveLength(1);
+			expect(context.receipts.size).toBe(1);
+		});
+
+		it("refuses the organization of a personal workspace before it takes the lock", async () => {
+			const context = createContext({
+				billingOwner: {
+					organization: {
+						id: "org_personal",
+						name: "Owner's workspace",
+						personalOwnerUserId: USER.id,
+						slug: "owner",
+					},
 					user: USER,
 				},
-			],
-			page: 1,
-			pageSize: 20,
-			total: 1,
-		});
-		const query = { page: 1, pageSize: 20, status: "active" as const };
+			});
 
-		await expect(
-			context.service.listSubscriptions(query),
-		).resolves.toMatchObject({
-			items: [
-				{
-					accessEndsAt: new Date(
-						gracePeriodEnd.getTime() + 3 * 24 * 60 * 60 * 1000,
-					).toISOString(),
-					entitled: true,
-					inGrace: true,
-				},
-			],
-		});
-		expect(
-			context.subscriptionsRepository.listManualForAdmin,
-		).toHaveBeenCalledWith(query, new Date("2026-08-18T12:00:00.000Z"));
-		expect(context.productSettingsService.get).toHaveBeenCalledOnce();
-	});
-
-	it("refuses to fund a grant from a canceled request", async () => {
-		const context = createContext();
-		context.requests.set(REQUEST_ID, request({ status: "canceled" }));
-
-		await expect(
-			context.service.grant("admin_1", grantInput()),
-		).rejects.toMatchObject({ status: 409 });
-		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
-	});
-
-	it("auto-links the owner's open request when no requestId is given", async () => {
-		const context = createContext();
-
-		await context.service.grant(
-			"admin_1",
-			grantInput({ requestId: undefined }),
-		);
-
-		expect(context.requestsRepository.update).toHaveBeenCalledWith(
-			REQUEST_ID,
-			expect.objectContaining({
-				status: "approved",
-				handledByUserId: "admin_1",
-			}),
-			TRANSACTION,
-		);
-	});
-
-	it("auto-links an awaiting payment request when a grant has no requestId", async () => {
-		const context = createContext();
-		context.requests.set(REQUEST_ID, request({ status: "awaiting_payment" }));
-
-		await context.service.grant(
-			"admin_1",
-			grantInput({ requestId: undefined }),
-		);
-
-		expect(context.requestsRepository.update).toHaveBeenCalledWith(
-			REQUEST_ID,
-			expect.objectContaining({
-				status: "approved",
-				subscriptionId: SUBSCRIPTION_ID,
-				handledByUserId: "admin_1",
-			}),
-			TRANSACTION,
-		);
-	});
-
-	it("auto-links a MATCHING open renewal request when none is passed", async () => {
-		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: currentEnd,
-				interval: "month",
-				priceLookupKey: "pro_175_month",
-			}),
-		]);
-		context.requests.set(
-			REQUEST_ID,
-			request({ interval: "month", plan: "pro", tierCredits: 175 }),
-		);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.requestsRepository.update).toHaveBeenCalledWith(
-			REQUEST_ID,
-			expect.objectContaining({ status: "approved" }),
-			TRANSACTION,
-		);
-	});
-
-	it("leaves a MISMATCHED open change request untouched on a direct renewal", async () => {
-		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: currentEnd,
-				interval: "month",
-				priceLookupKey: "pro_175_month",
-			}),
-		]);
-		context.requests.set(
-			REQUEST_ID,
-			request({ interval: "month", plan: "pro", tierCredits: 350 }),
-		);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.requestsRepository.update).not.toHaveBeenCalled();
-	});
-
-	it("refuses a renewal of an ended subscription while a Stripe checkout is open", async () => {
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: new Date("2026-08-01T00:00:00.000Z"),
-				status: "canceled",
-			}),
-		]);
-		context.checkoutAttemptsRepository.findOpenForOwner.mockResolvedValueOnce([
-			{ id: "attempt_1" },
-		]);
-
-		await expect(
-			context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput()),
-		).rejects.toMatchObject({
-			response: { code: "BILLING_CHECKOUT_PENDING" },
-			status: 409,
-		});
-		expect(context.creditsService.applyCappedRefill).not.toHaveBeenCalled();
-	});
-
-	it("cancels an open request with the admin and reason", async () => {
-		const context = createContext();
-		const adminNotes = "The customer canceled the order.";
-		context.requestsRepository.findAdminById.mockResolvedValueOnce({
-			request: request({ status: "canceled", adminNotes }),
-			user: USER,
-			organization: null,
-			handledBy: null,
-			currentSubscription: null,
-		});
-
-		await context.service.updateRequest("admin_1", REQUEST_ID, {
-			status: "canceled",
-			adminNotes,
-		});
-
-		expect(context.requestsRepository.updateIfNotTerminal).toHaveBeenCalledWith(
-			REQUEST_ID,
-			{
-				status: "canceled",
-				handledByUserId: "admin_1",
-				handledAt: NOW,
-				adminNotes,
-			},
-		);
-		expect(context.requests.get(REQUEST_ID)?.status).toBe("canceled");
-		expect(context.requestsRepository.update).not.toHaveBeenCalled();
-	});
-
-	it("refuses a call back status on an already canceled request before any update", async () => {
-		const context = createContext();
-		context.requests.set(REQUEST_ID, request({ status: "canceled" }));
-
-		await expect(
-			context.service.updateRequest("admin_1", REQUEST_ID, {
-				status: "call_back",
-			}),
-		).rejects.toBeInstanceOf(ConflictException);
-		expect(
-			context.requestsRepository.updateIfNotTerminal,
-		).not.toHaveBeenCalled();
-		expect(context.requestsRepository.update).not.toHaveBeenCalled();
-	});
-
-	it("does not reopen a request that becomes terminal during an admin update", async () => {
-		const context = createContext();
-		context.requestsRepository.updateIfNotTerminal.mockImplementationOnce(
-			async () => {
-				context.requests.set(REQUEST_ID, request({ status: "canceled" }));
-
-				return null;
-			},
-		);
-
-		await expect(
-			context.service.updateRequest("admin_1", REQUEST_ID, {
-				status: "contacted",
-			}),
-		).rejects.toBeInstanceOf(ConflictException);
-		expect(context.requests.get(REQUEST_ID)?.status).toBe("canceled");
-	});
-
-	it("extends an active subscription and schedules its refill at the boundary", async () => {
-		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: currentEnd,
-				interval: "month",
-				priceLookupKey: "pro_175_month",
-			}),
-		]);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.subscriptionsRepository.updatePeriod).toHaveBeenCalledWith(
-			SUBSCRIPTION_ID,
-			expect.objectContaining({
-				currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
-				currentPeriodStart: PERIOD_START,
-				status: "active",
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionCreditsRepository.insertRefillSlots,
-		).toHaveBeenCalledWith(
-			[
-				expect.objectContaining({
-					credits: 17_500,
-					dueAt: currentEnd,
-					fundingInvoiceId: `manual:${PAYMENT_ID}:cycle`,
-					periodOrdinal: 2,
-				}),
-			],
-			TRANSACTION,
-		);
-		expect(context.creditsService.applyCappedRefill).not.toHaveBeenCalled();
-		expect(context.creditsService.grant).not.toHaveBeenCalled();
-	});
-
-	it("applies a pending v6 yearly tier atomically when a manual renewal is recorded", async () => {
-		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: currentEnd,
-				pendingTierCredits: 175,
-				priceLookupKey: "pro_250_year",
-				tierCredits: 250,
-			}),
-		]);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.subscriptionsRepository.updatePeriod).toHaveBeenCalledWith(
-			SUBSCRIPTION_ID,
-			expect.objectContaining({
-				pendingAppliedBy: null,
-				pendingTierCredits: null,
-				priceLookupKey: "pro_175_year",
-				tierCredits: 175,
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionCreditsRepository.insertRefillSlots,
-		).toHaveBeenCalledWith(
-			[expect.objectContaining({ credits: 17_500, dueAt: currentEnd })],
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).toHaveBeenCalledWith(
-			expect.objectContaining({
-				credits: 17_500,
-				subscription: expect.objectContaining({
-					pendingTierCredits: null,
-					priceLookupKey: "pro_175_year",
-					tierCredits: 175,
-				}),
-			}),
-			TRANSACTION,
-		);
-		expect(context.requestsRepository.update).toHaveBeenCalledWith(
-			REQUEST_ID,
-			expect.objectContaining({ status: "approved" }),
-			TRANSACTION,
-		);
-		expect(context.subscriptions.get(SUBSCRIPTION_ID)).toMatchObject({
-			pendingAppliedBy: null,
-			pendingPlan: null,
-			pendingInterval: null,
-			pendingTierCredits: null,
-			priceLookupKey: "pro_175_year",
-			tierCredits: 175,
-		});
-	});
-
-	it("approves and links the open request on a renewal", async () => {
-		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: currentEnd,
-				interval: "month",
-				priceLookupKey: "pro_175_month",
-			}),
-		]);
-
-		await context.service.renew(
-			"admin_1",
-			SUBSCRIPTION_ID,
-			renewalInput({ requestId: REQUEST_ID }),
-		);
-
-		expect(context.requestsRepository.update).toHaveBeenCalledWith(
-			REQUEST_ID,
-			expect.objectContaining({
-				handledByUserId: "admin_1",
-				status: "approved",
-				subscriptionId: SUBSCRIPTION_ID,
-			}),
-			TRANSACTION,
-		);
-		expect(context.paymentsRepository.insert).toHaveBeenCalledWith(
-			expect.objectContaining({ kind: "renewal", requestId: REQUEST_ID }),
-			TRANSACTION,
-		);
-	});
-
-	it("reactivates an ended subscription with one immediate capped refill", async () => {
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
-				interval: "month",
-				priceLookupKey: "pro_175_month",
-				status: "canceled",
-			}),
-		]);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.subscriptionsRepository.updatePeriod).toHaveBeenCalledWith(
-			SUBSCRIPTION_ID,
-			expect.objectContaining({
-				currentPeriodEnd: new Date("2026-09-21T12:00:00.000Z"),
-				currentPeriodStart: NOW,
-				status: "active",
-			}),
-			TRANSACTION,
-		);
-		expect(context.creditsService.applyCappedRefill).toHaveBeenCalledWith(
-			{ type: "user", userId: USER.id },
-			17_500,
-			expect.objectContaining({
-				capMultiplier: 1,
-				idempotencyKey: `manual:${SUBSCRIPTION_ID}:renewal:${PAYMENT_ID}`,
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(
-			SUBSCRIPTION_ID,
-			{ reason: "replaced" },
-			TRANSACTION,
-		);
-		expect(context.stateEventsRepository.tryInsert).toHaveBeenCalledWith(
-			expect.objectContaining({
-				fromStatus: "canceled",
-				kind: "status_changed",
-				stripeEventId: `manual:${SUBSCRIPTION_ID}:renewed:${PAYMENT_ID}`,
-				toStatus: "active",
-			}),
-			TRANSACTION,
-		);
-	});
-
-	it("uses the pending v6 tier for an immediate manual renewal grant", async () => {
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
-				pendingTierCredits: 175,
-				priceLookupKey: "pro_250_year",
-				status: "canceled",
-				tierCredits: 250,
-			}),
-		]);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(context.creditsService.applyCappedRefill).toHaveBeenCalledWith(
-			{ type: "user", userId: USER.id },
-			17_500,
-			expect.objectContaining({
-				idempotencyKey: `manual:${SUBSCRIPTION_ID}:renewal:${PAYMENT_ID}`,
-			}),
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).toHaveBeenCalledWith(
-			expect.objectContaining({ credits: 17_500 }),
-			TRANSACTION,
-		);
-		expect(context.subscriptions.get(SUBSCRIPTION_ID)).toMatchObject({
-			pendingTierCredits: null,
-			priceLookupKey: "pro_175_year",
-			tierCredits: 175,
-		});
-	});
-
-	it("cancels stale annual slots before renewing a period-passed active row", async () => {
-		const context = createContext([
-			subscription({
-				currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
-				status: "active",
-			}),
-		]);
-
-		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
-
-		expect(
-			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(
-			SUBSCRIPTION_ID,
-			{ reason: "replaced" },
-			TRANSACTION,
-		);
-		expect(
-			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription
-				.mock.invocationCallOrder[0],
-		).toBeLessThan(
-			context.creditsService.applyCappedRefill.mock.invocationCallOrder[0] ?? 0,
-		);
-		expect(
-			context.subscriptionRefillService.createYearlySlots,
-		).toHaveBeenCalledOnce();
-	});
-
-	it("ends a subscription and expires plan credits only without another entitlement", async () => {
-		const context = createContext([subscription()]);
-
-		await context.service.end("admin_1", SUBSCRIPTION_ID, {
-			reason: "payment reversed",
-		});
-
-		expect(
-			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(SUBSCRIPTION_ID, { reason: "ended" }, TRANSACTION);
-		expect(context.creditsService.expirePlanRemainder).toHaveBeenCalledWith(
-			{ type: "user", userId: USER.id },
-			expect.objectContaining({
-				idempotencyKey: `manual:${SUBSCRIPTION_ID}:expire:${PERIOD_START.getTime()}:${PERIOD_END.getTime()}`,
-				meta: expect.objectContaining({ reason: "payment reversed" }),
-			}),
-			TRANSACTION,
-		);
-
-		const other = subscription({
-			id: "77777777-7777-4777-8777-777777777777",
-			providerSubscriptionId: "manual_other",
-		});
-		const withOther = createContext([subscription(), other]);
-
-		await withOther.service.end("admin_1", SUBSCRIPTION_ID, {});
-
-		expect(withOther.creditsService.expirePlanRemainder).not.toHaveBeenCalled();
-	});
-
-	it("derives the end idempotency key from the period re-read under the lock", async () => {
-		const oldPeriod = subscription({
-			currentPeriodEnd: new Date("2026-09-01T00:00:00.000Z"),
-		});
-		const renewedPeriod = {
-			...oldPeriod,
-			currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
-		};
-		const context = createContext([oldPeriod]);
-		context.subscriptionsRepository.findById
-			.mockResolvedValueOnce(oldPeriod)
-			.mockResolvedValueOnce(oldPeriod)
-			.mockResolvedValueOnce(renewedPeriod);
-
-		await context.service.end("admin_1", SUBSCRIPTION_ID, {});
-
-		expect(context.creditsService.expirePlanRemainder).toHaveBeenCalledWith(
-			{ type: "user", userId: USER.id },
-			expect.objectContaining({
-				idempotencyKey: `manual:${SUBSCRIPTION_ID}:expire:${renewedPeriod.currentPeriodStart.getTime()}:${renewedPeriod.currentPeriodEnd.getTime()}`,
-			}),
-			TRANSACTION,
-		);
-		expect(context.stateEventsRepository.tryInsert).toHaveBeenCalledWith(
-			expect.objectContaining({
-				stripeEventId: `manual:${SUBSCRIPTION_ID}:ended:${renewedPeriod.currentPeriodStart.getTime()}:${renewedPeriod.currentPeriodEnd.getTime()}`,
-			}),
-			TRANSACTION,
-		);
-	});
-
-	it("isolates expiry failures and skips a concurrently extended period", async () => {
-		const loggerError = vi
-			.spyOn(Logger.prototype, "error")
-			.mockImplementation(() => undefined);
-		const due = subscription({
-			currentPeriodEnd: new Date("2026-08-20T00:00:00.000Z"),
-			id: "88888888-8888-4888-8888-888888888888",
-			providerSubscriptionId: "manual_due",
-		});
-		const extendedCandidate = subscription({
-			currentPeriodEnd: new Date("2026-08-20T01:00:00.000Z"),
-			id: "99999999-9999-4999-8999-999999999999",
-			providerSubscriptionId: "manual_extended",
-		});
-		const failed = subscription({
-			currentPeriodEnd: new Date("2026-08-20T02:00:00.000Z"),
-			id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			providerSubscriptionId: "manual_failed",
-		});
-		const context = createContext([due, extendedCandidate, failed]);
-		context.subscriptionsRepository.listManualDueForExpiry.mockResolvedValue([
-			due,
-			extendedCandidate,
-			failed,
-		]);
-		const calls = new Map<string, number>();
-		context.subscriptionsRepository.findById.mockImplementation(
-			async (id: string) => {
-				const count = (calls.get(id) ?? 0) + 1;
-				calls.set(id, count);
-
-				if (id === extendedCandidate.id && count >= 2) {
-					return {
-						...extendedCandidate,
-						currentPeriodEnd: new Date("2026-09-20T01:00:00.000Z"),
-					};
-				}
-
-				if (id === failed.id && count >= 2) {
-					throw new Error("database unavailable");
-				}
-
-				return context.subscriptions.get(id) ?? null;
-			},
-		);
-
-		await expect(context.service.expireDue(NOW, 500)).resolves.toEqual({
-			ended: 1,
-			failed: 1,
-			skipped: 1,
-		});
-		expect(
-			context.subscriptionsRepository.listManualDueForExpiry,
-		).toHaveBeenCalledWith(NOW, 500);
-		expect(context.subscriptions.get(extendedCandidate.id)?.status).toBe(
-			"active",
-		);
-		expect(loggerError).toHaveBeenCalledOnce();
-		loggerError.mockRestore();
-	});
-
-	it("expires only subscriptions beyond the configured grace period", async () => {
-		const oneDayPast = subscription({
-			currentPeriodEnd: new Date(NOW.getTime() - 24 * 60 * 60 * 1000),
-			id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-			providerSubscriptionId: "manual_one_day_past",
-		});
-		const fourDaysPast = subscription({
-			currentPeriodEnd: new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1000),
-			id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-			providerSubscriptionId: "manual_four_days_past",
-		});
-		const context = createContext([oneDayPast, fourDaysPast], {
-			manualGraceDays: 3,
-		});
-		context.subscriptionsRepository.listManualDueForExpiry.mockImplementation(
-			async (cutoff: Date) =>
-				[...context.subscriptions.values()].filter(
-					(row) => row.currentPeriodEnd.getTime() <= cutoff.getTime(),
+			await expect(
+				context.service.recordTopup(
+					ADMIN_ID,
+					recordInput({ organizationId: "org_personal" }),
 				),
-		);
-
-		await expect(context.service.expireDue(NOW, 200)).resolves.toEqual({
-			ended: 1,
-			failed: 0,
-			skipped: 0,
+			).rejects.toBeInstanceOf(BadRequestException);
+			expect(context.lockedOwners).toEqual([]);
+			expect(context.ledger.rows).toHaveLength(0);
 		});
-		expect(
-			context.subscriptionsRepository.listManualDueForExpiry,
-		).toHaveBeenCalledWith(new Date("2026-08-18T12:00:00.000Z"), 200);
-		expect(context.subscriptions.get(oneDayPast.id)?.status).toBe("active");
-		expect(context.subscriptions.get(fourDaysPast.id)?.status).toBe("canceled");
+
+		it("refuses a request that is no longer open and writes nothing", async () => {
+			const context = createContext({
+				requests: [request({ status: "rejected" })],
+			});
+
+			await expect(
+				context.service.recordTopup(
+					ADMIN_ID,
+					recordInput({ requestId: REQUEST_ID }),
+				),
+			).rejects.toBeInstanceOf(ConflictException);
+			expect(context.ledger.rows).toHaveLength(0);
+			expect(context.receipts.size).toBe(0);
+		});
+	});
+
+	describe("offlineTopupAmounts", () => {
+		// 27000 is 270.00 DZD per USD. Default credits: 10 per whole USD.
+		it.each([
+			["2500 USD cents", { amountMinor: 2500, currency: "usd" }, 2500, 25_000],
+			["6750 DZD", { amountMinor: 675_000, currency: "dzd" }, 2500, 25_000],
+			[
+				"6800 DZD (25.19 USD, whole USD only)",
+				{ amountMinor: 680_000, currency: "dzd" },
+				2519,
+				25_000,
+			],
+			[
+				"an explicit 12.5 credits for 300 EUR",
+				{ amountMinor: 30_000, credits: 12.5, currency: "eur" },
+				null,
+				1250,
+			],
+		])("%s", (_label, input, expectedUsdCents, expectedCentiCredits) => {
+			expect(offlineTopupAmounts(input, 27_000)).toEqual({
+				amountUsdCents: expectedUsdCents,
+				centiCredits: expectedCentiCredits,
+			});
+		});
+
+		it.each([
+			["EUR with no credits", { amountMinor: 30_000, currency: "eur" }],
+			["99 USD cents", { amountMinor: 99, currency: "usd" }],
+		])("answers 400 for %s", (_label, input) => {
+			expect(() => offlineTopupAmounts(input, 27_000)).toThrow(
+				BadRequestException,
+			);
+		});
+	});
+
+	describe("reverseTopup", () => {
+		it("revokes the receipt credits once and returns the same receipt on a second call", async () => {
+			const context = createContext({ receipts: [receiptRow()] });
+
+			const first = await context.service.reverseTopup(ADMIN_ID, {
+				receiptId: "receipt_1",
+			});
+			const second = await context.service.reverseTopup("admin_2", {
+				receiptId: "receipt_1",
+			});
+
+			expect(second).toEqual(first);
+			expect(first.reversedAt).toBe(NOW.toISOString());
+			expect(context.ledger.rows).toEqual([
+				expect.objectContaining({
+					delta: -25_000,
+					idempotencyKey: "topup-reverse:receipt_1",
+					kind: "revoke",
+				}),
+			]);
+			expect(context.receipts.get("receipt_1")?.reversedByUserId).toBe(
+				ADMIN_ID,
+			);
+			// The second call returns before the writes, so the pass of the receipt is taken once.
+			expect(context.passRevokes).toEqual([
+				{ reason: "receipt_reversed:receipt_1", receiptId: "receipt_1" },
+			]);
+		});
+
+		it("refuses a Stripe receipt, which a refund webhook reverses", async () => {
+			const context = createContext({
+				receipts: [receiptRow({ provider: "stripe" })],
+			});
+
+			await expect(
+				context.service.reverseTopup(ADMIN_ID, { receiptId: "receipt_1" }),
+			).rejects.toBeInstanceOf(BadRequestException);
+			expect(context.ledger.rows).toHaveLength(0);
+		});
+	});
+
+	describe("updateRequest", () => {
+		it("cancels an open request with the admin and reason", async () => {
+			const context = createContext();
+			const adminNotes = "The customer canceled the order.";
+
+			await context.service.updateRequest(ADMIN_ID, REQUEST_ID, {
+				adminNotes,
+				status: "canceled",
+			});
+
+			expect(
+				context.requestsRepository.updateIfNotTerminal,
+			).toHaveBeenCalledWith(REQUEST_ID, {
+				adminNotes,
+				handledAt: NOW,
+				handledByUserId: ADMIN_ID,
+				status: "canceled",
+			});
+			expect(context.requests.get(REQUEST_ID)?.status).toBe("canceled");
+		});
+
+		it("refuses a call back status on an already canceled request before any update", async () => {
+			const context = createContext({
+				requests: [request({ status: "canceled" })],
+			});
+
+			await expect(
+				context.service.updateRequest(ADMIN_ID, REQUEST_ID, {
+					status: "call_back",
+				}),
+			).rejects.toBeInstanceOf(ConflictException);
+			expect(
+				context.requestsRepository.updateIfNotTerminal,
+			).not.toHaveBeenCalled();
+			expect(context.requestsRepository.update).not.toHaveBeenCalled();
+		});
+
+		it("does not reopen a request that becomes terminal during an admin update", async () => {
+			const context = createContext();
+			context.requestsRepository.updateIfNotTerminal.mockImplementationOnce(
+				async () => {
+					context.requests.set(REQUEST_ID, request({ status: "canceled" }));
+
+					return null;
+				},
+			);
+
+			await expect(
+				context.service.updateRequest(ADMIN_ID, REQUEST_ID, {
+					status: "contacted",
+				}),
+			).rejects.toBeInstanceOf(ConflictException);
+			expect(context.requests.get(REQUEST_ID)?.status).toBe("canceled");
+		});
 	});
 });
-
-function ownerMatches(row: SubscriptionRow, owner: CreditOwner): boolean {
-	return owner.type === "user"
-		? row.userId === owner.userId && row.organizationId === null
-		: row.organizationId === owner.organizationId;
-}

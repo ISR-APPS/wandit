@@ -1,5 +1,5 @@
 // The delta of one figure: an arrow, the signed percent, and a color for good or bad news.
-// The entity rows and the figures card render it. It follows the kpi form "icon" of the app-dashboard skill.
+// The KPI cards and the highlight rows of the home render it. It follows the kpi form "icon" of the app-dashboard skill.
 import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";

@@ -1,6 +1,6 @@
 export {
+	type EmployeeListItem,
 	employeeQueryOptions,
-	employeesKpisQueryOptions,
 	employeesQueryOptions,
 } from "./api/employees.queries";
 export {

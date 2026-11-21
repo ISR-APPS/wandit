@@ -48,7 +48,7 @@ export function weekdayOf(dayNumber: number): number {
 	return utcDateOf(dayNumber).getUTCDay();
 }
 
-/** The count of weekdays from `fromDay` up to `toDay` (excluded). Targets count only these days: weekends book almost nothing. */
+/** The count of weekdays from `fromDay` up to `toDay` (excluded). Targets count only these days: a weekend day books about a quarter of a weekday. */
 export function sellingDaysBetween(fromDay: number, toDay: number): number {
 	let count = 0;
 	for (let day = fromDay; day < toDay; day += 1) {

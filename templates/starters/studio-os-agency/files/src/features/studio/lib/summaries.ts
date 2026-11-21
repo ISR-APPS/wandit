@@ -4,6 +4,7 @@
 import {
 	type BillingType,
 	type ClientRelation,
+	DELIVERABLE_STATUSES,
 	type Health,
 	type Industry,
 	type Phase,
@@ -61,6 +62,8 @@ export type ProjectSummary = {
 	leadId: string;
 	leadName: string;
 	teamIds: readonly string[];
+	/** Names of the team, in the order of `teamIds`. A team id with no member row is left out. */
+	teamNames: string[];
 	startDay: Day;
 	/** null for a retainer. */
 	dueDay: Day | null;
@@ -85,13 +88,15 @@ export type ProjectSummary = {
 	paid: number;
 	/** True while the project is not delivered. A retainer is always live. */
 	isLive: boolean;
+	/** Share of the deliverable steps done, 0 to 1: an approved deliverable counts 1. A delivered project is 1. */
+	progress: number;
 };
 
 /**
  * The share of the calendar where each phase of a fixed or hourly project ends.
- * Discovery takes the first 12 %, review the last 20 %. The phase timeline of the detail page reads it too.
+ * Discovery takes the first 12 %, review the last 20 %.
  */
-export const PHASE_ENDS = {
+const PHASE_ENDS = {
 	discovery: 0.12,
 	design: 0.4,
 	production: 0.8,
@@ -161,6 +166,17 @@ export function summarizeProjects(data: StudioData): ProjectSummary[] {
 		const invoices = data.invoices.filter(
 			(invoice) => invoice.projectId === project.id,
 		);
+		const deliverables = data.deliverables.filter(
+			(deliverable) => deliverable.projectId === project.id,
+		);
+		// Each deliverable counts for its workflow step: To do 0, In progress 1/3, Client review 2/3, Approved 1.
+		const stepSum = deliverables.reduce(
+			(sum, deliverable) =>
+				sum +
+				DELIVERABLE_STATUSES.indexOf(deliverable.status) /
+					(DELIVERABLE_STATUSES.length - 1),
+			0,
+		);
 		return {
 			id: project.id,
 			name: project.name,
@@ -171,6 +187,10 @@ export function summarizeProjects(data: StudioData): ProjectSummary[] {
 			leadId: project.leadId,
 			leadName: nameOf.get(project.leadId) ?? "",
 			teamIds: project.teamIds,
+			teamNames: project.teamIds.flatMap((memberId) => {
+				const name = nameOf.get(memberId);
+				return name ? [name] : [];
+			}),
 			startDay: project.startDay,
 			dueDay: project.dueDay,
 			phase: project.isDelivered
@@ -192,6 +212,11 @@ export function summarizeProjects(data: StudioData): ProjectSummary[] {
 				.filter((invoice) => invoice.status === "paid")
 				.reduce((sum, invoice) => sum + invoice.amount, 0),
 			isLive: !project.isDelivered,
+			progress: project.isDelivered
+				? 1
+				: deliverables.length === 0
+					? 0
+					: stepSum / deliverables.length,
 		};
 	});
 }

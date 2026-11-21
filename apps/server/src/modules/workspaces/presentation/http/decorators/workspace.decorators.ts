@@ -8,7 +8,10 @@ import {
 	SetMetadata,
 } from "@nestjs/common";
 
-import { PERSONAL_WORKSPACE_CONTEXT } from "../../../domain/workspace-context";
+import {
+	PERSONAL_WORKSPACE_CONTEXT,
+	type WorkspacePermissionRequirement,
+} from "../../../domain/workspace-context";
 import type { MaybeWorkspaceScopedRequest } from "../types/workspace-request";
 
 /**
@@ -25,18 +28,6 @@ export const CurrentWorkspace = createParamDecorator(
 		return request.workspace ?? PERSONAL_WORKSPACE_CONTEXT;
 	},
 );
-
-export type WorkspacePermissionRequirement = {
-	resource:
-		| "project"
-		| "publish"
-		| "domain"
-		| "billing"
-		| "limits"
-		| "member"
-		| "invitation";
-	actions: readonly string[];
-};
 
 export const WORKSPACE_PERMISSION_KEY = Symbol("WORKSPACE_PERMISSION_KEY");
 

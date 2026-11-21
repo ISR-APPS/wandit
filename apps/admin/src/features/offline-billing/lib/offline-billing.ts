@@ -1,16 +1,18 @@
 /**
  * Supplies labels and payment helpers to offline billing components.
- * Uses billing contracts to validate payments and calculate periods.
+ * Uses billing contracts to validate the "Record top-up" form and to suggest its credits.
  */
 import {
-	type AdminManualPaymentInput,
+	type AdminManualRequest,
+	type AdminRecordTopupInput,
 	type AdminUpdateManualRequestBody,
-	addBillingInterval,
-	adminManualPaymentInputSchema,
+	adminRecordTopupInputSchema,
 	adminUpdateManualRequestBodySchema,
-	type BillingInterval,
 	type ManualPaymentMethod,
 	type ManualSubscriptionRequestStatus,
+	type PreferredPaymentMethod,
+	topupCreditsForUsd,
+	tryPriceUsdFor,
 } from "@wandit/contracts";
 
 /** The request table and badges use the same labels and status order. */
@@ -74,13 +76,110 @@ export const MANUAL_COUNTRY_LABELS: Record<string, string> = {
 	OTHER: "Other",
 };
 
-export type ManualPaymentFormInput = {
-	method: ManualPaymentMethod;
+/** Values of the "Record top-up" form, as the admin types them. */
+export type RecordTopupFormInput = {
+	method: PreferredPaymentMethod;
+	/** Money received, in major units of `currency` ("2500.00"). */
 	majorAmount: string;
+	/** Upper-case code from MANUAL_PAYMENT_CURRENCIES. The contract stores it in lower case. */
 	currency: string;
+	/** Decimal credits to grant. Empty means the API computes them from the amount. */
+	credits: string;
 	reference: string;
 	note: string;
 };
+
+/** The pool that "Record top-up" funds, and the request it approves. */
+export type RecordTopupOwner = {
+	/** Contact user. Also the pool when `organizationId` is null. */
+	userId: string;
+	organizationId: string | null;
+	/** Id of the offline request. Without it, the API approves the open request of the owner, if any. */
+	requestId?: string;
+};
+
+// The API computes credits only for USD and DZD (DZD through the rate in settings).
+// For another currency the admin must type the credits, or the API answers 400.
+const API_PRICED_TOPUP_CURRENCIES = ["USD", "DZD"];
+
+/** True when the API can compute the credits of a top-up in this currency, so the credits field can stay empty. */
+export function apiComputesTopupCredits(currency: string): boolean {
+	return API_PRICED_TOPUP_CURRENCIES.includes(currency.toUpperCase());
+}
+
+/**
+ * Credits that "Record top-up" suggests for an offline request, at 10 credits for 1 USD, plus the volume bonus of topupCreditsForUsd.
+ * A pricing v8 request gives its asked amount. An older request gives the price of its plan.
+ * Null when the request has no whole USD value. The admin then types the credits.
+ */
+export function suggestedTopupCredits(
+	request: Pick<
+		AdminManualRequest,
+		"amountUsd" | "plan" | "tierCredits" | "interval"
+	>,
+): number | null {
+	const amountUsd =
+		request.amountUsd ??
+		(request.plan && request.tierCredits && request.interval
+			? tryPriceUsdFor(request.plan, request.tierCredits, request.interval)
+			: null);
+
+	// topupCreditsForUsd throws on a fraction. A suggestion must never break the form.
+	return amountUsd !== null && Number.isSafeInteger(amountUsd) && amountUsd > 0
+		? topupCreditsForUsd(amountUsd)
+		: null;
+}
+
+/** "25 USD", or "pro · 250 · month (old plan request)" for a request from before pricing v8. */
+export function formatRequestedTopup(
+	request: Pick<
+		AdminManualRequest,
+		"amountUsd" | "plan" | "tierCredits" | "interval"
+	>,
+): string {
+	if (request.amountUsd !== null) {
+		return `${request.amountUsd.toLocaleString("en-US")} USD`;
+	}
+	if (request.plan && request.tierCredits && request.interval) {
+		return `${request.plan} · ${request.tierCredits.toLocaleString("en-US")} · ${request.interval} (old plan request)`;
+	}
+	return "no amount";
+}
+
+/**
+ * Map and validate the "Record top-up" form. The caller adds the idempotency key.
+ * Returns null when the amount is not above zero, the credits are out of range,
+ * or the currency needs typed credits and the field is empty.
+ */
+export function mapRecordTopupFormDto(
+	form: RecordTopupFormInput,
+	owner: RecordTopupOwner,
+): Omit<AdminRecordTopupInput, "idempotencyKey"> | null {
+	const amountMinor = amountToMinorUnits(form.majorAmount, form.currency);
+	const creditsText = form.credits.trim();
+	if (
+		amountMinor === null ||
+		(creditsText.length === 0 && !apiComputesTopupCredits(form.currency))
+	) {
+		return null;
+	}
+
+	const result = adminRecordTopupInputSchema
+		.omit({ idempotencyKey: true })
+		.safeParse({
+			userId: owner.userId,
+			organizationId: owner.organizationId,
+			requestId: owner.requestId,
+			amountMinor,
+			currency: form.currency,
+			method: form.method,
+			reference: trimmedOptional(form.reference),
+			note: trimmedOptional(form.note),
+			credits: creditsText.length > 0 ? Number(creditsText) : undefined,
+		});
+
+	return result.success ? result.data : null;
+}
 
 /** Convert a major-unit form value to the integer minor-unit contract value. */
 export function amountToMinorUnits(
@@ -102,72 +201,6 @@ export function amountToMinorUnits(
 	}
 
 	return minor;
-}
-
-/** Map and validate the payment form before it enters a mutation payload. */
-export function mapManualPaymentFormDto(
-	input: ManualPaymentFormInput,
-): AdminManualPaymentInput | null {
-	const amountMinor = amountToMinorUnits(input.majorAmount, input.currency);
-	if (amountMinor === null) {
-		return null;
-	}
-
-	const result = adminManualPaymentInputSchema.safeParse({
-		method: input.method,
-		amountMinor,
-		currency: input.currency,
-		reference: trimmedOptional(input.reference),
-		note: trimmedOptional(input.note),
-	});
-
-	return result.success ? result.data : null;
-}
-
-/** Compute the default funded period with the shared UTC calendar helper. */
-export function computeDefaultPeriod(
-	periodStart: Date,
-	interval: BillingInterval,
-) {
-	return {
-		periodStart,
-		periodEnd: addBillingInterval(periodStart, interval),
-	};
-}
-
-/** Renew live periods from their end; restart expired periods from now. */
-export function computeDefaultRenewalEnd(
-	currentPeriodEnd: string | null,
-	interval: BillingInterval,
-	now = new Date(),
-	entitled = true,
-) {
-	const parsedEnd = currentPeriodEnd ? new Date(currentPeriodEnd) : null;
-	const hasFutureEnd =
-		entitled &&
-		parsedEnd !== null &&
-		Number.isFinite(parsedEnd.getTime()) &&
-		parsedEnd.getTime() > now.getTime();
-	const anchor = hasFutureEnd ? parsedEnd : now;
-
-	return addBillingInterval(anchor, interval);
-}
-
-/** Format a Date for a local `datetime-local` input. */
-export function toDateTimeLocalValue(value: Date): string {
-	const pad = (part: number) => String(part).padStart(2, "0");
-
-	return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
-}
-
-/** Convert a local form date back to the ISO contract representation. */
-export function dateTimeLocalToIso(value: string): string | null {
-	if (value.trim().length === 0) {
-		return null;
-	}
-
-	const date = new Date(value);
-	return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 export function formatManualPaymentAmount(
@@ -194,7 +227,7 @@ export function daysUntil(value: string, now = new Date()): number {
 	return Math.ceil((new Date(value).getTime() - now.getTime()) / 86_400_000);
 }
 
-export function trimmedOptional(value: string): string | undefined {
+function trimmedOptional(value: string): string | undefined {
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
 }

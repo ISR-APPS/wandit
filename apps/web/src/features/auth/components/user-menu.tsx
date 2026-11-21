@@ -1,12 +1,13 @@
 /**
  * The account menu: the avatar opens billing, the MCP server page (V2 only), the
- * languages, and sign-out. Signed out, it is a sign-in button that opens the
+ * /refer page, the languages, and sign-out. Signed out, it is a sign-in button that opens the
  * auth modal. The top bars render the round avatar. The dashboard sidebar
- * renders the full row with the name and the email. Calls the session hooks
- * and signOut.
+ * renders the full row with the name and the email. Calls the session hooks,
+ * the public settings query, and signOut.
  */
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { DotsThreeVerticalIcon } from "@phosphor-icons/react/DotsThreeVertical";
+import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -29,6 +30,7 @@ import { cn } from "@wandit/ui/lib/utils";
 
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
 import { CodingAgentsMenuItem } from "@/features/coding-agents";
+import { usePublicSettingsQuery } from "@/features/settings";
 import { useTranslation } from "@/lib/i18n";
 import { signOut, useSession } from "../lib/session";
 import { useAuthModal } from "./auth-modal";
@@ -57,6 +59,9 @@ export function UserMenu({
 	const queryClient = useQueryClient();
 	const { data: session, isPending } = useSession();
 	const { open } = useAuthModal();
+	// The user-referrals barrel has the same switch as a hook. An import of that barrel here closes an import cycle.
+	const isUserReferralsEnabled =
+		usePublicSettingsQuery().data?.userReferralsEnabled === true;
 
 	const isRow = variant === "sidebar";
 
@@ -147,6 +152,15 @@ export function UserMenu({
 					</Link>
 				</DropdownMenuItem>
 				<CodingAgentsMenuItem />
+				{/* Product rule: the entry shows only while the admin switch of the referral program is on. */}
+				{isUserReferralsEnabled ? (
+					<DropdownMenuItem asChild>
+						<Link to="/refer">
+							<GiftIcon aria-hidden weight="duotone" />
+							{t("userReferrals.entry.menuItem")}
+						</Link>
+					</DropdownMenuItem>
+				) : null}
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>{t("common.language")}</DropdownMenuLabel>
 				<LanguageSwitcherMenuItems />

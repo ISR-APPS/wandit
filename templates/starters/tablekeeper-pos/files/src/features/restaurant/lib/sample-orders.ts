@@ -312,14 +312,6 @@ export function listReservations(now: number): Reservation[] {
 	);
 }
 
-/** The bookings after the next hour, the earliest first. After the last sitting, they are the bookings of the next day. */
-export function listUpcomingBookings(now: number): Reservation[] {
-	return bookingsAfter(now).filter(
-		(booking) =>
-			Date.parse(booking.startsAt) > now + BOOKING_LEAD_MINUTES * MINUTE_MS,
-	);
-}
-
 /** The zones that take no new guests at `now` (milliseconds since 1970), each with the start of its next service. */
 export function listClosedZones(now: number): ClosedZone[] {
 	const { start: dayStart, minute: nowMinute } = businessDay(now);

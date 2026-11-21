@@ -1,6 +1,98 @@
 # Manual (offline) billing — cash on delivery, wire, CCP
 
-Status: implementation spec (branch `feat/manual-billing`). Foundations (DB schema,
+> **Pricing v8 (2026-11-12):** an offline payment is a wallet top-up of an amount. It buys no plan.
+> The section "Current flow (pricing v8)" is true. The sections after "History (before pricing v8)"
+> describe the old manual subscriptions. See [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md) section 5.
+> **Starter pass (2026-11-20):** cash on delivery never sells the 1 USD Starter pass. An offline top-up
+> of 10 USD or more that an admin records gives the pass. See the section "Cash rule" below.
+
+## Current flow (pricing v8)
+
+### Switches
+
+Three switches are independent:
+
+- Card: admin setting "Card top-ups" (`topups_enabled`).
+- SlickPay: the env key `SLICKPAY_PUBLIC_KEY`. See [`slickpay.md`](slickpay.md).
+- Offline requests: admin setting "Offline payments" (`manual_payments_enabled`). When it is off,
+  the top-up dialog has no Cash / transfer tab, and `POST /billing/manual-request` answers 409
+  `MANUAL_PAYMENTS_DISABLED`. "Record top-up" in the admin app does not depend on it.
+
+### Customer request
+
+1. In the top-up dialog, the customer picks an amount in whole USD (10 to 1000) on the Cash /
+   transfer tab and fills the contact form.
+2. `POST /api/v1/billing/manual-request` with `{ amountUsd, ...contact }` creates a
+   `manual_subscription_requests` row with `amount_usd_cents` and `credits` (centi-credits). It
+   stores NULL in `plan`, `tier_credits`, and `interval`. One open request is allowed for each owner.
+3. The staff email for a new request names the amount.
+4. A request from before pricing v8 keeps its plan columns and has no amount. The "Record top-up"
+   dialog shows the plan and suggests credits for it (10 credits for 1 USD).
+
+### Cash rule (Starter pass)
+
+The founder rule: cash on delivery is only for top-ups. It never buys the 1 USD Starter pass.
+
+- The request body keeps `topupAmountUsdSchema`, so the minimum is 10 USD. No offline body has a
+  `starterPass` field.
+- While the wallet says `starterPassRequired`, the top-up dialog is in Starter pass mode. It shows only
+  the Card and "CIB / Edahabia" tabs. It has no Cash / transfer tab.
+- The API does not refuse an offline request from a pool with no pass. A customer can still ask for a
+  cash top-up of 10 USD or more, for example from an old web bundle.
+- "Record top-up" gives the pool its Starter pass (see step 5 below). Cash of 10 USD or more is real
+  money, so it unlocks the pool like a card top-up.
+
+### Admin action "Record top-up"
+
+`POST /api/v1/admin/topup-receipts` (`billing: manage`). It can run with or without a request.
+
+1. The API resolves the owner. It refuses an unknown user or organization (404) and an organization
+   that is a personal workspace.
+2. It takes the owner lock.
+3. It finds the receipt `offline:{idempotencyKey}`. A replay with the same owner, amount, and
+   currency returns the first receipt. Other values give 409.
+4. It loads the request by id, or the open request of the owner, and checks that the request can
+   fund this owner.
+5. In one transaction: one `billing_topup_receipts` row (provider `offline`), `CreditsService.topup`
+   (bucket `topup`, key `offline-topup:{idempotencyKey}`), and the request set to `approved`.
+   The lifecycle event `payment_completed` gets `interval: "topup"`. The same transaction gives the
+   credit pool a Starter pass (source `offline`, `receipt_id` of the new receipt), if the pool has no
+   live pass. A replay of step 3 writes no pass.
+
+Default credits: the admin can type the credits. Else the API uses the amount. A USD amount gives
+10 credits for each whole USD. A DZD amount is first converted with the admin setting
+"USD → DZD rate". Another currency needs explicit credits (else 400). An amount below 1 USD with
+no explicit credits gives 400. The method `slickpay` is refused.
+
+`// LIMIT:` two records with two keys and no request both grant. Check the receipts list before
+you record a payment.
+
+### Refund runbook: "Reverse top-up"
+
+Offline and SlickPay payments have no refund event. To give money back:
+
+1. Pay the money back to the customer outside Wandit.
+2. In admin Offline billing, open the top-up receipts and find the receipt.
+3. Click "Reverse top-up" (`POST /api/v1/admin/topup-receipts/reverse`, `billing: manage`).
+   Under the owner lock, the API revokes all credits of the receipt (bucket `topup`, key
+   `topup-reverse:{receiptId}`) and sets `reversed_at`, in one transaction. A second click
+   changes nothing. The balance can go below zero, the same rule as a Stripe refund.
+   In the same transaction, a Starter pass that this receipt gave moves to the newest other live
+   receipt of the pool (any provider). If no such receipt exists, the API revokes the pass with the
+   reason `receipt_reversed:{receiptId}`. Then the pool cannot start new spend while the switch is on.
+
+The API refuses "Reverse top-up" on a Stripe receipt. Refund a card top-up in the Stripe Dashboard:
+the `charge.refunded` webhook revokes the credits in proportion.
+
+### Removed
+
+Manual subscription grant, renew, and end. The Trigger task `manual-subscription-expiry`. The
+renewal reminder task. Grace days. `GET manual-subscriptions` and `GET manual-subscriptions/:id`
+stay as read-only history. An offline top-up earns no affiliate commission.
+
+## History (before pricing v8)
+
+Status at that time: implementation spec (branch `feat/manual-billing`). Foundations (DB schema,
 migration `0041_manual-billing`, contracts) are DONE; this doc is the contract for the
 server, web, and admin implementation packages.
 

@@ -10,8 +10,10 @@ production values on every environment, so staging tests show the real
 stops and upgrade prompts. Do not lift them again without a gate on who
 can sign in.
 
-- `BACKEND_DEFAULTS.backendsPerPlan`: starter 0, pro 1, business 1000.
-- `DEVICE_MINUTES_PER_PLAN`: starter 0, pro 60, business 180.
+- `BACKEND_DEFAULTS.backendsPerPaidOwner` (pricing v8 section 6): a free
+  owner 0, a paid personal owner 1, a paid team 1000.
+- `DEVICE_MINUTES_PER_PAID_OWNER`: a free owner 0, a paid personal owner
+  60, a paid team 180 each month.
 - `LLM_PROXY_DAILY_USER_CAP_USD`: 50.
 - `PROJECT_CREATE_LIMIT` 10 and `PROJECT_CREATE_IP_LIMIT` 30 per day.
 - `TURN_CREATE_IP_LIMIT`: 90 per 10 min.
@@ -19,13 +21,36 @@ can sign in.
 - The signup grant in the admin app (Product controls): decide per
   environment. Each new account gets it, so it is a cost per sign-up.
 
+## Custom domains on staging
+
+Custom domains work only in production. Staging and production use the same wandit.app SaaS zone. A customer host matches only the production edge route, so a staging domain always shows 404. A staging hostname write can also adopt or delete the hostname of a production customer. Thus staging (`SITES_SLUG_SUFFIX=-stg`) refuses search, purchase, attach, and verify with the error `CUSTOM_DOMAINS_PRODUCTION_ONLY` (`areCustomDomainsEnabled` in `domain-provisioning-rules.ts`). `CustomHostnameService` refuses each create and refresh, and a delete makes no Cloudflare call. Detach of an old staging row still works. Its configuration run fails the row once and stops.
+
 ## Before production
 
 These limits are still lifted. Restore them before V2 goes to production.
 
-- Model picks: every priced model runs on every plan. Restore a plan rule
-  for model picks: the turn check (`assertPickableModel`) and the token
-  `model` in the LLM proxy.
+- Backends: one top-up (or one old subscription) makes a paid owner for
+  all time. A hosted backend is a recurring cost that a one-time top-up
+  does not fund. Price it before V2 opens (WANDIT-153).
+- Device minutes: a paid personal owner gets 60 and a paid team 180 each
+  month, about $3.60 and $10.80 of Appetize cost, with no recurring payment.
+- Team limit: a paid team can hold 1000 backends after one top-up. Set a
+  real team limit before V2 opens.
+- Set `V2_DEFAULT_MODEL=deepseek/deepseek-v4.1-flash-1017` (Standard) on the
+  API, the Trigger worker, and harness-host. A send with no model runs this
+  default. Today it is Opus 5.5, about 13 times the cost of Standard.
+
+## Turn off one model (provider incident)
+
+Use this when one tier fails for many users, for example a Google outage.
+
+1. In the admin app, open Product controls. In "Disabled models", type the
+   model id, for example `google/gemini-4-hydrogen`. Save.
+2. In about 1 minute, the web model menu hides that tier. A user who picked
+   it moves to the first tier that stays visible.
+3. A new turn on that model gets 400 `V2_MODEL_DENIED`. A running turn gets
+   403 `V2_MODEL_DISABLED` from the LLM proxy on its next model call.
+4. When the provider is healthy again, remove the id and save.
 
 ## Harness host deploys (audit P0-05)
 
@@ -222,7 +247,7 @@ and before the event.
   sender: turn it off in the Supabase dashboard (Authentication > Email >
   "Confirm email").
 
-## Sign-up code email of generated apps (D40)
+## Sign-up code email of generated apps (D41)
 
 An app backend can send a 6-digit code by email at sign-up. The sender is
 `<App name> <APP_AUTH_EMAIL_FROM>`, through Resend SMTP. Provisioning chooses
@@ -230,7 +255,7 @@ the mode one time for each backend. A backend that is active keeps its mode.
 
 ### Setup
 
-Do these steps after the API and the Trigger worker have the code of D40.
+Do these steps after the API and the Trigger worker have the code of D41.
 The two env values are the switch.
 
 1. In Resend, add the domain of the sender, for example `auth.wandit.app`.
@@ -452,9 +477,9 @@ unset in production until WANDIT-153 settles the numbers.
 `LLM_DAILY_CAP_OFF=true` on the API removes the $50 daily LLM spend cap per
 user; the run cap still applies. Set it only on staging; on Railway
 production the API forces it to false.
-`BACKEND_LIMIT_OFF=true` on the API removes the plan limit on backends, so
-testers without a plan get one. Set it only on staging; on Railway
-production the API forces it to false.
+`BACKEND_LIMIT_OFF=true` on the API removes the paid-owner limit on
+backends, so testers who never topped up get one. Set it only on staging or on a
+local API for tests; on Railway production the API forces it to false.
 
 ## Mobile builds (WANDIT-194)
 

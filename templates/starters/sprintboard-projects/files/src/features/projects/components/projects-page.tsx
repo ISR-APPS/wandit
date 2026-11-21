@@ -1,254 +1,197 @@
-// The project list behind login: the page header, the status tabs, and the searchable table of projects.
-// The /app/projects route renders it after its loader. The route also uses the skeleton and the error below.
-// The status tab lives in the URL (?status=), so a link can open one tab.
-import { WarningIcon } from "@phosphor-icons/react";
+// The project list: one card per project with its lead, its target day, its progress, its people, and the time left.
+// The /app/projects route renders it after its loader. Each card links to the page of its project.
+// The Export button downloads every project as CSV.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { PageHeader } from "~/features/app-shell";
 import {
+	downloadCsv,
 	fillMessage,
-	formatRelativeTime,
+	type Member,
+	membersQueryOptions,
 	PersonAvatar,
-	PROJECT_STATUSES,
-	ProjectStateBadge,
+	toCsv,
 } from "~/features/tracker";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "~/shared/ui/card";
+import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { type Project, projectsQueryOptions } from "../api/projects.queries";
-import { ProjectProgress } from "./project-progress";
+import { projectCsvColumns } from "../lib/project-csv";
+import { progressOf, timeLeftOf } from "../lib/project-progress";
+import { TimeLeftBadge } from "./time-left-badge";
 
-const routeApi = getRouteApi("/app/projects/");
+/** The avatar row of a card shows this many people, then "+N". */
+const SHOWN_PEOPLE = 4;
 
-// A health sorts after the status: on track first, off track last among the active projects.
-const STATE_ORDER = [
-	"on-track",
-	"at-risk",
-	"off-track",
-	"planned",
-	"paused",
-	"completed",
-];
-
-/** The list page. The status tab cuts the rows; then DataTable searches, sorts, and pages them. */
+/** Four cards per row from the 4xl container, two from xl, one on a phone. */
 export function ProjectsPage() {
 	const { t, locale } = useT();
 	const { data: projects } = useSuspenseQuery(projectsQueryOptions());
-	const { status } = routeApi.useSearch();
-	const navigate = routeApi.useNavigate();
-	const number = new Intl.NumberFormat(locale);
-	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const { data: members } = useSuspenseQuery(membersQueryOptions());
 	const now = Date.now();
-
-	const tabs = PROJECT_STATUSES.map((value) => ({
-		value,
-		count: projects.filter((project) => project.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	const rows = status
-		? projects.filter((project) => project.status === status)
-		: projects;
-	const active = projects.filter((project) => project.status === "active");
-
-	const columns: DataTableColumn<Project>[] = [
-		{
-			id: "project",
-			header: t("projects.project"),
-			sortValue: (row) => row.name,
-			cell: (row) => (
-				<div className="grid @4xl/main:min-w-64 justify-items-start gap-0.5">
-					<Link
-						to="/app/projects/$projectId"
-						params={{ projectId: row.id }}
-						className="font-medium hover:underline"
-						dir="auto"
-					>
-						{row.name}
-					</Link>
-					{/* The summary needs room: below the 4xl width it would push the last columns out of the card. */}
-					<span className="text-muted-foreground text-xs">
-						<span className="tabular-nums">{row.key}</span>
-						<span className="@max-4xl/main:hidden"> · {row.summary}</span>
-					</span>
-					{/* On a phone the progress column is off-screen, so the progress shows under the name. The state column stays in view. */}
-					<span className="@2xl/main:hidden pt-1">
-						<ProjectProgress
-							pointsDone={row.pointsDone}
-							pointsTotal={row.pointsTotal}
-							className="w-14"
-						/>
-					</span>
-				</div>
-			),
-		},
-		{
-			id: "state",
-			header: t("projects.state"),
-			sortValue: (row) => STATE_ORDER.indexOf(row.health ?? row.status),
-			cell: (row) => (
-				<ProjectStateBadge status={row.status} health={row.health} />
-			),
-		},
-		{
-			id: "lead",
-			header: t("projects.lead"),
-			sortValue: (row) => row.leadName,
-			cell: (row) => (
-				// Below the 4xl width only the initials show, so every column fits the card at 1024 px and the phone sees the lead.
-				<span
-					className="flex items-center gap-2 whitespace-nowrap"
-					title={row.leadName}
-				>
-					<PersonAvatar
-						name={row.leadName}
-						className="size-6 text-[0.625rem]"
-					/>
-					<bdi className="@max-4xl/main:sr-only">{row.leadName}</bdi>
-				</span>
-			),
-		},
-		{
-			id: "progress",
-			header: t("projects.progress"),
-			sortValue: (row) =>
-				row.pointsTotal === 0 ? 0 : row.pointsDone / row.pointsTotal,
-			cell: (row) => (
-				<ProjectProgress
-					pointsDone={row.pointsDone}
-					pointsTotal={row.pointsTotal}
-				/>
-			),
-		},
-		{
-			id: "target",
-			header: t("projects.target"),
-			sortValue: (row) => Date.parse(row.targetAt),
-			cell: (row) => (
-				<span className="grid whitespace-nowrap">
-					<span className="tabular-nums">
-						{date.format(new Date(row.targetAt))}
-					</span>
-					{row.status === "active" || row.status === "planned" ? (
-						<span className="text-muted-foreground text-xs">
-							{formatRelativeTime(row.targetAt, now, locale)}
-						</span>
-					) : null}
-				</span>
-			),
-		},
-		{
-			id: "open",
-			header: t("projects.openTasks"),
-			align: "end",
-			sortValue: (row) => row.openCount,
-			cell: (row) => (
-				<span className="grid justify-items-end">
-					<span className="font-medium">{number.format(row.openCount)}</span>
-					{row.overdueCount > 0 && row.status === "active" ? (
-						<span className="inline-flex items-center gap-1 text-destructive text-xs">
-							<WarningIcon className="size-3" />
-							{fillMessage(t("projects.overdue"), {
-								count: number.format(row.overdueCount),
-							})}
-						</span>
-					) : null}
-				</span>
-			),
-		},
-	];
+	const number = new Intl.NumberFormat(locale);
+	const membersById = new Map(members.map((member) => [member.id, member]));
+	const activeCount = projects.filter(
+		(project) => project.status === "active",
+	).length;
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("projects.title")}
 				description={fillMessage(t("projects.description"), {
-					open: number.format(
-						active.reduce((sum, project) => sum + project.openCount, 0),
-					),
-					active: number.format(active.length),
+					active: number.format(activeCount),
+					total: number.format(projects.length),
 				})}
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() =>
+							downloadCsv(
+								"projects.csv",
+								toCsv(projects, projectCsvColumns(t, locale)),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
 			/>
-			<div className="grid gap-4">
-				<Tabs
-					value={status ?? "all"}
-					onValueChange={(value) =>
-						navigate({
-							search: {
-								status: PROJECT_STATUSES.find((option) => option === value),
-							},
-							replace: true,
-						})
-					}
-					className="max-w-full overflow-x-auto"
-				>
-					<TabsList className="max-md:group-data-[orientation=horizontal]/tabs:h-11">
-						{/* Narrow padding on a phone keeps all five tabs on the screen. */}
-						<TabsTrigger value="all" className="@md/main:px-3 px-2">
-							{t("projects.all")}
-							<span className="text-muted-foreground tabular-nums">
-								{number.format(projects.length)}
-							</span>
-						</TabsTrigger>
-						{tabs.map((tab) => (
-							<TabsTrigger
-								key={tab.value}
-								value={tab.value}
-								className="@md/main:px-3 px-2"
-							>
-								{t(`projectStatus.${tab.value}`)}
-								<span className="text-muted-foreground tabular-nums">
-									{number.format(tab.count)}
-								</span>
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</Tabs>
-				<Card>
-					<CardContent>
-						<DataTable
-							rows={rows}
-							columns={columns}
-							searchText={(row) =>
-								`${row.name} ${row.key} ${row.summary} ${row.leadName}`
-							}
-							noResults={t("projects.noResults")}
-						/>
-					</CardContent>
-				</Card>
-			</div>
+			{projects.length === 0 ? (
+				<p className="py-12 text-center text-muted-foreground text-sm">
+					{t("projects.empty")}
+				</p>
+			) : (
+				<ul className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+					{projects.map((project) => (
+						<li key={project.id} className="grid">
+							<ProjectCard
+								project={project}
+								people={project.memberIds.flatMap((id) => {
+									const member = membersById.get(id);
+									return member ? [member] : [];
+								})}
+								now={now}
+							/>
+						</li>
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+type ProjectCardProps = {
+	project: Project;
+	/** The members of the project, the lead first. */
+	people: Member[];
+	/** The current time in milliseconds since 1970. */
+	now: number;
+};
 
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+// The whole card is one link. The avatars are decorative: the project page lists the names.
+function ProjectCard({ project, people, now }: ProjectCardProps) {
+	const { t, locale } = useT();
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const percent = new Intl.NumberFormat(locale, { style: "percent" });
+	const number = new Intl.NumberFormat(locale);
+	const progress = progressOf(project);
+	const hiddenPeople = people.length - SHOWN_PEOPLE;
+	return (
+		<Link
+			to="/app/projects/$projectId"
+			params={{ projectId: project.id }}
+			className="grid rounded-(--surface-radius) outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+		>
+			<Card className="transition-colors hover:border-ring">
+				<CardHeader>
+					<CardTitle className="leading-snug">{project.name}</CardTitle>
+					<CardDescription>
+						{fillMessage(t("projects.ledBy"), {
+							key: project.key,
+							lead: project.leadName,
+						})}
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="grid gap-6">
+					<p className="text-muted-foreground text-sm">
+						{fillMessage(t("projects.targetOn"), {
+							date: date.format(new Date(project.targetAt)),
+						})}
+					</p>
+					<div className="grid gap-2">
+						<div className="flex items-center justify-between text-sm">
+							<span>{t("projects.progress")}</span>
+							<span className="font-semibold tabular-nums">
+								{percent.format(progress / 100)}
+							</span>
+						</div>
+						<Progress value={progress} aria-label={t("projects.progress")} />
+					</div>
+					<div className="flex items-center justify-between gap-2">
+						<span className="flex -space-x-1">
+							{people.slice(0, SHOWN_PEOPLE).map((person) => (
+								<PersonAvatar
+									key={person.id}
+									name={person.name}
+									className="size-8 ring-2 ring-card"
+								/>
+							))}
+							{hiddenPeople > 0 ? (
+								<span className="z-10 flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs ring-2 ring-card">
+									{`+${number.format(hiddenPeople)}`}
+								</span>
+							) : null}
+							<span className="sr-only">
+								{people.map((person) => person.name).join(", ")}
+							</span>
+						</span>
+						<TimeLeftBadge
+							time={timeLeftOf(project, now)}
+							health={project.health}
+						/>
+					</div>
+				</CardContent>
+			</Card>
+		</Link>
+	);
+}
+
+// Placeholder keys of the card grid. Fixed keys, because the placeholders never reorder.
+const SKELETON_CARDS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+
+/** Placeholder while the loader runs. The route sets it as pendingComponent. */
 export function ProjectsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-32" />
-				<Skeleton className="h-4 w-64 max-w-full" />
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-3">
+				<div className="grid gap-2">
+					<Skeleton className="h-8 w-36" />
+					<Skeleton className="h-4 w-56 max-w-full" />
+				</div>
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<div className="grid gap-4">
-				<Skeleton className="h-9 w-full max-w-lg" />
-				<Card>
-					<CardContent className="grid gap-3">
-						<Skeleton className="h-9 w-full sm:max-w-xs" />
-						{SKELETON_ROWS.map((key) => (
-							<Skeleton key={key} className="h-12 w-full" />
-						))}
-					</CardContent>
-				</Card>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_CARDS.map((key) => (
+					<Skeleton key={key} className="h-60" />
+				))}
 			</div>
 		</div>
 	);
 }
 
-/** Error state of the list and of the project page when a loader fails. Try again runs the loader again. */
+/** Error state when the loader fails. Try again runs the loader again. */
 export function ProjectsPageError() {
 	const { t } = useT();
 	const router = useRouter();

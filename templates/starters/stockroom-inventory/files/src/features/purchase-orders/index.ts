@@ -7,4 +7,5 @@ export {
 	PurchaseOrdersPageError,
 	PurchaseOrdersPageSkeleton,
 } from "./components/purchase-orders-page";
+export { orderCsvColumns } from "./lib/order-csv";
 export { purchaseOrdersSearchSchema } from "./lib/purchase-orders-search";

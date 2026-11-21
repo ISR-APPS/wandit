@@ -1,7 +1,7 @@
 // The folder logic of the file browser: the folder trail, the rows of one folder, and a search in a folder tree.
 // FilesPage calls browseFolder during render. It is pure: the same list and options give the same rows.
 import type { FileCategory, FileItem, FolderRow } from "~/features/workspace";
-import type { FileSort } from "./files-search";
+import type { FileSortState } from "./files-search";
 
 /** One sub-folder row with the totals of everything under it. */
 export type FolderEntry = {
@@ -27,7 +27,7 @@ export type BrowseOptions = {
 	/** Search text, as typed. Empty for no search. */
 	query: string;
 	category: FileCategory | undefined;
-	sort: FileSort;
+	sort: FileSortState;
 	locale: string;
 };
 
@@ -73,15 +73,20 @@ function isInside(
 	return false;
 }
 
-function compareFiles(sort: FileSort, collator: Intl.Collator) {
+// The order of two files for one sort. The direction flips the order; ties keep the newest change first.
+function compareFiles(sort: FileSortState, collator: Intl.Collator) {
+	const sign = sort.direction === "ascending" ? 1 : -1;
 	return (first: FileItem, second: FileItem) => {
-		if (sort === "name") {
-			return collator.compare(first.name, second.name);
-		}
-		if (sort === "size") {
-			return second.sizeBytes - first.sizeBytes;
-		}
-		return Date.parse(second.modifiedAt) - Date.parse(first.modifiedAt);
+		const order =
+			sort.by === "name"
+				? collator.compare(first.name, second.name)
+				: sort.by === "size"
+					? first.sizeBytes - second.sizeBytes
+					: Date.parse(first.modifiedAt) - Date.parse(second.modifiedAt);
+		return (
+			sign * order ||
+			Date.parse(second.modifiedAt) - Date.parse(first.modifiedAt)
+		);
 	};
 }
 

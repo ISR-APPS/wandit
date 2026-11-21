@@ -4,8 +4,8 @@
  * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * model price check, the monthly cap, and the per-actor turn limit, then
- * the `agent_session` metering hold, then the session row, the project
+ * chat model lock, the model check (price row, disabled list), the monthly cap, the per-actor
+ * turn limit, then the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
  * It writes the `turn.start` and `turn.cancel` audit rows through `AuditEventsService`,
@@ -34,6 +34,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
+	type ProductSettings,
 	type TurnEstimateResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -59,11 +60,12 @@ import {
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { ProductSettingsService } from "../../../settings";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BuilderOtherChatBusyError } from "../../domain/errors/builder-other-chat-busy.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
-import { llmModelPrice } from "../../domain/llm-model-prices";
+import { baseModelIdOf, llmModelPrice } from "../../domain/llm-model-prices";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
 import {
 	TURN_EVENT_READER,
@@ -153,20 +155,36 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 };
 
 /**
- * Refuses a picked model with no row in `LLM_MODEL_PRICES`: 400
- * `V2_MODEL_DENIED`. `create` and the V2 create-project route call it
- * before any write.
+ * The model a new turn runs on: the pick, else `defaultModel` (null when unset).
+ * `create` passes the chat lock there, else the deploy default.
+ * Throws 400 `V2_MODEL_DENIED` for a pick with no row in `LLM_MODEL_PRICES`,
+ * and for a pick or default in `product_settings.v2DisabledModels`.
+ * `create` and the V2 create-project route call it before any write.
  */
-export function assertPickableModel(modelId: string): void {
-	// Product rule (staging and local only): every priced model runs on
-	// every plan. Credits bill the real provider cost, so a pick cannot
-	// under-bill. docs/v2/runbook.md names the restore before production.
-	if (llmModelPrice(modelId) === undefined) {
-		throw new BadRequestException({
-			code: "V2_MODEL_DENIED",
-			message: "This model is not available",
-		});
+export function resolvePickableModel(
+	pickedModel: string | undefined,
+	defaultModel: string | null,
+	disabledModels: readonly string[],
+): string | null {
+	// Product rule (pricing v8 D10): every priced model runs for every user.
+	// Credits bill the real provider cost, so a pick cannot under-bill.
+	if (pickedModel !== undefined && llmModelPrice(pickedModel) === undefined) {
+		throw modelDeniedError();
 	}
+	const model = pickedModel ?? defaultModel;
+	// Product rule: ops turn a model off in the admin app during a provider incident.
+	// The default is checked too, so a turn on a disabled default refuses before the hold.
+	if (model !== null && disabledModels.includes(model)) {
+		throw modelDeniedError();
+	}
+	return model;
+}
+
+function modelDeniedError(): BadRequestException {
+	return new BadRequestException({
+		code: "V2_MODEL_DENIED",
+		message: "This model is not available",
+	});
 }
 
 @Injectable()
@@ -208,6 +226,11 @@ export class TurnsService {
 		/** The `main` head of the poll answer. */
 		@Inject(AppCommitsRepository)
 		private readonly commits: Pick<AppCommitsRepository, "findBranch">,
+		/** `v2DisabledModels` of the create check. `get` caches the row 30 s. */
+		@Inject(ProductSettingsService)
+		private readonly settings: {
+			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
+		},
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -219,7 +242,11 @@ export class TurnsService {
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project that
 	 * another conversation holds answers 409 BUILDER_OTHER_CHAT_BUSY. A project
 	 * whose last turn waits on an approval card answers 409
-	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
+	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A chat
+	 * after its first turn keeps its model tier: another tier answers 409
+	 * V2_MODEL_LOCKED, a locked model with no price row 409 V2_MODEL_RETIRED.
+	 * The Fast row of the tier stays allowed in both directions, but not
+	 * while a card waits (409 V2_MODEL_LOCKED). A new
 	 * message also starts an `error` or missing backend row again. With
 	 * `options.requestKey`, a retry answers the first turn before these gates.
 	 * A replay with another message answers 409 REQUEST_KEY_REUSED.
@@ -302,10 +329,57 @@ export class TurnsService {
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
 
-		if (body.model !== undefined) {
-			assertPickableModel(body.model);
+		// Product rule: the first turn of a chat locks its model tier. A tier
+		// switch loses the prompt cache and can break the thinking signatures.
+		// A Fast switch stays in the tier: the gateway accepts the old thinking
+		// blocks, but Fast has its own cache, so the next message pays one
+		// cache write (measured). The refusal comes before the credit hold.
+		// LIMIT: two first sends of one empty chat at the same instant both read
+		// no lock. The second parks and runs on its own model. Upgrade: read the
+		// lock again after the turn row insert, and fail and refund the loser.
+		const lockedModel = await this.turns.findLockedModelByChat(body.chatId);
+		if (lockedModel !== null) {
+			if (
+				body.model !== undefined &&
+				baseModelIdOf(body.model) !== baseModelIdOf(lockedModel)
+			) {
+				throw new ConflictException({
+					code: "V2_MODEL_LOCKED",
+					message:
+						"This conversation keeps the model of its first message. Start a new conversation to use another model",
+				});
+			}
+			// A lock without a price row answers V2_MODEL_RETIRED, not V2_MODEL_DENIED.
+			if (
+				(body.model === undefined || body.model === lockedModel) &&
+				llmModelPrice(lockedModel) === undefined
+			) {
+				throw new ConflictException({
+					code: "V2_MODEL_RETIRED",
+					message:
+						"The model of this conversation is no longer available. Start a new conversation",
+				});
+			}
 		}
-		const model = body.model ?? defaultModel;
+		// A send with no model (the MCP `send_prompt` tool) runs on the lock.
+		const model = resolvePickableModel(
+			body.model,
+			lockedModel ?? defaultModel,
+			(await this.settings.get()).v2DisabledModels,
+		);
+		// A waiting card continues the paused process on its start model (runtime
+		// `pausedModel`). A Fast change now runs and bills on the old model.
+		if (
+			waitingTurn !== null &&
+			body.model !== undefined &&
+			body.model !== (lockedModel ?? defaultModel)
+		) {
+			throw new ConflictException({
+				code: "V2_MODEL_LOCKED",
+				message:
+					"Answer the waiting card first. Then you can turn Fast mode on or off",
+			});
+		}
 
 		// The monthly cap refuses before the hold: the pool could pay, the
 		// cap could not — buying credits is not the fix.
@@ -389,6 +463,7 @@ export class TurnsService {
 				// build turn. A plan turn would drop that call as a mode switch.
 				mode: body.approval === undefined ? (body.mode ?? "build") : "build",
 				targets: body.targets ?? [],
+				thinking: body.thinking ?? "balanced",
 			};
 
 			// The row check is the fast path; the lock is authoritative. The
@@ -484,16 +559,16 @@ export class TurnsService {
 				});
 				// The Cloud tab "Try again" is behind a flag. So each new message also
 				// starts a failed or missing backend again. No wait: the turn starts now.
-				// LIMIT: a project the plan refuses runs the plan check on each message. Upgrade: skip a refused project.
+				// LIMIT: a payer with no free backend slot runs the paid-owner read and the locked count on each message. Upgrade: skip a refused project.
 				void this.backends
 					.provisionBackend(projectId, {
 						// The turn route reads no country; null picks the default region.
 						countryCode: null,
-						// The payer's plan decides the backend slot: the project owner columns.
+						// The payer decides the backend slot: the project owner columns.
 						...projectOwnerColumns(scope),
 					})
 					.catch((error: unknown) => {
-						// A plan without a free backend slot is a product rule, not a
+						// A payer with no free backend slot is a product rule, not a
 						// failure: `BackendsService` already logged it.
 						if (!(error instanceof BackendLimitReachedError)) {
 							this.logger.error(
@@ -748,6 +823,8 @@ export class TurnsService {
 				isActor: creditPayerOf(payer, scope.actorUserId).isActor,
 				// The reserve admission refuses at a settled balance of 0 or less.
 				outOfCredits: balance.settledBalance <= 0,
+				// The reserve admission also refuses a pool with no Starter pass while the switch is on.
+				starterPassRequired: balance.starterPassRequired,
 			},
 		};
 	}
@@ -1138,8 +1215,9 @@ export class TurnsService {
 /**
  * Throws 409 REQUEST_KEY_REUSED when a replayed row holds another prompt than `message`.
  * An MCP agent writes its own `requestKey` and can reuse one by mistake. The new prompt then must not drop silently.
+ * `create` and the MCP `create_project` replay call it.
  */
-function assertSameReplayedMessage(
+export function assertSameReplayedMessage(
 	replayed: BuilderTurnRow,
 	message: string,
 ): void {
@@ -1147,7 +1225,18 @@ function assertSameReplayedMessage(
 	const spec = builderTurnSpecSchema
 		.pick({ message: true })
 		.safeParse(replayed.spec);
-	if (!spec.success || spec.data.message !== message) {
+	assertSameReplayedPrompt(spec.success ? spec.data.message : null, message);
+}
+
+/**
+ * The rule of `assertSameReplayedMessage` for a stored prompt text. Null (no stored prompt) also refuses.
+ * The MCP `create_project` replay calls it with the first chat message when no turn row exists.
+ */
+export function assertSameReplayedPrompt(
+	storedPrompt: string | null,
+	message: string,
+): void {
+	if (storedPrompt !== message) {
 		throw new ConflictException({
 			code: "REQUEST_KEY_REUSED",
 			message:

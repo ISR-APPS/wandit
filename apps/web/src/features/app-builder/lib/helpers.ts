@@ -3,12 +3,15 @@
  * panels of the More view and pick the open one. One picks the open
  * conversation. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
- * the Expo Go username, and the model pick. Two pair a model with its Fast
- * variant for the model menu. One copies text to the clipboard. One puts an
- * app page path on the signed preview URL. Two convert the spending limits
- * between the Settings fields and the API. One formats a USD amount of the
- * chat cost. Three serve the Thème sheet: the drop rule of its draft, the
- * brand color field, and the name rule. One fits the phone or the desktop
+ * the Expo Go username, and the model pick. One pair stores the thinking
+ * pick, and one rule tells if the thinking control shows. Two pair a model
+ * with its Fast variant for the model menu. Three serve the effort tiers of
+ * the model slider: BUILDER_TIERS, visibleBuilderTiers, and builderTierOf.
+ * One gives the cost ratio of a tier against Standard. One copies
+ * text to the clipboard. One puts an app page path on the signed preview URL.
+ * Two convert the spending limits between the Settings fields and the API.
+ * One formats a USD amount of the chat cost. Three serve the Thème sheet:
+ * the drop rule of its draft, the brand color field, and the name rule. One fits the phone or the desktop
  * window into its stage. One tells the build queries that a live build
  * ended. Called by the page, the More view and its nav, the Settings panel,
  * the chat cards, the Expo Go popover, the preview panel, the web preview,
@@ -18,11 +21,14 @@
 
 import {
 	type BuilderModelsResponse,
+	type BuilderThinking,
+	builderThinkingSchema,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	expoUsernameSchema,
 	type LlmModelPrice,
 	type ProjectChat,
+	TYPICAL_TURN_USAGE,
 	type UpdateProjectCostCapsRequest,
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
@@ -35,6 +41,7 @@ import type { Locale } from "@wandit/internationalization";
 import type { AppProjectKind } from "../api/dto";
 import {
 	BUILDER_MODEL_STORAGE_KEY_PREFIX,
+	BUILDER_THINKING_STORAGE_KEY_PREFIX,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
 	CHAT_VIEW_STORAGE_KEY,
@@ -96,6 +103,12 @@ export type OpenChat = {
 	id: string;
 	/** True when no conversation of the project is older. Only that conversation can hold the first turn of the project. */
 	isOldest: boolean;
+	/**
+	 * Model id of the newest turn with a model, from `projectChatSchema.model`:
+	 * a tier model or its Fast row. Null before the first turn. A set id locks
+	 * the tier: see lockedTurnModelOf.
+	 */
+	lockedModelId: string | null;
 };
 
 /**
@@ -114,6 +127,7 @@ export function openChatOf(
 	return {
 		id: chat.id,
 		isOldest: chats.every((row) => Date.parse(row.createdAt) >= createdAtMs),
+		lockedModelId: chat.model,
 	};
 }
 
@@ -216,25 +230,34 @@ export function writeExpoUsername(expoUsername: string): void {
 
 /**
  * Model of the next turn for a project, or for the next new project when
- * `projectId` is null. The stored pick wins when `list` still has it, then
- * the deploy default. Undefined sends no model: the server picks its default.
+ * `projectId` is null. The stored pick wins when it is a listed tier model or
+ * its Fast row, then the first listed tier. Undefined sends no model: the
+ * server picks its default.
  */
 export function readBuilderModel(
 	projectId: string | null,
 	list: BuilderModelsResponse,
 ): string | undefined {
-	// The API refuses an id without a price row, so only a listed id is sent.
-	const isListed = (modelId: string | null): modelId is string =>
-		modelId !== null && list.models.some((model) => model.modelId === modelId);
 	let stored: string | null;
 	try {
-		stored = window.localStorage.getItem(builderModelStorageKey(projectId));
+		stored = window.localStorage.getItem(
+			pickStorageKey(BUILDER_MODEL_STORAGE_KEY_PREFIX, projectId),
+		);
 	} catch {
-		// Private mode can block storage. The default model then runs.
+		// Private mode can block storage. The first tier then runs.
 		stored = null;
 	}
-	if (isListed(stored)) return stored;
-	return isListed(list.defaultModel) ? list.defaultModel : undefined;
+	// The API refuses an id without a price row, so only a listed id is sent.
+	if (
+		stored !== null &&
+		list.models.some((model) => model.modelId === stored) &&
+		builderTierOf(list.models, stored) !== undefined
+	) {
+		return stored;
+	}
+	// Product rule: Standard is the base tier. `V2_DEFAULT_MODEL` on the server must name Standard too.
+	// A send with no model (no tier listed, list loading, or list failed) runs that server default.
+	return visibleBuilderTiers(list.models)[0]?.modelId;
 }
 
 /** Stores the model pick of a project, or of the next new project when `projectId` is null. A storage failure is not an error for the user. */
@@ -243,15 +266,54 @@ export function writeBuilderModel(
 	modelId: string,
 ): void {
 	try {
-		window.localStorage.setItem(builderModelStorageKey(projectId), modelId);
+		window.localStorage.setItem(
+			pickStorageKey(BUILDER_MODEL_STORAGE_KEY_PREFIX, projectId),
+			modelId,
+		);
 	} catch {
 		// Private mode or a full quota: the pick only lasts the session.
 	}
 }
 
-/** Storage key of one model pick. The read and the write must use the same key, so both call this. */
-function builderModelStorageKey(projectId: string | null): string {
-	return `${BUILDER_MODEL_STORAGE_KEY_PREFIX}${projectId ?? "new"}`;
+/**
+ * Thinking pick of a project, or of the next new project when `projectId`
+ * is null. "balanced" when nothing valid is stored or storage fails. A
+ * stored "normal" of the old two-level control fails the parse, so it
+ * reads as "balanced" too.
+ */
+export function readBuilderThinking(projectId: string | null): BuilderThinking {
+	try {
+		// A user or an extension can put any text in storage; the API accepts only the schema.
+		const stored = builderThinkingSchema.safeParse(
+			window.localStorage.getItem(
+				pickStorageKey(BUILDER_THINKING_STORAGE_KEY_PREFIX, projectId),
+			),
+		);
+		return stored.success ? stored.data : "balanced";
+	} catch {
+		// Private mode can block storage. The default level then runs.
+		return "balanced";
+	}
+}
+
+/** Stores the thinking pick of a project, or of the next new project when `projectId` is null. A storage failure is not an error for the user. */
+export function writeBuilderThinking(
+	projectId: string | null,
+	thinking: BuilderThinking,
+): void {
+	try {
+		window.localStorage.setItem(
+			pickStorageKey(BUILDER_THINKING_STORAGE_KEY_PREFIX, projectId),
+			thinking,
+		);
+	} catch {
+		// Private mode or a full quota: the pick only lasts the session.
+	}
+}
+
+/** Storage key of one pick of a project. The read and the write must use the same key, so both call this. */
+function pickStorageKey(prefix: string, projectId: string | null): string {
+	return `${prefix}${projectId ?? "new"}`;
 }
 
 // The Vercel AI Gateway names every Fast variant `<base id>-fast`, for example `zai/glm-5.3-fast`.
@@ -283,6 +345,141 @@ export function baseModelIdOf(
 	return models.some((model) => model.modelId === baseModelId)
 		? baseModelId
 		: modelId;
+}
+
+/** Key of an effort tier. It picks the i18n strings and the color of the tier. */
+export type BuilderTierId = "standard" | "high" | "max" | "nuclear";
+
+/** One stop of the model slider. */
+export type BuilderTier = {
+	id: BuilderTierId;
+	/** Gateway id of the base model, a row of `GET /api/v2/models`. Its `-fast` row, when listed, is the Fast mode. */
+	modelId: string;
+};
+
+/**
+ * Stops of the model slider, from the cheapest to the strongest. Zack picks
+ * the models. The server price table must list each one, or the tier hides.
+ */
+export const BUILDER_TIERS: readonly BuilderTier[] = [
+	{ id: "standard", modelId: "deepseek/deepseek-v4.1-flash-1017" },
+	{ id: "high", modelId: "google/gemini-4-hydrogen" },
+	{ id: "max", modelId: "google/gemini-4-neon" },
+	{ id: "nuclear", modelId: "anthropic/claude-opus-5.5" },
+];
+
+/** The tiers whose model the server lists, in slider order. The slider and the pick fallback read only these. */
+export function visibleBuilderTiers(
+	models: readonly LlmModelPrice[],
+): BuilderTier[] {
+	return BUILDER_TIERS.filter((tier) =>
+		models.some((model) => model.modelId === tier.modelId),
+	);
+}
+
+/** Visible tier of a picked model id, the base row or its Fast row. Undefined for a model outside the tiers. */
+export function builderTierOf(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+): BuilderTier | undefined {
+	const baseModelId = baseModelIdOf(models, modelId);
+	return visibleBuilderTiers(models).find(
+		(tier) => tier.modelId === baseModelId,
+	);
+}
+
+/**
+ * True when the thinking control works for the model of the next turn,
+ * and the page sends the thinking pick. False when the control shows disabled:
+ * the list is not loaded, `modelId` is undefined, or the model has no tier.
+ */
+export function hasThinkingControl(
+	models: readonly LlmModelPrice[] | undefined,
+	modelId: string | undefined,
+): boolean {
+	// Deep costs more credits, so a level goes out only when the user sees the control enabled.
+	if (models === undefined || modelId === undefined) return false;
+	const tier = builderTierOf(models, modelId);
+	// Product rule: Standard has no thinking control. Effort had no measured effect on its model.
+	return tier !== undefined && tier.id !== "standard";
+}
+
+/**
+ * Thinking level a turn or a project create sends. The builder page and the
+ * dashboard call it. Undefined runs "balanced" on the server.
+ */
+export function sentThinkingOf(
+	models: readonly LlmModelPrice[] | undefined,
+	modelId: string | undefined,
+	thinking: BuilderThinking,
+): BuilderThinking | undefined {
+	// Deep costs more credits, so the pick goes out only where the control shows it.
+	return hasThinkingControl(models, modelId) ? thinking : undefined;
+}
+
+/**
+ * Model id the next send of a locked conversation carries. `isFast`
+ * undefined keeps `lockedModelId`. True picks the Fast row of its tier, false
+ * the tier model. A tier without a Fast row sends the tier model.
+ */
+export function lockedTurnModelOf(
+	models: readonly LlmModelPrice[] | undefined,
+	lockedModelId: string,
+	isFast: boolean | undefined,
+): string {
+	// Without the list no switch shows, so the conversation keeps its model.
+	if (models === undefined || isFast === undefined) return lockedModelId;
+	// Product rule: a locked conversation keeps its tier, but Fast mode can change on each message.
+	const baseModelId = baseModelIdOf(models, lockedModelId);
+	if (!isFast) return baseModelId;
+	return fastModelOf(models, baseModelId)?.modelId ?? baseModelId;
+}
+
+// The ratio shows one decimal below this value and a whole number from it, so "≈ ×5.6" and "≈ ×17" stay short.
+const COST_RATIO_WHOLE_FROM = 10;
+
+/**
+ * Cost of a typical turn (TYPICAL_TURN_USAGE) on `modelId`, divided by the
+ * same cost on `baseModelId`. One decimal below 10, a whole number from 10.
+ * Undefined when a row is not listed or the base costs nothing.
+ */
+export function typicalTurnCostRatio(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+	baseModelId: string,
+): number | undefined {
+	const price = models.find((model) => model.modelId === modelId);
+	const basePrice = models.find((model) => model.modelId === baseModelId);
+	if (price === undefined || basePrice === undefined) return undefined;
+	const baseCost = typicalTurnCostOf(basePrice);
+	if (baseCost === 0) return undefined;
+	const ratio = typicalTurnCostOf(price) / baseCost;
+	// The rounded value decides, so 9.96 shows as "10", not "10.0".
+	const tenths = Math.round(ratio * 10) / 10;
+	return tenths < COST_RATIO_WHOLE_FROM ? tenths : Math.round(ratio);
+}
+
+/**
+ * Cost of one typical turn on a price row, in USD per million tokens times
+ * tokens. Only ratios read it, so it skips the division by one million.
+ * The long-context rule copies `priceUsdMicros` of the server price table.
+ */
+function typicalTurnCostOf(price: LlmModelPrice): number {
+	const usage = TYPICAL_TURN_USAGE;
+	// The provider picks the rate from the whole prompt, cached tokens included.
+	const promptTokens =
+		usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+	const rates =
+		price.longContext !== undefined &&
+		promptTokens > price.longContext.aboveTokens
+			? price.longContext
+			: price;
+	return (
+		usage.inputTokens * rates.inputUsdPerMTok +
+		usage.outputTokens * rates.outputUsdPerMTok +
+		usage.cacheReadTokens * rates.cacheReadUsdPerMTok +
+		usage.cacheWriteTokens * rates.cacheWriteUsdPerMTok
+	);
 }
 
 /** 1 USD in the unit of the chat cost route. */

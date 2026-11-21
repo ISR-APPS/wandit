@@ -1,4 +1,5 @@
 export {
+	listingFiguresQueryOptions,
 	listingQueryOptions,
 	listingsQueryOptions,
 } from "./api/listings.queries";

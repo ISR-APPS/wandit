@@ -28,15 +28,12 @@ vi.mock("../../../lib/store", () => ({
 	}),
 }));
 
-const openPlanPicker = vi.fn();
-vi.mock("@/features/billing/components/billing-modal-provider", () => ({
-	useBillingModal: () => ({ openPlanPicker }),
-}));
-
-// FailedBuildCard reads the purchases kill switch; static markup needs no
-// QueryClient, so stub it (default: purchases possible).
+// FailedBuildCard reads the top-up opener and the purchases kill switch; static
+// markup needs no QueryClient, so stub them (default: purchases possible).
+const openTopup = vi.fn();
 let purchasesEnabled: boolean | undefined = true;
-vi.mock("@/features/billing/lib/purchases", () => ({
+vi.mock("@/features/billing", () => ({
+	useBillingModal: () => ({ openTopup }),
 	usePurchasesEnabled: () => purchasesEnabled,
 }));
 
@@ -308,6 +305,7 @@ describe("FailedBuildCard (design card 12)", () => {
 				failureCode,
 				onDismiss: () => undefined,
 				onRetry: () => undefined,
+				starterPassRequired: false,
 			}),
 		);
 	}

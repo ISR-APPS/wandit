@@ -1,0 +1,33 @@
+{
+	"id": "specimen-lab",
+	"removed": [],
+	"theme": {
+		"name": "Specimen",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "lagon"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "sm",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "outline",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "light",
+			"navIcon": "plain"
+		}
+	}
+}

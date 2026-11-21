@@ -71,7 +71,11 @@ const SUPPORT_ALLOWED_WRITE_HANDLERS = new Set([
 	"AdminManualBillingController.updateRequest",
 	// Support holds credits:grant only when an admin ticks the credits view.
 	"AdminOrganizationsController.grantCredits",
+	"AdminOrganizationsController.grantStarterPass",
+	"AdminOrganizationsController.revokeStarterPass",
 	"AdminUsersController.grantCredits",
+	"AdminUsersController.grantStarterPass",
+	"AdminUsersController.revokeStarterPass",
 	"AdminUsersController.setBanned",
 	// Support holds feedback:manage by design (see the permission matrix spec).
 	"FeedbackAdminController.remove",

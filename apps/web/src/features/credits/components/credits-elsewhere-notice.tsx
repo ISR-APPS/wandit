@@ -1,6 +1,6 @@
 /**
  * CreditsElsewhereNotice — "You have {balance} credits in {name}" block shown
- * above purchase content (plan picker, member billing notice) when the active
+ * above purchase content (top-up dialog, member billing notice) when the active
  * workspace's settled pool is drained but another workspace still has
  * credits. The switch button flips the app through the same switchWorkspace
  * path as the WorkspaceSwitcher, then closes the hosting dialog.

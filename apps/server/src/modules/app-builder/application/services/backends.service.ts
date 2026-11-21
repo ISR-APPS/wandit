@@ -5,7 +5,7 @@
  * The Cloud route `POST backend` also calls it.
  * `TurnsService.create` calls it for each new chat message.
  * Both provision a missing row or a failed (`error`) row again.
- * It checks the plan entitlement (D3, WANDIT-184), writes the
+ * It checks the paid-owner backend limit (D3, pricing v8 section 6), writes the
  * `app_backends` row through `AppBackendsRepository`, and hands off to the
  * `provision-backend` task through `ProvisionBackendTaskStarter`.
  * Picks the region with pickSupabaseRegion from the request country code.
@@ -15,10 +15,12 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { type SupabaseRegion, supabaseRegionSchema } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
-import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
-import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import { subjectPayer } from "../../../credits/domain/credit-owner";
-import { assertBackendEntitlement } from "../../domain/backend-lifecycle";
+import {
+	assertBackendEntitlement,
+	backendLimitFor,
+} from "../../domain/backend-lifecycle";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import {
 	PROVISION_BACKEND_TASK_STARTER,
@@ -50,12 +52,9 @@ export class BackendsService {
 		private readonly starter: ProvisionBackendTaskStarter,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
-		/** The payer's subscription; the plan decides the backend limit. */
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: Pick<
-			SubscriptionsRepository,
-			"findActiveByOwner"
-		>,
+		/** Decides if the payer is a paid owner; that decides the backend limit. */
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 		/** Reads the template of the project: a desktop app gets no backend. */
 		@Inject(TurnProjectRepository)
 		private readonly projects: Pick<TurnProjectRepository, "findForTurn">,
@@ -67,7 +66,7 @@ export class BackendsService {
 	 * row gets a new run; any other row comes back as it is. Answers the
 	 * `app_backends` row; null means provisioning is not configured, or the
 	 * project is a desktop app, and nothing was written. Throws
-	 * `BackendLimitReachedError` when the payer's plan has no free slot.
+	 * `BackendLimitReachedError` when the payer has no free backend slot.
 	 */
 	async provisionBackend(
 		projectId: string,
@@ -105,13 +104,17 @@ export class BackendsService {
 			return existing;
 		}
 
-		// D3 product rule: the payer's plan caps the backends it holds. The
-		// payer is the org of an org project, else the user.
-		const subject = {
+		// Product rule (spec section 6): a free owner gets no backend, a paid owner
+		// gets 1 (personal) or 1000 (team). The payer is the org of an org project, else the user.
+		// The read before the lock is safe: a paid owner never becomes free again.
+		const payer = subjectPayer({
 			actorUserId: input.userId,
 			organizationId: input.organizationId,
-		};
-		const plan = await resolveBillingPlan(this.subscriptions, subject);
+		});
+		const limit = backendLimitFor(
+			await this.paidOwners.isPaidOwner(payer),
+			payer,
+		);
 
 		let region: SupabaseRegion = pickSupabaseRegion(input.countryCode);
 		const regionOverride = this.v2Env.SUPABASE_PLATFORM_REGION;
@@ -139,21 +142,18 @@ export class BackendsService {
 				requestKey: randomUUID(),
 				userId: input.userId,
 			},
-			subjectPayer(subject),
+			payer,
 			(ownedBackends) =>
-				// BACKEND_LIMIT_OFF is a staging test switch: testers get backends without a plan.
+				// BACKEND_LIMIT_OFF is a staging and local test switch: testers get backends with no limit.
 				this.v2Env.BACKEND_LIMIT_OFF === true
 					? { allowed: true }
-					: assertBackendEntitlement(plan, ownedBackends),
+					: assertBackendEntitlement(limit, ownedBackends),
 		);
 		if (outcome.kind === "refused") {
 			this.logger.warn(
-				`supabase.provisioning.limit-reached project=${projectId} plan=${plan} limit=${outcome.refusal.limit}`,
+				`supabase.provisioning.limit-reached project=${projectId} payer=${payer.type} limit=${outcome.refusal.limit}`,
 			);
-			throw new BackendLimitReachedError(
-				outcome.refusal.plan,
-				outcome.refusal.limit,
-			);
+			throw new BackendLimitReachedError(outcome.refusal.limit, payer.type);
 		}
 		const row = outcome.row;
 		if (outcome.kind === "exists") {

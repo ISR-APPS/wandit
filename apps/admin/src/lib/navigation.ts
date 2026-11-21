@@ -89,7 +89,7 @@ const operationsNavigation: AdminNavigationItem[] = [
 	},
 	{
 		title: "Offline billing",
-		description: "Cash & transfer requests",
+		description: "Cash & transfer top-ups",
 		to: "/offline-billing",
 		icon: HandCoinsIcon,
 		permission: { billing: ["read"] },

@@ -1,5 +1,9 @@
 # Lifecycle emails (Resend Automations)
 
+> **Pricing v8 (2026-11-12):** there are no plans. `payload.plan` is `"paid"` or `"free"`, the
+> renewal reminder task is removed, and the founder must change some Resend automations by hand.
+> See section 8. Design record: [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md).
+
 Status: Resend side is built. Backend side is built on branch `feat/lifecycle-emails` (see section 7). All 13 active automations in Resend are **disabled**, and the backend kill switch `lifecycleEmailsEnabled` is **off** by default. Nothing is sent until both are turned on.
 
 ## 1. Overview
@@ -33,7 +37,7 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | W11 | Credits 80% | `01a03122-ee41-73b3-9a7e-f836706c5456` | `credits_40_used` | W16 → wait `upgrade_clicked` 3d → [received] end / [timeout] W17 |
 | W12 | Pricing viewed | `01a03122-f962-76df-b1a5-7a2ffe0376d5` | `pricing_viewed` | wait `upgrade_clicked` 2d → [received] end / [timeout] W18 |
 | W13 | Checkout started | `01a03123-0cb9-727a-b900-5f9b308d4ca7` | `upgrade_clicked` | if `method == "offline"` → end. Wait `payment_completed` 1h → [timeout] W19 → wait 2d → [timeout] W20 |
-| W14 | Paid customer | `01a03123-261c-70cb-8cf4-0dc7d5e8aacd` | `payment_completed` | W21 → delay 3d → W22 → delay 7d → W23 → delay 14d → if `interval == "month"` → W24 |
+| W14 | Paid customer | `01a03123-261c-70cb-8cf4-0dc7d5e8aacd` | `payment_completed` | W21 → delay 3d → W22 → delay 7d → W23 → delay 14d → if `interval == "month"` → W24. Pricing v8: remove the W24 step (section 8). |
 
 "[received] end" means the run stops without an email. In every wait step the `event_received` branch ends the run.
 
@@ -63,7 +67,7 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | `w21-paid-welcome` | `a39dcf8f-f556-4bec-b168-26c057833eb0` | تمّ الدفع بنجاح — خطة أسبوعك الأول |
 | `w22-paid-checkin` | `beede05e-d648-4018-b6e5-7f3b67a554d1` | هل أطلقت شيئًا؟ |
 | `w23-review-affiliate` | `6c78d55f-3f6c-47d8-a1a4-124c01d9bca3` | طلب صغير، وفرصة |
-| `w24-pre-renewal` | `877ce1b0-c00c-4be7-a5b2-1da814071d4f` | قبل تجديد اشتراكك — ماذا بنيت هذا الشهر؟ |
+| `w24-pre-renewal` | `877ce1b0-c00c-4be7-a5b2-1da814071d4f` | قبل تجديد اشتراكك — ماذا بنيت هذا الشهر؟ (pricing v8: not used, nothing renews) |
 | `w25-campaign-report` | `1e82ddba-ef75-40ba-9497-981c39ef2475` | مرّ أسبوع على حملتك — اطلب تقريرها |
 
 ## 4. Backend event contract
@@ -87,7 +91,7 @@ Common to every event:
 | Field | Type | Rule |
 |---|---|---|
 | `first_name` | string | First word of `user.name`. Omit the field when the name is empty. The template then prints `مرحبًا بك،`. |
-| `plan` | `"free" \| "starter" \| "pro" \| "business"` | Computed at dispatch time. Personal paid users can be Starter or Pro; organization subscriptions are Business. |
+| `plan` | `"free" \| "paid"` | Computed at dispatch time. `"free"` follows the rule in 4.4 item 3. Every other user is `"paid"`. Before pricing v8 the values were `"free" \| "starter" \| "pro" \| "business"`. |
 
 Per event (the automation reads these in `condition` steps):
 
@@ -100,8 +104,8 @@ Per event (the automation reads these in `condition` steps):
 | `marketing_strategy_generated` | `done_ads_connected` (boolean) | |
 | `ads_connected` | `done_analysis` (boolean), `connector` (`"meta-ads" \| "tiktok-ads"`) | |
 | `ads_analysis_completed` | `done_campaign` (boolean) | |
-| `upgrade_clicked` | `method` (`"card" \| "offline"`), `surface` (string) | `"offline"` ends the checkout-abandoned flow. |
-| `payment_completed` | `interval` (`"month" \| "year" \| "topup"`) | `"month"` enables the pre-renewal email on day 24. |
+| `upgrade_clicked` | `method` (`"card" \| "slickpay" \| "offline"`), `surface` (string) | `"offline"` ends the checkout-abandoned flow. |
+| `payment_completed` | `interval` (`"month" \| "year" \| "topup"`) | Every new payment sends `"topup"`. `"month"` and `"year"` come only from an old subscription invoice before the cutover. |
 | all others | none | |
 
 The `done_*` flags are one query on the lifecycle-events table: "did this user already capture event X?" Any existing row counts, including pending or dropped rows, because capture means the user completed the action.
@@ -121,14 +125,14 @@ The `done_*` flags are one query on the lifecycle-events table: "did this user a
 | `campaign_launched` | connector write that turns delivery on (`classifyAdsToolApproval(...) === "user-approval"`), `succeeded` | same place. |
 | `credits_25_used` / `credits_40_used` | cumulative consumption of a **personal** owner reaches 50% / 80% of that user's snapshotted signup grant at settle time. This is 1000 / 1600 cc for a 2000 cc grant (pricing v7), 900 / 1440 cc for an 1800 cc grant, 350 / 560 cc for a 700 cc grant and 2500 / 4000 cc for a legacy 5000 cc grant; fall back to the current product setting when the user has no outbox row. Event names stay unchanged because Resend automations depend on them. | metering settlement computes net personal consumption; `LifecycleEventsService` resolves the user's `signup_grant_outbox.credits` threshold in the same transaction. |
 | `pricing_viewed` | pricing page or plan picker opened | existing `product-events` module (web emitter). |
-| `upgrade_clicked` | **checkout started**: Stripe checkout session created (`method: "card"`) or offline request submitted (`method: "offline"`) | `plan-picker-dialog.tsx` checkout call and the offline request submit. Today the web emits `upgrade_clicked` when the picker opens. Change that: picker open = `pricing_viewed`. |
-| `payment_completed` | first successful payment of the user: Stripe `invoice.paid` (subscription), top-up `checkout.session.completed`, or manual request `approved` | `stripe-webhook-processor.service.ts` after the event is terminalized, and `manual-subscriptions.service.ts` approve path. |
+| `upgrade_clicked` | **top-up started**: Stripe checkout session created (`method: "card"`), SlickPay invoice created (`method: "slickpay"`), or offline request submitted (`method: "offline"`) | `apps/web/src/features/billing/lib/checkout-product-events.ts`, called by the top-up dialog panels. Opening the dialog stays `pricing_viewed`. |
+| `payment_completed` | first successful payment of the user: a Stripe top-up, a SlickPay top-up, an offline "Record top-up", or (before the cutover) an old subscription invoice | `SubscriptionCreditsService.grantTopup()` and `grantForPaidInvoice()`, `SlickpayPaymentsService` fulfil, `ManualSubscriptionsService.recordTopup()`. |
 
 ### 4.4 Delivery rules
 
 1. **Outbox, not fire-and-forget.** Insert a row (`user_id`, `event`, `payload`, `idempotency_key`, `dispatch_after`, `dispatched_at`) and let a Trigger.dev sweep every 5 minutes send undelivered rows. Same pattern as `signup_grant_outbox` + `sweep-signup-grants.task.ts`. Retry until Resend returns 202.
 2. **Once per user** for: `signup_completed`, `first_prompt_sent`, `website_generated`, `landing_page_generated`, `image_generated`, `marketing_strategy_generated`, `ads_connected`, `ads_analysis_completed`, `campaign_launched`, `credits_25_used`, `credits_40_used`, `payment_completed`. Idempotency key `<event>:<userId>` with a unique index.
-3. **Free users only** for `credits_25_used`, `credits_40_used`, `pricing_viewed`, `upgrade_clicked`. "Free" = no entitled subscription (Stripe or manual), no top-up ever, no open manual payment request.
+3. **Free users only** for `credits_25_used`, `credits_40_used`, `pricing_viewed`, `upgrade_clicked`. "Free" = not a paid owner of the personal pool and no open offline request. A paid owner has a ledger row of kind `topup`, or a subscription row whose status is not `incomplete` or `incomplete_expired` (`PaidOwnerRepository.isPaidOwner`). So a past customer stays paid and gets none of these four events.
 4. **Cooldowns:** `pricing_viewed` 7 days per user, `upgrade_clicked` 3 days per user.
 5. **Holds:** `signup_completed` 10 minutes (name and first prompt become known). `pricing_viewed`, `upgrade_clicked`, `credits_40_used` 15 minutes; drop the row at dispatch if the user paid meanwhile.
 6. Compute `plan`, `done_*`, `skip_activation` **at dispatch time**, not at capture time.
@@ -156,7 +160,7 @@ the current grant.
    event, so the template fallback is never used in normal delivery. Confirm
    `signupGrantEnabled` before sending grant copy. Update the W15/W16 subject and body copy to
    describe the 50% and 80% milestones without the old 25-credit literal.
-4. **Purchases.** W10–W13 send users to `/pricing`. Do not enable them while `paidSubscriptionsEnabled` and `manualPaymentsEnabled` are off.
+4. **Purchases.** W10–W13 send users to `/pricing`. Do not enable them while `topupsEnabled`, SlickPay, and `manualPaymentsEnabled` are all off.
 5. **Old automations.** The five older automations (A1–A6) and their 13 templates are still in the account, disabled. Remove them when you are sure.
 6. Enable in this order after the backend ships: W1, W2, W3 first (one week of runs), then the rest.
 
@@ -178,7 +182,7 @@ the current grant.
 
 1. A hook calls `enqueue()` at the moment the action completes (inside the same transaction when one exists). Once-per-user events use the key `<event>:<userId>`; a replay is a no-op. `pricing_viewed` / `upgrade_clicked` go through a per-user advisory lock with the 7-day / 3-day cooldown. Holds: signup 10 min, pricing/checkout/credits-40 15 min.
 2. Every 5 minutes the sweep loads due rows (`dispatched_at` and `dropped_at` null, `dispatch_after <= now`), 100 per run.
-3. For each row the dispatcher loads one context row (canonical email, name, personal entitled subscription with manual grace, personal top-up history, open manual request, accepted invitation, the user's other lifecycle rows). Then:
+3. For each row the dispatcher loads one context row (canonical email, name, open personal offline request, accepted invitation, the user's other lifecycle rows). It computes `isFree`: no open personal offline request, and `isPaidOwner(userOwner(userId))` is false. An open request answers first and skips the paid-owner read. Then:
    - switch off → `dropped_at` with reason `disabled` (the row stays as history)
    - no email → `no_email`
    - free-only event and the user is not free → `not_free`
@@ -201,9 +205,9 @@ the current grant.
 | `campaign_launched` | same place, gated by the pure predicate `domain/campaign-launch.ts` (`isCampaignLaunch`) |
 | `credits_25_used` / `credits_40_used` | `MeteringService.applyCreditAdjustment()` final state and the late fixed-completion path, personal payer only, via `CreditsRepository` net-consumption SQL |
 | `pricing_viewed` / `upgrade_clicked` | `ProductEventsService.create()` bridge after an accepted product event or replay (the lifecycle outbox deduplicates/cooldowns) |
-| `payment_completed` | inside the credit-grant transactions: `SubscriptionCreditsService.grantForPaidInvoice()` (`subscription_create` only), `grantTopup()` (completed + async success), `ManualSubscriptionsService.grant()` |
+| `payment_completed` | inside the credit-grant transactions: `SubscriptionCreditsService.grantForPaidInvoice()` (`subscription_create` only), `grantTopup()` (completed + async success), the SlickPay fulfil in `SlickpayPaymentsService`, `ManualSubscriptionsService.recordTopup()` |
 
-Web: `upgrade_clicked` now fires only after a Stripe checkout session is created (`method: "card"`) or an offline request is accepted (`method: "offline"`), with the originating `surface`. Opening the plan picker stays `pricing_viewed`. Top-up checkout never emits `upgrade_clicked`.
+Web: `upgrade_clicked` fires only after a Stripe checkout session is created (`method: "card"`), a SlickPay invoice is created (`method: "slickpay"`), or an offline request is accepted (`method: "offline"`), with the originating `surface`. Opening the top-up dialog stays `pricing_viewed`.
 
 ### 7.4 Rollout
 
@@ -222,3 +226,25 @@ Web: `upgrade_clicked` now fires only after a Stripe checkout session is created
   `pricing_viewed` cooldown reject + 15-min hold, `signup_completed` 10-min hold with
   `skip_activation: false`, and the then-current credit thresholds at 2499 (none) and 4000
   (both, the 40 event held 15 min).
+
+## 8. Pricing v8 changes (2026-11-12)
+
+### 8.1 Backend
+
+- `payload.plan` is `"paid"` or `"free"` for every event. The old values `starter`, `pro`, and `business` are not sent.
+- "Free" is the rule in 4.4 item 3. The dispatcher computes it for every event, because every payload has `plan`.
+- `payment_completed` of every new payment has `interval: "topup"`.
+- The Trigger task `subscription-renewal-reminders` and its service are removed. No code sends the manual-plan renewal email now.
+
+### 8.2 Resend changes (the founder does these by hand)
+
+Do these before the deploy (pricing v8 runbook step 0):
+
+1. W14 "Paid customer": delete the step `if interval == "month"` → W24. A top-up does not renew.
+   Then end the W14 runs that wait at the 14-day delay, or they send W24 to old monthly subscribers.
+2. If a condition or a template reads `plan` with `starter`, `pro`, or `business`, change it to `paid` or `free`.
+3. W10–W13 (credits 50%, credits 80%, pricing viewed, checkout started): replace the plan text with
+   top-up text. Check the templates W16, W17, W18 (`أي خطة تناسبك؟`), W19, and W20. They must name
+   a wallet top-up, not a plan or a subscription.
+4. W21–W23 (paid customer): remove the words "plan", "subscription", and "renewal".
+5. Keep the event names. The backend sends the same 15 names.

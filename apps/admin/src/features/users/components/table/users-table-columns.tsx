@@ -1,3 +1,7 @@
+/**
+ * Column definitions of the admin users table.
+ * UsersDataTable renders them. The cells come from user-table-cells.tsx.
+ */
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table";
@@ -14,6 +18,7 @@ import {
 	PhoneCell,
 	PlanBadge,
 	RoleBadge,
+	StarterPassBadge,
 	StatusBadge,
 	UserIdentity,
 } from "./user-table-cells";
@@ -44,6 +49,16 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 			<DataTableColumnHeader column={column} title="Plan" />
 		),
 		cell: ({ row }) => <PlanBadge plan={row.original.plan} />,
+	},
+	{
+		id: "starterPass",
+		accessorFn: (user) => user.starterPass?.source ?? "none",
+		header: ({ column }) => (
+			<DataTableColumnHeader column={column} title="Starter pass" />
+		),
+		cell: ({ row }) => (
+			<StarterPassBadge starterPass={row.original.starterPass} />
+		),
 	},
 	{
 		accessorKey: "phone",

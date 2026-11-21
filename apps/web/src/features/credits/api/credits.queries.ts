@@ -1,3 +1,8 @@
+/**
+ * TanStack Query keys and read hooks of the credits feature: the balance, the balances of all workspaces, and activity.
+ * Pages, the credits chip, and billing mutations use the keys to refresh the cached values.
+ * Calls the functions in credits.services.ts.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
 import type { CreditActivityQuery } from "./credits.dto";

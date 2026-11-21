@@ -17,6 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
+import { cn } from "@wandit/ui/lib/utils";
 
 import { formatDate, formatNumber, useTranslation } from "@/lib/i18n";
 import { cloudFunctionsQuery } from "../../api/cloud.queries";
@@ -115,7 +116,8 @@ export function FunctionsPanel({
 								<Button
 									variant="outline"
 									size="sm"
-									className={PANEL_SECONDARY_BUTTON_CLASS}
+									// 28 px: a control in a table row.
+									className={cn(PANEL_SECONDARY_BUTTON_CLASS, "h-7")}
 									onClick={() => onViewLogs(fn.slug)}
 								>
 									<ScrollIcon aria-hidden weight="bold" />

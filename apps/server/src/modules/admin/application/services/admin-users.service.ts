@@ -1,10 +1,11 @@
 /**
  * Reads and changes user accounts for the admin dashboard.
  * AdminUsersController calls it. It calls AdminRepository, the view-grant
- * repository, and CreditsService for credit grants.
+ * repository, CreditsService for credit grants, and StarterPassesRepository for the Starter pass.
  */
 import {
 	BadRequestException,
+	ConflictException,
 	Inject,
 	Injectable,
 	Logger,
@@ -18,6 +19,8 @@ import {
 	type AdminSetAdminViewsInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
+	type AdminStarterPassBody,
+	type AdminStarterPassResponse,
 	type AdminUserDetail,
 	type AdminUserPage,
 	type AdminUserPagesQuery,
@@ -31,10 +34,12 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
+import { StarterPassesRepository } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { userOwner } from "../../../credits/domain/credit-owner";
 import { canonicalDomainHost } from "../../../domains/domain/domain-hosts";
 import {
+	mapAdminStarterPass,
 	mapAdminUserDetail,
 	mapAdminUserProject,
 	mapAdminUserSummary,
@@ -66,6 +71,11 @@ export class AdminUsersService {
 		private readonly creditsService: CreditsService,
 		@Inject(AdminViewGrantsRepository)
 		private readonly adminViewGrantsRepository: AdminViewGrantsRepository,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"findLive" | "grantIfAbsent" | "revokeLive"
+		>,
 	) {}
 
 	async listUsers(query: AdminListUsersQuery): Promise<AdminListUsersResponse> {
@@ -207,6 +217,91 @@ export class AdminUsersService {
 		);
 
 		return this.getUserDetail(userId);
+	}
+
+	/**
+	 * Gives the Starter pass to the personal pool, with source `admin`. Returns the live pass.
+	 * A pool that already has a live pass keeps it: the call returns that pass and writes nothing.
+	 * Throws 404 for an unknown user, and 400 when a non-admin staff account targets its own account.
+	 */
+	async grantStarterPass(
+		actor: Pick<AuthUser, "id" | "role">,
+		userId: string,
+		input: AdminStarterPassBody,
+	): Promise<AdminStarterPassResponse> {
+		await this.ensureUserExists(userId);
+
+		// Same rule as the credit grant: support cannot unlock its own credits. Admins are exempt.
+		if (!isAdminRole(actor.role) && actor.id === userId) {
+			throw new BadRequestException(
+				"Support accounts cannot grant the Starter pass to their own account",
+			);
+		}
+
+		const owner = userOwner(userId);
+		// The balance lock serializes this write with the receipt grant, the reverse, and the dispute paths.
+		const result = await this.adminRepository.withCreditOwnerLock(
+			owner,
+			async (tx) => {
+				const live = await this.starterPasses.findLive(owner, tx);
+
+				if (live) {
+					return { pass: live, granted: false };
+				}
+
+				const granted = await this.starterPasses.grantIfAbsent(
+					owner,
+					{ source: "admin", grantedByUserId: actor.id, note: input.note },
+					tx,
+				);
+
+				// Null means a writer without the owner lock inserted a pass after the read above.
+				if (!granted) {
+					throw new ConflictException(
+						"The Starter pass changed during the grant. Try again",
+					);
+				}
+
+				return { pass: granted, granted: true };
+			},
+		);
+
+		this.logger.log(
+			`admin_grant_starter_pass admin=${actor.id} role=${normalizeStoredRole(actor.role)} target=${userId} pass=${result.pass.id} granted=${result.granted}`,
+		);
+
+		return { starterPass: mapAdminStarterPass(result.pass) };
+	}
+
+	/**
+	 * Revokes the live Starter pass of the personal pool. The reason is `admin:{note}`.
+	 * A pool with no live pass is a no-op. The answer is always `{ starterPass: null }`.
+	 * Throws 404 for an unknown user.
+	 */
+	async revokeStarterPass(
+		actor: Pick<AuthUser, "id" | "role">,
+		userId: string,
+		input: AdminStarterPassBody,
+	): Promise<AdminStarterPassResponse> {
+		await this.ensureUserExists(userId);
+
+		const owner = userOwner(userId);
+		// The balance lock serializes this write with the receipt grant, the reverse, and the dispute paths.
+		const revoked = await this.adminRepository.withCreditOwnerLock(
+			owner,
+			(tx) =>
+				this.starterPasses.revokeLive(
+					owner,
+					{ revokedByUserId: actor.id, reason: `admin:${input.note}` },
+					tx,
+				),
+		);
+
+		this.logger.log(
+			`admin_revoke_starter_pass admin=${actor.id} role=${normalizeStoredRole(actor.role)} target=${userId} pass=${revoked?.id ?? "none"}`,
+		);
+
+		return { starterPass: null };
 	}
 
 	async setRole(

@@ -3,34 +3,13 @@
  * Billing services and the orders service inject it by the PAYMENT_PROVIDER token.
  * billing-payments.module.ts binds the token to StripeProvider.
  */
-import type {
-	BillingInterval,
-	BillingPlanId,
-	CreditTier,
-	PaymentOrderKind,
-	PersistedTopupPackId,
-} from "@wandit/contracts";
+import type { PaymentOrderKind } from "@wandit/contracts";
 import type Stripe from "stripe";
 
 export const PAYMENT_PROVIDER = Symbol("PAYMENT_PROVIDER");
 
-export type CreateSubscriptionCheckoutParams = {
-	attemptId: string;
-	customerId: string;
-	email: string;
-	interval: BillingInterval;
-	/** Set for org (Business) checkouts: the paying pool's identity. */
-	organizationId?: string | null;
-	plan: BillingPlanId;
-	/**
-	 * WHOLE display credits (Stripe-boundary unit): tier identity embedded in
-	 * price lookup keys and session metadata — never centi-credits.
-	 */
-	tierCredits: CreditTier;
-	userId: string;
-};
-
-export type CreateSubscriptionCheckoutResult = {
+/** Session id and hosted URL of a new Stripe Checkout Session. */
+export type CreateCheckoutSessionResult = {
 	id: string;
 	url: string;
 };
@@ -47,51 +26,33 @@ export type CreateOrderCheckoutParams = {
 	userId: string;
 };
 
-export type CreateOrderCheckoutResult = {
-	id: string;
-	url: string;
-};
-
 export type CreateRefundParams = {
 	idempotencyKey: string;
 	paymentIntentId: string;
 };
 
+/**
+ * Input of a wallet top-up Checkout Session. BillingService builds it from the
+ * persisted attempt row, so a replay sends the same bytes for the same idempotency key.
+ */
 export type CreateTopupCheckoutParams = {
+	/** Id of the `billing_checkout_attempts` row. Part of the Stripe idempotency key. */
 	attemptId: string;
-	/**
-	 * WHOLE display credits (Stripe-boundary unit): the pack's credit count as
-	 * stamped into session metadata — never centi-credits. The grant path
-	 * converts x100 once when writing the ledger.
-	 */
-	credits: number;
+	/** UNIT: USD cents. The `amount_usd_cents` column of the attempt row. */
+	amountUsdCents: number;
+	/** Whole credits at the base rate, before the bonus. Only the Stripe page text shows it. */
+	baseCredits: number;
+	/** Whole credits of the volume bonus. 0 below the first tier. Only the Stripe page text shows it. */
+	bonusCredits: number;
 	customerId: string;
-	/** Set for org top-ups: the pool that receives the credits. */
-	organizationId?: string | null;
-	// Internal recovery can replay a checkout attempt written before a pack was
-	// retired. Public request schemas still accept only current TopupPackId ids.
-	packId: PersistedTopupPackId;
+	/** Set for team top-ups: the pool that receives the credits. */
+	organizationId: string | null;
+	/** True for the Starter pass. Stripe then asks for 3-D Secure on every card, which stops card testing at $1. */
+	requestThreeDSecure: boolean;
 	userId: string;
 };
 
-export type PreviewSubscriptionChangeParams = {
-	billingCycleAnchorNow: boolean;
-	newPriceLookupKey: string;
-	/** Proration time for a change without an anchor reset. Not sent when billingCycleAnchorNow is true: Stripe refuses both. */
-	prorationDate: Date;
-	providerSubscriptionId: string;
-};
-
-export type ApplySubscriptionChangeParams = PreviewSubscriptionChangeParams & {
-	idempotencyKey: string;
-};
-
-export type SubscriptionChangeProviderResult = {
-	hostedInvoiceUrl?: string;
-	outcome: "applied" | "failed" | "payment_required";
-	pendingExpiresAt?: Date;
-};
-
+/** Input of the v6 price switch. Only `scripts/migrate-subscriptions-v6.ts` calls it, on StripeProvider. */
 export type SwitchSubscriptionPriceWithoutProrationParams = {
 	currentPriceLookupKey: string;
 	idempotencyKey: string;
@@ -99,6 +60,7 @@ export type SwitchSubscriptionPriceWithoutProrationParams = {
 	providerSubscriptionId: string;
 };
 
+/** Input of the v6 downgrade schedule. Only `scripts/migrate-subscriptions-v6.ts` calls it, on StripeProvider. */
 export type ScheduleSubscriptionDowngradeParams = {
 	/** Recover only a schedule stamped with this same idempotency key and target. */
 	allowSameIntentRecovery?: boolean;
@@ -109,30 +71,15 @@ export type ScheduleSubscriptionDowngradeParams = {
 	providerSubscriptionId: string;
 };
 
-export type SubscriptionChangePreviewProviderResult = {
-	amountDueMinor: number;
-	currency: string;
-};
-
 export interface PaymentProvider {
-	cancelScheduledSubscriptionDowngrade(
-		providerSubscriptionId: string,
-		idempotencyKey: string,
-	): Promise<void>;
-	changeSubscription(
-		params: ApplySubscriptionChangeParams,
-	): Promise<SubscriptionChangeProviderResult>;
 	createOrderCheckout(
 		params: CreateOrderCheckoutParams,
-	): Promise<CreateOrderCheckoutResult>;
+	): Promise<CreateCheckoutSessionResult>;
 	createPortalSession(customerId: string): Promise<string>;
 	createRefund(params: CreateRefundParams): Promise<Stripe.Refund>;
-	createSubscriptionCheckout(
-		params: CreateSubscriptionCheckoutParams,
-	): Promise<CreateSubscriptionCheckoutResult>;
 	createTopupCheckout(
 		params: CreateTopupCheckoutParams,
-	): Promise<CreateSubscriptionCheckoutResult>;
+	): Promise<CreateCheckoutSessionResult>;
 	ensureCustomer(
 		userId: string,
 		email: string,
@@ -152,23 +99,7 @@ export interface PaymentProvider {
 	listSubscriptionsForCustomer(
 		providerCustomerId: string,
 	): Promise<Stripe.Subscription[]>;
-	hasPendingSubscriptionUpdate(
-		providerSubscriptionId: string,
-	): Promise<boolean>;
-	previewSubscriptionChange(
-		params: PreviewSubscriptionChangeParams,
-	): Promise<SubscriptionChangePreviewProviderResult>;
 	retrieveCharge(chargeId: string): Promise<Stripe.Charge>;
 	retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session>;
 	retrievePaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent>;
-	scheduleSubscriptionDowngrade(
-		params: ScheduleSubscriptionDowngradeParams,
-	): Promise<string>;
-	setCancelAtPeriodEnd(
-		providerSubscriptionId: string,
-		flag: boolean,
-	): Promise<void>;
-	switchSubscriptionPriceWithoutProration(
-		params: SwitchSubscriptionPriceWithoutProrationParams,
-	): Promise<void>;
 }

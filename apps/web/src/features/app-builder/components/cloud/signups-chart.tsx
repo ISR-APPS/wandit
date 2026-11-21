@@ -44,7 +44,7 @@ export function SignupsChart({ days }: SignupsChartProps) {
 				preserveAspectRatio="none"
 				role="img"
 				aria-label={t("workspace.cloud.users.signups.chartLabel")}
-				className="h-32 w-full"
+				className="h-32 w-full border-night/[0.08] border-b dark:border-white/[0.08]"
 			>
 				{days.map((day, index) => {
 					const height =
@@ -84,7 +84,7 @@ export function SignupsChart({ days }: SignupsChartProps) {
 				})}
 			</svg>
 			{firstDay && lastDay ? (
-				<figcaption className="flex justify-between font-grotesk text-night/45 text-xs tabular-nums dark:text-foreground/45">
+				<figcaption className="flex justify-between font-grotesk text-night/60 text-xs tabular-nums dark:text-foreground/55">
 					<span>{formatDate(firstDay.date, locale, DAY_FORMAT)}</span>
 					<span>{formatDate(lastDay.date, locale, DAY_FORMAT)}</span>
 				</figcaption>

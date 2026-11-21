@@ -21,11 +21,13 @@ import {
 	useAdminPermission,
 } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
-import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
+import { RecordTopupDialog } from "@/features/offline-billing";
+import { useChangeUserStarterPassMutation } from "@/features/users/api/users.mutations";
 import { useUserQuery } from "@/features/users/api/users.queries";
 import { AdminViewsDialog } from "@/features/users/components/admin-views-dialog";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
+import { StarterPassCard } from "@/features/users/components/detail/starter-pass-card";
 import { UserActivityPanel } from "@/features/users/components/detail/user-activity-panel";
 import { UserDetailHeader } from "@/features/users/components/detail/user-detail-header";
 import { UserDetailSkeleton } from "@/features/users/components/detail/user-detail-skeleton";
@@ -41,7 +43,7 @@ type UserDetailPageProps = {
 
 type OpenDialog =
 	| "credits"
-	| "offline-subscription"
+	| "record-topup"
 	| "role"
 	| "admin-views"
 	| "ban"
@@ -55,6 +57,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const canSetRole = useAdminPermission({ users: ["set-role"] });
 	const canBan = useAdminPermission({ users: ["ban"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+	const starterPassMutation = useChangeUserStarterPassMutation();
 
 	if (userQuery.isLoading) {
 		return (
@@ -129,18 +132,30 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				canManageAccess={canManageAccess}
 				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setOpenDialog("credits")}
-				onGrantOffline={() => setOpenDialog("offline-subscription")}
+				onRecordTopup={() => setOpenDialog("record-topup")}
 				onChangeRole={() => setOpenDialog("role")}
 				onEditAdminViews={() => setOpenDialog("admin-views")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
 			<UserMetrics user={user} />
 
+			{/* A pass unlocks spending like credits do, so the credit grant rule decides who can change it. */}
+			<StarterPassCard
+				starterPass={user.starterPass}
+				poolLabel={`${user.name}'s personal wallet`}
+				canChange={canGrantCredits}
+				isPending={starterPassMutation.isPending}
+				onChange={async (action, note) => {
+					await starterPassMutation.mutateAsync({
+						userId: user.id,
+						action,
+						note,
+					});
+				}}
+			/>
+
 			{user.subscription ? (
-				<UserSubscriptionCard
-					subscription={user.subscription}
-					ownerLabel={user.name}
-				/>
+				<UserSubscriptionCard subscription={user.subscription} />
 			) : null}
 
 			<UserWorkspacesCard workspaces={user.workspaces} />
@@ -159,12 +174,10 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				/>
 			) : null}
 			{canManageBilling ? (
-				<GrantManualSubscriptionDialog
-					open={openDialog === "offline-subscription"}
-					onOpenChange={(open) =>
-						setOpenDialog(open ? "offline-subscription" : null)
-					}
-					prefill={{ user }}
+				<RecordTopupDialog
+					open={openDialog === "record-topup"}
+					onOpenChange={(open) => setOpenDialog(open ? "record-topup" : null)}
+					prefill={{ user, starterPass: user.starterPass }}
 				/>
 			) : null}
 			{canManageAccess && canSetRole ? (

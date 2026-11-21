@@ -171,4 +171,29 @@ describe("billing error dispatch", () => {
 			}),
 		).toBeNull();
 	});
+
+	// A pool with credits but no Starter pass gets a 402 with a reason. The modal reads it to ask the owner.
+	const starterDetails = { requiredCredits: 3, availableCredits: 40 };
+	it.each([
+		{
+			reason: "starter_pass_required",
+			expected: {
+				code: "INSUFFICIENT_CREDITS",
+				...starterDetails,
+				reason: "starter_pass_required",
+			},
+		},
+		{
+			reason: "unknown_reason",
+			expected: { code: "INSUFFICIENT_CREDITS", ...starterDetails },
+		},
+	])("forwards only a known 402 reason ($reason)", ({ reason, expected }) => {
+		expect(
+			toUpgradeModalIntent({
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: { ...starterDetails, reason },
+			}),
+		).toEqual(expected);
+	});
 });

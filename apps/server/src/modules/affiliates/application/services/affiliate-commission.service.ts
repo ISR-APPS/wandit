@@ -1,6 +1,14 @@
+/**
+ * Creates affiliate earnings for a paid Stripe invoice or a paid top-up Checkout Session.
+ * Called by `StripeEventRouter`, the signup attribution hook, and the daily reconcile task.
+ * Writes candidates and earnings through `AffiliatesRepository`, then runs the clawback reconcile.
+ * Reads the top-up payer from `BillingCheckoutAttemptsRepository`.
+ */
 import { Inject, Injectable } from "@nestjs/common";
+import { TOPUP_MIN_AMOUNT_USD } from "@wandit/contracts";
 import type Stripe from "stripe";
 
+import { BillingCheckoutAttemptsRepository } from "../../../billing/infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../../billing/infrastructure/persistence/billing-customers.repository";
 import { OrganizationBillingCustomersRepository } from "../../../billing/infrastructure/persistence/organization-billing-customers.repository";
 import { StripeProvider } from "../../../billing/infrastructure/stripe/stripe.provider";
@@ -10,13 +18,33 @@ import {
 	attributionEarnsAt,
 	isCommissionableBillingReason,
 	percentageCommissionCents,
+	TOPUP_BILLING_REASON,
 } from "../../domain/affiliate-commission-policy";
 import {
 	type AffiliateAttributionRow,
 	type AffiliateCandidateRow,
 	AffiliatesRepository,
+	type AffiliateTransaction,
 } from "../../infrastructure/persistence/affiliates.repository";
 import { AffiliateClawbackService } from "./affiliate-clawback.service";
+
+/** One paid Stripe payment that can earn: an invoice or a top-up Checkout Session. */
+type PaidSource = {
+	/** Stripe invoice id (`in_`) or Checkout Session id (`cs_`). Key of the candidate and the earning. */
+	sourceId: string;
+	/** Stripe invoice `billing_reason`, or `TOPUP_BILLING_REASON`. */
+	billingReason: string;
+	/** Commission base in the minor unit of `currency`. Zero or less earns nothing. */
+	rawBaseAmountCents: number;
+	/** ISO 4217 code in lower case. */
+	currency: string;
+	/** Invoice paid_at, or latest_charge.created of a top-up. Sets the window and the hold. Must be equal on a replay. */
+	paidAt: Date;
+	/** Reads the funding charge id. Called only when the source earns. */
+	resolveChargeId: () => Promise<string>;
+	/** User who paid, from the checkout attempt. Null for an invoice: Stripe does not name the paying member. */
+	payerUserId: string | null;
+};
 
 @Injectable()
 export class AffiliateCommissionService {
@@ -31,6 +59,8 @@ export class AffiliateCommissionService {
 		private readonly stripeProvider: StripeProvider,
 		@Inject(AffiliateClawbackService)
 		private readonly clawbackService: AffiliateClawbackService,
+		@Inject(BillingCheckoutAttemptsRepository)
+		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
 	) {}
 
 	async handlePaidInvoice(invoiceEvent: Stripe.Invoice): Promise<boolean> {
@@ -39,38 +69,44 @@ export class AffiliateCommissionService {
 		}
 
 		const invoice = await this.stripeProvider.retrieveInvoice(invoiceEvent.id);
-		const customerId = this.expandableId(invoice.customer);
+		const userId = await this.earningUserIdForCustomer(
+			this.expandableId(invoice.customer),
+			`Stripe invoice ${invoice.id}`,
+		);
 
-		if (!customerId) {
-			throw new Error(`Stripe invoice ${invoice.id} has no customer`);
+		return this.processInvoiceAndReconcile(invoice, userId);
+	}
+
+	/**
+	 * Earns on a paid top-up. `StripeEventRouter.routeTopupCheckout` calls it after `grantTopup`.
+	 * A throw keeps the webhook `failed`; the unique session id keys make a retry a no-op.
+	 */
+	async handlePaidTopup(
+		eventSession: Stripe.Checkout.Session,
+	): Promise<boolean> {
+		// The webhook payload and a retrieve give different paid times. One canonical read keeps a replay equal.
+		const session = await this.stripeProvider.retrieveCheckoutSession(
+			eventSession.id,
+		);
+
+		// Fraud rule: a top-up below 10 USD, such as the 1 USD Starter pass, earns no commission.
+		// It writes no candidate, so the one fixed earning of a program stays for a real top-up.
+		if (
+			session.currency?.toLowerCase() === "usd" &&
+			session.amount_total !== null &&
+			session.amount_total < TOPUP_MIN_AMOUNT_USD * 100
+		) {
+			return false;
 		}
 
-		const customer =
-			await this.billingCustomersRepository.findByProviderCustomerId(
-				customerId,
-			);
+		const userId = await this.earningUserIdForCustomer(
+			this.expandableId(session.customer),
+			`Stripe checkout session ${session.id}`,
+		);
 
-		if (customer) {
-			return this.processInvoiceAndReconcile(invoice, customer.userId);
-		}
-
-		// Org invoices attribute to the SNAPSHOTTED creator (attributionUserId),
-		// never the checkout actor — a referred invited admin must not capture
-		// lifetime commissions on the org's revenue (design §8).
-		const orgCustomer =
-			await this.organizationBillingCustomersRepository.findByProviderCustomerId(
-				customerId,
-			);
-
-		if (!orgCustomer) {
-			throw new Error(
-				`Stripe invoice ${invoice.id} customer ${customerId} has no local owner`,
-			);
-		}
-
-		return this.processInvoiceAndReconcile(
-			invoice,
-			orgCustomer.attributionUserId,
+		return this.processPaidSourceAndReconcile(
+			await this.topupPaidSource(session),
+			userId,
 		);
 	}
 
@@ -80,10 +116,23 @@ export class AffiliateCommissionService {
 		let processed = 0;
 
 		for (const candidate of candidates) {
-			const invoice = await this.stripeProvider.retrieveInvoice(
-				candidate.stripeInvoiceId,
-			);
-			const handled = await this.processInvoiceAndReconcile(invoice, userId);
+			// A top-up candidate holds a `cs_` id. `retrieveInvoice` gives a 404 for it.
+			const handled =
+				candidate.billingReason === TOPUP_BILLING_REASON
+					? await this.processPaidSourceAndReconcile(
+							await this.topupPaidSource(
+								await this.stripeProvider.retrieveCheckoutSession(
+									candidate.stripeInvoiceId,
+								),
+							),
+							userId,
+						)
+					: await this.processInvoiceAndReconcile(
+							await this.stripeProvider.retrieveInvoice(
+								candidate.stripeInvoiceId,
+							),
+							userId,
+						);
 
 			if (handled) {
 				processed += 1;
@@ -121,11 +170,61 @@ export class AffiliateCommissionService {
 		return reconciled;
 	}
 
+	/**
+	 * Gives the earning user of a Stripe customer. A team pays for its snapshot creator, never the buyer.
+	 * Throws when the customer has no local owner, so the webhook is retried.
+	 */
+	private async earningUserIdForCustomer(
+		customerId: string | null,
+		sourceLabel: string,
+	): Promise<string> {
+		if (!customerId) {
+			throw new Error(`${sourceLabel} has no customer`);
+		}
+
+		const customer =
+			await this.billingCustomersRepository.findByProviderCustomerId(
+				customerId,
+			);
+
+		if (customer) {
+			return customer.userId;
+		}
+
+		// A team payment earns for the snapshot creator (attributionUserId). An invited member who pays never earns the commission.
+		const orgCustomer =
+			await this.organizationBillingCustomersRepository.findByProviderCustomerId(
+				customerId,
+			);
+
+		if (!orgCustomer) {
+			throw new Error(
+				`${sourceLabel} customer ${customerId} has no local owner`,
+			);
+		}
+
+		return orgCustomer.attributionUserId;
+	}
+
 	private async processInvoiceAndReconcile(
 		invoice: Stripe.Invoice,
 		userId: string,
 	): Promise<boolean> {
-		const handled = await this.processInvoice(invoice, userId);
+		const source = this.invoicePaidSource(invoice);
+
+		if (!source) {
+			return false;
+		}
+
+		return this.processPaidSourceAndReconcile(source, userId);
+	}
+
+	private async processPaidSourceAndReconcile(
+		source: PaidSource,
+		userId: string,
+	): Promise<boolean> {
+		const { sourceId } = source;
+		const handled = await this.processPaidSource(source, userId);
 
 		if (!handled) {
 			return false;
@@ -135,15 +234,12 @@ export class AffiliateCommissionService {
 		// reconciliation. Concurrent webhook deliveries may both observe the pending
 		// earning, but only the first finalizer calls Stripe; later ones see processed
 		// and cannot demote a successfully reconciled candidate on transient failure.
-		return this.affiliatesRepository.withInvoiceLock(invoice.id, async (tx) => {
+		return this.affiliatesRepository.withInvoiceLock(sourceId, async (tx) => {
 			const candidate =
-				await this.affiliatesRepository.lockCandidateByInvoiceId(
-					invoice.id,
-					tx,
-				);
+				await this.affiliatesRepository.lockCandidateByInvoiceId(sourceId, tx);
 
 			if (!candidate) {
-				throw new Error(`Affiliate candidate ${invoice.id} disappeared`);
+				throw new Error(`Affiliate candidate ${sourceId} disappeared`);
 			}
 
 			if (candidate.status === "processed") {
@@ -152,16 +248,16 @@ export class AffiliateCommissionService {
 
 			if (candidate.status !== "pending_attribution") {
 				throw new Error(
-					`Affiliate candidate ${invoice.id} became ${candidate.status} before reconciliation`,
+					`Affiliate candidate ${sourceId} became ${candidate.status} before reconciliation`,
 				);
 			}
 
 			const reconciled =
-				await this.clawbackService.reconcileInvoiceAfterEarning(invoice.id, tx);
+				await this.clawbackService.reconcileInvoiceAfterEarning(sourceId, tx);
 
 			if (!reconciled) {
 				throw new Error(
-					`Affiliate earning ${invoice.id} disappeared before reconciliation`,
+					`Affiliate earning ${sourceId} disappeared before reconciliation`,
 				);
 			}
 
@@ -175,14 +271,11 @@ export class AffiliateCommissionService {
 		});
 	}
 
-	private async processInvoice(
-		invoice: Stripe.Invoice,
-		userId: string,
-	): Promise<boolean> {
+	private invoicePaidSource(invoice: Stripe.Invoice): PaidSource | null {
 		const billingReason = invoice.billing_reason;
 
 		if (!isCommissionableBillingReason(billingReason)) {
-			return false;
+			return null;
 		}
 
 		const rawBaseAmountCents = affiliateInvoiceBaseCents({
@@ -201,16 +294,95 @@ export class AffiliateCommissionService {
 			);
 		}
 
-		const paidAt = new Date(paidAtTimestamp * 1_000);
-		const currency = invoice.currency.toLowerCase();
-		return this.affiliatesRepository.withInvoiceLock(invoice.id, async (tx) => {
+		return {
+			billingReason,
+			currency: invoice.currency.toLowerCase(),
+			paidAt: new Date(paidAtTimestamp * 1_000),
+			payerUserId: null,
+			rawBaseAmountCents,
+			// A funding charge is only required once this invoice is actually going
+			// to earn. Non-attributed invoices must still leave their candidate row
+			// behind for a later signup/attribution reconciliation.
+			resolveChargeId: () => this.invoiceChargeId(invoice),
+			sourceId: invoice.id,
+		};
+	}
+
+	/**
+	 * Reads the commission values of a top-up from a session that `retrieveCheckoutSession` gave.
+	 * The paid time is `latest_charge.created`, the same on the webhook and on the sweep.
+	 */
+	private async topupPaidSource(
+		session: Stripe.Checkout.Session,
+	): Promise<PaidSource> {
+		if (session.mode !== "payment" || session.payment_status !== "paid") {
+			throw new Error(
+				`Stripe top-up checkout session ${session.id} is not a paid payment session`,
+			);
+		}
+
+		if (
+			session.amount_total === null ||
+			!Number.isSafeInteger(session.amount_total) ||
+			!session.currency
+		) {
+			throw new Error(
+				`Stripe top-up checkout session ${session.id} has no valid amount_total or currency`,
+			);
+		}
+
+		// `retrieveCheckoutSession` expands `payment_intent.latest_charge`. A string means the expand failed.
+		const paymentIntent = session.payment_intent;
+		const charge =
+			paymentIntent !== null && typeof paymentIntent === "object"
+				? paymentIntent.latest_charge
+				: null;
+
+		if (charge === null || typeof charge !== "object") {
+			throw new Error(
+				`Stripe top-up checkout session ${session.id} has no expanded latest charge`,
+			);
+		}
+
+		const attempt =
+			await this.checkoutAttemptsRepository.findByProviderSessionId(session.id);
+		const payerUserId = attempt?.userId;
+
+		if (!payerUserId) {
+			throw new Error(
+				`Stripe top-up checkout session ${session.id} has no checkout attempt`,
+			);
+		}
+
+		return {
+			billingReason: TOPUP_BILLING_REASON,
+			currency: session.currency.toLowerCase(),
+			paidAt: new Date(charge.created * 1_000),
+			payerUserId,
+			// LIMIT: base is amount_total. Upgrade: subtract tax when Stripe Tax starts.
+			rawBaseAmountCents: session.amount_total,
+			resolveChargeId: async () => charge.id,
+			sourceId: session.id,
+		};
+	}
+
+	/**
+	 * Shared earning path of invoices and top-ups, under the lock `affiliate-invoice:{sourceId}`.
+	 * Writes the candidate, then at most one earning per source id. A replay with other values throws.
+	 */
+	private async processPaidSource(
+		source: PaidSource,
+		userId: string,
+	): Promise<boolean> {
+		const { currency, paidAt, rawBaseAmountCents, sourceId } = source;
+		return this.affiliatesRepository.withInvoiceLock(sourceId, async (tx) => {
 			const candidate = await this.affiliatesRepository.upsertCandidate(
 				{
 					baseAmountCents: Math.max(0, rawBaseAmountCents),
-					billingReason,
+					billingReason: source.billingReason,
 					currency,
 					paidAt,
-					stripeInvoiceId: invoice.id,
+					stripeInvoiceId: sourceId,
 					userId,
 				},
 				tx,
@@ -236,7 +408,10 @@ export class AffiliateCommissionService {
 				return false;
 			}
 
-			if (!this.isEligibleAttribution(attribution, candidate)) {
+			if (
+				!this.isEligibleAttribution(attribution, candidate) ||
+				(await this.isPaidByAffiliate(source, attribution, tx))
+			) {
 				await this.affiliatesRepository.setCandidateStatus(
 					candidate.id,
 					"ineligible",
@@ -246,7 +421,7 @@ export class AffiliateCommissionService {
 			}
 
 			const existingInvoiceEarning =
-				await this.affiliatesRepository.findEarningByInvoiceId(invoice.id, tx);
+				await this.affiliatesRepository.findEarningByInvoiceId(sourceId, tx);
 
 			let amountCents: number;
 			let rateBps: number | null;
@@ -289,7 +464,11 @@ export class AffiliateCommissionService {
 				}
 
 				rateBps = null;
-				amountCents = attribution.fixedAmountCents;
+				// No commission is larger than its payment. A 10 USD top-up can be the first payment.
+				// A replay keeps the stored amount: an earning from before the cap can be above its base.
+				amountCents =
+					existingInvoiceEarning?.amountCents ??
+					Math.min(attribution.fixedAmountCents, rawBaseAmountCents);
 			}
 
 			if (amountCents <= 0) {
@@ -301,10 +480,7 @@ export class AffiliateCommissionService {
 				return false;
 			}
 
-			// A funding charge is only required once this invoice is actually going
-			// to earn. Non-attributed invoices must still leave their candidate row
-			// behind for a later signup/attribution reconciliation.
-			const chargeId = await this.invoiceChargeId(invoice);
+			const chargeId = await source.resolveChargeId();
 
 			const holdDays = await this.affiliatesRepository.holdDaysForAttribution(
 				attribution.id,
@@ -319,7 +495,7 @@ export class AffiliateCommissionService {
 				holdUntil: addDays(paidAt, holdDays),
 				rateBps,
 				stripeChargeId: chargeId,
-				stripeInvoiceId: invoice.id,
+				stripeInvoiceId: sourceId,
 			};
 			const inserted = existingInvoiceEarning
 				? null
@@ -327,14 +503,11 @@ export class AffiliateCommissionService {
 			const earning =
 				existingInvoiceEarning ??
 				inserted ??
-				(await this.affiliatesRepository.findEarningByInvoiceId(
-					invoice.id,
-					tx,
-				));
+				(await this.affiliatesRepository.findEarningByInvoiceId(sourceId, tx));
 
 			if (!earning) {
 				throw new Error(
-					`Affiliate earning ${invoice.id} conflicted but could not be reread`,
+					`Affiliate earning ${sourceId} conflicted but could not be reread`,
 				);
 			}
 
@@ -348,7 +521,7 @@ export class AffiliateCommissionService {
 				earning.stripeChargeId !== earningInput.stripeChargeId
 			) {
 				throw new Error(
-					`Affiliate earning ${invoice.id} replay payload mismatch`,
+					`Affiliate earning ${sourceId} replay payload mismatch`,
 				);
 			}
 
@@ -369,6 +542,28 @@ export class AffiliateCommissionService {
 				candidate.paidAt,
 			)
 		);
+	}
+
+	/**
+	 * True when the user who paid is the affiliate of the attribution, for example a team member.
+	 * LIMIT: a second account of the affiliate is not found; the hold stays. Upgrade: payment fingerprint match.
+	 */
+	private async isPaidByAffiliate(
+		source: PaidSource,
+		attribution: AffiliateAttributionRow,
+		tx: AffiliateTransaction,
+	): Promise<boolean> {
+		if (source.payerUserId === null) {
+			return false;
+		}
+
+		const affiliate =
+			await this.affiliatesRepository.affiliateIdentityForSelfCheck(
+				attribution.affiliateId,
+				tx,
+			);
+
+		return affiliate?.userId === source.payerUserId;
 	}
 
 	private async invoiceChargeId(invoice: Stripe.Invoice): Promise<string> {

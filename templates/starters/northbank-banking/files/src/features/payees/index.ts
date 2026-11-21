@@ -2,10 +2,7 @@ export {
 	payeeDetailQueryOptions,
 	payeesQueryOptions,
 } from "./api/payees.queries";
-export {
-	PayeeDetailPage,
-	PayeeDetailPageSkeleton,
-} from "./components/payee-detail-page";
+export { PayeeDetailPage } from "./components/payee-detail-page";
 export {
 	PayeesPage,
 	PayeesPageError,

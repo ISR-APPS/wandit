@@ -18,6 +18,7 @@ import {
 	type SampleTables,
 	type StudentStatus,
 	type SubmissionStatus,
+	type Track,
 } from "~/features/school";
 
 /** One student in one course, with the progress numbers. */
@@ -26,6 +27,8 @@ export type StudentEnrollment = {
 	courseTitle: string;
 	/** The catalog code of the course, for example "UX-201". */
 	courseCode: string;
+	/** The subject area of the course. The Students page filters by it. */
+	courseTrack: Track;
 	courseStatus: CourseStatus;
 	state: LearnerState;
 	/** Count of lessons that the student finished. */
@@ -108,6 +111,7 @@ function enrollmentsOf(
 					courseId: course.id,
 					courseTitle: course.title,
 					courseCode: course.code,
+					courseTrack: course.track,
 					courseStatus,
 					state: learnerStateOf(courseStatus, done, released, lessonCount),
 					done,

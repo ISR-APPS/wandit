@@ -14,6 +14,7 @@
 	"include": [
 		"src/**/*.ts",
 		"../server/src/infrastructure/database/database.constants.ts",
+		"../server/src/modules/billing/infrastructure/persistence/starter-passes.repository.ts",
 		"../server/src/modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository.ts",
 		"../server/src/modules/ai-provider/domain/llm-provider.ts",
 		"../server/src/modules/ai-provider/infrastructure/metering-provider-gateway.ts",

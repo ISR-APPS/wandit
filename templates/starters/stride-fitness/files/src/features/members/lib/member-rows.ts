@@ -5,26 +5,34 @@ import {
 	addDays,
 	type CheckIn,
 	type ClassSession,
+	type ClassTypeId,
 	classTypeOf,
 	coachOf,
+	isAtRisk,
+	lastVisitByMember,
 	type Member,
 	nextPaymentOn,
 	type Plan,
 	type PlanId,
+	pastPaymentDays,
 	planOf,
 	type SessionRow,
 } from "~/features/gym";
 
-/** The visits window of the list and of the attendance panel, in days. */
+/** The visits window of the tables and of the member page, in days. */
 export const VISIT_WINDOW_DAYS = 30;
-/** The weeks of the attendance chart. A quarter shows a habit and its changes. */
-export const ATTENDANCE_WEEKS = 12;
-// The newest visits that the member page lists.
-const VISIT_HISTORY_COUNT = 12;
 // The booked classes ahead that the member page lists.
 const UPCOMING_COUNT = 5;
+// The past payments that the member page lists, under the next one.
+const PAYMENT_HISTORY_COUNT = 5;
 
-/** One row of the members list. */
+/** The values of the visits filter. "atRisk" counts the same members as the bell and the home feed. */
+export const VISIT_FILTERS = ["atRisk", "regular"] as const;
+
+/** One value of the visits filter. */
+export type VisitFilter = (typeof VISIT_FILTERS)[number];
+
+/** One row of the members tables. */
 export type MemberRow = {
 	id: string;
 	fullName: string;
@@ -39,20 +47,23 @@ export type MemberRow = {
 	lastVisitAt: number | null;
 	/** Check-ins in the last VISIT_WINDOW_DAYS days. */
 	visitsInWindow: number;
+	/** The visits per week that the member usually makes, 1 to 5. */
+	weeklyVisits: number;
+	/** Active, and no visit for AT_RISK_DAYS days. The home feed and the "At risk" filter read it. */
+	isAtRisk: boolean;
 };
 
-/** The members, newest first, with their visits. `checkIns` holds only the check-ins up to now. */
+/** The members, newest first, with their visits. `checkIns` holds only the check-ins up to `now`. */
 export function buildMemberRows(
 	members: readonly Member[],
 	checkIns: readonly CheckIn[],
 	todayStart: number,
+	now: number,
 ): MemberRow[] {
 	const windowStart = addDays(todayStart, -VISIT_WINDOW_DAYS + 1);
-	const lastVisitOf = new Map<string, number>();
+	const lastVisitOf = lastVisitByMember(checkIns);
 	const windowCountOf = new Map<string, number>();
-	// The check-ins are oldest first, so the last write per member is the newest visit.
 	for (const checkIn of checkIns) {
-		lastVisitOf.set(checkIn.memberId, checkIn.at);
 		if (checkIn.at >= windowStart) {
 			windowCountOf.set(
 				checkIn.memberId,
@@ -61,17 +72,22 @@ export function buildMemberRows(
 		}
 	}
 	return members
-		.map((member) => ({
-			id: member.id,
-			fullName: member.fullName,
-			email: member.email,
-			planId: member.planId,
-			planName: planOf(member.planId).name,
-			status: member.status,
-			joinedAt: member.joinedAt,
-			lastVisitAt: lastVisitOf.get(member.id) ?? null,
-			visitsInWindow: windowCountOf.get(member.id) ?? 0,
-		}))
+		.map((member) => {
+			const lastVisitAt = lastVisitOf.get(member.id) ?? null;
+			return {
+				id: member.id,
+				fullName: member.fullName,
+				email: member.email,
+				planId: member.planId,
+				planName: planOf(member.planId).name,
+				status: member.status,
+				joinedAt: member.joinedAt,
+				lastVisitAt,
+				visitsInWindow: windowCountOf.get(member.id) ?? 0,
+				weeklyVisits: member.weeklyVisits,
+				isAtRisk: isAtRisk(member, lastVisitAt, now),
+			};
+		})
 		.sort(
 			(first, second) =>
 				second.joinedAt - first.joinedAt ||
@@ -88,27 +104,41 @@ export type VisitRow = {
 	coachName: string | null;
 };
 
-/** The visits of one 7-day window of the attendance chart. */
-export type AttendanceWeek = {
-	/** Local midnight of the first day of the window. */
-	weekStart: number;
+/** The visits of one class type in the history of a member. */
+export type ClassCount = {
+	classTypeId: ClassTypeId;
+	/** Name of the class type. Data, not a UI text. */
+	className: string;
 	visits: number;
+};
+
+/** One payment of the member page. Amounts are whole units of PLAN_CURRENCY. */
+export type PaymentRow = {
+	/** The payment day as `YYYY-MM-DD` of its local midnight, so the row id is stable. */
+	id: string;
+	/** Local midnight of the payment day. */
+	day: number;
+	amount: number;
+	/** "paid": a past payment day. "due": the next payment day, today or later. */
+	state: "paid" | "due";
 };
 
 /** Everything that the member page shows about one member. */
 export type MemberDetail = {
 	member: Member;
 	plan: Plan;
-	/** The newest check-ins, newest first. */
+	/** Every check-in on file, newest first. The history holds HISTORY_DAYS (about 6 months). */
 	visits: VisitRow[];
-	/** ATTENDANCE_WEEKS windows of 7 days, oldest first. The last one ends today. */
-	attendance: AttendanceWeek[];
 	/** Check-ins in the last VISIT_WINDOW_DAYS days. */
 	visitsInWindow: number;
-	/** Every check-in on file. The history holds HISTORY_DAYS (about 6 months), not the full membership. */
-	totalVisits: number;
+	/** Check-ins in the last 7 days, today included. */
+	visitsThisWeek: number;
+	/** The class types of the history, the most visited first. Open gym visits do not count. */
+	classCounts: ClassCount[];
 	/** Classes ahead that the member booked, the earliest first. */
 	upcoming: SessionRow[];
+	/** The next payment ("due") first, then the past payments, newest first. */
+	payments: PaymentRow[];
 	/** Local midnight of the next payment, or null for a lapsed member. */
 	nextPaymentAt: number | null;
 };
@@ -123,43 +153,58 @@ export function buildMemberDetail(
 	now: number,
 ): MemberDetail {
 	const sessionOf = new Map(sessions.map((session) => [session.id, session]));
-	const visits = memberCheckIns
-		.slice(-VISIT_HISTORY_COUNT)
-		.reverse()
-		.map((checkIn): VisitRow => {
-			const session =
-				checkIn.sessionId === null
-					? undefined
-					: sessionOf.get(checkIn.sessionId);
-			const classType = session ? classTypeOf(session.classTypeId) : null;
-			return {
-				id: checkIn.id,
-				at: checkIn.at,
-				className: classType?.name ?? null,
-				studio: classType?.studio ?? null,
-				coachName: classType ? coachOf(classType.coachId).fullName : null,
-			};
-		});
-	const attendance = Array.from({ length: ATTENDANCE_WEEKS }, (_, index) => {
-		const weekStart = addDays(todayStart, -7 * (ATTENDANCE_WEEKS - index) + 1);
-		const weekEnd = addDays(weekStart, 7);
+	const visits = [...memberCheckIns].reverse().map((checkIn): VisitRow => {
+		const session =
+			checkIn.sessionId === null ? undefined : sessionOf.get(checkIn.sessionId);
+		const classType = session ? classTypeOf(session.classTypeId) : null;
 		return {
-			weekStart,
-			visits: memberCheckIns.filter(
-				(checkIn) => checkIn.at >= weekStart && checkIn.at < weekEnd,
-			).length,
+			id: checkIn.id,
+			at: checkIn.at,
+			className: classType?.name ?? null,
+			studio: classType?.studio ?? null,
+			coachName: classType ? coachOf(classType.coachId).fullName : null,
 		};
 	});
+	const countOf = new Map<ClassTypeId, number>();
+	for (const checkIn of memberCheckIns) {
+		const session =
+			checkIn.sessionId === null ? undefined : sessionOf.get(checkIn.sessionId);
+		if (session) {
+			countOf.set(
+				session.classTypeId,
+				(countOf.get(session.classTypeId) ?? 0) + 1,
+			);
+		}
+	}
+	const plan = planOf(member.planId);
+	const nextPaymentAt = nextPaymentOn(member, todayStart);
+	const toPayment = (day: number, state: PaymentRow["state"]): PaymentRow => {
+		const date = new Date(day);
+		return {
+			id: `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,
+			day,
+			amount: plan.price,
+			state,
+		};
+	};
+	const weekStart = addDays(todayStart, -6);
 	const windowStart = addDays(todayStart, -VISIT_WINDOW_DAYS + 1);
 	return {
 		member,
-		plan: planOf(member.planId),
+		plan,
 		visits,
-		attendance,
 		visitsInWindow: memberCheckIns.filter(
 			(checkIn) => checkIn.at >= windowStart,
 		).length,
-		totalVisits: memberCheckIns.length,
+		visitsThisWeek: memberCheckIns.filter((checkIn) => checkIn.at >= weekStart)
+			.length,
+		classCounts: [...countOf.entries()]
+			.map(([classTypeId, count]) => ({
+				classTypeId,
+				className: classTypeOf(classTypeId).name,
+				visits: count,
+			}))
+			.sort((first, second) => second.visits - first.visits),
 		upcoming: sessionsAhead
 			.filter(
 				(row) =>
@@ -168,6 +213,12 @@ export function buildMemberDetail(
 					row.roster.some((entry) => entry.memberId === member.id),
 			)
 			.slice(0, UPCOMING_COUNT),
-		nextPaymentAt: nextPaymentOn(member, todayStart),
+		payments: [
+			...(nextPaymentAt === null ? [] : [toPayment(nextPaymentAt, "due")]),
+			...pastPaymentDays(member, todayStart, PAYMENT_HISTORY_COUNT).map((day) =>
+				toPayment(day, "paid"),
+			),
+		],
+		nextPaymentAt,
 	};
 }

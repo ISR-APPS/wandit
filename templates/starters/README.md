@@ -119,6 +119,26 @@ A work folder has no backend. `shot.mjs` does not change the project code:
 A starter must make no other Supabase call. `shot.mjs` prints a warning when a page makes one.
 Chromium comes from the Playwright package of `apps/server`. `--publish` uses the sharp package of `apps/server`.
 
+## Live previews
+
+Each starter has a live preview on `https://<id>-template.wandit.app`. The "Live preview" button of the template page opens it.
+Each preview is one Cloudflare Worker, `wandit-template-<id>`, with the route `<id>-template.wandit.app/*`.
+This route is more specific than the `*/*` route of the edge Worker, so it wins for that host.
+No site can take a `-template` slug: `isReservedSlug` in `packages/contracts` refuses it.
+
+A preview has no backend. `scripts/preview-worker.mjs` answers the Supabase calls with `scripts/demo-backend.mjs`.
+`shot.mjs` uses the same file, so a screenshot and a preview get the same demo user.
+A visitor signs in or makes an account with any email and password. Nothing is saved.
+
+Deploy after you change a starter. You need a wrangler login with access to the `wandit.app` zone.
+`<workRoot>` is an absolute path outside the repo. The script makes one work folder for each starter in it.
+```
+node templates/starters/scripts/deploy-previews.mjs <workRoot> <id> [<id>...]
+node templates/starters/scripts/deploy-previews.mjs <workRoot> --all
+```
+Add `--dry-run` to build and check the upload with no deploy.
+To remove a deleted starter, delete its Worker: `npx wrangler delete --name wandit-template-<id>`.
+
 ## When `templates/web-app` changes
 
 A base change can break a starter: a renamed export, a new lint rule, a removed text key.

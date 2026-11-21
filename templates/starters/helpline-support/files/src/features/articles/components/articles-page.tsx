@@ -1,237 +1,304 @@
-// The articles page behind login: every help article with its views, votes, and linked tickets, under collection tabs.
-// The /app/articles route renders it after its loader. A title opens the article sheet (?article=).
-// The route also uses the skeleton and the error below.
+// The articles page behind login: four help center figures, then every help article in a table.
+// The /app/articles route renders it after its loaders. A title opens the article sheet (?article=).
+// The collection filter lives in the URL (?collection=). The route also uses the skeleton and the error below.
+// It follows the product list page of the kit system: figure cards, then the table with its toolbar.
+import {
+	BookOpenTextIcon,
+	DownloadSimpleIcon,
+	ThumbsUpIcon,
+} from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
 	ARTICLE_COLLECTIONS,
-	fillMessage,
-	formatUpdateDate,
-	PersonAvatar,
+	copyToClipboard,
+	downloadCsv,
+	toCsv,
 } from "~/features/helpdesk";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
-import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	ARTICLE_FIGURE_DAYS,
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
+import { Skeleton } from "~/shared/ui/skeleton";
+import {
+	type ArticleFigure,
 	type ArticleListItem,
+	articleFiguresQueryOptions,
 	articlesQueryOptions,
 } from "../api/articles.queries";
+import { articleCsvColumns } from "../lib/article-csv";
+import { ArticleFigureCard } from "./article-figure-card";
 import { ArticleSheet } from "./article-sheet";
 
 const route = getRouteApi("/app/articles");
 
-// Under this share of "yes" answers, the helpful cell turns red: the article needs a rewrite.
-const LOW_HELPFUL = 0.7;
+// Ten rows per page, as the product list of the kit. The 25 articles fill 3 pages.
+const ARTICLES_PAGE_SIZE = 10;
 
-/** The list page. The collection tab filters the rows; then DataTable searches, sorts, and pages them. */
+/** The status filter values. A draft is not public yet. */
+const ARTICLE_STATES = ["published", "draft"] as const;
+
+/** The list page. The filter buttons narrow the rows; then RecordTable searches, sorts, and pages them. */
 export function ArticlesPage() {
 	const { t, locale } = useT();
 	const { data: articles } = useSuspenseQuery(articlesQueryOptions());
+	const { data: figures } = useSuspenseQuery(articleFiguresQueryOptions());
 	const { collection, article: articleId } = route.useSearch();
 	const navigate = route.useNavigate();
-
+	const [state, setState] = useState<string | null>(null);
+	const [author, setAuthor] = useState<string | null>(null);
 	const number = new Intl.NumberFormat(locale);
 	const percent = new Intl.NumberFormat(locale, {
 		style: "percent",
 		maximumFractionDigits: 0,
 	});
-	const now = Date.now();
-	const tabs = ARTICLE_COLLECTIONS.map((value) => ({
-		value,
-		count: articles.filter((row) => row.collection === value).length,
-	})).filter((tab) => tab.count > 0);
-	const activeCollection =
-		collection && tabs.some((tab) => tab.value === collection)
-			? collection
-			: "all";
-	const rows =
-		activeCollection === "all"
-			? articles
-			: articles.filter((row) => row.collection === activeCollection);
+	const authors = [...new Set(articles.map((row) => row.authorName))].sort(
+		(first, second) => first.localeCompare(second, locale),
+	);
+	const stateOf = (row: ArticleListItem) =>
+		row.isDraft ? "draft" : "published";
+	const rows = articles.filter(
+		(row) =>
+			(collection === undefined || row.collection === collection) &&
+			(state === null || stateOf(row) === state) &&
+			(author === null || row.authorName === author),
+	);
 	const selected = articles.find((row) => row.id === articleId) ?? null;
-	const publishedCount = articles.filter((row) => !row.isDraft).length;
-	const totalViews = articles.reduce((sum, row) => sum + row.views30d, 0);
 
 	const openArticle = (id: string | undefined) =>
 		navigate({ search: (previous) => ({ ...previous, article: id }) });
+	const figureValue = (figure: ArticleFigure) =>
+		figure.value === null
+			? "–"
+			: figure.id === "helpful"
+				? percent.format(figure.value)
+				: number.format(figure.value);
 
-	const columns: DataTableColumn<ArticleListItem>[] = [
+	const columns: RecordColumn<ArticleListItem>[] = [
 		{
 			id: "title",
 			header: t("articles.article"),
 			sortValue: (row) => row.title,
-			// A draft gets its badge here, so no status column takes room. Up to 56rem long titles wrap.
-			// On a phone the cell takes the visible card width, and its third line shows the views and the helpful share.
-			// The button covers the cell and its padding (after:-inset-2), so a tap anywhere in the cell opens the panel.
+			// The button covers the cell and its padding (after:-inset-2), so a tap anywhere in the cell opens the sheet.
 			cell: (row) => (
-				<div className="relative grid @xl/main:w-auto w-[calc(100cqi-4rem)] @xl/main:min-w-52 @4xl/main:max-w-md @xl/main:max-w-60 justify-items-start gap-0.5 whitespace-normal">
+				<span className="relative flex min-w-64 items-center gap-3">
+					<span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
+						<BookOpenTextIcon className="size-5 text-muted-foreground" />
+					</span>
 					<button
 						type="button"
 						onClick={() => openArticle(row.id)}
-						className="text-start font-medium after:absolute after:-inset-2 hover:underline"
+						className="line-clamp-2 max-w-sm text-start after:absolute after:-inset-2 hover:underline"
+						dir="auto"
 					>
 						{row.title}
 					</button>
-					<span className="flex items-center gap-2 text-muted-foreground text-xs">
-						{t(`articles.collections.${row.collection}`)}
-						{row.isDraft ? (
-							<Badge variant="warning">{t("articles.draft")}</Badge>
-						) : null}
-					</span>
-					<span className="mt-1 @xl/main:hidden text-muted-foreground text-xs tabular-nums">
-						{fillMessage(t("articles.viewsLine"), {
-							views: number.format(row.views30d),
-							helpful: row.helpful === null ? "—" : percent.format(row.helpful),
-						})}
-					</span>
-				</div>
+				</span>
 			),
 		},
 		{
 			id: "views",
 			header: t("articles.views"),
-			align: "end",
+			hideable: true,
 			sortValue: (row) => row.views30d,
-			cell: (row) => number.format(row.views30d),
+			cell: (row) => (
+				<span className="tabular-nums">{number.format(row.views30d)}</span>
+			),
+		},
+		{
+			id: "collection",
+			header: t("articles.collection"),
+			hideable: true,
+			sortValue: (row) => ARTICLE_COLLECTIONS.indexOf(row.collection),
+			cell: (row) => (
+				<span className="whitespace-nowrap">
+					{t(`articles.collections.${row.collection}`)}
+				</span>
+			),
+		},
+		{
+			id: "linked",
+			header: t("articles.linked"),
+			hideable: true,
+			sortValue: (row) => row.linkedTickets,
+			cell: (row) => (
+				<span className="tabular-nums">{number.format(row.linkedTickets)}</span>
+			),
+		},
+		{
+			id: "id",
+			header: t("articles.slug"),
+			hideable: true,
+			cell: (row) => <span className="text-muted-foreground">{row.id}</span>,
 		},
 		{
 			id: "helpful",
 			header: t("articles.helpful"),
-			align: "end",
-			sortValue: (row) => row.helpful ?? -1,
+			hideable: true,
 			cell: (row) =>
 				row.helpful === null ? (
-					<span className="text-muted-foreground">—</span>
+					<span className="text-muted-foreground">–</span>
 				) : (
-					<span
-						className={cn(
-							row.helpful < LOW_HELPFUL && "font-medium text-destructive",
-						)}
-					>
+					<span className="flex items-center gap-1.5 tabular-nums">
+						<ThumbsUpIcon className="size-4 text-warning" />
 						{percent.format(row.helpful)}
 					</span>
 				),
 		},
 		{
-			id: "linked",
-			header: t("articles.linked"),
-			align: "end",
-			sortValue: (row) => row.linkedTickets,
-			cell: (row) => (
-				<span
-					className={cn(row.linkedTickets === 0 && "text-muted-foreground")}
-				>
-					{number.format(row.linkedTickets)}
-				</span>
-			),
-		},
-		{
-			id: "updated",
-			header: t("articles.updated"),
-			align: "end",
-			sortValue: (row) => Date.parse(row.updatedAt),
-			// The author shows as an avatar beside the date, so no author column takes room. The name is in the title.
-			cell: (row) => (
-				<span className="inline-flex items-center gap-2 whitespace-nowrap text-muted-foreground">
-					<span title={row.authorName} className="inline-flex">
-						<PersonAvatar
-							name={row.authorName}
-							tone="agent"
-							className="size-6"
-						/>
-						<span className="sr-only">{row.authorName}</span>
-					</span>
-					{formatUpdateDate(row.updatedAt, now, locale)}
-				</span>
-			),
+			id: "status",
+			header: t("articles.status"),
+			sortValue: (row) => stateOf(row),
+			cell: (row) =>
+				row.isDraft ? (
+					<Badge variant="warning">{t("articles.states.draft")}</Badge>
+				) : (
+					<Badge variant="success">{t("articles.states.published")}</Badge>
+				),
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("articles.title")}
-				description={fillMessage(t("articles.description"), {
-					published: number.format(publishedCount),
-					drafts: number.format(articles.length - publishedCount),
-					views: number.format(totalViews),
-					days: number.format(ARTICLE_FIGURE_DAYS),
-				})}
-			/>
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(row) => `${row.title} ${row.summary}`}
-						noResults={t("articles.noResults")}
-						toolbar={
-							<Tabs
-								value={activeCollection}
-								onValueChange={(value) =>
-									navigate({
-										search: (previous) => ({
-											...previous,
-											collection: ARTICLE_COLLECTIONS.find(
-												(option) => option === value,
-											),
-										}),
-									})
-								}
-								className="max-w-full overflow-x-auto"
-							>
-								<TabsList>
-									<TabsTrigger value="all">
-										{t("articles.all")}
-										<span className="text-muted-foreground tabular-nums">
-											{number.format(articles.length)}
-										</span>
-									</TabsTrigger>
-									{tabs.map((tab) => (
-										<TabsTrigger key={tab.value} value={tab.value}>
-											{t(`articles.collections.${tab.value}`)}
-											<span className="text-muted-foreground tabular-nums">
-												{number.format(tab.count)}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
+				actions={
+					<Button
+						type="button"
+						aria-label={t("common.exportCsv")}
+						onClick={() =>
+							downloadCsv("articles.csv", toCsv(rows, articleCsvColumns(t)))
 						}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("common.exportCsv")}</span>
+					</Button>
+				}
+			/>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{figures.map((figure) => (
+					<ArticleFigureCard
+						key={figure.id}
+						label={t(`articles.figures.${figure.id}`)}
+						value={figureValue(figure)}
+						change={figure.change}
 					/>
-				</CardContent>
-			</Card>
+				))}
+			</div>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) => `${row.title} ${row.summary} ${row.id}`}
+				searchPlaceholder={t("articles.searchPlaceholder")}
+				pageSize={ARTICLES_PAGE_SIZE}
+				noResults={t("articles.noResults")}
+				selectable
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("articles.status")}
+							options={ARTICLE_STATES.map((value) => ({
+								value,
+								label: t(`articles.states.${value}`),
+							}))}
+							value={state}
+							onValueChange={setState}
+						/>
+						<RecordFilter
+							label={t("articles.collection")}
+							options={ARTICLE_COLLECTIONS.map((value) => ({
+								value,
+								label: t(`articles.collections.${value}`),
+							}))}
+							value={collection ?? null}
+							onValueChange={(value) =>
+								navigate({
+									search: (previous) => ({
+										...previous,
+										collection: ARTICLE_COLLECTIONS.find(
+											(option) => option === value,
+										),
+									}),
+								})
+							}
+						/>
+						<RecordFilter
+							label={t("articles.author")}
+							options={authors.map((value) => ({ value, label: value }))}
+							value={author}
+							onValueChange={setAuthor}
+						/>
+					</>
+				}
+				bulkActions={(selectedRows) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"articles-selected.csv",
+								toCsv(selectedRows, articleCsvColumns(t)),
+							)
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem onSelect={() => openArticle(row.id)}>
+							{t("articles.openArticle")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.id, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("articles.copyId")}
+						</DropdownMenuItem>
+					</>
+				)}
+			/>
 			<ArticleSheet article={selected} onClose={() => openArticle(undefined)} />
 		</div>
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+// Placeholder keys of the figure row and the table rows. Fixed keys, because they never reorder.
+const SKELETON_FIGURES = ["1", "2", "3", "4"];
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 /** Placeholder while the articles loader runs. The route sets it as pendingComponent. */
 export function ArticlesPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-3">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-lg" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<div className="grid @4xl/main:grid-cols-4 @xl/main:grid-cols-2 gap-4">
+				{SKELETON_FIGURES.map((key) => (
+					<Skeleton key={key} className="h-28" />
+				))}
+			</div>
+			<div className="grid gap-2 rounded-md border p-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-12 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

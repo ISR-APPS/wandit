@@ -1,6 +1,7 @@
 /**
  * Web preview of a web project and of a desktop project. pages/app-builder-page.tsx renders it and passes the live URL of the publish status.
- * A stage bar holds the address capsule (viewport toggle, page picker, live app link, reload, new tab), the Select toggle, and the Thème button.
+ * A stage bar holds the address field, the Select toggle, and the Thème button.
+ * The address field holds the viewport toggle, the page picker, the live app link, reload, and new tab.
  * The "Try to fix" error banner (PreviewErrorBanner) sits under the bar. Below it, the app shows at full width or in a phone of iPhone shape.
  * A desktop project has no viewport toggle: desktop-window.tsx shows the app in a Windows window.
  * usePreviewToken mints the preview URL. PreviewPanel shows the iframe and passes the bridge messages. RoutePicker lists the pages.
@@ -55,16 +56,16 @@ import { RoutePicker } from "./route-picker";
 // The sheet holds the contracts look catalog, so the builder chunk loads it only on the first open.
 const ThemeSheet = lazy(() => import("./theme-sheet"));
 
-// The raised white pill of the Select and Thème buttons, for a kit Button with the outline variant.
-// It stands next to the recessed address capsule, so the bar has two levels.
-const STAGE_PILL_BUTTON_CLASS =
-	"h-8 shrink-0 gap-1.5 rounded-full border-night/[0.09] bg-white px-3 font-grotesk font-medium text-[13px] text-night/75 shadow-raised hover:border-night/20 hover:bg-white hover:text-night active:translate-y-px disabled:opacity-40 disabled:shadow-none dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-foreground/75 dark:hover:bg-white/[0.1] dark:hover:text-foreground";
-// An active mode is a pressed pill. It has the spark tint of a picked kit row and the well shade.
-const STAGE_PILL_ACTIVE_CLASS =
-	"border-spark-deep/25 bg-spark/[0.18] text-night shadow-well hover:border-spark-deep/40 hover:bg-spark/[0.24] dark:border-spark/30 dark:bg-spark/[0.16] dark:text-foreground dark:hover:bg-spark/[0.22]";
+// The flat outline of the Select and Thème buttons, for a kit Button with the outline variant.
+// The kit gives the pill corner. The button has a hairline and no shadow, like each second action.
+const STAGE_BUTTON_CLASS =
+	"h-8 shrink-0 gap-1.5 border-night/[0.12] bg-white px-3 font-grotesk font-medium text-[13px] text-night shadow-none hover:bg-night/[0.04] hover:text-night disabled:opacity-40 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground";
+// An active mode (select mode on, or the Thème sheet open) has the spark tint of a picked kit row.
+const STAGE_BUTTON_ACTIVE_CLASS =
+	"border-spark-deep/25 bg-spark/[0.18] text-night hover:border-spark-deep/40 hover:bg-spark/[0.24] dark:border-spark/30 dark:bg-spark/[0.16] dark:text-foreground dark:hover:bg-spark/[0.22]";
 
-// The capsule buttons are one step smaller than the bar buttons, so they fit the 36 px capsule.
-const CAPSULE_BUTTON_CLASS = cn(TOOLBAR_ICON_BUTTON_CLASS, "size-7");
+// The buttons of the address pill are 28 px. The 32 px pill then leaves 2 px on each side.
+const ADDRESS_BUTTON_CLASS = cn(TOOLBAR_ICON_BUTTON_CLASS, "size-7");
 
 // The stage padding, the dots, and the frame move together on a toggle. So the frame stays centered.
 // The ease is the quick start and long settle of an iOS sheet.
@@ -81,7 +82,7 @@ export type WebPreviewProps = {
 	project: AppProject;
 	/**
 	 * `https://{slug}.{SITES_DOMAIN}` of the live app, from the publish status. Null before the
-	 * first publish. Undefined while the status loads or after it failed: the capsule then shows no host.
+	 * first publish. Undefined while the status loads or after it failed: the address field then shows no host.
 	 */
 	liveUrl: string | null | undefined;
 	/** `desktop` or `mobile`, from `?viewport=`. `mobile` shrinks the iframe. A desktop project ignores it. */
@@ -115,7 +116,7 @@ export type WebPreviewProps = {
 /**
  * The mobile viewport shrinks the same document; it does not change the
  * app. A pick in the route picker loads that page. A page change inside the
- * app only updates the capsule.
+ * app only updates the address field.
  */
 export function WebPreview({
 	project,
@@ -146,8 +147,8 @@ export function WebPreview({
 
 	// The page the iframe loads. It changes only on a pick or a new preview URL.
 	const [framePath, setFramePath] = useState("/");
-	// The page the capsule shows. The app reports each page change through the bridge.
-	// LIMIT: projects made before the route bridge post no route, so the capsule shows the last picked path. Upgrade: inject the bridge script from the preview proxy.
+	// The page the address field shows. The app reports each page change through the bridge.
+	// LIMIT: projects made before the route bridge post no route, so the address field shows the last picked path. Upgrade: inject the bridge script from the preview proxy.
 	const [currentPath, setCurrentPath] = useState("/");
 	// A new preview URL (reload, token renewal, restore) loads the page the app shows now, not the first page.
 	// The reload button only mints a token. A path change before the new URL arrives loads the page two times.
@@ -268,7 +269,7 @@ export function WebPreview({
 				onSelectingChange(false);
 				return;
 			case "wandit:route":
-				// Only the capsule follows the app. A new src would reload the page the app shows already.
+				// Only the address field follows the app. A new src would reload the page the app shows already.
 				setCurrentPath(message.path);
 				return;
 		}
@@ -278,8 +279,8 @@ export function WebPreview({
 		<div className="flex min-h-0 flex-1 flex-col">
 			{/* No Back or Forward: the page cannot read the history of the cross-origin preview frame. */}
 			<div className="flex h-12 shrink-0 items-center justify-center gap-2 border-night/[0.07] border-b px-3 dark:border-white/[0.07]">
-				{/* The capsule is a recessed well, like the address field of a browser. */}
-				<div className="flex h-9 min-w-0 max-w-[680px] flex-1 items-center gap-0.5 rounded-full bg-night/[0.05] px-1 shadow-well dark:bg-white/[0.06]">
+				{/* The address field is a flat ink pill, like the address field of a browser. The 2 px inset keeps its round ends parallel to the round buttons. */}
+				<div className="flex h-8 min-w-0 max-w-[680px] flex-1 items-center gap-0.5 rounded-full bg-night/[0.05] px-0.5 dark:bg-white/[0.06]">
 					{isDesktopApp ? null : (
 						<>
 							<IconAction
@@ -292,7 +293,7 @@ export function WebPreview({
 								<Button
 									variant="ghost"
 									size="icon-sm"
-									className={CAPSULE_BUTTON_CLASS}
+									className={ADDRESS_BUTTON_CLASS}
 									onClick={() => onChangeViewport(nextViewport)}
 								>
 									<ViewportIcon aria-hidden weight="bold" className="size-4" />
@@ -311,7 +312,7 @@ export function WebPreview({
 					/>
 					{/* The public host of the app links to the live app. The real sandbox host stays inside the iframe. */}
 					{liveUrl === undefined ? null : liveUrl === null ? (
-						<span className="min-w-0 max-w-[40%] truncate px-2 text-[12.5px] text-night/50 dark:text-foreground/50">
+						<span className="min-w-0 max-w-[40%] truncate px-2 text-[12px] text-night/50 dark:text-foreground/50">
 							{t("appBuilder.publish.notLive")}
 						</span>
 					) : (
@@ -321,7 +322,7 @@ export function WebPreview({
 									href={liveUrl}
 									target="_blank"
 									rel="noopener noreferrer"
-									className="flex min-w-0 max-w-[40%] items-center gap-1.5 rounded-full px-2 text-[12.5px] text-night/50 outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/50 dark:hover:text-foreground"
+									className="flex h-7 min-w-0 max-w-[40%] items-center gap-1.5 rounded-full px-2 text-[12px] text-night/50 outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/50 dark:hover:text-foreground"
 								>
 									<GlobeSimpleIcon
 										aria-hidden
@@ -343,7 +344,7 @@ export function WebPreview({
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							className={CAPSULE_BUTTON_CLASS}
+							className={ADDRESS_BUTTON_CLASS}
 							onClick={onReload}
 						>
 							<ArrowClockwiseIcon
@@ -357,7 +358,7 @@ export function WebPreview({
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							className={CAPSULE_BUTTON_CLASS}
+							className={ADDRESS_BUTTON_CLASS}
 							disabled={preview.tabUrl === null}
 							onClick={openInNewTab}
 						>
@@ -378,8 +379,8 @@ export function WebPreview({
 							disabled={!canStartTurn || !hasBridge}
 							onClick={() => onSelectingChange(!isSelecting)}
 							className={cn(
-								STAGE_PILL_BUTTON_CLASS,
-								isSelecting && STAGE_PILL_ACTIVE_CLASS,
+								STAGE_BUTTON_CLASS,
+								isSelecting && STAGE_BUTTON_ACTIVE_CLASS,
 							)}
 						>
 							<CrosshairIcon aria-hidden weight="bold" className="size-4" />
@@ -404,8 +405,8 @@ export function WebPreview({
 								disabled={isThemeDisabled}
 								onClick={toggleTheme}
 								className={cn(
-									STAGE_PILL_BUTTON_CLASS,
-									isThemeOpen && STAGE_PILL_ACTIVE_CLASS,
+									STAGE_BUTTON_CLASS,
+									isThemeOpen && STAGE_BUTTON_ACTIVE_CLASS,
 								)}
 							>
 								<PaletteIcon aria-hidden weight="bold" className="size-4" />

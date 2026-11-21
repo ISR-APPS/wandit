@@ -1,6 +1,6 @@
 /**
  * Builds the real `BuilderTurnDeps`: the repositories on a fresh pool, the
- * sandbox provider, the harness, the host tools, metering, the thumbnail
+ * sandbox provider, the harness, the host tools (with the Exa search, and the Firecrawl page reader, site capture, and page cache), metering, the thumbnail
  * scheduler, the security scan reads and writes, and the Redis clients. The `builder-turn` task imports this
  * file lazily for one turn; the harness host builds it once for all its
  * turns. `close` ends every client.
@@ -11,6 +11,7 @@ import { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
+import { fetchPublicBytes } from "../infrastructure/http/public-fetch";
 import {
 	contentTypeFor,
 	getObjectBytes,
@@ -26,6 +27,15 @@ import { ProjectSecretsService } from "../modules/app-builder/application/servic
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
 import type { BuilderHarness } from "../modules/app-builder/domain/ports/builder-harness";
 import type { SandboxFile } from "../modules/app-builder/domain/ports/sandbox-provider";
+import type {
+	CaptureSitePage,
+	FetchWebPage,
+} from "../modules/app-builder/domain/ports/web-pages";
+import { searchExa } from "../modules/app-builder/infrastructure/exa/exa-search.client";
+import {
+	captureWithFirecrawl,
+	fetchPageWithFirecrawl,
+} from "../modules/app-builder/infrastructure/firecrawl/firecrawl.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
 import { commitTurnUnlessClean } from "../modules/app-builder/infrastructure/git/commit-turn";
@@ -46,6 +56,7 @@ import { SecurityScansRepository } from "../modules/app-builder/infrastructure/p
 import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { LlmSpendCounters } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
+import { RedisWebPageCache } from "../modules/app-builder/infrastructure/redis/redis-web-page-cache";
 import { llmProxyBaseUrl } from "../modules/app-builder/infrastructure/sandbox/sandbox-start";
 import {
 	ArchiveTemplateInit,
@@ -57,8 +68,7 @@ import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/
 import { TriggerGithubSyncScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerThumbnailCaptureScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-thumbnail-capture-scheduler";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
-import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
-import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
+import { StarterPassesRepository } from "../modules/billing/infrastructure/persistence/starter-passes.repository";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { subjectPayer } from "../modules/credits/domain/credit-owner";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
@@ -151,11 +161,35 @@ export async function createBuilderTurnDeps(
 		supabaseToken && supabaseOrganizationSlug
 			? new RedisSupabaseRateLimiter()
 			: null;
+	// Without the Exa key the turns get no `web_search` tool and no other search.
+	const exaApiKey = env.EXA_API_KEY;
+	// Without the Firecrawl key the turns get no `web_fetch`, `capture_site`, or `compare_clone` tool.
+	const firecrawlApiKey = env.FIRECRAWL_API_KEY;
+	const webPages =
+		firecrawlApiKey === undefined
+			? undefined
+			: {
+					captureSitePage: ((request, abortSignal) =>
+						captureWithFirecrawl(
+							firecrawlApiKey,
+							request,
+							abortSignal,
+						)) satisfies CaptureSitePage,
+					fetchPublicFile: fetchPublicBytes,
+					fetchWebPage: ((url, abortSignal) =>
+						fetchPageWithFirecrawl(
+							firecrawlApiKey,
+							url,
+							abortSignal,
+						)) satisfies FetchWebPage,
+					pageCache: new RedisWebPageCache(logger),
+				};
 	const close = async () => {
 		// Each holds a Redis client; close them next to the pool (A6).
 		await counters.onModuleDestroy();
 		await turnLock.onModuleDestroy();
 		await supabaseRateLimiter?.onModuleDestroy();
+		await webPages?.pageCache.close();
 		await db.$client.end();
 	};
 	try {
@@ -178,11 +212,10 @@ export async function createBuilderTurnDeps(
 			new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 		);
 		const chats = new ChatsRepository(db);
-		const subscriptions = new SubscriptionsRepository(db);
 		const metering = createTriggerMetering(db);
 		const credits = new CreditsService(new CreditsRepository(db));
 		const settings = new ProductSettingsService(
-			new ProductSettingsRepository(db),
+			new ProductSettingsRepository(db, new StarterPassesRepository(db)),
 		);
 		const promoter = new TurnPromoter(
 			turns,
@@ -247,6 +280,12 @@ export async function createBuilderTurnDeps(
 				metering,
 				networkHosts: new ProjectNetworkHostsRepository(db),
 				now: () => new Date(),
+				...(exaApiKey === undefined
+					? {}
+					: {
+							searchWeb: (request, abortSignal) =>
+								searchExa(exaApiKey, request, abortSignal),
+						}),
 				secrets: new ProjectSecretsService(
 					secretsRepo,
 					new ProjectsRepository(db),
@@ -254,6 +293,7 @@ export async function createBuilderTurnDeps(
 					env,
 				),
 				secretsRepo,
+				...(webPages === undefined ? {} : { webPages }),
 			}),
 			insertAssistantMessage: (input) =>
 				chats.insertTurnAssistantMessage(input),
@@ -280,13 +320,13 @@ export async function createBuilderTurnDeps(
 				(await credits.getSettledBalance(subjectPayer(subject))).settledBalance,
 			// `ProductSettingsService.get` caches 30 s; the tick reads it.
 			readV2Enabled: async () => (await settings.get()).v2BuilderEnabled,
+			readDisabledModels: async () => (await settings.get()).v2DisabledModels,
 			// Any URL under R2_PUBLIC_BASE_URL gives a key. TurnsService.create
 			// checks the upload owner first.
 			readUpload: async (url) => {
 				const key = publicAssetKeyFromUrl(url);
 				return key === null ? null : getObjectBytes(key);
 			},
-			resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 			sandboxSessions,
 			sandboxes,
 			securityScan: {

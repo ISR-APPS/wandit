@@ -45,6 +45,11 @@ export function initialsOf(name: string): string {
 	return `${first}${last}`.toLocaleUpperCase();
 }
 
+/** The tel: link of a phone number, for example "555-0142". A tel: link keeps dashes but drops spaces. */
+export function telHref(phone: string): string {
+	return `tel:${phone.replaceAll(" ", "")}`;
+}
+
 /**
  * The plural form of a count in the app language: "one" for 1 in English, else "other".
  * A message with a count has one text per form, for example `load.pallets.one` and `load.pallets.other`.

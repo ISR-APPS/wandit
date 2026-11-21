@@ -1,3 +1,7 @@
+/**
+ * Raw SQL of the admin overview page: users, revenue, usage, and payment signals.
+ * AdminStatsService calls it. It reuses AdminAnalyticsRepository for the shared metrics.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "@wandit/db";
 
@@ -23,6 +27,7 @@ type GrowthRow = {
 	total_users: NumericValue;
 	active_users: NumericValue;
 	activation_percent: NumericValue;
+	starter_passes_in_range: NumericValue;
 	signups_change_percent: NumericValue;
 	websites_change_percent: NumericValue;
 };
@@ -102,6 +107,8 @@ export type AdminOverviewRepositorySnapshot = {
 		signupsChangePercent: number;
 		activeUsers: number;
 		activationPercent: number;
+		/** Starter passes bought by card or SlickPay in the range. A revoked pass still counts. */
+		starterPassesInRange: number;
 	};
 	generation: {
 		attempts: number;
@@ -243,10 +250,20 @@ export class AdminOverviewRepository {
 					and p.completed_at >= b.previous_start
 					and p.completed_at < b.current_end
 			),
+			starter_pass_metrics as (
+				-- Bought passes only: an admin grant, the dev seed, and the grandfather backfill do not count.
+				select count(*)::bigint as starter_passes_in_range
+				from starter_passes sp
+				cross join bounds b
+				where sp.source in ('stripe', 'slickpay')
+					and sp.created_at >= b.current_start
+					and sp.created_at < b.current_end
+			),
 			metrics as (
 				select
 					u.*,
 					w.*,
+					sp.*,
 					${percentChangeSql(sql`u.current_signups`, sql`u.previous_signups`)} as signups_change_percent,
 					${percentChangeSql(sql`w.current_websites`, sql`w.previous_websites`)} as websites_change_percent,
 					case
@@ -255,6 +272,7 @@ export class AdminOverviewRepository {
 					end::double precision as activation_percent
 				from user_metrics u
 				cross join website_metrics w
+				cross join starter_pass_metrics sp
 			),
 			daily_signups as (
 				select
@@ -284,6 +302,7 @@ export class AdminOverviewRepository {
 				m.total_users,
 				m.active_users,
 				m.activation_percent,
+				m.starter_passes_in_range,
 				m.signups_change_percent,
 				m.websites_change_percent
 			from days d
@@ -312,6 +331,7 @@ export class AdminOverviewRepository {
 				signupsChangePercent: toNumber(first?.signups_change_percent),
 				activeUsers: toNumber(first?.active_users),
 				activationPercent: toNumber(first?.activation_percent),
+				starterPassesInRange: toNumber(first?.starter_passes_in_range),
 				websitesGenerated: result.rows.reduce(
 					(sum, row) => sum + toNumber(row.websites_generated),
 					0,
@@ -327,9 +347,9 @@ export class AdminOverviewRepository {
 	) {
 		// Stripe gross = one-time payment orders + subscription invoice
 		// settlements (billing_invoice_applications amount snapshots; rows
-		// predating the snapshot columns carry NULL and drop out). Subscription
-		// amounts are gross — refunds are not netted for them. Top-up sessions
-		// have no relational amount source yet and stay uncounted; affiliate
+		// predating the snapshot columns carry NULL and drop out) + Stripe
+		// top-up receipts. Amounts are gross: refunds are not netted. SlickPay
+		// and offline receipts are not USD card cash and stay out. Affiliate
 		// commission bases are not gross revenue and remain excluded.
 		const result = await client.execute<RevenueRow>(sql`
 			with bounds as (${overviewBounds(input)}),
@@ -359,6 +379,15 @@ export class AdminOverviewRepository {
 					and lower(a.currency) = 'usd'
 					and a.paid_at >= b.previous_start
 					and a.paid_at < b.current_end
+				union all
+				select t.paid_at, t.amount_cents
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.provider = 'stripe'
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
+					and t.paid_at >= b.previous_start
+					and t.paid_at < b.current_end
 			),
 			totals as (
 				select

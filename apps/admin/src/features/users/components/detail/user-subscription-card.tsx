@@ -1,9 +1,10 @@
+/**
+ * Read-only history card of the last subscription of a user, from before pricing v8.
+ * UserDetailPage renders it when the detail has a subscription. Uses the old plan catalog for the price.
+ */
 import { isManualSubscription } from "@wandit/contracts";
-import { CalendarPlusIcon, OctagonXIcon } from "lucide-react";
-import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -11,9 +12,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import { useAdminPermission } from "@/features/auth/lib/permissions";
-import { EndManualSubscriptionDialog } from "@/features/offline-billing/components/end-manual-subscription-dialog";
-import { RenewManualSubscriptionDialog } from "@/features/offline-billing/components/renew-manual-subscription-dialog";
 import type { AdminUserSubscription } from "@/features/users/api/users.dto";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
@@ -21,132 +19,76 @@ import { subscriptionPriceUsd, titleCase } from "./user-detail-helpers";
 
 type UserSubscriptionCardProps = {
 	subscription: AdminUserSubscription;
-	ownerLabel?: string;
 };
 
+/** Read-only card of the last plan. Plans end with pricing v8, so the card has no actions. */
 export function UserSubscriptionCard({
 	subscription,
-	ownerLabel,
 }: UserSubscriptionCardProps) {
-	const canManageBilling = useAdminPermission({ billing: ["manage"] });
-	const [activeDialog, setActiveDialog] = useState<"renew" | "end" | null>(
-		null,
-	);
 	const priceUsd = subscriptionPriceUsd(subscription);
 	const manual = isManualSubscription(subscription);
 
 	return (
-		<>
-			<Card className="shadow-none">
-				<CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-					<div className="space-y-1.5">
-						<div className="flex flex-wrap items-center gap-2">
-							<CardTitle>Subscription</CardTitle>
-							<Badge variant={manual ? "secondary" : "outline"}>
-								{manual ? "Paid offline" : "Stripe"}
+		<Card className="shadow-none">
+			<CardHeader className="space-y-1.5">
+				<div className="flex flex-wrap items-center gap-2">
+					<CardTitle>Subscription history</CardTitle>
+					<Badge variant={manual ? "secondary" : "outline"}>
+						{manual ? "Paid offline" : "Stripe"}
+					</Badge>
+				</div>
+				<CardDescription>
+					Plans end with pay as you go. This card shows the last plan for
+					reference.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<dl className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+					<DetailItem label="Plan" value={titleCase(subscription.plan)} />
+					<div className="flex min-w-0 flex-col gap-1">
+						<dt className="text-muted-foreground text-xs">Status</dt>
+						<dd>
+							<Badge
+								variant={
+									subscription.status === "active" ? "outline" : "secondary"
+								}
+								className="capitalize"
+							>
+								{titleCase(subscription.status)}
 							</Badge>
-						</div>
-						<CardDescription>
-							{manual
-								? "Current plan and manually funded billing period."
-								: "Current plan and recurring billing information."}
-						</CardDescription>
+						</dd>
 					</div>
-					{manual && canManageBilling ? (
-						<div className="flex flex-wrap items-center gap-2">
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={() => setActiveDialog("renew")}
-							>
-								<CalendarPlusIcon data-icon="inline-start" aria-hidden="true" />
-								Renew
-							</Button>
-							<Button
-								type="button"
-								variant="destructive"
-								size="sm"
-								onClick={() => setActiveDialog("end")}
-							>
-								<OctagonXIcon data-icon="inline-start" aria-hidden="true" />
-								End
-							</Button>
-						</div>
-					) : null}
-				</CardHeader>
-				<CardContent>
-					<dl className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-						<DetailItem label="Plan" value={titleCase(subscription.plan)} />
-						<div className="flex min-w-0 flex-col gap-1">
-							<dt className="text-muted-foreground text-xs">Status</dt>
-							<dd>
-								<Badge
-									variant={
-										subscription.status === "active" ? "outline" : "secondary"
-									}
-									className="capitalize"
-								>
-									{titleCase(subscription.status)}
-								</Badge>
-							</dd>
-						</div>
-						<DetailItem
-							label="Credit tier"
-							value={
-								subscription.pendingTierCredits === null
-									? `${subscription.tierCredits.toLocaleString("en-US")} credits / month`
-									: `${subscription.tierCredits.toLocaleString("en-US")} credits / month (downgrades to ${subscription.pendingTierCredits.toLocaleString("en-US")} at period end)`
-							}
-						/>
-						<DetailItem
-							label="Price"
-							value={
-								priceUsd === null
-									? "Price unavailable"
-									: `$${priceUsd.toLocaleString("en-US")} / ${subscription.interval}`
-							}
-						/>
-						<DetailItem
-							label="Billing interval"
-							value={subscription.interval === "month" ? "Monthly" : "Yearly"}
-						/>
-						<DetailItem
-							label={manual ? "Expires" : "Current period ends"}
-							value={formatAdminDate(subscription.currentPeriodEnd)}
-						/>
-						<DetailItem
-							label="Cancels at period end"
-							value={subscription.cancelAtPeriodEnd ? "Yes" : "No"}
-						/>
-					</dl>
-				</CardContent>
-			</Card>
-
-			{manual && canManageBilling ? (
-				<>
-					<RenewManualSubscriptionDialog
-						subscription={{
-							id: subscription.id,
-							plan: subscription.plan,
-							interval: subscription.interval,
-							tierCredits: subscription.tierCredits,
-							currentPeriodEnd: subscription.currentPeriodEnd,
-							entitled: subscription.status === "active",
-							ownerLabel,
-						}}
-						open={activeDialog === "renew"}
-						onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
+					<DetailItem
+						label="Credit tier"
+						value={
+							subscription.pendingTierCredits === null
+								? `${subscription.tierCredits.toLocaleString("en-US")} credits / month`
+								: `${subscription.tierCredits.toLocaleString("en-US")} credits / month (downgrades to ${subscription.pendingTierCredits.toLocaleString("en-US")} at period end)`
+						}
 					/>
-					<EndManualSubscriptionDialog
-						subscriptionId={subscription.id}
-						ownerLabel={ownerLabel}
-						open={activeDialog === "end"}
-						onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
+					<DetailItem
+						label="Price"
+						value={
+							priceUsd === null
+								? "Price unavailable"
+								: `$${priceUsd.toLocaleString("en-US")} / ${subscription.interval}`
+						}
 					/>
-				</>
-			) : null}
-		</>
+					<DetailItem
+						label="Billing interval"
+						value={subscription.interval === "month" ? "Monthly" : "Yearly"}
+					/>
+					<DetailItem
+						label={manual ? "Expires" : "Current period ends"}
+						value={formatAdminDate(subscription.currentPeriodEnd)}
+					/>
+					<DetailItem
+						label="Cancels at period end"
+						value={subscription.cancelAtPeriodEnd ? "Yes" : "No"}
+					/>
+				</dl>
+			</CardContent>
+		</Card>
 	);
 }
 

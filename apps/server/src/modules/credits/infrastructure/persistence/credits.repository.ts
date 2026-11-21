@@ -9,7 +9,8 @@ import {
 	type CreditKind,
 	type PaginationQuery,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "@wandit/db";
+import { productSettings, starterPasses } from "@wandit/db/schema/billing";
 import {
 	aiUsageEvents,
 	type aiUsageOperation,
@@ -23,6 +24,7 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { livePassOfOwner } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import {
 	type CreditOwner,
 	creditOwnerLockValue,
@@ -47,6 +49,11 @@ export type SettledBalanceSnapshot = CreditBalance & {
 	settledPlan: number;
 	settledPromo: number;
 	settledTopup: number;
+	/**
+	 * True when `product_settings.starter_pass_required` is on and the pool has no live `starter_passes` row.
+	 * The reserve admission refuses then. It comes from the same statement as the sums.
+	 */
+	starterPassRequired: boolean;
 };
 
 /** One activity feed row, still in integer centi-credits and raw DB enums. */
@@ -185,32 +192,76 @@ export class CreditsRepository {
 	 * reverse those rows with narrowly keyed grants, so subtracting the matching
 	 * refunds keeps failed or over-reserved work from counting as credits used.
 	 * Organization rows are deliberately excluded even when user_id records the
-	 * acting member.
+	 * acting member. The sum is a bigint: a lifetime total can pass the int
+	 * range (21.4M credits). The lifecycle emails and the spend badges read it.
 	 */
 	async netConsumedCentiCredits(
 		userId: string,
 		client: CreditsDbClient = this.db,
 	): Promise<number> {
 		const result = await client.execute(sql`
-			select coalesce(-sum(${creditLedger.delta}), 0)::int as total
+			select coalesce(-sum(${creditLedger.delta}), 0)::bigint as total
 			from ${creditLedger}
 			where ${creditLedger.userId} = ${userId}
 				and ${creditLedger.organizationId} is null
-				and (
-					${creditLedger.kind} = 'consume'
-					or (
-						${creditLedger.kind} = 'grant'
-						and (
-							${creditLedger.idempotencyKey} like 'settle-refund:%'
-							or ${creditLedger.idempotencyKey} like 'reconcile-refund:%'
-							or ${creditLedger.idempotencyKey} like 'refund:%'
-						)
-					)
-				)
+				and ${this.netConsumptionRowPredicate()}
 		`);
 		const row = result.rows[0] as { total?: unknown } | undefined;
 
 		return Number(row?.total ?? 0);
+	}
+
+	/**
+	 * Net consumption of the pool of `owner` since `since`, in integer centi-credits.
+	 * It uses the same rows as netConsumedCentiCredits, and it includes in-flight reserves.
+	 * The wallet view calls it through CreditsService. The result can be negative when a refund is late.
+	 */
+	async netConsumedCentiCreditsSince(
+		owner: CreditOwner,
+		since: Date,
+	): Promise<number> {
+		// The user_id or organization_id index with created_at serves the owner and date filters.
+		const [row] = await this.db
+			.select({
+				total: sql<string>`coalesce(-sum(${creditLedger.delta}), 0)::bigint`,
+			})
+			.from(creditLedger)
+			.where(
+				and(
+					this.ledgerOwnerPredicate(owner),
+					gte(creditLedger.createdAt, since),
+					this.netConsumptionRowPredicate(),
+				),
+			);
+
+		return Number(row?.total ?? 0);
+	}
+
+	/**
+	 * Settled net consumption of the personal pools of `userIds`, in integer centi-credits.
+	 * A user with an in-flight hold on the personal pool is absent, and so is a user with no consumption.
+	 * The user referral sweep calls it through CreditsService to find the friends that built.
+	 */
+	async settledNetConsumedCentiCreditsByUser(
+		userIds: string[],
+	): Promise<Map<string, number>> {
+		const consumedByUser = new Map<string, number>();
+
+		// An empty id list makes an empty IN list. No user means no query.
+		if (userIds.length === 0) {
+			return consumedByUser;
+		}
+
+		const rows = await this.buildSettledNetConsumedQuery(userIds);
+
+		for (const row of rows) {
+			// The personal filter keeps only rows with a user id. The column type stays nullable.
+			if (row.userId !== null) {
+				consumedByUser.set(row.userId, row.total);
+			}
+		}
+
+		return consumedByUser;
 	}
 
 	/**
@@ -237,6 +288,8 @@ export class CreditsRepository {
 	 * `reserve:<eventId>:<bucket>`, one row per bucket the spend order touched)
 	 * of the owner's in-flight events. settledBalance is the sum of the three
 	 * settled buckets. UNIT: integer centi-credits.
+	 * starter_pass_required is false when the settings row is missing: a fresh database has the switch off.
+	 * The settings id is the literal 1: the check product_settings_singleton_id_ck allows no other row.
 	 */
 	async getSettledBalanceSnapshot(
 		owner: CreditOwner,
@@ -275,8 +328,16 @@ export class CreditsRepository {
 				coalesce((select total from ledger where bucket = 'topup'), 0) as topup,
 				coalesce((select total from holds where bucket = 'plan'), 0) as hold_plan,
 				coalesce((select total from holds where bucket = 'promo'), 0) as hold_promo,
-				coalesce((select total from holds where bucket = 'topup'), 0) as hold_topup
+				coalesce((select total from holds where bucket = 'topup'), 0) as hold_topup,
+				coalesce((
+					select ${productSettings.starterPassRequired} from ${productSettings}
+					where ${productSettings.id} = 1
+				), false) and not exists (
+					select 1 from ${starterPasses}
+					where ${livePassOfOwner(owner)}
+				) as starter_pass_required
 		`);
+		// SAFETY: the select above names these seven columns; each value is parsed below.
 		const row = result.rows[0] as
 			| {
 					hold_plan: unknown;
@@ -284,6 +345,7 @@ export class CreditsRepository {
 					hold_topup: unknown;
 					plan: unknown;
 					promo: unknown;
+					starter_pass_required: unknown;
 					topup: unknown;
 			  }
 			| undefined;
@@ -302,6 +364,7 @@ export class CreditsRepository {
 			settledPlan,
 			settledPromo,
 			settledTopup,
+			starterPassRequired: row?.starter_pass_required === true,
 			topup,
 		};
 	}
@@ -554,25 +617,6 @@ export class CreditsRepository {
 		return existing;
 	}
 
-	listRefundablePlanHolds(
-		owner: CreditOwner,
-		client: CreditsDbClient = this.db,
-	): Promise<CreditPlanHoldRow[]> {
-		return client
-			.select()
-			.from(creditPlanHolds)
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			)
-			.orderBy(
-				asc(creditPlanHolds.createdAt),
-				asc(creditPlanHolds.consumeIdempotencyKey),
-			);
-	}
-
 	async findPlanHoldPools(
 		poolIds: string[],
 		client: CreditsDbClient = this.db,
@@ -585,50 +629,6 @@ export class CreditsRepository {
 			.select()
 			.from(creditPlanHoldPools)
 			.where(inArray(creditPlanHoldPools.id, poolIds));
-	}
-
-	async insertPlanHoldPool(
-		input: {
-			boundaryIdempotencyKey: string;
-			remainingCredits: number;
-			owner: CreditOwner;
-		},
-		client: CreditsDbClient = this.db,
-	): Promise<CreditPlanHoldPoolRow> {
-		const [inserted] = await client
-			.insert(creditPlanHoldPools)
-			.values({
-				boundaryIdempotencyKey: input.boundaryIdempotencyKey,
-				remainingCredits: input.remainingCredits,
-				...ownerColumns(input.owner),
-			})
-			.onConflictDoNothing({
-				target: creditPlanHoldPools.boundaryIdempotencyKey,
-			})
-			.returning();
-
-		if (inserted) {
-			return inserted;
-		}
-
-		const [existing] = await client
-			.select()
-			.from(creditPlanHoldPools)
-			.where(
-				eq(
-					creditPlanHoldPools.boundaryIdempotencyKey,
-					input.boundaryIdempotencyKey,
-				),
-			)
-			.limit(1);
-
-		if (!existing) {
-			throw new Error(
-				`Credit plan hold pool ${input.boundaryIdempotencyKey} disappeared after conflict`,
-			);
-		}
-
-		return existing;
 	}
 
 	async updatePlanHoldRefundable(
@@ -718,87 +718,6 @@ export class CreditsRepository {
 		return updated ?? null;
 	}
 
-	async applyPlanHoldBoundary(
-		owner: CreditOwner,
-		poolId: string | null,
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		await client
-			.update(creditPlanHolds)
-			.set({ poolId: null, refundableCredits: 0, updatedAt: new Date() })
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					eq(creditPlanHolds.active, false),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-
-		await client
-			.update(creditPlanHolds)
-			.set(
-				poolId
-					? { poolId, updatedAt: new Date() }
-					: { poolId: null, refundableCredits: 0, updatedAt: new Date() },
-			)
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					eq(creditPlanHolds.active, true),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-	}
-
-	async closePlanHoldPools(
-		owner: CreditOwner,
-		poolIds: string[],
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		if (poolIds.length === 0) {
-			return;
-		}
-
-		await client
-			.update(creditPlanHoldPools)
-			.set({
-				closedAt: new Date(),
-				remainingCredits: 0,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					this.poolOwnerPredicate(owner),
-					inArray(creditPlanHoldPools.id, poolIds),
-				),
-			);
-	}
-
-	async forfeitAllPlanHolds(
-		owner: CreditOwner,
-		client: CreditsDbClient = this.db,
-	): Promise<void> {
-		const holds = await this.listRefundablePlanHolds(owner, client);
-		const poolIds = [...new Set(holds.flatMap((hold) => hold.poolId ?? []))];
-
-		await client
-			.update(creditPlanHolds)
-			.set({
-				active: false,
-				poolId: null,
-				refundableCredits: 0,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					this.holdOwnerPredicate(owner),
-					gt(creditPlanHolds.refundableCredits, 0),
-				),
-			);
-
-		await this.closePlanHoldPools(owner, poolIds, client);
-	}
-
 	// Personal predicates require organization_id IS NULL so an org row whose
 	// userId records the acting member can never leak into a personal balance.
 	private ledgerOwnerPredicate(owner: CreditOwner) {
@@ -827,17 +746,67 @@ export class CreditsRepository {
 	// the actor in user_id.
 	private usageEventOwnerPredicate(owner: CreditOwner) {
 		return owner.type === "user"
-			? and(
-					isNull(aiUsageEvents.organizationId),
-					or(
-						and(
-							eq(aiUsageEvents.userId, owner.userId),
-							isNull(aiUsageEvents.payerUserId),
-						),
-						eq(aiUsageEvents.payerUserId, owner.userId),
-					),
-				)
+			? this.personalUsageEventPredicate(owner.userId)
 			: eq(aiUsageEvents.organizationId, owner.organizationId);
+	}
+
+	// The personal branch of usageEventOwnerPredicate. `payerUserId` is one user id,
+	// or the `credit_ledger.user_id` column when a batch query correlates each ledger row.
+	private personalUsageEventPredicate(
+		payerUserId: string | typeof creditLedger.userId,
+	) {
+		return and(
+			isNull(aiUsageEvents.organizationId),
+			or(
+				and(
+					eq(aiUsageEvents.userId, payerUserId),
+					isNull(aiUsageEvents.payerUserId),
+				),
+				eq(aiUsageEvents.payerUserId, payerUserId),
+			),
+		);
+	}
+
+	// The ledger rows that make net consumption. They are each consume row, and each grant
+	// that gives a reserve back (settle, reconcile, failure refund). See netConsumedCentiCredits.
+	private netConsumptionRowPredicate() {
+		return sql`(
+			${creditLedger.kind} = 'consume'
+			or (
+				${creditLedger.kind} = 'grant'
+				and (
+					${creditLedger.idempotencyKey} like 'settle-refund:%'
+					or ${creditLedger.idempotencyKey} like 'reconcile-refund:%'
+					or ${creditLedger.idempotencyKey} like 'refund:%'
+				)
+			)
+		)`;
+	}
+
+	// Kept as a builder so specs can assert the compiled SQL.
+	private buildSettledNetConsumedQuery(userIds: string[]) {
+		return this.db
+			.select({
+				total: sql<number>`coalesce(-sum(${creditLedger.delta}), 0)::int`,
+				userId: creditLedger.userId,
+			})
+			.from(creditLedger)
+			.where(
+				and(
+					inArray(creditLedger.userId, userIds),
+					// Personal pools only: an org row keeps the acting member in user_id.
+					isNull(creditLedger.organizationId),
+					this.netConsumptionRowPredicate(),
+					// A reserve is a consume row before the turn ends. A user with an open hold
+					// is left out, so a turn that fails later never counts as credits used.
+					sql`not exists (
+						select 1 from ${aiUsageEvents}
+						where ${this.inflightUsageEventPredicate()}
+							and ${this.personalUsageEventPredicate(creditLedger.userId)}
+					)`,
+				),
+			)
+			.groupBy(creditLedger.userId);
 	}
 
 	// An event whose reserve debit is still the only ledger movement. A

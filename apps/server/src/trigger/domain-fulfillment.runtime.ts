@@ -341,6 +341,7 @@ function createDomainCore(
 	});
 	const verification = new CustomHostnameVerificationStep(
 		infrastructure.customHostnames,
+		infrastructure.domains,
 	);
 	const configuration = new DomainConfigurationRunner({
 		activation,

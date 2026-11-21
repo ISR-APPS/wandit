@@ -3,26 +3,24 @@
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
  * mode menu picks the app type, web, mobile, desktop, or desktop 2 (Electron), through `platformChoice`,
- * the Plan chip of the app-builder feature sets `planChoice`, and its
- * model menu sets `modelChoice`. With `acceptsLongText`, a long paste becomes
+ * the Plan chip of the app-builder feature sets `planChoice`, its Clone chip
+ * writes a clone request into the draft of a web app, and its
+ * model menu with its thinking row sets `modelChoice`. With `acceptsLongText`, a long paste becomes
  * a text chip that goes with the prompt (lib/pasted-text.ts).
  * Calls the attachments upload service and the voice dictation hook.
  */
 
 import type { Icon } from "@phosphor-icons/react";
-import { BrainIcon } from "@phosphor-icons/react/Brain";
 import { BrowserIcon } from "@phosphor-icons/react/Browser";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
-import { CpuIcon } from "@phosphor-icons/react/Cpu";
 import { DesktopIcon } from "@phosphor-icons/react/Desktop";
 import { DesktopTowerIcon } from "@phosphor-icons/react/DesktopTower";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
-import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { ImageIcon } from "@phosphor-icons/react/Image";
 import { LayoutIcon } from "@phosphor-icons/react/Layout";
 import { MagicWandIcon } from "@phosphor-icons/react/MagicWand";
@@ -100,6 +98,7 @@ import { Spark } from "@/components/logo";
 import {
 	type BuilderModelPick,
 	BuilderModelPicker,
+	CloneSiteChip,
 	PlanModeToggle,
 } from "@/features/app-builder";
 import { useSession } from "@/features/auth";
@@ -107,18 +106,6 @@ import { ConnectorsDialog } from "@/features/connectors";
 import { KeycapButton } from "@/features/landing";
 import type { AppTypeChoice } from "@/lib/app-type-choice";
 import { useDictionary, useTranslation } from "@/lib/i18n";
-import {
-	BUILDER_MODEL_STORAGE_KEY,
-	BUILDER_MODELS,
-	BUILDER_REASONING_LEVELS,
-	BUILDER_REASONING_STORAGE_KEY,
-	DEFAULT_BUILDER_MODEL,
-	DEFAULT_BUILDER_REASONING,
-	getBuilderModelOption,
-	getBuilderReasoningOption,
-	readStoredBuilderModel,
-	readStoredBuilderReasoning,
-} from "@/lib/model-labels";
 import {
 	ATTACHMENT_ACCEPT,
 	AttachmentUploadError,
@@ -1197,123 +1184,6 @@ function ModePicker<Id extends string>({
 	);
 }
 
-// Dev-only chip next to the mode picker. It overrides the page-builder model
-// and its reasoning effort per message (composer options.builderModel and
-// options.builderReasoning). One icon chip holds both pickers, so the dev
-// controls take one slot of the toolbar. Hidden outside local dev builds.
-function BuilderSettingsPicker({
-	model,
-	onModelChange,
-	reasoning,
-	onReasoningChange,
-	isHero,
-}: {
-	/** Id of a BUILDER_MODELS row. "default" lets the server pick. */
-	model: string;
-	onModelChange: (id: string) => void;
-	/** Id of a BUILDER_REASONING_LEVELS row. "auto" sends nothing, so the provider decides. */
-	reasoning: string;
-	onReasoningChange: (id: string) => void;
-	isHero: boolean;
-}) {
-	const selectedModel = getBuilderModelOption(model);
-	const selectedReasoning = getBuilderReasoningOption(reasoning);
-	// The chip has no text, so a dot tells the developer that a pick is not the default.
-	const isOverridden =
-		model !== DEFAULT_BUILDER_MODEL.id ||
-		reasoning !== DEFAULT_BUILDER_REASONING.id;
-	const chipLabel = `Builder (dev): model ${selectedModel.label}, reasoning ${selectedReasoning.label}`;
-
-	return (
-		<DropdownMenu>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<DropdownMenuTrigger asChild>
-						<Button
-							type="button"
-							variant="outline"
-							size="icon-sm"
-							aria-label={chipLabel}
-							className={cn(
-								"relative",
-								isHero
-									? HERO_ICON_CHIP_CLASS
-									: // aria-expanded, not data-state: the tooltip on this button overwrites data-state.
-										"size-[30px] rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground aria-expanded:border-primary/30 aria-expanded:bg-primary/10 aria-expanded:text-foreground",
-							)}
-						>
-							<FlaskIcon
-								aria-hidden
-								weight="duotone"
-								className={isHero ? "size-[18px]" : "size-4"}
-							/>
-							{isOverridden ? (
-								<span
-									aria-hidden
-									className="absolute end-0.5 top-0.5 size-2 rounded-full bg-ember ring-2 ring-paper dark:ring-card"
-								/>
-							) : null}
-						</Button>
-					</DropdownMenuTrigger>
-				</TooltipTrigger>
-				<TooltipContent>{chipLabel}</TooltipContent>
-			</Tooltip>
-			<DropdownMenuContent
-				align="start"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-64"
-			>
-				<DropdownMenuLabel>Builder (dev)</DropdownMenuLabel>
-				{/* Each setting opens its own list, so the menu stays two rows tall. */}
-				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
-						<CpuIcon aria-hidden weight="duotone" />
-						<span className="flex-1">Model</span>
-						<span className="max-w-28 truncate font-normal font-sans text-muted-foreground text-xs">
-							{selectedModel.label}
-						</span>
-					</DropdownMenuSubTrigger>
-					<DropdownMenuSubContent sideOffset={10} className="w-56">
-						<DropdownMenuRadioGroup value={model} onValueChange={onModelChange}>
-							{BUILDER_MODELS.map((option) => (
-								<DropdownMenuRadioItemBare key={option.id} value={option.id}>
-									<span className="min-w-0 flex-1 truncate">
-										{option.label}
-									</span>
-									<RowCheck />
-								</DropdownMenuRadioItemBare>
-							))}
-						</DropdownMenuRadioGroup>
-					</DropdownMenuSubContent>
-				</DropdownMenuSub>
-				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
-						<BrainIcon aria-hidden weight="duotone" />
-						<span className="flex-1">Reasoning</span>
-						<span className="font-normal font-sans text-muted-foreground text-xs">
-							{selectedReasoning.label}
-						</span>
-					</DropdownMenuSubTrigger>
-					<DropdownMenuSubContent sideOffset={10} className="w-44">
-						<DropdownMenuRadioGroup
-							value={reasoning}
-							onValueChange={onReasoningChange}
-						>
-							{BUILDER_REASONING_LEVELS.map((level) => (
-								<DropdownMenuRadioItemBare key={level.id} value={level.id}>
-									<span className="min-w-0 flex-1 truncate">{level.label}</span>
-									<RowCheck />
-								</DropdownMenuRadioItemBare>
-							))}
-						</DropdownMenuRadioGroup>
-					</DropdownMenuSubContent>
-				</DropdownMenuSub>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
-}
-
 // Same calm, no-bounce ease as the chat tray's TRAY_EASE — the settings
 // wizard is composer chrome, so its motion stays quiet.
 const STEP_EASE = [0.32, 0.72, 0, 1] as const;
@@ -1736,12 +1606,14 @@ export type PromptBoxProps = {
 	 * turns a long paste into a text chip. False or absent keeps the V1 limit
 	 * and pastes into the textarea, because the V1 routes refuse a longer prompt. */
 	acceptsLongText?: boolean;
-	/** Reports the dev builder pick as a gateway model id (or "default") so
-	 * chat chrome can use it only when the transcript has no build truth yet. */
-	onBuilderModelChange?: (modelId: string) => void;
 	className?: string;
 };
 
+/**
+ * The prompt box. With `platformChoice` it is a V2 create: the app type menu,
+ * the Plan chip, the Clone chip of a web app, and the model menu replace the
+ * V1 mode menu, connectors, and output settings.
+ */
 export function PromptBox({
 	onSubmit,
 	attachmentsEnabled = false,
@@ -1760,7 +1632,6 @@ export function PromptBox({
 	submitOverride,
 	onValueChange,
 	acceptsLongText = false,
-	onBuilderModelChange,
 	className,
 }: PromptBoxProps) {
 	const { t, locale } = useTranslation();
@@ -1783,38 +1654,6 @@ export function PromptBox({
 		useState<GenerationOutputId | null>(initialOutput?.id ?? null);
 	const [outputOptions, setOutputOptions] =
 		useState<Record<string, string>>(initialOptions);
-	// Dev-only builder override (see BUILDER_MODELS); localStorage-backed so
-	// the choice survives the remounts between hero and chat composers.
-	const [builderModel, setBuilderModelState] = useState(() =>
-		readStoredBuilderModel(initialComposer?.options?.builderModel),
-	);
-	const setBuilderModel = useCallback(
-		(id: string) => {
-			const selection = getBuilderModelOption(id);
-			setBuilderModelState(selection.id);
-			try {
-				window.localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, selection.id);
-			} catch {
-				// Private-mode storage failures just lose persistence, not the pick.
-			}
-			onBuilderModelChange?.(selection.gatewayModelId);
-		},
-		[onBuilderModelChange],
-	);
-	// Dev-only builder reasoning override; same localStorage persistence
-	// pattern as the model pick. "auto" = send nothing, provider decides.
-	const [builderReasoning, setBuilderReasoningState] = useState(() =>
-		readStoredBuilderReasoning(initialComposer?.options?.builderReasoning),
-	);
-	const setBuilderReasoning = useCallback((id: string) => {
-		const selection = getBuilderReasoningOption(id);
-		setBuilderReasoningState(selection.id);
-		try {
-			window.localStorage.setItem(BUILDER_REASONING_STORAGE_KEY, selection.id);
-		} catch {
-			// Private-mode storage failures just lose persistence, not the pick.
-		}
-	}, []);
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>(() =>
 		(initialComposer?.skills ?? []).filter((id): id is SkillFileId =>
 			Boolean(getSkillFile(id as SkillFileId)),
@@ -2068,18 +1907,6 @@ export function PromptBox({
 		// previous COD selection must not leak into another landing-page goal.
 		if (options.goal !== "cod" || (codMode !== "simple" && codMode !== "max")) {
 			delete options.codMode;
-		}
-
-		// Dev-only builder override: rides as a composer option so each
-		// generate_page call snapshots the picked model — no server restart.
-		if (builderModel !== DEFAULT_BUILDER_MODEL.id) {
-			options.builderModel = builderModel;
-		}
-
-		// Dev-only reasoning override: "auto" is the server default, so only a
-		// real pick is worth sending.
-		if (builderReasoning !== DEFAULT_BUILDER_REASONING.id) {
-			options.builderReasoning = builderReasoning;
 		}
 
 		return {
@@ -2391,21 +2218,30 @@ export function PromptBox({
 								size={isHero ? "md" : "sm"}
 							/>
 						) : null}
+						{/* The same constant removes the Clone chip from the production bundle. Product rule: only a web app can copy a web page. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice?.value === "web" ? (
+							<CloneSiteChip
+								onCloneRequest={(cloneRequest) => {
+									// The request goes first, so the text that the user typed reads as its details.
+									const next =
+										value.trim() === ""
+											? cloneRequest
+											: `${cloneRequest}\n${value}`;
+									setValue(next);
+									onValueChange?.(joinPastedText(next, pastedTexts));
+									// A Plan turn has no capture tool, so the clone needs a build turn.
+									planChoice?.onChange(false);
+								}}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
+						) : null}
 						{/* The same constant removes the model menu from the production bundle. */}
 						{__V2_BUILDER_IN_BUILD__ && platformChoice && modelChoice ? (
 							<BuilderModelPicker
 								pick={modelChoice}
 								disabled={submissionPending || disabled}
 								size={isHero ? "md" : "sm"}
-							/>
-						) : null}
-						{import.meta.env.DEV ? (
-							<BuilderSettingsPicker
-								model={builderModel}
-								onModelChange={setBuilderModel}
-								reasoning={builderReasoning}
-								onReasoningChange={setBuilderReasoning}
-								isHero={isHero}
 							/>
 						) : null}
 						{/* A V2 create has no V1 output settings, even if a restored V1 draft holds a mode. */}

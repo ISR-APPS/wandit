@@ -56,6 +56,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
+	name: "My app",
 	organizationId: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
@@ -82,10 +83,12 @@ const OK = { exitCode: 0, stderr: "", stdout: "" };
 // A link whose worker mirrored a GitHub head that the project did not pull.
 const LINK: ProjectGithubLinkRow = {
 	createdAt: new Date("2026-11-01T10:00:00.000Z"),
+	githubCheckedAt: null,
 	githubUserId: 583231,
 	id: "link-1",
 	installationId: 7,
 	lastError: null,
+	lastSyncedAt: null,
 	lastSyncedSha: HEAD,
 	mirroredSha: GITHUB_SHA,
 	projectId: "p-1",
@@ -856,6 +859,7 @@ describe("VersionsService.pullFromGithub", () => {
 		sandboxes.respondTo("git", OK); // merge
 		sandboxes.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse MERGE_HEAD
 		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		sandboxes.respondTo("git", OK); // diff --cached: no changed agent file
 		// The R2 write fails before the push, so the push slot answers the restorer pull.
 		scriptCommit(sandboxes, NEW_SHA, HEAD);
 		sandboxes.respondTo("test", OK); // restorer's `.git` check after the failed commit
@@ -887,6 +891,7 @@ describe("VersionsService.pullFromGithub", () => {
 		sandboxes.respondTo("git", OK); // rm
 		sandboxes.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse MERGE_HEAD
 		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		sandboxes.respondTo("git", OK); // diff --cached: no changed agent file
 		scriptCommit(sandboxes, NEW_SHA, HEAD);
 		sandboxes.respondTo("pnpm", OK);
 
@@ -922,5 +927,40 @@ describe("VersionsService.pullFromGithub", () => {
 		);
 		expect(githubLinks.markPulled).toHaveBeenCalledWith("link-1", GITHUB_SHA);
 		expect(githubPullResponseSchema.parse(body).commit).not.toBeNull();
+	});
+
+	// Security: a GitHub edit of an agent file is a prompt injection into the next builder turn.
+	it("keeps the agent files of the project head and takes the GitHub app files", async () => {
+		const { appCommits, sandboxes, service } = fixture();
+		scriptPullUntilMerge(sandboxes, 1);
+		sandboxes.respondTo("git", OK); // merge
+		sandboxes.respondTo("git", { ...OK, stdout: `${GITHUB_SHA}\n` }); // rev-parse MERGE_HEAD
+		sandboxes.respondTo("git", OK); // diff --diff-filter=U: no unmerged path
+		sandboxes.respondTo("git", {
+			...OK,
+			stdout: "CLAUDE.md\0.claude/skills/x/SKILL.md\0src/App.tsx\0",
+		}); // diff --cached: GitHub changed CLAUDE.md and App.tsx, and added a skill
+		sandboxes.respondTo("git", OK); // checkout --no-overlay
+		scriptCommit(sandboxes, NEW_SHA, HEAD);
+		sandboxes.respondTo("pnpm", OK);
+
+		await service.pullFromGithub(SCOPE, "p-1", { expectedHeadSha: HEAD }, IP);
+
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		// `--no-overlay` restores CLAUDE.md from HEAD and removes the new skill. App.tsx keeps the GitHub side.
+		const keepIndex = execs.findIndex((line) =>
+			line.endsWith(
+				` --literal-pathspecs checkout --no-overlay ${HEAD} -- CLAUDE.md .claude/skills/x/SKILL.md`,
+			),
+		);
+		expect(keepIndex).toBeGreaterThan(-1);
+		expect(keepIndex).toBeLessThan(
+			execs.findIndex((line) => line.endsWith(" add -A")),
+		);
+		expect(appCommits.insert).toHaveBeenCalledWith(
+			expect.objectContaining({ source: "github" }),
+		);
 	});
 });

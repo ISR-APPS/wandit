@@ -1,21 +1,25 @@
 /**
  * React hook over the V2 turn stream of one conversation of a project. Owns
  * the useChat instance and exposes the running turn id and its cost estimate.
- * Sends text, files, question answers, approval decisions, and the turn mode
- * as turn requests. A refused send leaves the chat, so the composer can show
- * it again. After a failed stream, `reconnect` replays the running turn.
+ * Sends text, files, question answers, approval decisions, the turn mode,
+ * and the thinking level as turn requests. A refused send leaves the chat,
+ * so the composer can show it again. After a failed stream, `reconnect` replays the running turn.
  * While no stream runs, it polls the running turn, the busy conversation,
  * and the head. It then follows a turn of this conversation or a commit of
  * another client, such as a coding agent. A turn of another conversation
  * never replays here: the hook only reports that conversation as busy.
- * A 402 answer opens the credits dialog. Called by use-builder-thread.ts;
- * calls builder-chat-transport.ts, api/app-builder.queries.ts,
- * api/app-builder.services.ts, and the billing dispatch.
+ * A 402 answer opens the credits dialog. A 409 model lock answer loads the
+ * conversation list again. At the end frame of a turn it
+ * plays a chime when the user is away. Called by use-builder-thread.ts;
+ * calls builder-chat-transport.ts, turn-end-sound.ts,
+ * api/app-builder.queries.ts, api/app-builder.services.ts, and the billing
+ * dispatch.
  */
 
 import { useChat } from "@ai-sdk/react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	type BuilderThinking,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	createTurnResponseSchema,
@@ -30,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { dispatchBillingError } from "@/features/billing";
 import { creditsKeys } from "@/features/credits";
+import { isApiClientError } from "@/lib/api-client";
 import {
 	activeTurnStateQuery,
 	appBuilderKeys,
@@ -44,6 +49,7 @@ import {
 	createBuilderChatTransport,
 	hydrateTurnMessages,
 } from "./builder-chat-transport";
+import { playTurnEndSoundWhenAway, unlockTurnEndSound } from "./turn-end-sound";
 
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
@@ -59,8 +65,10 @@ export type BuilderChatSend = {
 	approval?: TurnApprovalAnswer;
 	/** One answer per open `data-question` card, from the request tray. */
 	answers?: TurnQuestionAnswer[];
-	/** Model id from the model menu, a row of `GET /api/v2/models`; absent uses the deploy default. */
+	/** Model id from the model menu, a row of `GET /api/v2/models`; absent uses the locked model of the chat, else the deploy default. */
 	model?: string;
+	/** Thinking level of the thinking row (thinking-level-row.tsx); absent runs "balanced". */
+	thinking?: BuilderThinking;
 	/** `plan` runs the turn in Plan Mode: the agent asks and plans, and changes no file. Absent sends a build turn. */
 	mode?: BuilderTurnMode;
 	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
@@ -71,11 +79,13 @@ export type BuilderChatSend = {
  * Injectable seams so specs pass fakes instead of mocking repo modules.
  * `fetch` reaches the SSE transport; `cancelTurn` is the POST cancel call;
  * `getActiveTurnState` is the poll of the running turn and the head.
+ * `playTurnEndSoundWhenAway` is the chime of a turn end; a spec counts its calls.
  */
 export type BuilderChatDeps = {
 	fetch: typeof globalThis.fetch;
 	cancelTurn: typeof cancelTurn;
 	getActiveTurnState: typeof getActiveTurnState;
+	playTurnEndSoundWhenAway: typeof playTurnEndSoundWhenAway;
 };
 
 // The one field of the done frame that the head rule reads. The frame
@@ -86,6 +96,7 @@ const defaultDeps: BuilderChatDeps = {
 	fetch: globalThis.fetch,
 	cancelTurn,
 	getActiveTurnState,
+	playTurnEndSoundWhenAway,
 };
 
 /** Live state and actions of one conversation, as the page consumes them. */
@@ -214,6 +225,9 @@ export function useBuilderChat(
 	// True when the created frame of the current stream had `queued: true`.
 	// That turn waited behind another turn, which can come from another client.
 	const isQueuedTurnRef = useRef(false);
+	// True from a created frame until the first end frame after it. So one turn
+	// plays the sound one time, also when a replay gives a second end frame.
+	const isTurnEndSoundArmedRef = useRef(false);
 	// Stops and sends that wait for the turn id. `data-turn-created` resolves
 	// them with the id; the end of the request resolves them with null.
 	const turnIdWaitersRef = useRef<((turnId: string | null) => void)[]>([]);
@@ -324,6 +338,7 @@ export function useBuilderChat(
 					queryKey: appBuilderKeys.chats(projectId),
 				});
 				isQueuedTurnRef.current = created.queued === true;
+				isTurnEndSoundArmedRef.current = true;
 				// A turn owns the chat now. A later error is a turn error, not the
 				// error of a refused send.
 				setRefusedSendChatId(null);
@@ -344,6 +359,21 @@ export function useBuilderChat(
 					followStateOf(projectId, chatId).headSha = outputCommitSha;
 				}
 			}
+			// Product rule: a turn end plays a sound when the user is away from the page.
+			// Only the server writes these two frames, when the turn ended or paused.
+			// A Stop in this tab, a lost stream, and a refused send bring neither frame.
+			// A failed turn brings `data-turn-error`. The `error` chunk after it stops
+			// the read before the done frame.
+			// LIMIT: only an end frame that this tab streams plays the sound. A turn that ends while the stream is down, or in another conversation, is silent. Upgrade: the last ended turn in the poll answer.
+			// LIMIT: each tab decides alone, so two hidden tabs that stream one turn both play. Upgrade: a Web Lock with the turn id as its name.
+			// LIMIT: one flag serves all streams of this chat. When two turns stream at the same time, the second end is silent. Upgrade: a turn id in the end frames, then one flag for each turn id.
+			if (
+				(part.type === "data-turn-done" || part.type === "data-turn-error") &&
+				isTurnEndSoundArmedRef.current
+			) {
+				isTurnEndSoundArmedRef.current = false;
+				deps.playTurnEndSoundWhenAway();
+			}
 		},
 		// A 402 answer of the create POST opens the credits dialog. The
 		// dispatch ignores every other error; the pane shows its sentence.
@@ -353,6 +383,13 @@ export function useBuilderChat(
 			if (dispatchBillingError(error) !== null) {
 				void queryClient.invalidateQueries({
 					queryKey: appBuilderKeys.turnEstimate(projectId),
+				});
+			}
+			// A 409 V2_MODEL_LOCKED means the list missed the first turn of this chat, for example from another tab.
+			// The list loads again, so the composer shows the lock and the next send carries the locked tier model.
+			if (isApiClientError(error) && error.code === "V2_MODEL_LOCKED") {
+				void queryClient.invalidateQueries({
+					queryKey: appBuilderKeys.chats(projectId),
 				});
 			}
 			if (reconnectRef.current !== null) {
@@ -387,6 +424,17 @@ export function useBuilderChat(
 	useEffect(() => {
 		chatIdRef.current = chatId;
 	}, [chatId]);
+	// A browser starts audio only inside a user gesture, and Safari only on the same audio context.
+	// So the first click or key press on this page starts the context of the turn end sound.
+	// The capture phase runs before a handler that stops the event.
+	useEffect(() => {
+		window.addEventListener("click", unlockTurnEndSound, true);
+		window.addEventListener("keydown", unlockTurnEndSound, true);
+		return () => {
+			window.removeEventListener("click", unlockTurnEndSound, true);
+			window.removeEventListener("keydown", unlockTurnEndSound, true);
+		};
+	}, []);
 	// The newest history page, and the page of the last full reseed. A page
 	// that comes while the chat is not ready only merges. After a 204,
 	// `reconnect` compares the two and reseeds from the newest page.
@@ -443,6 +491,7 @@ export function useBuilderChat(
 						...(sendInput.answers ? { answers: sendInput.answers } : {}),
 						...(sendInput.model ? { model: sendInput.model } : {}),
 						...(sendInput.mode ? { mode: sendInput.mode } : {}),
+						...(sendInput.thinking ? { thinking: sendInput.thinking } : {}),
 					},
 				},
 			);

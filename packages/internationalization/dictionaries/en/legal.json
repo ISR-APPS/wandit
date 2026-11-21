@@ -52,7 +52,7 @@
 				"bullets": [
 					"Account data: your name, your email address, your profile picture, the sign-in identifiers of the method you use, the language and theme you choose, and the workspaces you belong to.",
 					"Content you create: the prompts you write, the files and images you upload, the pages, images and marketing assets you generate, your project settings, and the domains you publish on.",
-					"Billing data: the credit packs and plans you buy, your invoices, your credit balance and your transaction history. Card numbers go straight to Stripe. We never see them and we never store them.",
+					"Billing data: the credit top-ups you buy and any plan you had before, your invoices, your credit balance and your transaction history. Card numbers go straight to Stripe. We never see them and we never store them.",
 					"Usage and device data: the screens you open in the dashboard, the actions you take, the credits you spend, your browser and device type, your operating system, an approximate location derived from your IP address, and crash or error reports. PostHog can also record a replay of your dashboard session so that we can see where the product fails. Typed input is masked in these recordings.",
 					"Log data: IP address, request time, requested address and response status, kept for security and troubleshooting.",
 					"Communications: the messages you send our support team and your replies to our emails.",
@@ -70,7 +70,7 @@
 				"paragraphs": ["We use personal data only for the purposes below."],
 				"bullets": [
 					"To run the service: create your account, sign you in, generate and publish your pages, store your files, deliver your leads and keep your workspaces in sync.",
-					"To handle payments: sell credit packs and plans, apply your balance, issue invoices and prevent payment fraud.",
+					"To handle payments: sell credit top-ups, apply your balance, issue invoices and prevent payment fraud.",
 					"To support you: answer your messages and investigate the problems you report.",
 					"To keep the service safe: detect abuse, spam, scraping and fraud, enforce our Terms of Service, and protect our users and our infrastructure.",
 					"To improve the product: understand which features are used, measure performance and fix errors. We use aggregated or pseudonymous data for this whenever that is enough.",
@@ -141,7 +141,7 @@
 				],
 				"bullets": [
 					"Google: sign-in with your Google account, and the Google Sheets and Drive APIs when you connect them. Google processes this data under its own privacy policy, and the spreadsheet lives in your own Drive.",
-					"Stripe: payments, subscriptions and invoices. Card details go to Stripe directly and never reach our servers.",
+					"Stripe: payments and invoices. Card details go to Stripe directly and never reach our servers.",
 					"Resend: transactional email such as sign-in links, receipts and alerts.",
 					"PostHog: product analytics, hosted in the European Union.",
 					"Sentry: error and crash monitoring.",
@@ -292,7 +292,7 @@
 				"id": "acceptance",
 				"title": "1. Acceptance of these terms",
 				"paragraphs": [
-					"You accept these terms when you create an account, when you buy credits or a plan, or when you use any part of Wandit.",
+					"You accept these terms when you create an account, when you buy credits, or when you use any part of Wandit.",
 					"If you accept on behalf of a company, you confirm that you can bind that company. The word you then means that company."
 				],
 				"bullets": [],
@@ -341,10 +341,10 @@
 					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
 				],
 				"bullets": [
-					"A new account receives an initial balance of free credits. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
+					"A new account receives an initial balance of free credits. We can ask a new account to make one small first payment, the Starter pass, before it can use any credits, free credits included. Only a card payment or a SlickPay payment buys the Starter pass. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
 					"The price of an action is shown before you run it. Your balance is shown in the dashboard and updates after each action.",
-					"You buy credit packs and plans through Stripe. The price is shown before you pay, and you authorise the charge when you confirm the payment.",
-					"A plan renews automatically for the period you chose until you cancel it. You can cancel at any time from the billing portal we open for you in the app, and the cancellation takes effect at the end of the period you already paid for.",
+					"You buy credits with a one-time top-up, by card through Stripe, through SlickPay, or by an offline payment that we record. The price is shown before you pay, and you authorise the charge when you confirm the payment.",
+					"There is no subscription and no automatic charge. We charge you only when you confirm a top-up. Credits that you buy do not expire.",
 					"Prices do not include taxes unless we say otherwise. You pay any tax, duty or bank fee that applies to you.",
 					"Credits are consumed when the action runs. Credits are not refundable, and unused credits cannot be exchanged for money, except where the law requires a refund.",
 					"If an action fails because of a fault on our side, write to {email} and we will restore the credits it consumed.",
@@ -352,7 +352,7 @@
 					"If you join Wandit through a partner link, we can tell that partner that a sign-up or a purchase happened. We do not give the partner your personal details."
 				],
 				"after": [
-					"We can change our prices. A new plan price applies from your next renewal, and we will tell you before it takes effect."
+					"We can change our prices. A new price applies only to the top-ups you buy after the change. It does not change the credits you already have."
 				]
 			},
 			{

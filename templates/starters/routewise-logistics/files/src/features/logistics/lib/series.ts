@@ -18,12 +18,6 @@ export type CategoryPoint<Category extends string = string> = {
 	value: number;
 };
 
-/** One part of a breakdown. `label` is a code; the page translates it before a panel gets it. */
-export type BreakdownSlice<Label extends string = string> = {
-	label: Label;
-	value: number;
-};
-
 /** One figure of a strip, before translation of its label. */
 export type Figure<LabelKey extends string = string> = {
 	/** Stable id, also the React key, for example "on-time-rate". */

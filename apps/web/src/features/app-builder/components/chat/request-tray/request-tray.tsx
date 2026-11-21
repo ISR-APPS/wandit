@@ -36,8 +36,10 @@ export function RequestTray({
 }: RequestTrayProps) {
 	const { t } = useTranslation();
 
+	// The ground is the sheet color of the composer card, so the tray does not look like a second panel.
+	// The scroll fades of tray-bodies.tsx start in the same color.
 	return (
-		<div className="border-night/[0.07] border-b bg-secondary px-4 pt-3 pb-3.5 dark:border-white/[0.07]">
+		<div className="border-night/[0.07] border-b bg-card px-4 pt-3 pb-3.5 dark:border-white/[0.07]">
 			<div className="flex items-center gap-2">
 				<span
 					aria-hidden
@@ -64,7 +66,7 @@ export function RequestTray({
 					<button
 						type="button"
 						onClick={onDelegate}
-						className="flex h-7 items-center rounded-full border border-night/[0.12] px-3 font-grotesk font-medium text-[12px] text-night/70 outline-none transition-colors duration-150 hover:bg-night/[0.05] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.12] dark:text-foreground/70 dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+						className="flex h-7 items-center rounded-full border border-night/[0.12] bg-white px-3 font-grotesk font-medium text-[13px] text-night outline-none transition-colors duration-150 hover:bg-night/[0.04] focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08]"
 					>
 						{t("appBuilder.chat.tray.decideForMe")}
 					</button>

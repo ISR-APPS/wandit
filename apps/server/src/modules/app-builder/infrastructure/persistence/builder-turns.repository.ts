@@ -2,6 +2,7 @@
  * Repository for the `builder_turns` table.
  * `turns.service.ts` and `turn-promotion.ts` call it in the API process;
  * the `builder-turn` task (WANDIT-166) calls the CAS methods inside a run.
+ * The `reconcile-builder-turns` task and the host recovery read stuck rows.
  * The partial unique index `builder_turns_active_project_uq` is the last
  * guard of the one-active-turn-per-project rule; every mutator is a CAS so
  * a stale writer can never overwrite a newer state. `findCardParts` reads the
@@ -9,6 +10,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import {
+	type BuilderThinking,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	type ComposerMetadata,
@@ -86,6 +88,8 @@ export type BuilderTurnSpec = {
 	targets: PreviewTarget[];
 	/** `plan` for a Plan Mode turn (interview and plan, no file change), else `build`. */
 	mode: BuilderTurnMode;
+	/** Thinking level of the turn. The runtime puts it in the proxy token, and the proxy maps it to an effort. */
+	thinking: BuilderThinking;
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */
@@ -333,6 +337,27 @@ export class BuilderTurnsRepository {
 	}
 
 	/**
+	 * The locked model of a chat: the model of its newest turn that has one,
+	 * or null before the first turn. `TurnsService.create` refuses a model
+	 * of another tier with it (baseModelIdOf). The chat list reads the same rule in SQL.
+	 */
+	async findLockedModelByChat(chatId: string): Promise<string | null> {
+		const [row] = await this.db
+			.select({ model: builderTurns.model })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.chatId, chatId),
+					sql`${builderTurns.model} is not null`,
+				),
+			)
+			.orderBy(desc(builderTurns.turnNumber))
+			.limit(1);
+
+		return row?.model ?? null;
+	}
+
+	/**
 	 * The oldest parked `waiting` row of a project, or null. `create` reads
 	 * it before the lock so a new submit parks behind a stranded queue
 	 * instead of jumping it.
@@ -490,6 +515,62 @@ export class BuilderTurnsRepository {
 	}
 
 	/**
+	 * Trigger-owned rows that hold the project slot since before `olderThan`,
+	 * oldest first. `reconcile-builder-turns` reads them to end turns whose
+	 * run died. The age counts from the claim, or from the create.
+	 */
+	async findTriggerOwnedActive(olderThan: Date): Promise<BuilderTurnRow[]> {
+		// LIMIT: 100 rows per sweep, one run read each. Upgrade: page with a cursor.
+		return this.db
+			.select()
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.runner, "trigger"),
+					inArray(builderTurns.status, [...PROJECT_ACTIVE_TURN_STATUSES]),
+					sql`coalesce(${builderTurns.startedAt}, ${builderTurns.createdAt}) < ${olderThan.toISOString()}::timestamptz`,
+				),
+			)
+			.orderBy(asc(builderTurns.createdAt))
+			.limit(100);
+	}
+
+	/**
+	 * Projects with a `waiting` row older than `olderThan` and no active row,
+	 * oldest first. A failed promotion leaves them so; `reconcile-builder-turns`
+	 * promotes them. A row parked behind an open card (X1) is not stranded.
+	 */
+	async findProjectsWithStrandedWaiting(olderThan: Date): Promise<string[]> {
+		const active = alias(builderTurns, "active");
+		const activeRow = this.db
+			.select({ id: active.id })
+			.from(active)
+			.where(
+				and(
+					eq(active.projectId, builderTurns.projectId),
+					inArray(active.status, [...PROJECT_ACTIVE_TURN_STATUSES]),
+				),
+			);
+		const rows = await this.db
+			.select({ projectId: builderTurns.projectId })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.status, "waiting"),
+					lt(builderTurns.createdAt, olderThan),
+					sql`not exists (${activeRow})`,
+					sql`not exists (${this.openCardSentAfter()})`,
+				),
+			)
+			.groupBy(builderTurns.projectId)
+			.orderBy(sql`min(${builderTurns.createdAt})`)
+			// LIMIT: 100 projects per sweep. Upgrade: page with a cursor.
+			.limit(100);
+
+		return rows.map((row) => row.projectId);
+	}
+
+	/**
 	 * Generic CAS: sets `to` and `patch` only while the row sits in `from`.
 	 * Returns false when the row moved on — the caller then re-reads truth.
 	 * A move into an active status can hit `builder_turns_active_project_uq`
@@ -619,25 +700,6 @@ export class BuilderTurnsRepository {
 		projectId: string,
 	): Promise<BuilderTurnRow | null> {
 		try {
-			// X1: the next turn after a card pause answers the card. A row the
-			// user sent before the card existed must not become that answer, so
-			// it stays parked until the card is answered or canceled. A row sent
-			// after the pause is the answer and goes first. The pause time is the
-			// `completed_at` of the paused row.
-			const paused = alias(builderTurns, "paused");
-			const sentBeforeOpenCard = this.db
-				.select({ id: paused.id })
-				.from(paused)
-				.where(
-					and(
-						eq(paused.projectId, builderTurns.projectId),
-						inArray(paused.status, [
-							"waiting_for_answer",
-							"waiting_for_approval",
-						]),
-						sql`(${paused.completedAt} is null or ${paused.completedAt} >= ${builderTurns.createdAt})`,
-					),
-				);
 			const oldestWaiting = this.db
 				.select({ id: builderTurns.id })
 				.from(builderTurns)
@@ -645,7 +707,7 @@ export class BuilderTurnsRepository {
 					and(
 						eq(builderTurns.projectId, projectId),
 						eq(builderTurns.status, "waiting"),
-						sql`not exists (${sentBeforeOpenCard})`,
+						sql`not exists (${this.openCardSentAfter()})`,
 					),
 				)
 				.orderBy(asc(builderTurns.turnNumber))
@@ -672,6 +734,32 @@ export class BuilderTurnsRepository {
 			}
 			throw error;
 		}
+	}
+
+	/**
+	 * Subquery: an open card of the same project paused at or after the outer
+	 * `builder_turns` row was sent. Wrap it in `not exists` to skip that row.
+	 */
+	private openCardSentAfter() {
+		// X1: the next turn after a card pause answers the card. A row the
+		// user sent before the card existed must not become that answer, so
+		// it stays parked until the card is answered or canceled. A row sent
+		// after the pause is the answer and goes first. The pause time is the
+		// `completed_at` of the paused row.
+		const paused = alias(builderTurns, "paused");
+		return this.db
+			.select({ id: paused.id })
+			.from(paused)
+			.where(
+				and(
+					eq(paused.projectId, builderTurns.projectId),
+					inArray(paused.status, [
+						"waiting_for_answer",
+						"waiting_for_approval",
+					]),
+					sql`(${paused.completedAt} is null or ${paused.completedAt} >= ${builderTurns.createdAt})`,
+				),
+			);
 	}
 
 	/**

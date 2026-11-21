@@ -1,4 +1,5 @@
 export {
+	scheduledQueryOptions,
 	type TransactionRow,
 	toTransactionRows,
 	transactionQueryOptions,
@@ -13,5 +14,5 @@ export {
 	TransactionsPageError,
 	TransactionsPageSkeleton,
 } from "./components/transactions-page";
-export { useTransactionTable } from "./hooks/use-transaction-table";
+export { transactionCsvColumns } from "./lib/transaction-csv";
 export { transactionsSearchSchema } from "./lib/transactions-search";

@@ -21,12 +21,12 @@
 		"sidebarCollapse": "rail",
 		"sidebarStart": "open",
 		"sidebarTone": "tint",
-		"activeItem": "pill",
+		"activeItem": "outline",
 		"header": "plain",
 		"userMenu": "sidebar-footer",
 		"frame": "outlined",
-		"icons": "duotone",
-		"navIcon": "soft"
+		"icons": "light",
+		"navIcon": "plain"
 	},
 	"resolved": {
 		"light": {

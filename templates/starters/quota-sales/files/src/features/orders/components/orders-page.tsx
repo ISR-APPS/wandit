@@ -1,269 +1,268 @@
-// The orders list behind login: the page header, the status tabs, the rep filter, and the searchable table.
-// The /app/orders route renders it after its loader. The route also uses the skeleton and the error below.
-// A click on an order opens OrderDialog with its lines.
-// On a narrow page the first cell shows the date, the rep, the amount, and the status.
+// The orders list behind login: the header with Export, the status tabs,
+// then the table with the filter field, the territory and product filters, the column menu, and the row menu.
+// The /app/orders route renders it after its loader. "View order" in a row menu opens OrderDialog.
+// The status tab and the filters are state; the rows of the table are derived during render.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
-	FIRST_COLUMN_WHEN_NARROW,
-	fillMessage,
+	copyToClipboard,
+	downloadCsv,
+	initialsOf,
 	moneyFormat,
-	NARROW_ONLY,
 	ORDER_STATUSES,
 	type Order,
 	type OrderStatus,
 	OrderStatusBadge,
 	PageError,
-	RepAvatar,
-	TOUCH_TAB_TRIGGER,
-	WRAPPING_TABS_LIST,
+	PRODUCT_LINES,
+	toCsv,
 } from "~/features/sales";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { ordersQueryOptions } from "../api/orders.queries";
+import { orderCsvColumns } from "../lib/order-csv";
 import { OrderDialog } from "./order-dialog";
 
-// The value of the rep Select that shows every rep.
-const ALL_REPS = "all";
+// Shows 10 rows per page. 10 rows fit one laptop screen under the filters.
+const PAGE_SIZE = 10;
 
-/** The list page. The rep Select and the status tab filter the rows; then DataTable searches, sorts, and pages them. */
+/** The list page. The tab and the two filters narrow the rows; RecordTable searches, sorts, and pages them. */
 export function OrdersPage() {
 	const { t, locale } = useT();
 	const { data: orders } = useSuspenseQuery(ordersQueryOptions());
 	const [status, setStatus] = useState<OrderStatus | "all">("all");
-	const [repId, setRepId] = useState(ALL_REPS);
+	const [territory, setTerritory] = useState<string | null>(null);
+	const [product, setProduct] = useState<string | null>(null);
 	const [openOrder, setOpenOrder] = useState<Order | null>(null);
-
-	const number = new Intl.NumberFormat(locale);
 	const money = moneyFormat(locale);
-	const date = new Intl.DateTimeFormat(locale, {
-		month: "short",
-		day: "numeric",
-	});
-	const reps = [
-		...new Map(orders.map((order) => [order.repId, order.repName])),
-	].sort((first, second) => first[1].localeCompare(second[1], locale));
-	const repOrders =
-		repId === ALL_REPS
-			? orders
-			: orders.filter((order) => order.repId === repId);
-	// A tab shows only for a status that has rows for the chosen rep. Its count is the count of the table.
-	const tabs = ORDER_STATUSES.map((value) => ({
-		value,
-		count: repOrders.filter((order) => order.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	// A rep change can empty the chosen tab. Its tab then disappears, so the list shows all rows.
-	const activeStatus = tabs.some((tab) => tab.value === status)
-		? status
-		: "all";
-	const rows =
-		activeStatus === "all"
-			? repOrders
-			: repOrders.filter((order) => order.status === activeStatus);
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	const territories = [...new Set(orders.map((order) => order.territoryName))]
+		.sort((first, second) => first.localeCompare(second, locale))
+		.map((name) => ({ value: name, label: name }));
 
-	// "POS terminals +1 more": the first product line and the count of the others.
-	function productSummaryOf(order: Order): string {
-		const first = order.lines[0];
-		const label = first ? t(`productLines.${first.productLine}`) : "";
-		return order.lines.length > 1
-			? `${label} ${fillMessage(t("orders.moreProducts"), {
-					count: number.format(order.lines.length - 1),
-				})}`
-			: label;
-	}
+	const rows = orders.filter(
+		(order) =>
+			(status === "all" || order.status === status) &&
+			(territory === null || order.territoryName === territory) &&
+			(product === null ||
+				order.lines.some((line) => line.productLine === product)),
+	);
 
-	const columns: DataTableColumn<Order>[] = [
+	const columns: RecordColumn<Order>[] = [
+		{
+			id: "number",
+			header: "#",
+			cell: (order) => (
+				<button
+					type="button"
+					onClick={() => setOpenOrder(order)}
+					className="text-muted-foreground tabular-nums hover:text-primary hover:underline"
+				>
+					{order.number}
+				</button>
+			),
+		},
 		{
 			id: "account",
 			header: t("orders.account"),
-			sortValue: (row) => row.accountName,
-			cell: (row) => (
-				<div className="flex items-start justify-between gap-3">
-					<div className="grid min-w-0 justify-items-start">
-						<button
-							type="button"
-							onClick={() => setOpenOrder(row)}
-							className="text-start font-medium hover:underline"
-							aria-label={fillMessage(t("orders.openOrder"), {
-								number: row.number,
-							})}
-						>
-							<bdi>{row.accountName}</bdi>
-						</button>
-						{/* The number and the products share the second line, so the table keeps 5 columns at 1024 px. */}
-						<span className="whitespace-normal @2xl/main:whitespace-nowrap text-muted-foreground text-xs">
-							<span className="tabular-nums">{row.number}</span>
-							{` · ${productSummaryOf(row)}`}
-						</span>
-						{/* The Rep and Booked columns hide on a narrow page, so their values join the cell here. */}
-						<span className={cn("text-muted-foreground text-xs", NARROW_ONLY)}>
-							<span className="tabular-nums">
-								{date.format(new Date(row.bookedAt))}
-							</span>
-							{" · "}
-							<bdi>{row.repName}</bdi>
-						</span>
-					</div>
-					<div
-						className={cn("grid shrink-0 justify-items-end gap-1", NARROW_ONLY)}
+			cell: (order) => (
+				<div className="flex items-center gap-4">
+					<span
+						aria-hidden="true"
+						className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted font-medium text-xs"
 					>
-						<span className="font-medium tabular-nums">
-							{money.format(row.amount)}
-						</span>
-						<OrderStatusBadge status={row.status} />
-					</div>
+						{initialsOf(order.accountName)}
+					</span>
+					<bdi>{order.accountName}</bdi>
 				</div>
-			),
-		},
-		{
-			id: "rep",
-			header: t("orders.rep"),
-			sortValue: (row) => row.repName,
-			cell: (row) => (
-				<span className="flex items-center gap-2">
-					<RepAvatar name={row.repName} className="size-6" />
-					<bdi className="whitespace-nowrap">{row.repName}</bdi>
-				</span>
-			),
-		},
-		{
-			id: "status",
-			header: t("orders.status"),
-			sortValue: (row) => ORDER_STATUSES.indexOf(row.status),
-			cell: (row) => <OrderStatusBadge status={row.status} />,
-		},
-		{
-			id: "booked",
-			header: t("orders.booked"),
-			sortValue: (row) => Date.parse(row.bookedAt),
-			cell: (row) => (
-				<span className="whitespace-nowrap tabular-nums">
-					{date.format(new Date(row.bookedAt))}
-				</span>
 			),
 		},
 		{
 			id: "amount",
 			header: t("orders.amount"),
-			align: "end",
-			sortValue: (row) => row.amount,
-			cell: (row) => (
-				<span className="font-medium">{money.format(row.amount)}</span>
+			hideable: true,
+			sortValue: (order) => order.amount,
+			cell: (order) => money.format(order.amount),
+		},
+		{
+			id: "rep",
+			header: t("orders.rep"),
+			hideable: true,
+			cell: (order) => (
+				<div className="grid gap-1">
+					<Link
+						to="/app/reps/$repId"
+						params={{ repId: order.repId }}
+						className="font-semibold hover:underline"
+					>
+						{order.repName}
+					</Link>
+					<span className="text-muted-foreground">{order.territoryName}</span>
+				</div>
 			),
+		},
+		{
+			id: "booked",
+			header: t("orders.booked"),
+			hideable: true,
+			sortValue: (order) => order.bookedAt,
+			cell: (order) => date.format(new Date(order.bookedAt)),
+		},
+		{
+			id: "segment",
+			header: t("orders.segment"),
+			hideable: true,
+			cell: (order) => t(`segments.${order.segment}`),
+		},
+		{
+			id: "status",
+			header: t("orders.status"),
+			sortValue: (order) => ORDER_STATUSES.indexOf(order.status),
+			cell: (order) => <OrderStatusBadge status={order.status} />,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("orders.title")}
 				description={t("orders.description")}
+				actions={
+					<Button
+						type="button"
+						onClick={() =>
+							downloadCsv("orders.csv", toCsv(rows, orderCsvColumns(t)))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
 			/>
-			<Card>
-				<CardContent className={FIRST_COLUMN_WHEN_NARROW}>
-					<DataTable
-						rows={rows}
-						columns={columns}
-						searchText={(row) =>
-							`${row.accountName} ${row.number} ${row.repName} ${row.territoryName}`
+			<Tabs
+				value={status}
+				onValueChange={(value) =>
+					setStatus(ORDER_STATUSES.find((option) => option === value) ?? "all")
+				}
+			>
+				{/* The list scrolls sideways on a phone, so the 6 tabs never widen the page. */}
+				<div className="max-w-full overflow-x-auto">
+					<TabsList aria-label={t("orders.status")}>
+						<TabsTrigger value="all">{t("orders.all")}</TabsTrigger>
+						{ORDER_STATUSES.map((option) => (
+							<TabsTrigger key={option} value={option}>
+								{t(`orderStatuses.${option}`)}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</div>
+			</Tabs>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(order) =>
+					`${order.number} ${order.accountName} ${order.repName}`
+				}
+				searchPlaceholder={t("orders.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("reps.territory")}
+							options={territories}
+							value={territory}
+							onValueChange={setTerritory}
+						/>
+						<RecordFilter
+							label={t("orders.product")}
+							options={PRODUCT_LINES.map((line) => ({
+								value: line,
+								label: t(`productLines.${line}`),
+							}))}
+							value={product}
+							onValueChange={setProduct}
+						/>
+					</>
+				}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-9"
+						onClick={() =>
+							downloadCsv(
+								"orders-selected.csv",
+								toCsv(selected, orderCsvColumns(t)),
+							)
 						}
-						noResults={t("orders.noResults")}
-						toolbar={
-							<>
-								<Select value={repId} onValueChange={setRepId}>
-									<SelectTrigger
-										className="w-full sm:w-48"
-										aria-label={t("orders.rep")}
-									>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value={ALL_REPS}>
-											{t("orders.allReps")}
-										</SelectItem>
-										{reps.map(([id, name]) => (
-											<SelectItem key={id} value={id}>
-												{name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								<Tabs
-									value={activeStatus}
-									onValueChange={(value) =>
-										setStatus(
-											ORDER_STATUSES.find((option) => option === value) ??
-												"all",
-										)
-									}
-								>
-									{/* The counts use opacity, not a muted color: muted text fails on the filled active tab. */}
-									<TabsList className={WRAPPING_TABS_LIST}>
-										<TabsTrigger value="all" className={TOUCH_TAB_TRIGGER}>
-											{t("orders.all")}
-											<span className="tabular-nums opacity-70">
-												{number.format(repOrders.length)}
-											</span>
-										</TabsTrigger>
-										{tabs.map((tab) => (
-											<TabsTrigger
-												key={tab.value}
-												value={tab.value}
-												className={TOUCH_TAB_TRIGGER}
-											>
-												{t(`orderStatuses.${tab.value}`)}
-												<span className="tabular-nums opacity-70">
-													{number.format(tab.count)}
-												</span>
-											</TabsTrigger>
-										))}
-									</TabsList>
-								</Tabs>
-							</>
-						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(order) => (
+					<>
+						<DropdownMenuItem onSelect={() => setOpenOrder(order)}>
+							{t("orders.viewOrder")}
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link to="/app/reps/$repId" params={{ repId: order.repId }}>
+								{t("orders.openRep")}
+							</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(order.number, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("orders.copyNumber")}
+						</DropdownMenuItem>
+					</>
+				)}
+				pageSize={PAGE_SIZE}
+				noResults={t("orders.noResults")}
+			/>
 			<OrderDialog order={openOrder} onClose={() => setOpenOrder(null)} />
 		</div>
 	);
 }
 
 // Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 /** Placeholder while the list loader runs. The route sets it as pendingComponent. */
 export function OrdersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<div className="grid gap-2">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+				<Skeleton className="h-4 w-72 max-w-full" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<div className="flex flex-wrap gap-2">
-						<Skeleton className="h-9 w-full sm:max-w-xs" />
-						<Skeleton className="h-9 w-48" />
-						<Skeleton className="h-9 w-80" />
-					</div>
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-11 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-96 max-w-full" />
+			<div className="flex flex-wrap gap-2">
+				<Skeleton className="h-9 w-full sm:max-w-sm" />
+				<Skeleton className="h-9 w-48" />
+			</div>
+			<div className="grid gap-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-14 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

@@ -7,4 +7,3 @@ export {
 	OrdersPageError,
 	OrdersPageSkeleton,
 } from "./components/orders-page";
-export { TableChecksList } from "./components/table-checks-list";

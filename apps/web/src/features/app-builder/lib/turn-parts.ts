@@ -5,7 +5,7 @@
  * `contextUsageOf`. chat-pane.tsx calls
  * `liveStatusOf` for its status line; the chat and the details panel call
  * `isActivityPart` and `workedDurationOf`. context-ring.tsx calls
- * `contextToneOf`. Pure functions, no React, no
+ * `contextToneOf`. message-sources.tsx calls `webHostOf`. Pure functions, no React, no
  * copy: the components translate each row.
  */
 
@@ -21,7 +21,9 @@ import {
 	runSqlToolInputSchema,
 	setSecretToolInputSchema,
 	setSecretToolOutputSchema,
+	suggestFollowUpsHostToolInputSchema,
 	type TurnStreamPhase,
+	webSearchHostToolOutputSchema,
 } from "@wandit/contracts";
 import {
 	type DynamicToolUIPart,
@@ -37,6 +39,7 @@ import type {
 	BuilderEditArea,
 	BuilderMessage,
 	BuilderMessagePart,
+	BuilderSource,
 	BuilderStepKind,
 	BuilderStepState,
 	TurnMessage,
@@ -58,6 +61,13 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 	["Monitor", "run"],
 	["webSearch", "web"],
 	["WebFetch", "web"],
+	// The Exa search host tool. Its input has `query`, like the native WebSearch.
+	["web_search", "web"],
+	// The Firecrawl page read host tool. Its input has `url`, like the native WebFetch.
+	["web_fetch", "web"],
+	// The two host tools of a site clone: the capture of the source page, and the compare of the clone with it.
+	["capture_site", "clone"],
+	["compare_clone", "clone"],
 	["generate_image", "image"],
 	["apply_migration", "database"],
 	["apply_destructive_migration", "database"],
@@ -76,7 +86,8 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 // Tools that get no row. The to-do list, the task list, the tool search, and
 // the plan mode are agent bookkeeping. The questions show in the tray, and
 // the plan of `present_plan` shows as the plan card. A compaction shows as
-// its own divider line (assistantPartsOf).
+// its own divider line (assistantPartsOf). The ideas of `suggest_follow_ups`
+// show as the follow-up rows under the reply.
 const HIDDEN_TOOL_NAMES = new Set([
 	HARNESS_COMPACTION_TOOL_NAME,
 	"TodoWrite",
@@ -92,7 +103,13 @@ const HIDDEN_TOOL_NAMES = new Set([
 	"ask_user",
 	"askUserQuestions",
 	"present_plan",
+	"suggest_follow_ups",
 ]);
+
+// Text that the sandbox guard `.claude/hooks/pre-tool-use.mjs` writes when it stops a call.
+// Claude Code shows it as a "PreToolUse hook error". The call did not run, and the
+// agent tries another way. So the row hides. The stored message keeps the text.
+const GUARD_ERROR_MARKERS = ["denied by wandit rules:", "wandit pre-tool-use:"];
 
 // Host tools report a failure as a normal output with a status. These
 // statuses mean that the call did not do its job.
@@ -242,6 +259,84 @@ function parsedUrlOf(url: string): URL | null {
 	}
 }
 
+/**
+ * The pages of every `web_search` call of one reply, one per URL, first seen
+ * first. A bad output shape or a URL that does not parse adds nothing.
+ */
+function sourcesOf(parts: readonly TurnMessagePart[]): BuilderSource[] {
+	const sources = new Map<string, BuilderSource>();
+	for (const part of parts) {
+		if (
+			!isToolUIPart(part) ||
+			getToolName(part) !== "web_search" ||
+			part.state !== "output-available"
+		) {
+			continue;
+		}
+		const output = webSearchHostToolOutputSchema.safeParse(part.output);
+		if (!output.success || output.data.status !== "ok") continue;
+		for (const result of output.data.results) {
+			const url = parsedUrlOf(result.url);
+			if (url === null || sources.has(result.url)) continue;
+			const hostname = bareHostOf(url);
+			// A javascript:, data:, or mailto: URL has no host: no row, and no chip match.
+			if (hostname === "") continue;
+			// Security: the browser loads the icon, and a link opens the page. An old
+			// stored turn can hold any scheme, so only https: icons and web links pass.
+			const favicon =
+				result.favicon !== undefined &&
+				parsedUrlOf(result.favicon)?.protocol === "https:"
+					? result.favicon
+					: null;
+			sources.set(result.url, {
+				url: result.url,
+				href:
+					url.protocol === "https:" || url.protocol === "http:"
+						? result.url
+						: null,
+				title: result.title.trim() || hostname,
+				hostname,
+				favicon,
+			});
+		}
+	}
+	return [...sources.values()];
+}
+
+/**
+ * The ideas of the last `suggest_follow_ups` call of one reply, or null.
+ * The input comes from the model, so a bad shape shows nothing. An earlier
+ * call never counts, also when the last one is bad.
+ */
+function followUpsOf(parts: readonly TurnMessagePart[]): string[] | null {
+	const call = parts.findLast(
+		(part): part is ToolPart =>
+			isToolUIPart(part) && getToolName(part) === "suggest_follow_ups",
+	);
+	// Only a call the harness ran counts. A streaming input is partial, and a
+	// plan or scan turn has no such tool, so its call ends in an error.
+	if (call === undefined || call.state !== "output-available") return null;
+	const input = suggestFollowUpsHostToolInputSchema.safeParse(call.input);
+	return input.success ? input.data.followUps : null;
+}
+
+/** The host of a parsed URL without a leading "www.", for example "react.dev". "" for a URL with no host. */
+function bareHostOf(url: URL): string {
+	return url.hostname.replace(/^www\./, "");
+}
+
+/**
+ * The bare host of an http: or https: link, or null for any other text.
+ * message-sources.tsx matches the links of an answer to its sources with it.
+ */
+export function webHostOf(href: string): string | null {
+	const url = parsedUrlOf(href);
+	if (url === null || (url.protocol !== "https:" && url.protocol !== "http:")) {
+		return null;
+	}
+	return bareHostOf(url) || null;
+}
+
 /** One line per text line, all in the same tone. */
 function linesOf(
 	text: string,
@@ -388,6 +483,20 @@ function stepContentOf(
 				detail: capLines(linesOf(input.url ?? input.query ?? "", "context")),
 			};
 		}
+		case "clone": {
+			// Only `capture_site` has `url`. A `compare_clone` row names no page.
+			// A `url` that is not a URL stays as raw text, so the row keeps the capture label.
+			const host =
+				input.url === undefined ? null : (hostOf(input.url) ?? input.url);
+			return {
+				target: host,
+				description: null,
+				detail:
+					input.url === undefined
+						? []
+						: capLines(linesOf(input.url, "context")),
+			};
+		}
 		case "image": {
 			const parsed = generateImageHostToolInputSchema.safeParse(rawInput);
 			return {
@@ -461,11 +570,18 @@ function stepContentOf(
 
 /**
  * The step row of one tool part, or null when the part gets no row: a
- * hidden tool, or a call that waits for an approval.
+ * hidden tool, a call that the sandbox guard stopped, or a call that waits
+ * for an approval.
  */
 export function stepOf(part: ToolPart, isLive: boolean): Step | null {
 	const toolName = getToolName(part);
 	if (HIDDEN_TOOL_NAMES.has(toolName)) return null;
+	if (
+		part.state === "output-error" &&
+		GUARD_ERROR_MARKERS.some((marker) => part.errorText.includes(marker))
+	) {
+		return null;
+	}
 	const state = stepStateOf(part, isLive);
 	if (state === null) return null;
 	const kind = STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other";
@@ -815,7 +931,8 @@ function hasAssistantMessageAfter(
  * thought row per reasoning block, a step row per visible tool call (a run
  * of reads and searches merges into one row), a compaction line, the summary,
  * the question, approval, plan, and security report cards, the starter
- * template note, then the error, the stopped line, and the receipt.
+ * template note, then the web sources, the follow-up ideas, the error, the
+ * stopped line, and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -967,6 +1084,22 @@ function assistantPartsOf(
 		if (part.type === "data-starter-template") {
 			parts.push(part);
 		}
+	}
+	const sources = sourcesOf(message.parts);
+	if (sources.length > 0) {
+		parts.push({
+			type: "data-sources",
+			id: `${message.id}-sources`,
+			data: { sources },
+		});
+	}
+	const followUps = followUpsOf(message.parts);
+	if (followUps !== null) {
+		parts.push({
+			type: "data-follow-ups",
+			id: `${message.id}-follow-ups`,
+			data: { followUps },
+		});
 	}
 	const error = errorOf(message.parts);
 	if (error !== null) {

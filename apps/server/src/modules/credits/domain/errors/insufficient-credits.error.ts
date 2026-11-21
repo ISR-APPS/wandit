@@ -1,9 +1,9 @@
 /**
- * The 402 that refuses a charge when the paying pool has no credits.
+ * The 402 that refuses a charge when the paying pool has no credits, or has no Starter pass yet.
  * CreditsService, the V2 create gate, and the publish gate throw it.
  */
 import { HttpException, HttpStatus } from "@nestjs/common";
-import type { CreditPayer } from "@wandit/contracts";
+import type { CreditPayer, PaymentRequiredDetails } from "@wandit/contracts";
 
 export const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
 
@@ -34,6 +34,8 @@ export class InsufficientCreditsError extends HttpException {
 		settledCentiCredits: number = availableCentiCredits,
 		/** The pool that refused the charge; the web picks the billing modal by it. */
 		payer?: CreditPayer,
+		/** Set when the pool has credits it cannot spend yet. The web then opens the Starter pass checkout. */
+		reason?: PaymentRequiredDetails["reason"],
 	) {
 		const requiredCredits = requiredCentiCredits / 100;
 		const availableCredits = settledCentiCredits / 100;
@@ -48,6 +50,7 @@ export class InsufficientCreditsError extends HttpException {
 					availableCredits,
 					heldCredits,
 					...(payer === undefined ? {} : { payer }),
+					...(reason === undefined ? {} : { reason }),
 					requiredCredits,
 				},
 				message: `Insufficient credits: required ${requiredCredits}, available ${availableCredits}${heldCredits > 0 ? ` (${heldCredits} held by running generations, raw ${rawAvailableCredits})` : ""}`,

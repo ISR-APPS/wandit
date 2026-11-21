@@ -37,12 +37,14 @@ import {
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import {
+	assertCustomDomainsEnabled,
 	mergeRequiredDomainRecords,
 	validationRequiredDomainRecords,
 	wholesaleQuoteBlockReason,
 	wwwCnameTrafficRecord,
 } from "../../domain/domain-provisioning-rules";
 import {
+	CustomHostnameMissingError,
 	DomainBlockedError,
 	DomainNotAvailableError,
 	ExternalDomainUnregisteredError,
@@ -72,6 +74,7 @@ import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import { recreateDeletedCustomHostname } from "../fulfillment/custom-hostname-verification.step";
 import {
 	customDomainPointer,
 	type ProjectServing,
@@ -80,6 +83,7 @@ import {
 	apexCustomHostnameIdOf,
 	customerZoneIdOf,
 } from "../fulfillment/domain-assets-cleanup";
+import type { CustomHostnameResult } from "../fulfillment/domain-fulfillment.contracts";
 import { withdrawnCustomerZoneDnsPatch } from "../fulfillment/withdrawn-customer-zone";
 
 export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
@@ -124,6 +128,8 @@ export class DomainsService {
 	) {}
 
 	async search(_userId: string, q: string): Promise<SearchDomainsResponse> {
+		// Staging refuses custom domains. The Buy dialog shows why on the first search.
+		assertCustomDomainsEnabled();
 		const candidates = this.searchCandidates(q);
 		const availability = await this.domainProvider.checkAvailability(
 			candidates.map((candidate) => candidate.name),
@@ -173,6 +179,8 @@ export class DomainsService {
 		name: string,
 		projectId?: string,
 	): Promise<PreparedDomainPurchase> {
+		// Staging refuses custom domains before the registrar call and the Stripe checkout.
+		assertCustomDomainsEnabled();
 		const parsed = this.parseSafeDomainName(name);
 		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
@@ -212,6 +220,8 @@ export class DomainsService {
 		projectId: string,
 		body: AttachExternalDomainBody,
 	): Promise<AttachExternalDomainResponse> {
+		// Staging refuses custom domains before the row and the Cloudflare hostname.
+		assertCustomDomainsEnabled();
 		const parsed = this.parseSafeExternalDomainName(body.name);
 
 		// WANDIT-181: a fake login, bank, or wallet name gets no row or hostname.
@@ -220,6 +230,20 @@ export class DomainsService {
 		}
 
 		await this.domainsRepository.assertProjectAccessible(scope, projectId);
+		// Org: the acting member is recorded as the attacher (provenance).
+		// Personal: the workspace owner owns the domain, like the project.
+		const attacher = projectOwnerColumns(scope);
+		// A bought domain stays with its buyer after a detach. Its name connects it again here.
+		const relinked = await this.domainsRepository.relinkPurchasedDomain({
+			attacher,
+			name: parsed.name,
+			projectId,
+		});
+
+		if (relinked) {
+			return this.serveRelinkedPurchase(relinked, projectId, scope);
+		}
+
 		const registration = await this.domainRegistrationCheckService.check(
 			parsed.name,
 		);
@@ -229,12 +253,11 @@ export class DomainsService {
 		}
 
 		const row = await this.domainsRepository.createExternalReplacingReleased({
+			attacher,
 			name: parsed.name,
 			projectId,
 			tld: parsed.tld,
-			// Org: the acting member is recorded as the attacher (provenance).
-			// Personal: the workspace owner owns the domain, like the project.
-			userId: projectOwnerColumns(scope).userId,
+			userId: attacher.userId,
 		});
 		let customHostnameId: string | null = null;
 
@@ -275,7 +298,106 @@ export class DomainsService {
 		}
 	}
 
+	/**
+	 * Makes a re-linked purchase serve `projectId`. An active row gets its
+	 * www and apex hostnames back, the KV pointer, and the backend login URL sync.
+	 * Another status waits for its own pipeline. The customer has no DNS records to add.
+	 */
+	private async serveRelinkedPurchase(
+		row: DomainRow,
+		projectId: string,
+		scope: ProjectScope,
+	): Promise<AttachExternalDomainResponse> {
+		if (row.status !== "active") {
+			return { domain: mapDomain(row), requiredRecords: [] };
+		}
+
+		// A detach deletes the hostname in Cloudflare. This creates it again only when it is gone.
+		const withWww = row.cfCustomHostnameId
+			? (
+					await this.readOrRecreateCustomHostname(
+						row,
+						row.cfCustomHostnameId,
+						scope,
+					)
+				).row
+			: row;
+		const current = await this.recreateDetachedApexHostname(withWww);
+		const serving = await this.domainsRepository.findProjectServing(projectId);
+
+		// assertProjectAccessible saw a live project. A soft-delete since then gets no live host.
+		if (!serving) {
+			throw new InvalidDomainStateError(
+				"Domain must be attached to a project before activation",
+			);
+		}
+
+		// Same side effects as the CAS winner in activateDomain.
+		await this.domainRoutingService.putDomainPointer(
+			current.name,
+			customDomainPointer(projectId, serving),
+		);
+
+		if (serving.engine === "v2_app") {
+			await this.recheckSuspension(current, projectId, serving);
+			await this.syncProjectDomains(projectId, current.id);
+		}
+
+		return { domain: mapDomain(current), requiredRecords: [] };
+	}
+
+	/**
+	 * Detach deletes the apex hostname but keeps `dns.apexConfigured`, so ApexZoneStep
+	 * does not create it again. This creates it when Cloudflare reports it missing.
+	 * The apex traffic record stays in our customer zone, so HTTP validation passes.
+	 */
+	private async recreateDetachedApexHostname(
+		row: DomainRow,
+	): Promise<DomainRow> {
+		const apexId = apexCustomHostnameIdOf(row.dns);
+
+		if (!apexId) {
+			return row;
+		}
+
+		try {
+			await this.customHostnameService.getCustomHostnameStatus(apexId);
+			return row;
+		} catch (error) {
+			if (!(error instanceof CustomHostnameMissingError)) {
+				throw error;
+			}
+		}
+
+		this.logger.warn(
+			`Cloudflare deleted apex custom hostname ${apexId} for domain ${row.id}; it is created again`,
+		);
+		const hostname = await this.customHostnameService.createApexCustomHostname(
+			row.name,
+		);
+		const updated = await this.domainsRepository.mergeDnsIfStatus(
+			row.id,
+			["active"],
+			{
+				apexCustomHostnameId: hostname.id,
+				apexCustomHostnameStatus: hostname.status,
+			},
+		);
+
+		// No row holds the new id, so no cleanup can find it. Release it before the error.
+		if (!updated) {
+			await this.bestEffortDeleteCustomHostname(hostname.id, row.id);
+			throw new InvalidDomainStateError(
+				"Domain changed during connection; try again",
+			);
+		}
+
+		return updated;
+	}
+
 	async verify(id: string, scope: ProjectScope): Promise<VerifyDomainResponse> {
+		// An old staging row can only be detached. Verify would create or refresh a hostname.
+		assertCustomDomainsEnabled();
 		const row = await this.domainsRepository.getByIdForScope(id, scope);
 
 		if (row.status !== "configuring" && row.status !== "active") {
@@ -290,12 +412,15 @@ export class DomainsService {
 			);
 		}
 
-		const status = await this.customHostnameService.getCustomHostnameStatus(
+		const live = await this.readOrRecreateCustomHostname(
+			row,
 			row.cfCustomHostnameId,
+			scope,
 		);
+		const status = live.hostname;
 		// The nameservers shown for option A must belong to a zone that still
 		// exists; otherwise they leave the records before they are handed back.
-		const checked = await this.withdrawLostExternalZone(row);
+		const checked = await this.withdrawLostExternalZone(live.row);
 		const requiredRecords = this.requiredRecords(
 			checked.name,
 			status.requiredRecords,
@@ -646,7 +771,7 @@ export class DomainsService {
 
 		if (!parsed) {
 			throw new DomainBlockedError(
-				"Domain name must be an unreserved sld.tld name",
+				"Domain name must be an unreserved main domain, such as example.com or example.com.dz",
 			);
 		}
 
@@ -703,6 +828,47 @@ export class DomainsService {
 		] satisfies RequiredDomainRecord[];
 
 		return mergeRequiredDomainRecords(existingRecords, records);
+	}
+
+	/**
+	 * Reads the www hostname `id` of `row`. Cloudflare deletes a hostname that stays
+	 * pending for 7 days. Then this creates it again and returns the row with the new id.
+	 */
+	private async readOrRecreateCustomHostname(
+		row: DomainRow,
+		id: string,
+		scope: ProjectScope,
+	): Promise<{ hostname: CustomHostnameResult; row: DomainRow }> {
+		try {
+			return {
+				hostname: await this.customHostnameService.getCustomHostnameStatus(id),
+				row,
+			};
+		} catch (error) {
+			if (!(error instanceof CustomHostnameMissingError)) {
+				throw error;
+			}
+		}
+
+		this.logger.warn(
+			`Cloudflare deleted custom hostname ${id} for domain ${row.id}; it is created again`,
+		);
+		const recreated = await recreateDeletedCustomHostname(
+			row,
+			this.customHostnameService,
+			this.domainsRepository,
+		);
+
+		if (!recreated) {
+			throw new InvalidDomainStateError(
+				"Domain changed during verification; try again",
+			);
+		}
+
+		return {
+			hostname: recreated.hostname,
+			row: await this.domainsRepository.getByIdForScope(row.id, scope),
+		};
 	}
 
 	private async redispatchExternalVerification(

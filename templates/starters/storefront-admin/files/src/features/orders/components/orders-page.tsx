@@ -1,272 +1,295 @@
-// The order list behind login: the page header, the status tabs, the delivery filter, and the searchable table.
+// The order list behind login, in the anatomy of the kit order list: the title and the export, the status tabs,
+// then the table with a search, the Stage and Category filters, a column menu, row checkboxes, and pages.
 // The /app/orders route renders it after its loader. The route also uses the skeleton and the error below.
-// The status tab lives in the URL (?status=), so the home can link to the orders to ship.
-import { LightningIcon } from "@phosphor-icons/react";
+// The status tab lives in the URL (?status=), so the home can link to one status.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
-	CustomerAvatar,
-	countsAsRevenue,
-	dateTimeFormat,
+	copyToClipboard,
+	downloadCsv,
 	moneyFormat,
 	ORDER_STATUSES,
 	OrderStatusBadge,
-	SHIPPING_METHODS,
-	type ShippingMethod,
+	PRODUCT_CATEGORIES,
+	ProductTile,
+	type ShelfStage,
+	shelfStageOf,
+	shipByOf,
+	toCsv,
 } from "~/features/shop";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+} from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { type Order, ordersQueryOptions } from "../api/orders.queries";
-import { shelfStageOf, shipByOf } from "../lib/order-progress";
+import { orderCsvColumns } from "../lib/order-csv";
 import { itemsSummaryOf, orderNumberOf } from "../lib/order-text";
 import { ShelfStageBadge } from "./shelf-stage-badge";
 
 const routeApi = getRouteApi("/app/orders/");
 
-/** The list page. The tab and the delivery filter cut the rows; then DataTable searches, sorts, and pages them. */
+/** The stage values of the Stage filter, in the order of the work. */
+const SHELF_STAGES: ShelfStage[] = ["to_pack", "packed", "late"];
+
+/** The list page. The tab and the two filters cut the rows; then RecordTable searches, sorts, and pages them. */
 export function OrdersPage() {
 	const { t, locale } = useT();
 	const { data: orders } = useSuspenseQuery(ordersQueryOptions());
 	const { status } = routeApi.useSearch();
 	const navigate = routeApi.useNavigate();
-	const [shipping, setShipping] = useState<ShippingMethod | "all">("all");
+	const [stage, setStage] = useState<string | null>(null);
+	const [category, setCategory] = useState<string | null>(null);
 
-	const number = new Intl.NumberFormat(locale);
 	const money = moneyFormat(locale);
-	const dateTime = dateTimeFormat(locale);
+	const number = new Intl.NumberFormat(locale);
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
 	const now = Date.now();
-	// The delivery filter comes first, so each tab count is the count of the rows that its tab shows.
-	const byShipping =
-		shipping === "all"
-			? orders
-			: orders.filter((order) => order.shippingMethod === shipping);
-	// A tab shows only for a status that has rows.
-	const tabs = ORDER_STATUSES.map((value) => ({
-		value,
-		count: byShipping.filter((order) => order.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	// A status of the URL with no row has no tab, so the list shows all rows.
-	const activeStatus = tabs.some((tab) => tab.value === status)
-		? (status ?? "all")
-		: "all";
+	const activeStatus = status ?? "all";
 	const statusRows =
 		activeStatus === "all"
-			? byShipping
-			: byShipping.filter((order) => order.status === activeStatus);
-	// The orders to ship come in the order of the home list: the one that must leave first is on top.
+			? orders
+			: orders.filter((order) => order.status === activeStatus);
+	// The Stage filter uses the late rule of the header bell, so "Late" lists the orders that the bell counts.
+	const filtered = statusRows.filter(
+		(order) =>
+			(stage === null || shelfStageOf(order, now) === stage) &&
+			(category === null ||
+				order.categories.some((value) => value === category)),
+	);
+	// The orders to ship come first by ship-by time: the order that must leave first is on top.
 	const rows =
-		activeStatus === "to_ship"
-			? [...statusRows].sort(
+		activeStatus === "to_ship" || stage !== null
+			? [...filtered].sort(
 					(first, second) => shipByOf(first) - shipByOf(second),
 				)
-			: statusRows;
+			: filtered;
 
-	const columns: DataTableColumn<Order>[] = [
+	const columns: RecordColumn<Order>[] = [
 		{
-			id: "order",
-			header: t("orders.order"),
-			sortValue: (row) => Number(row.id),
-			cell: (row) => (
-				// On a phone the card edge falls on the end of the Total column, so no name is cut in the middle.
-				// 15.125rem is the card padding and border, three cell paddings, and the next two cells (w-20 each).
-				// On a wide screen the summary stops at 18rem.
-				<div className="grid @5xl/main:w-auto @md/main:w-36 w-[calc(100cqw-15.125rem)] @5xl/main:max-w-72 gap-0.5">
-					<span className="flex items-center gap-1.5">
-						<Link
-							to="/app/orders/$orderId"
-							params={{ orderId: row.id }}
-							// On a phone the link gets a touch area of 44 px with no change of the row height.
-							className="relative font-medium tabular-nums hover:underline max-sm:before:absolute max-sm:before:-inset-3"
-						>
-							{orderNumberOf(row.id)}
-						</Link>
-						{row.shippingMethod === "express" ? (
-							<LightningIcon
-								role="img"
-								aria-hidden={false}
-								aria-label={t("orders.shipping.express")}
-								className="size-3.5 text-warning"
-							/>
-						) : null}
-					</span>
-					<span className="truncate text-muted-foreground text-xs">
-						{itemsSummaryOf(row, t("orders.itemsMore"), number)}
+			id: "id",
+			header: t("orders.id"),
+			sortValue: (order) => Number(order.id),
+			cell: (order) => (
+				<Link
+					to="/app/orders/$orderId"
+					params={{ orderId: order.id }}
+					className="text-muted-foreground tabular-nums hover:text-foreground hover:underline"
+				>
+					{orderNumberOf(order.id)}
+				</Link>
+			),
+		},
+		{
+			id: "product",
+			header: t("orders.product"),
+			cell: (order) => (
+				<div className="flex items-center gap-4">
+					{order.categories[0] ? (
+						<ProductTile
+							category={order.categories[0]}
+							className="size-10 lg:size-12"
+						/>
+					) : null}
+					<span className="max-w-56 truncate">
+						{itemsSummaryOf(order, t("orders.itemsMore"), number)}
 					</span>
 				</div>
 			),
 		},
 		{
-			id: "status",
-			header: t("orders.status"),
-			sortValue: (row) => ORDER_STATUSES.indexOf(row.status),
-			cell: (row) => {
-				// To pack, packed, and late all mean "to ship", so the stage replaces the status badge.
-				const stage = shelfStageOf(row, now);
-				return (
-					<div className="@md/main:w-auto w-20">
-						{stage ? (
-							<ShelfStageBadge stage={stage} />
-						) : (
-							<OrderStatusBadge status={row.status} />
-						)}
-					</div>
-				);
-			},
-		},
-		{
 			id: "total",
 			header: t("orders.total"),
-			align: "end",
-			sortValue: (row) => row.total,
-			cell: (row) => (
-				// A cancelled or refunded order brought no money, so its amount is struck through.
-				<div
-					className={cn(
-						"@md/main:w-auto w-20",
-						!countsAsRevenue(row.status) &&
-							"text-muted-foreground line-through",
-					)}
-				>
-					{money.format(row.total)}
-				</div>
+			sortValue: (order) => order.total,
+			cell: (order) => (
+				<span className="tabular-nums">{money.format(order.total)}</span>
 			),
 		},
 		{
 			id: "customer",
 			header: t("orders.customer"),
-			sortValue: (row) => row.customerName,
-			cell: (row) => (
-				// A wide minimum: the table gives its free width by content width, so the customer takes most of it.
-				// Then the status stays near its order on a wide screen.
-				<div className="flex @5xl/main:min-w-80 items-center gap-2.5">
-					<CustomerAvatar
-						name={row.customerName}
-						className="@3xl/main:flex hidden"
-					/>
-					<div className="grid justify-items-start">
-						<span dir="auto">{row.customerName}</span>
-						<span className="text-muted-foreground text-xs" dir="auto">
-							{row.customerPlace}
-						</span>
-					</div>
+			hideable: true,
+			cell: (order) => (
+				<div className="grid gap-1">
+					<span className="font-semibold" dir="auto">
+						{order.customerName}
+					</span>
+					<span className="text-muted-foreground">{order.customerEmail}</span>
 				</div>
 			),
 		},
 		{
-			id: "placed",
-			header: t("orders.placed"),
-			sortValue: (row) => Date.parse(row.placedAt),
-			cell: (row) => (
-				<span className="tabular-nums">
-					{dateTime.format(new Date(row.placedAt))}
+			id: "date",
+			header: t("orders.date"),
+			hideable: true,
+			sortValue: (order) => Date.parse(order.placedAt),
+			cell: (order) => (
+				<span className="whitespace-nowrap">
+					{date.format(new Date(order.placedAt))}
 				</span>
 			),
+		},
+		{
+			id: "delivery",
+			header: t("orders.delivery"),
+			hideable: true,
+			cell: (order) => t(`orders.shipping.${order.shippingMethod}`),
+		},
+		{
+			id: "status",
+			header: t("orders.status"),
+			hideable: true,
+			sortValue: (order) => ORDER_STATUSES.indexOf(order.status),
+			cell: (order) => {
+				const shelfStage = shelfStageOf(order, now);
+				// A late order shows "Late" beside "To ship": the team must ship it first.
+				return (
+					<div className="flex items-center gap-1">
+						<OrderStatusBadge status={order.status} />
+						{shelfStage === "late" ? (
+							<ShelfStageBadge stage={shelfStage} />
+						) : null}
+					</div>
+				);
+			},
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("orders.title")}
-				description={t("orders.description")}
+				actions={
+					<Button
+						type="button"
+						disabled={rows.length === 0}
+						onClick={() =>
+							downloadCsv("orders.csv", toCsv(rows, orderCsvColumns(t, locale)))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
 			/>
+			<Tabs
+				value={activeStatus}
+				onValueChange={(value) =>
+					navigate({
+						search: {
+							status: ORDER_STATUSES.find((option) => option === value),
+						},
+						replace: true,
+					})
+				}
+				className="max-w-full"
+			>
+				{/* On a narrow page the tabs wrap to a second line, so no tab label is cut. */}
+				<TabsList className="flex-wrap group-data-[orientation=horizontal]/tabs:h-auto">
+					<TabsTrigger value="all">{t("orders.all")}</TabsTrigger>
+					{ORDER_STATUSES.map((value) => (
+						<TabsTrigger key={value} value={value}>
+							{t(`orders.statuses.${value}`)}
+						</TabsTrigger>
+					))}
+				</TabsList>
+			</Tabs>
 			{orders.length === 0 ? (
-				<Card>
-					<CardContent className="py-10 text-center text-muted-foreground text-sm">
-						{t("orders.empty")}
-					</CardContent>
-				</Card>
+				<p className="rounded-md border p-10 text-center text-muted-foreground text-sm">
+					{t("orders.empty")}
+				</p>
 			) : (
-				<Card>
-					{/* A narrower padding on a phone gives the table room for its first three columns. */}
-					<CardContent className="@md/main:px-6 px-4">
-						<DataTable
-							rows={rows}
-							columns={columns}
-							searchText={(row) =>
-								`${orderNumberOf(row.id)} ${row.id} ${row.customerName} ${row.customerPlace} ${row.firstProductName}`
+				<RecordTable
+					rows={rows}
+					columns={columns}
+					searchText={(order) =>
+						`${order.id} ${order.customerName} ${order.customerEmail} ${order.firstProductName}`
+					}
+					searchPlaceholder={t("orders.search")}
+					selectable
+					pageSize={10}
+					noResults={t("orders.noResults")}
+					toolbar={
+						<>
+							<RecordFilter
+								label={t("orders.stage")}
+								options={SHELF_STAGES.map((value) => ({
+									value,
+									label: t(`orders.stages.${value}`),
+								}))}
+								value={stage}
+								onValueChange={setStage}
+							/>
+							<RecordFilter
+								label={t("products.category")}
+								options={PRODUCT_CATEGORIES.map((value) => ({
+									value,
+									label: t(`products.categories.${value}`),
+								}))}
+								value={category}
+								onValueChange={setCategory}
+							/>
+						</>
+					}
+					bulkActions={(selected) => (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="h-9"
+							onClick={() =>
+								downloadCsv(
+									"orders-selected.csv",
+									toCsv(selected, orderCsvColumns(t, locale)),
+								)
 							}
-							noResults={t("orders.noResults")}
-							toolbar={
-								<>
-									<Tabs
-										value={activeStatus}
-										onValueChange={(value) =>
-											navigate({
-												search: {
-													status: ORDER_STATUSES.find(
-														(option) => option === value,
-													),
-												},
-												replace: true,
-											})
-										}
-										// On a narrow card the tabs take their own line under the search and the filter.
-										className="@5xl/main:order-none order-last max-w-full @5xl/main:basis-auto basis-full"
-									>
-										{/* On a narrow card the tabs wrap to a second line, so no tab label is cut. */}
-										<TabsList className="flex-wrap group-data-[orientation=horizontal]/tabs:h-auto">
-											<TabsTrigger value="all">
-												{t("orders.all")}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(byShipping.length)}
-												</span>
-											</TabsTrigger>
-											{tabs.map((tab) => (
-												<TabsTrigger key={tab.value} value={tab.value}>
-													{t(`orders.statuses.${tab.value}`)}
-													<span className="text-muted-foreground tabular-nums">
-														{number.format(tab.count)}
-													</span>
-												</TabsTrigger>
-											))}
-										</TabsList>
-									</Tabs>
-									<Select
-										value={shipping}
-										onValueChange={(value) =>
-											setShipping(
-												SHIPPING_METHODS.find((option) => option === value) ??
-													"all",
-											)
-										}
-									>
-										<SelectTrigger
-											aria-label={t("orders.delivery")}
-											className="w-40 max-sm:w-full sm:ms-auto"
-										>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent align="end">
-											<SelectItem value="all">
-												{t("orders.allDeliveries")}
-											</SelectItem>
-											{SHIPPING_METHODS.map((method) => (
-												<SelectItem key={method} value={method}>
-													{t(`orders.shipping.${method}`)}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</>
-							}
-						/>
-					</CardContent>
-				</Card>
+						>
+							<DownloadSimpleIcon />
+							{t("table.exportSelected")}
+						</Button>
+					)}
+					rowMenu={(order) => (
+						<>
+							<DropdownMenuLabel>{t("table.actions")}</DropdownMenuLabel>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem asChild>
+								<Link to="/app/orders/$orderId" params={{ orderId: order.id }}>
+									{t("orders.open")}
+								</Link>
+							</DropdownMenuItem>
+							<DropdownMenuItem asChild>
+								<Link
+									to="/app/customers"
+									search={{ customer: order.customerId }}
+								>
+									{t("orders.viewCustomer")}
+								</Link>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									copyToClipboard(orderNumberOf(order.id), {
+										done: t("table.copied"),
+										failed: t("table.copyFailed"),
+									})
+								}
+							>
+								{t("orders.copyNumber")}
+							</DropdownMenuItem>
+						</>
+					)}
+				/>
 			)}
 		</div>
 	);
@@ -275,22 +298,21 @@ export function OrdersPage() {
 // Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
 const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the order loader runs. The route sets it as pendingComponent. */
 export function OrdersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-64" />
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
+				<Skeleton className="h-8 w-32" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-96 max-w-full" />
+			<Skeleton className="h-9 w-full sm:max-w-sm" />
+			<div className="grid gap-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-14 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

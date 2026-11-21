@@ -2,10 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type {
-	AdminManualRequest,
-	AdminManualSubscriptionDetail,
-} from "@/features/offline-billing/api/offline-billing.dto";
+import type { AdminManualSubscriptionDetail } from "@/features/offline-billing/api/offline-billing.dto";
+import type { PlanManualRequest } from "@/features/offline-billing/lib/receipt";
 
 import { OfflineReceipt, OfflineRequestReceipt } from "./offline-receipt";
 
@@ -93,10 +91,11 @@ describe("OfflineReceipt", () => {
 describe("OfflineRequestReceipt", () => {
 	it("renders a priced request receipt without subscription-period or USD details", () => {
 		const dzdPerUsdRate = 271.43;
-		const request: AdminManualRequest = {
+		const request: PlanManualRequest = {
 			id: "abcdef12-e29b-41d4-a716-446655440000",
 			status: "pending",
 			organizationId: "organization-1",
+			amountUsd: null,
 			plan: "pro",
 			tierCredits: 500,
 			interval: "month",
@@ -158,10 +157,11 @@ describe("OfflineRequestReceipt", () => {
 	});
 
 	it("renders the Starter name, price, and included credits", () => {
-		const request: AdminManualRequest = {
+		const request: PlanManualRequest = {
 			id: "12345678-e29b-41d4-a716-446655440000",
 			status: "pending",
 			organizationId: null,
+			amountUsd: null,
 			plan: "starter",
 			tierCredits: 50,
 			interval: "month",

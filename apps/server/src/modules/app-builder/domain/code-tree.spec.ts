@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildCodeTree,
+	isAgentFilePath,
 	isReadableCodePath,
 	isWritableCodePath,
 	pickDefaultFilePath,
@@ -15,6 +16,8 @@ describe("isReadableCodePath", () => {
 		"src/a..b.ts",
 		"src/my file.ts",
 		"src/.envrc-notes/readme.md",
+		"docs/.claude-notes.md",
+		"docs/CLAUDE.md.bak",
 	])("accepts %s", (path) => {
 		expect(isReadableCodePath(path)).toBe(true);
 	});
@@ -33,6 +36,11 @@ describe("isReadableCodePath", () => {
 		["a .env file", ".env"],
 		["a .env.local file", ".env.local"],
 		["a nested .env file", "apps/web/.env"],
+		["a .claude folder", ".claude/hooks/pre-tool-use.mjs"],
+		["a nested .claude folder", "packages/ui/.claude/settings.json"],
+		["the root CLAUDE.md", "CLAUDE.md"],
+		["a CLAUDE.local.md", "CLAUDE.local.md"],
+		["a nested AGENTS.md", "packages/ui/AGENTS.md"],
 	])("rejects %s", (_label, path) => {
 		expect(isReadableCodePath(path)).toBe(false);
 	});
@@ -75,6 +83,20 @@ describe("isWritableCodePath", () => {
 		["a DEL character", "src/app.tsx\u007f", false],
 	])("%s: %s -> %s", (_label, path, expected) => {
 		expect(isWritableCodePath(path)).toBe(expected);
+	});
+});
+
+describe("isAgentFilePath", () => {
+	// The GitHub Update keeps these paths, so a false positive drops a legit GitHub change.
+	it.each([
+		["a nested CLAUDE.md", "apps/web/CLAUDE.md", true],
+		["the root .mcp.json", ".mcp.json", true],
+		["a nested .claude skill", "src/.claude/skills/x/SKILL.md", true],
+		["the root .gitignore", ".gitignore", false],
+		["the root theme.json", "src/styles/theme.json", false],
+		["a file named like the folder", "src/claude.md", false],
+	])("%s: %s -> %s", (_label, path, expected) => {
+		expect(isAgentFilePath(path)).toBe(expected);
 	});
 });
 
@@ -188,19 +210,6 @@ describe("pickPrefetchPaths", () => {
 			"src/app.tsx",
 			"public/favicon.svg",
 			"package.json",
-		]);
-	});
-
-	it("skips the top-level .claude/ folder only", () => {
-		const tree = buildCodeTree([
-			".claude/skills/forge/SKILL.md",
-			"docs/.claude-notes.md",
-			"README.md",
-		]);
-
-		expect(pickPrefetchPaths(tree)).toEqual([
-			"docs/.claude-notes.md",
-			"README.md",
 		]);
 	});
 

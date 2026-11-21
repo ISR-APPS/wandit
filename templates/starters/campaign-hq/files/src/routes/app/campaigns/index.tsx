@@ -6,12 +6,10 @@ import {
 	CampaignsPageError,
 	CampaignsPageSkeleton,
 	campaignsQueryOptions,
-	campaignsSearchSchema,
 } from "~/features/campaigns";
 
-/** /app/campaigns: every campaign. `?status=` opens one status tab, `?channel=` filters by channel. */
+/** /app/campaigns: one card per campaign, the live ones first. */
 export const Route = createFileRoute("/app/campaigns/")({
-	validateSearch: campaignsSearchSchema,
 	loader: ({ context }) => context.queryClient.query(campaignsQueryOptions()),
 	pendingComponent: CampaignsPageSkeleton,
 	errorComponent: CampaignsPageError,

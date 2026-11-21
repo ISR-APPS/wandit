@@ -1,6 +1,6 @@
 /**
  * Sends product email through Resend: sign-in links and codes, invitations, domain and billing notices.
- * Auth flows, billing services, and Trigger reminder tasks call it. The copy lives in auth-email-templates.ts.
+ * Auth flows, billing services, lifecycle events, and Trigger domain reminder tasks call it. The copy lives in auth-email-templates.ts.
  */
 import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
@@ -16,8 +16,6 @@ import {
 	manualRequestEmail,
 	otpEmail,
 	projectInvitationEmail,
-	type SubscriptionRenewalReminderEmailData,
-	subscriptionRenewalReminderEmail,
 } from "../../templates/auth-email-templates";
 
 /**
@@ -104,26 +102,6 @@ export class EmailService {
 		);
 	}
 
-	/**
-	 * Sends the expiry notice of one manual subscription period. The link opens the web billing page.
-	 * `idempotencyKey` makes a repeat send within 24 hours a no-op at Resend.
-	 */
-	async sendSubscriptionRenewalReminder(
-		input: SubscriptionRenewalReminderEmailData & {
-			idempotencyKey: string;
-			to: string;
-		},
-	): Promise<void> {
-		const billingUrl = new URL("/billing", env.CORS_ORIGIN).toString();
-
-		await this.deliver(
-			input.to,
-			subscriptionRenewalReminderEmail(input, billingUrl),
-			`subscription renewal reminder: ${billingUrl}`,
-			{ idempotencyKey: input.idempotencyKey },
-		);
-	}
-
 	async sendManualRequestEmail(
 		to: readonly string[],
 		data: ManualRequestEmailData,
@@ -131,7 +109,7 @@ export class EmailService {
 		await this.deliver(
 			[...to],
 			manualRequestEmail(data),
-			`offline subscription request: ${data.fullName}`,
+			`offline top-up request: ${data.fullName}`,
 		);
 	}
 

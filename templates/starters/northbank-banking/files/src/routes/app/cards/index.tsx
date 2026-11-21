@@ -1,20 +1,20 @@
 // The cards of the business behind login. The /app layout checks the session first.
-// The loader fills the card list and the spend breakdown. Thin: the page lives in the cards feature.
+// The loader fills the card list and the KPI totals. Thin: the page lives in the cards feature.
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	CardsPage,
 	CardsPageError,
 	CardsPageSkeleton,
-	cardSpendBreakdownQueryOptions,
 	cardsQueryOptions,
+	cardTotalsQueryOptions,
 } from "~/features/cards";
 
-/** /app/cards: every card with its spend this month. */
+/** /app/cards: the KPI row and the table of every card with its spend this month. */
 export const Route = createFileRoute("/app/cards/")({
 	loader: ({ context }) =>
 		Promise.all([
 			context.queryClient.query(cardsQueryOptions()),
-			context.queryClient.query(cardSpendBreakdownQueryOptions()),
+			context.queryClient.query(cardTotalsQueryOptions()),
 		]),
 	pendingComponent: CardsPageSkeleton,
 	errorComponent: CardsPageError,

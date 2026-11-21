@@ -1,5 +1,5 @@
 // The due day of a shipment as a short label: "Today", "Tomorrow", or a late mark.
-// The queue of the home, the shipment list, the shipment page, and the driver and vehicle panels render it.
+// The shipment list and the shipment slips of the driver and vehicle panels render it.
 // An open shipment shows a relative day. A closed shipment shows its due date.
 
 import { useT } from "~/shared/i18n";

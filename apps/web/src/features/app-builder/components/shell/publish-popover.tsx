@@ -109,12 +109,12 @@ export function PublishPopover({
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<PopoverTrigger asChild>
-						{/* On a phone only the rocket shows, so the pill becomes a 36 px circle. */}
+						{/* On a phone only the rocket shows, so the pill becomes a 32 px circle. */}
 						{/* The open look keys on aria-expanded: the tooltip on this button overwrites data-state. */}
 						<Button
 							aria-label={t("appBuilder.publish.cta")}
 							// The one ember key of the bar: a top light and an ember glow. It goes one step down on a press.
-							className="group/publish h-9 gap-1.5 rounded-full font-grotesk font-semibold shadow-ember hover:bg-ember-deep active:translate-y-px has-[>svg]:px-2.5 aria-expanded:bg-ember-deep sm:has-[>svg]:px-4 dark:aria-expanded:bg-primary/90 dark:hover:bg-primary/90"
+							className="group/publish h-8 gap-1.5 rounded-full font-grotesk font-medium text-[13px] shadow-ember hover:bg-ember-deep active:translate-y-px has-[>svg]:px-2 aria-expanded:bg-ember-deep sm:has-[>svg]:px-4 dark:aria-expanded:bg-primary/90 dark:hover:bg-primary/90"
 						>
 							<RocketLaunchIcon aria-hidden weight="fill" className="size-4" />
 							<span className="hidden sm:inline">
@@ -217,7 +217,7 @@ function PublishWebBody({
 	return (
 		<PublishWebTargets
 			status={publishStatus.data}
-			// "Publish anyway" queues a new build too, so the pill spins for it.
+			// "Publish anyway" queues a new build too, so the Publish button spins for it.
 			isPublishPending={
 				publish.isPending || rollback.isPending || override.isPending
 			}
@@ -256,7 +256,7 @@ function BodyPlaceholder({ errorText }: { errorText: string | null }) {
 export type PublishWebTargetsProps = {
 	/** The publish status of the project, from appPublishQuery. */
 	status: AppPublishStatus;
-	/** True while a publish, a rollback, or a "Publish anyway" request runs. The actions are disabled and the Publish pill spins. */
+	/** True while a publish, a rollback, or a "Publish anyway" request runs. The actions are disabled and the Publish button spins. */
 	isPublishPending: boolean;
 	/** True while an unpublish request runs. The actions are disabled, with no spinner. */
 	isUnpublishPending: boolean;
@@ -312,7 +312,7 @@ export function PublishWebTargets({
 				deployment.status === "unpublished",
 		)
 		.slice(0, HISTORY_ROWS);
-	// The pill spins while a publish, a rollback, or an override request runs, and while the build it queued runs.
+	// The Publish button spins while a publish, a rollback, or an override request runs. It also spins while the build it queued runs.
 	const isPublishing = isPublishPending || runningBuild !== null;
 	// One publish runs at a time, so every action waits for the running one. An unpublish blocks them too.
 	const isBusy = isPublishing || isUnpublishPending;
@@ -426,7 +426,7 @@ export function PublishWebTargets({
 								type="button"
 								disabled={isBusy}
 								onClick={onUnpublish}
-								className="h-7 rounded-full px-2.5 font-grotesk font-medium text-destructive/85 text-xs transition-colors hover:bg-destructive/[0.08] hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+								className="h-7 rounded-full px-2.5 font-grotesk font-medium text-[13px] text-destructive/85 transition-colors hover:bg-destructive/[0.08] hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
 							>
 								{t("appBuilder.publish.unpublish")}
 							</button>
@@ -487,7 +487,7 @@ export function PublishWebTargets({
 function LiveChip() {
 	const { t } = useTranslation();
 	return (
-		<span className="inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full bg-success/[0.12] px-2 font-grotesk font-semibold text-[11px] text-success-text">
+		<span className="inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full bg-success/[0.12] px-2 font-grotesk font-medium text-[11px] text-success-text">
 			<span aria-hidden className="size-1.5 rounded-full bg-success" />
 			{t("appBuilder.publish.live")}
 		</span>

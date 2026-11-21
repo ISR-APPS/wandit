@@ -65,6 +65,8 @@ export class CreditsController {
 			settledPlan: balance.settledPlan / 100,
 			settledPromo: balance.settledPromo / 100,
 			settledTopup: balance.settledTopup / 100,
+			// The web shows the Starter pass banner instead of "out of credits" when this is true.
+			starterPassRequired: balance.starterPassRequired,
 			topup: balance.topup / 100,
 		};
 	}

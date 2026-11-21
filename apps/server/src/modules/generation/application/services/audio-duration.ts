@@ -1,8 +1,30 @@
+/**
+ * Pure helpers for uploaded audio: the length from the container bytes, and
+ * the clean media type for the gateway. `TranscriptionService` (V1 voice
+ * input) and `AppAiMediaService` (app transcription) call them.
+ */
 const NANOSECONDS_PER_SECOND = 1_000_000_000;
 const OPUS_SAMPLE_RATE = 48_000;
 const WAV_FORMAT_PCM = 0x0001;
 const WAV_FORMAT_IEEE_FLOAT = 0x0003;
 const UINT32_MAX = 0xffff_ffff;
+
+// Security: the most element reads (boxes, EBML elements, chunks, pages,
+// packets, sample entries) for one full file. A file of tiny elements would
+// else block the event loop with no credit cost. A 300 s Opus file in 2.5 ms
+// packets has 120,000 packets. The WebM reader walks an unknown-size cluster
+// two times, so that file needs about 240,000 reads.
+const MAX_AUDIO_ELEMENTS = 250_000;
+
+// The element reads left for one file. `readAudioDurationSeconds` makes one
+// budget for each call, and every reader of that call takes from it.
+type ElementBudget = { remaining: number };
+
+// Takes `count` reads from the budget. False when the file is above the limit.
+function spendElements(budget: ElementBudget, count = 1): boolean {
+	budget.remaining -= count;
+	return budget.remaining >= 0;
+}
 
 type WavFormat = {
 	bitsPerSample: number;
@@ -13,18 +35,52 @@ type WavFormat = {
 };
 
 /**
+ * Cleans the client content type of an audio upload before the gateway call.
+ * The V1 transcription service and the app AI media service call it.
+ */
+export function normalizeAudioMediaType(mimeType: string): string {
+	// Browsers often add codec details ("audio/webm;codecs=opus") — drop them.
+	const bareType = mimeType.split(";")[0]?.trim().toLowerCase() ?? mimeType;
+
+	// Common aliases for AAC-in-MP4 audio map to the one name the gateway knows.
+	if (
+		bareType === "audio/m4a" ||
+		bareType === "audio/x-m4a" ||
+		bareType === "audio/aac"
+	) {
+		return "audio/mp4";
+	}
+
+	return bareType;
+}
+
+/**
  * Reads duration from the uploaded container before any provider call. The
  * recorder formats used by our web/native clients are deliberately handled
  * without ffprobe so this remains deterministic in API containers.
+ * Returns null when the file needs more than `MAX_AUDIO_ELEMENTS` element reads.
  */
 export function readAudioDurationSeconds(
 	audio: Buffer,
 	mimeType: string,
 ): number | null {
+	const budget: ElementBudget = { remaining: MAX_AUDIO_ELEMENTS };
+	const duration = readContainerDuration(audio, mimeType, budget);
+
+	// Security: a reader can skip a list that ran out of budget and return a
+	// shorter length. A file above the limit thus never gets a length.
+	return budget.remaining >= 0 ? duration : null;
+}
+
+function readContainerDuration(
+	audio: Buffer,
+	mimeType: string,
+	budget: ElementBudget,
+): number | null {
 	const bareType = mimeType.split(";")[0]?.trim().toLowerCase();
 
 	if (bareType === "audio/wav" || bareType === "audio/x-wav") {
-		return readWavDuration(audio);
+		return readWavDuration(audio, budget);
 	}
 
 	if (
@@ -33,21 +89,21 @@ export function readAudioDurationSeconds(
 		bareType === "audio/x-m4a" ||
 		bareType === "audio/aac"
 	) {
-		return readMp4Duration(audio);
+		return readMp4Duration(audio, budget);
 	}
 
 	if (bareType === "audio/webm" || bareType === "video/webm") {
-		return readWebmDuration(audio);
+		return readWebmDuration(audio, budget);
 	}
 
 	if (bareType === "audio/ogg" || bareType === "application/ogg") {
-		return readOggDuration(audio);
+		return readOggDuration(audio, budget);
 	}
 
 	return null;
 }
 
-function readWavDuration(audio: Buffer): number | null {
+function readWavDuration(audio: Buffer, budget: ElementBudget): number | null {
 	if (
 		audio.length < 44 ||
 		audio.toString("ascii", 0, 4) !== "RIFF" ||
@@ -67,6 +123,10 @@ function readWavDuration(audio: Buffer): number | null {
 	let offset = 12;
 
 	while (offset + 8 <= riffEnd) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (!spendElements(budget)) {
+			return null;
+		}
 		const chunkType = audio.toString("ascii", offset, offset + 4);
 		const chunkSize = audio.readUInt32LE(offset + 4);
 		const payloadOffset = offset + 8;
@@ -173,8 +233,8 @@ function sameWavFormat(left: WavFormat, right: WavFormat): boolean {
 	);
 }
 
-function readMp4Duration(audio: Buffer): number | null {
-	const topLevel = readIsoBoxes(audio, 0, audio.length);
+function readMp4Duration(audio: Buffer, budget: ElementBudget): number | null {
+	const topLevel = readIsoBoxes(audio, 0, audio.length, budget);
 
 	if (!topLevel?.some((box) => box.type === "ftyp")) {
 		return null;
@@ -182,13 +242,16 @@ function readMp4Duration(audio: Buffer): number | null {
 
 	const durations: number[] = [];
 	let hasAudioTrackDuration = false;
+	// The boxes of the first moov, kept for the fragment path below.
+	let firstMovieBoxes: IsoBox[] | null = null;
 
 	for (const moov of topLevel.filter((box) => box.type === "moov")) {
-		const movieBoxes = readIsoBoxes(audio, moov.dataOffset, moov.end);
+		const movieBoxes = readIsoBoxes(audio, moov.dataOffset, moov.end, budget);
 
 		if (!movieBoxes) {
 			return null;
 		}
+		firstMovieBoxes ??= movieBoxes;
 
 		for (const movieHeader of movieBoxes.filter((box) => box.type === "mvhd")) {
 			const clock = readIsoClock(audio, movieHeader);
@@ -202,7 +265,7 @@ function readMp4Duration(audio: Buffer): number | null {
 		}
 
 		for (const track of movieBoxes.filter((box) => box.type === "trak")) {
-			const duration = readIsoAudioTrackDuration(audio, track);
+			const duration = readIsoAudioTrackDuration(audio, track, budget);
 
 			if (duration !== null) {
 				durations.push(duration);
@@ -211,17 +274,154 @@ function readMp4Duration(audio: Buffer): number | null {
 		}
 	}
 
-	return hasAudioTrackDuration ? maximumValidDuration(durations) : null;
+	if (hasAudioTrackDuration) {
+		return maximumValidDuration(durations);
+	}
+	// Safari MediaRecorder writes a fragmented MP4: the moov lengths are 0,
+	// and the sample lengths are in the top-level moof boxes.
+	return firstMovieBoxes
+		? readIsoFragmentDuration(audio, topLevel, firstMovieBoxes, budget)
+		: null;
 }
 
-function readWebmDuration(audio: Buffer): number | null {
+// The sum of the sample lengths of the sound track in each moof/traf/trun.
+// A sample length comes from the trun, else the tfhd default, else the trex default.
+function readIsoFragmentDuration(
+	audio: Buffer,
+	topLevel: readonly IsoBox[],
+	movieBoxes: readonly IsoBox[],
+	budget: ElementBudget,
+): number | null {
+	let sound: { trackId: number; timescale: number } | null = null;
+	for (const track of movieBoxes.filter((box) => box.type === "trak")) {
+		sound = readIsoSoundTrackClock(audio, track, budget);
+		if (sound !== null) {
+			break;
+		}
+	}
+	if (sound === null) {
+		return null;
+	}
+
+	let trexDefaultDuration = 0;
+	const movieExtends = movieBoxes.find((box) => box.type === "mvex");
+	const extendsChildren = movieExtends
+		? readIsoBoxes(audio, movieExtends.dataOffset, movieExtends.end, budget)
+		: [];
+	for (const trex of (extendsChildren ?? []).filter(
+		(box) => box.type === "trex",
+	)) {
+		if (
+			trex.dataOffset + 16 <= trex.end &&
+			audio.readUInt32BE(trex.dataOffset + 4) === sound.trackId
+		) {
+			trexDefaultDuration = audio.readUInt32BE(trex.dataOffset + 12);
+		}
+	}
+
+	let ticks = 0;
+	for (const fragment of topLevel.filter((box) => box.type === "moof")) {
+		const fragmentChildren = readIsoBoxes(
+			audio,
+			fragment.dataOffset,
+			fragment.end,
+			budget,
+		);
+		if (!fragmentChildren) {
+			return null;
+		}
+		for (const trackFragment of fragmentChildren.filter(
+			(box) => box.type === "traf",
+		)) {
+			const trackChildren = readIsoBoxes(
+				audio,
+				trackFragment.dataOffset,
+				trackFragment.end,
+				budget,
+			);
+			const header = trackChildren?.find((box) => box.type === "tfhd");
+			if (!trackChildren || !header || header.dataOffset + 8 > header.end) {
+				return null;
+			}
+			if (audio.readUInt32BE(header.dataOffset + 4) !== sound.trackId) {
+				continue;
+			}
+			const headerFlags = audio.readUInt32BE(header.dataOffset) & 0xff_ffff;
+			// Skip base_data_offset (0x01, 8 bytes) and sample_description_index (0x02).
+			const defaultOffset =
+				header.dataOffset +
+				8 +
+				(headerFlags & 0x01 ? 8 : 0) +
+				(headerFlags & 0x02 ? 4 : 0);
+			if (headerFlags & 0x08 && defaultOffset + 4 > header.end) {
+				return null;
+			}
+			const defaultDuration =
+				headerFlags & 0x08
+					? audio.readUInt32BE(defaultOffset)
+					: trexDefaultDuration;
+
+			for (const run of trackChildren.filter((box) => box.type === "trun")) {
+				const runTicks = readIsoTrackRunTicks(
+					audio,
+					run,
+					defaultDuration,
+					budget,
+				);
+				if (runTicks === null) {
+					return null;
+				}
+				ticks += runTicks;
+			}
+		}
+	}
+	return validDuration(ticks / sound.timescale);
+}
+
+// The ticks of one trun box. Per-sample lengths exist when flag 0x100 is set.
+function readIsoTrackRunTicks(
+	audio: Buffer,
+	run: IsoBox,
+	defaultDuration: number,
+	budget: ElementBudget,
+): number | null {
+	if (run.dataOffset + 8 > run.end) {
+		return null;
+	}
+	const flags = audio.readUInt32BE(run.dataOffset) & 0xff_ffff;
+	const sampleCount = audio.readUInt32BE(run.dataOffset + 4);
+	// Skip data_offset (0x01) and first_sample_flags (0x04), 4 bytes each.
+	const samplesOffset =
+		run.dataOffset + 8 + (flags & 0x01 ? 4 : 0) + (flags & 0x04 ? 4 : 0);
+	// Each of the flags 0x100 to 0x800 adds one 4-byte field to each sample.
+	const sampleBytes =
+		4 *
+		[0x100, 0x200, 0x400, 0x800].filter((flag) => (flags & flag) !== 0).length;
+	if (samplesOffset + sampleCount * sampleBytes > run.end) {
+		return null;
+	}
+	if ((flags & 0x100) === 0) {
+		return sampleCount * defaultDuration;
+	}
+	// Security: see MAX_AUDIO_ELEMENTS.
+	if (!spendElements(budget, sampleCount)) {
+		return null;
+	}
+	let ticks = 0;
+	for (let index = 0; index < sampleCount; index += 1) {
+		ticks += audio.readUInt32BE(samplesOffset + index * sampleBytes);
+	}
+	return ticks;
+}
+
+function readWebmDuration(audio: Buffer, budget: ElementBudget): number | null {
 	const header = readEbmlElement(audio, 0, audio.length);
 
 	if (header?.id !== 0x1a45dfa3 || header.unknownSize) {
 		return null;
 	}
 
-	const headerChildren = readKnownEbmlChildren(audio, header);
+	const headerChildren = readKnownEbmlChildren(audio, header, budget);
 	const docType = headerChildren?.find((element) => element.id === 0x4282);
 	const docTypeValue = docType
 		? audio.toString("ascii", docType.dataOffset, docType.end).toLowerCase()
@@ -231,13 +431,13 @@ function readWebmDuration(audio: Buffer): number | null {
 		return null;
 	}
 
-	const segment = findEbmlSegment(audio, header.end);
+	const segment = findEbmlSegment(audio, header.end, budget);
 
 	if (!segment) {
 		return null;
 	}
 
-	const elements = readSegmentElements(audio, segment);
+	const elements = readSegmentElements(audio, segment, budget);
 
 	if (!elements) {
 		return null;
@@ -248,7 +448,7 @@ function readWebmDuration(audio: Buffer): number | null {
 	const info = elements.find((element) => element.id === 0x1549a966);
 
 	if (info) {
-		const infoChildren = readKnownEbmlChildren(audio, info);
+		const infoChildren = readKnownEbmlChildren(audio, info, budget);
 
 		if (!infoChildren) {
 			return null;
@@ -278,7 +478,9 @@ function readWebmDuration(audio: Buffer): number | null {
 	}
 
 	const tracksElement = elements.find((element) => element.id === 0x1654ae6b);
-	const tracks = tracksElement ? readWebmTracks(audio, tracksElement) : null;
+	const tracks = tracksElement
+		? readWebmTracks(audio, tracksElement, budget)
+		: null;
 
 	if (!tracks || ![...tracks.values()].some((track) => track.isOpusAudio)) {
 		return null;
@@ -290,7 +492,13 @@ function readWebmDuration(audio: Buffer): number | null {
 	for (const cluster of elements.filter(
 		(element) => element.id === 0x1f43b675,
 	)) {
-		const timing = readWebmClusterTiming(audio, cluster, tracks, timecodeScale);
+		const timing = readWebmClusterTiming(
+			audio,
+			cluster,
+			tracks,
+			timecodeScale,
+			budget,
+		);
 
 		if (!timing) {
 			return null;
@@ -310,9 +518,15 @@ function readWebmDuration(audio: Buffer): number | null {
 	]);
 }
 
-function readOggDuration(audio: Buffer): number | null {
-	const packets: Buffer[] = [];
-	let packetParts: Buffer[] = [];
+// Security: each packet is read when it closes, and only its first part is
+// kept. A list of all packets would let a flood of tiny packets fill the heap.
+function readOggDuration(audio: Buffer, budget: ElementBudget): number | null {
+	// The first lacing segment of the open packet; null when no packet is open.
+	// It holds the full packet header: OpusHead needs 19 bytes, a TOC needs 2.
+	let packetStart: Buffer | null = null;
+	let packetCount = 0;
+	let preSkip: number | null = null;
+	let packetDurationSeconds = 0;
 	let expectedSequence = 0;
 	let offset = 0;
 	let serial: number | null = null;
@@ -320,6 +534,10 @@ function readOggDuration(audio: Buffer): number | null {
 	let sawEos = false;
 
 	while (offset < audio.length) {
+		// Security: see MAX_AUDIO_ELEMENTS. A page with no segments still costs one read.
+		if (!spendElements(budget)) {
+			return null;
+		}
 		if (
 			sawEos ||
 			offset + 27 > audio.length ||
@@ -337,7 +555,7 @@ function readOggDuration(audio: Buffer): number | null {
 		const pageSequence = audio.readUInt32LE(offset + 18);
 
 		if (
-			continued !== packetParts.length > 0 ||
+			continued !== (packetStart !== null) ||
 			(expectedSequence === 0 ? !bos : bos) ||
 			pageSequence !== expectedSequence ||
 			(serial !== null && serial !== pageSerial)
@@ -364,12 +582,36 @@ function readOggDuration(audio: Buffer): number | null {
 				return null;
 			}
 
-			packetParts.push(audio.subarray(payloadCursor, end));
+			packetStart ??= audio.subarray(payloadCursor, end);
 			payloadCursor = end;
 
 			if (length < 255) {
-				packets.push(Buffer.concat(packetParts));
-				packetParts = [];
+				const packet = packetStart;
+				packetStart = null;
+				// Security: see MAX_AUDIO_ELEMENTS.
+				if (!spendElements(budget)) {
+					return null;
+				}
+				if (packetCount === 0) {
+					if (
+						packet.length < 19 ||
+						packet.toString("ascii", 0, 8) !== "OpusHead"
+					) {
+						return null;
+					}
+					preSkip = packet.readUInt16LE(10);
+				} else if (packetCount === 1) {
+					if (packet.toString("ascii", 0, 8) !== "OpusTags") {
+						return null;
+					}
+				} else {
+					const duration = readOpusPacketDurationSeconds(packet);
+					if (duration === null) {
+						return null;
+					}
+					packetDurationSeconds += duration;
+				}
+				packetCount += 1;
 			}
 		}
 
@@ -385,37 +627,15 @@ function readOggDuration(audio: Buffer): number | null {
 		offset = payloadCursor;
 	}
 
-	if (!sawEos || packetParts.length > 0 || packets.length < 2) {
-		return null;
-	}
-
-	const opusHead = packets[0];
-	const opusTags = packets[1];
-
 	if (
-		!opusHead ||
-		opusHead.length < 19 ||
-		opusHead.toString("ascii", 0, 8) !== "OpusHead" ||
-		!opusTags ||
-		opusTags.toString("ascii", 0, 8) !== "OpusTags" ||
-		finalGranule === null
+		!sawEos ||
+		packetStart !== null ||
+		packetCount < 2 ||
+		preSkip === null ||
+		finalGranule === null ||
+		finalGranule < BigInt(preSkip)
 	) {
 		return null;
-	}
-
-	const preSkip = opusHead.readUInt16LE(10);
-	if (finalGranule < BigInt(preSkip)) {
-		return null;
-	}
-
-	let packetDurationSeconds = 0;
-	for (const packet of packets.slice(2)) {
-		const duration = readOpusPacketDurationSeconds(packet);
-
-		if (duration === null) {
-			return null;
-		}
-		packetDurationSeconds += duration;
 	}
 
 	const granuleDuration =
@@ -430,6 +650,7 @@ function readIsoBoxes(
 	audio: Buffer,
 	start: number,
 	end: number,
+	budget: ElementBudget,
 ): IsoBox[] | null {
 	const boxes: IsoBox[] = [];
 	let offset = start;
@@ -463,6 +684,10 @@ function readIsoBoxes(
 			return null;
 		}
 
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (!spendElements(budget)) {
+			return null;
+		}
 		boxes.push({ dataOffset: offset + headerSize, end: boxEnd, type });
 		offset = boxEnd;
 	}
@@ -502,18 +727,35 @@ function readIsoClock(
 	return null;
 }
 
-function readIsoAudioTrackDuration(
+// The boxes of a sound track: its children, its mdia children, and its
+// mdhd clock. Null for any other track or a malformed one.
+function readIsoSoundTrack(
 	audio: Buffer,
 	track: IsoBox,
-): number | null {
-	const trackChildren = readIsoBoxes(audio, track.dataOffset, track.end);
+	budget: ElementBudget,
+): {
+	trackChildren: IsoBox[];
+	mediaChildren: IsoBox[];
+	clock: { durationSeconds: number | null; timescale: number };
+} | null {
+	const trackChildren = readIsoBoxes(
+		audio,
+		track.dataOffset,
+		track.end,
+		budget,
+	);
 	const media = trackChildren?.find((box) => box.type === "mdia");
 
-	if (!media) {
+	if (!trackChildren || !media) {
 		return null;
 	}
 
-	const mediaChildren = readIsoBoxes(audio, media.dataOffset, media.end);
+	const mediaChildren = readIsoBoxes(
+		audio,
+		media.dataOffset,
+		media.end,
+		budget,
+	);
 	const handler = mediaChildren?.find((box) => box.type === "hdlr");
 	const mediaHeader = mediaChildren?.find((box) => box.type === "mdhd");
 
@@ -532,21 +774,61 @@ function readIsoAudioTrackDuration(
 	if (!clock || clock.timescale <= 0) {
 		return null;
 	}
+	return { trackChildren, mediaChildren, clock };
+}
+
+// The track id (from tkhd) and the timescale of a sound track, for its fragments.
+function readIsoSoundTrackClock(
+	audio: Buffer,
+	track: IsoBox,
+	budget: ElementBudget,
+): { trackId: number; timescale: number } | null {
+	const sound = readIsoSoundTrack(audio, track, budget);
+	const header = sound?.trackChildren.find((box) => box.type === "tkhd");
+	if (!sound || !header) {
+		return null;
+	}
+	// tkhd: version 0 has 4-byte times, version 1 has 8-byte times before the id.
+	const idOffset =
+		header.dataOffset + (audio[header.dataOffset] === 1 ? 20 : 12);
+	if (idOffset + 4 > header.end) {
+		return null;
+	}
+	return {
+		trackId: audio.readUInt32BE(idOffset),
+		timescale: sound.clock.timescale,
+	};
+}
+
+function readIsoAudioTrackDuration(
+	audio: Buffer,
+	track: IsoBox,
+	budget: ElementBudget,
+): number | null {
+	const sound = readIsoSoundTrack(audio, track, budget);
+	if (!sound) {
+		return null;
+	}
+	const { mediaChildren, clock } = sound;
 
 	const durations: Array<number | null> = [clock.durationSeconds];
 	const mediaInfo = mediaChildren.find((box) => box.type === "minf");
 	const mediaInfoChildren = mediaInfo
-		? readIsoBoxes(audio, mediaInfo.dataOffset, mediaInfo.end)
+		? readIsoBoxes(audio, mediaInfo.dataOffset, mediaInfo.end, budget)
 		: null;
 	const sampleTable = mediaInfoChildren?.find((box) => box.type === "stbl");
 	const sampleTableChildren = sampleTable
-		? readIsoBoxes(audio, sampleTable.dataOffset, sampleTable.end)
+		? readIsoBoxes(audio, sampleTable.dataOffset, sampleTable.end, budget)
 		: null;
 	const timeToSample = sampleTableChildren?.find((box) => box.type === "stts");
 
 	if (timeToSample && timeToSample.dataOffset + 8 <= timeToSample.end) {
 		const entryCount = audio.readUInt32BE(timeToSample.dataOffset + 4);
-		if (entryCount > (timeToSample.end - timeToSample.dataOffset - 8) / 8) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (
+			entryCount > (timeToSample.end - timeToSample.dataOffset - 8) / 8 ||
+			!spendElements(budget, entryCount)
+		) {
 			return null;
 		}
 
@@ -659,12 +941,19 @@ function readEbmlSize(
 function readKnownEbmlChildren(
 	audio: Buffer,
 	container: EbmlElement,
+	budget: ElementBudget,
 ): EbmlElement[] | null {
 	const children: EbmlElement[] = [];
 	let offset = container.dataOffset;
 	while (offset < container.end) {
 		const child = readEbmlElement(audio, offset, container.end);
-		if (!child || child.unknownSize || child.end <= offset) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (
+			!child ||
+			child.unknownSize ||
+			child.end <= offset ||
+			!spendElements(budget)
+		) {
 			return null;
 		}
 		children.push(child);
@@ -673,12 +962,17 @@ function readKnownEbmlChildren(
 	return children;
 }
 
-function findEbmlSegment(audio: Buffer, offset: number): EbmlElement | null {
+function findEbmlSegment(
+	audio: Buffer,
+	offset: number,
+	budget: ElementBudget,
+): EbmlElement | null {
 	let cursor = offset;
 
 	while (cursor < audio.length) {
 		const element = readEbmlElement(audio, cursor, audio.length);
-		if (!element) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (!element || !spendElements(budget)) {
 			return null;
 		}
 		if (element.id === 0x18538067) {
@@ -695,19 +989,21 @@ function findEbmlSegment(audio: Buffer, offset: number): EbmlElement | null {
 function readSegmentElements(
 	audio: Buffer,
 	segment: EbmlElement,
+	budget: ElementBudget,
 ): EbmlElement[] | null {
 	const elements: EbmlElement[] = [];
 	let offset = segment.dataOffset;
 	while (offset < segment.end) {
 		const element = readEbmlElement(audio, offset, segment.end);
-		if (!element) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (!element || !spendElements(budget)) {
 			return null;
 		}
 		if (element.unknownSize) {
 			if (element.id !== 0x1f43b675) {
 				return null;
 			}
-			const end = findUnknownClusterEnd(audio, element, segment.end);
+			const end = findUnknownClusterEnd(audio, element, segment.end, budget);
 			if (end === null || end <= offset) {
 				return null;
 			}
@@ -725,11 +1021,13 @@ function findUnknownClusterEnd(
 	audio: Buffer,
 	cluster: EbmlElement,
 	segmentEnd: number,
+	budget: ElementBudget,
 ): number | null {
 	let offset = cluster.dataOffset;
 	while (offset < segmentEnd) {
 		const child = readEbmlElement(audio, offset, segmentEnd);
-		if (!child) {
+		// Security: see MAX_AUDIO_ELEMENTS.
+		if (!child || !spendElements(budget)) {
 			return null;
 		}
 		if (SEGMENT_LEVEL_IDS.has(child.id)) {
@@ -746,14 +1044,15 @@ function findUnknownClusterEnd(
 function readWebmTracks(
 	audio: Buffer,
 	tracksElement: EbmlElement,
+	budget: ElementBudget,
 ): Map<number, WebmTrack> | null {
-	const entries = readKnownEbmlChildren(audio, tracksElement);
+	const entries = readKnownEbmlChildren(audio, tracksElement, budget);
 	if (!entries) {
 		return null;
 	}
 	const tracks = new Map<number, WebmTrack>();
 	for (const entry of entries.filter((element) => element.id === 0xae)) {
-		const fields = readKnownEbmlChildren(audio, entry);
+		const fields = readKnownEbmlChildren(audio, entry, budget);
 		if (!fields) {
 			return null;
 		}
@@ -785,11 +1084,13 @@ function readWebmClusterTiming(
 	cluster: EbmlElement,
 	tracks: ReadonlyMap<number, WebmTrack>,
 	timecodeScale: number,
+	budget: ElementBudget,
 ): { packetDurationSeconds: number; timelineEndSeconds: number } | null {
-	const children = readKnownEbmlChildren(audio, {
-		...cluster,
-		unknownSize: false,
-	});
+	const children = readKnownEbmlChildren(
+		audio,
+		{ ...cluster, unknownSize: false },
+		budget,
+	);
 	if (!children) {
 		return null;
 	}
@@ -808,11 +1109,16 @@ function readWebmClusterTiming(
 		if (child.id === 0xa3) {
 			blocks.push(child);
 		} else if (child.id === 0xa0) {
-			const group = readKnownEbmlChildren(audio, child);
+			const group = readKnownEbmlChildren(audio, child, budget);
 			if (!group) {
 				return null;
 			}
-			blocks.push(...group.filter((element) => element.id === 0xa1));
+			// A loop, not a spread: a spread of a long list overflows the call stack.
+			for (const element of group) {
+				if (element.id === 0xa1) {
+					blocks.push(element);
+				}
+			}
 		}
 
 		for (const block of blocks) {
@@ -936,7 +1242,10 @@ function maximumValidDuration(
 	const valid = values.filter(
 		(value): value is number => validDuration(value ?? Number.NaN) !== null,
 	);
-	return valid.length > 0 ? Math.max(...valid) : null;
+	// A reduce, not `Math.max(...valid)`: a spread of a long list overflows the call stack.
+	return valid.length > 0
+		? valid.reduce((longest, value) => Math.max(longest, value))
+		: null;
 }
 
 function validDuration(value: number): number | null {

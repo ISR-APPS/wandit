@@ -1,5 +1,5 @@
-// Shapes and math of the chart and figure data: daily points, KPI items, and the change ratio.
-// The query files build the series with buildDailyPicks. The trend card and the figures card take the types.
+// Shapes and math of the chart and figure data: the period choices, daily points, and the change ratio.
+// The query files of the home and the item list build their series and deltas with these functions.
 // changeRatio is the one change formula of the app, so every delta compares the same way.
 import type { MovementRow } from "./sample-data";
 import { addLocalDays, dayKeyOf } from "./time";
@@ -15,21 +15,6 @@ export type DailyPoint = {
 	day: string;
 	current: number;
 	previous: number;
-};
-
-/** One figure of the home. Code builds it from the sample tables. */
-export type KpiItem = {
-	/** Stable id, also the React key, for example "units-picked". */
-	id: string;
-	/** Label, already translated. */
-	label: string;
-	value: number;
-	/** Intl options of the value, for example { style: "percent" }. A plain number when absent. */
-	format?: Intl.NumberFormatOptions;
-	/** Ratio against the previous period of the same length: 0.12 is +12 %. null hides the delta. */
-	change: number | null;
-	/** "down" for delays and losses: a fall is good news. "neutral" for a figure with no good direction: no color. */
-	goodWhen: "up" | "down" | "neutral";
 };
 
 /** Change against the previous period, as a ratio. null when the previous value is 0: no delta shows. */

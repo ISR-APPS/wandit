@@ -1,28 +1,20 @@
 /**
  * Creates the local development password account (DEV_USER) when the API boots,
- * and gives it a Business plan with its credits, so it can build V2 projects with a backend.
+ * and tops up its wallet one time, so it is a paid owner with credits for V2 turns.
  * Nest calls onModuleInit. It does nothing unless isDevPasswordLoginEnabled is true.
  * Writes `user` and `account` through the Better Auth internal adapter, so the signup hooks run.
- * Writes the plan row through SubscriptionsRepository and its credits through CreditsService.
+ * Writes the top-up ledger row through CreditsService, and the Starter pass through StarterPassesRepository.
  */
-import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import {
 	DEV_USER,
 	isDevPasswordLoginEnabled,
 } from "@wandit/auth/dev-password-login";
-import {
-	addBillingInterval,
-	creditsToCentiCredits,
-	priceLookupKey,
-} from "@wandit/contracts";
+import { creditsToCentiCredits } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type { AuthContext } from "better-auth";
 
-import {
-	type SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { StarterPassesRepository } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { userOwner } from "../../../credits/domain/credit-owner";
 import { AUTH_INSTANCE } from "../../auth.constants";
@@ -41,21 +33,17 @@ type DevUserSeedAuth = {
 	}>;
 };
 
-/** The two subscription calls of the seed. The spec passes an in-memory fake. */
-export type DevPlanSubscriptions = Pick<
-	SubscriptionsRepository,
-	"findActiveByOwner" | "insertManual"
+/** The credit call of the seed. The spec passes an in-memory fake. */
+export type DevSeedCredits = Pick<CreditsService, "topup">;
+
+/** The Starter pass call of the seed. The spec passes an in-memory fake. */
+export type DevSeedStarterPasses = Pick<
+	StarterPassesRepository,
+	"grantIfAbsent"
 >;
 
-/** The credit call of the seed. The spec passes an in-memory fake. */
-export type DevPlanCredits = Pick<CreditsService, "grant">;
-
-// The smallest Business tier, in whole credits: enough for some builder turns.
-const DEV_PLAN_TIER_CREDITS = 250;
-
-// Every plan row the seed writes has this id prefix. A row without it
-// belongs to a developer, and the seed does not touch it.
-const DEV_PLAN_ID_PREFIX = "manual_dev-seed_";
+// 250 credits (spec section 6): enough for some builder turns. The ledger unit is centi-credits.
+const DEV_TOPUP_CENTI_CREDITS = creditsToCentiCredits(250);
 
 @Injectable()
 export class DevUserSeedService implements OnModuleInit {
@@ -63,10 +51,10 @@ export class DevUserSeedService implements OnModuleInit {
 
 	constructor(
 		@Inject(AUTH_INSTANCE) private readonly auth: DevUserSeedAuth,
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: DevPlanSubscriptions,
 		@Inject(CreditsService)
-		private readonly credits: DevPlanCredits,
+		private readonly credits: DevSeedCredits,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: DevSeedStarterPasses,
 	) {}
 
 	async onModuleInit(): Promise<void> {
@@ -82,7 +70,7 @@ export class DevUserSeedService implements OnModuleInit {
 		// A failed seed must not stop the API boot. Google sign-in still works.
 		try {
 			const userId = await this.seedUser();
-			await this.seedPlan(userId);
+			await this.seedTopup(userId);
 		} catch (error) {
 			this.logger.error(`Dev user seed failed for ${DEV_USER.email}`, error);
 		}
@@ -129,63 +117,23 @@ export class DevUserSeedService implements OnModuleInit {
 	}
 
 	/**
-	 * Inserts an active yearly Business plan row for the personal pool of the
-	 * dev user, then grants its tier credits once. The plan sets the backend
-	 * limit (`backendsPerPlan` in backend-lifecycle.ts). Business has the
-	 * largest limit, so a new project gets a backend. The admin grant path
-	 * allows Business only for an organization; `resolveBillingPlan` reads
-	 * the plan only.
+	 * Tops up the personal wallet of the dev user one time. The top-up makes
+	 * it a paid owner (spec section 6), so it gets one V2 backend. More backends
+	 * need `BACKEND_LIMIT_OFF=true` in `apps/server/.env`. It also grants an
+	 * admin-source Starter pass, so the dev user can spend when the pass is required.
 	 */
-	private async seedPlan(userId: string): Promise<void> {
-		const owner = userOwner(userId);
-		const active = await this.subscriptions.findActiveByOwner(owner);
-		// A developer can give the dev user a plan on purpose (Stripe test
-		// mode, an admin grant). The seed keeps that row and adds no credits.
-		if (
-			active &&
-			!active.providerSubscriptionId.startsWith(DEV_PLAN_ID_PREFIX)
-		) {
-			if (active.plan !== "business") {
-				this.logger.warn(
-					`Dev user ${DEV_USER.email} keeps its active ${active.plan} plan. The seed adds no Business plan.`,
-				);
-			}
-			return;
-		}
-
-		const plan = active ?? (await this.insertPlan(userId));
-		// The admin grant path gives the tier credits with the row. The key
-		// makes the grant of a later boot a no-op, so each row grants once.
-		// LIMIT: one grant per yearly row, no monthly refill slots. Upgrade:
-		// SubscriptionRefillService.createYearlySlots, like the admin yearly grant.
-		await this.credits.grant(owner, creditsToCentiCredits(plan.tierCredits), {
-			bucket: "plan",
-			idempotencyKey: `dev-seed:${plan.id}:plan`,
-			meta: { reason: "dev_user_seed_plan", subscriptionId: plan.id },
+	private async seedTopup(userId: string): Promise<void> {
+		// The key makes the top-up of a later boot a no-op. `topup` throws on a
+		// replay with another amount, so a new amount needs a new key.
+		await this.credits.topup(userOwner(userId), DEV_TOPUP_CENTI_CREDITS, {
+			idempotencyKey: `dev-seed:topup:${userId}`,
+			meta: { reason: "dev_user_seed" },
 		});
-	}
-
-	/** Inserts the Business plan row of the dev user and answers it. */
-	private async insertPlan(userId: string): Promise<SubscriptionRow> {
-		const periodStart = new Date();
-		// Worktrees share one database. The unique index on live personal rows
-		// makes a second concurrent boot fail here, so only one row exists.
-		const row = await this.subscriptions.insertManual({
-			cancelAtPeriodEnd: false,
-			currentPeriodEnd: addBillingInterval(periodStart, "year"),
-			currentPeriodStart: periodStart,
-			interval: "year",
-			organizationId: null,
-			plan: "business",
-			priceLookupKey: priceLookupKey("business", DEV_PLAN_TIER_CREDITS, "year"),
-			// A new id per row: the manual expiry sweep ends the row after its
-			// period, and the next boot inserts a new one.
-			providerSubscriptionId: `${DEV_PLAN_ID_PREFIX}${randomUUID()}`,
-			status: "active",
-			tierCredits: DEV_PLAN_TIER_CREDITS,
-			userId,
+		// The dev account must spend when the Starter pass switch is on. The top-up above has no receipt,
+		// so the pass is an admin grant. A live pass makes the grant of a later boot a no-op.
+		await this.starterPasses.grantIfAbsent(userOwner(userId), {
+			note: "dev seed",
+			source: "admin",
 		});
-		this.logger.log(`Seeded a Business plan for dev user ${DEV_USER.email}`);
-		return row;
 	}
 }

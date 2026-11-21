@@ -1,28 +1,30 @@
-// The list view of the reservations: status tabs, one channel filter, and the searchable table.
-// ReservationsPage renders it in a Card. The guest name of a row opens the detail page.
+// The list view of the reservations: a filter field, a status and a channel filter, a column menu,
+// checkboxes with "Export selected", sortable heads, a row menu, and pages.
+// ReservationsPage renders it in a Card. The guest name and the row menu open the detail page.
+// reservationCsvColumns gives the columns of the CSV files of the page.
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	BOOKING_CHANNELS,
-	type BookingChannel,
+	type CsvColumn,
+	copyToClipboard,
 	countLabel,
 	dayToDate,
+	downloadCsv,
 	isoDayToMs,
 	moneyFormat,
 	RESERVATION_STATUSES,
-	type ReservationStatus,
 	ReservationStatusBadge,
+	toCsv,
 } from "~/features/hotel";
 import { useT } from "~/shared/i18n";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import type { ReservationRow } from "../api/reservations.queries";
 
 type ReservationsTableProps = {
@@ -30,42 +32,28 @@ type ReservationsTableProps = {
 	reservations: ReservationRow[];
 };
 
-/** The status tab and the channel Select filter the rows. Then DataTable searches, sorts, and pages them. */
+/** The two filters cut the rows. Then RecordTable searches, sorts, selects, and pages them, 20 per page. */
 export function ReservationsTable({ reservations }: ReservationsTableProps) {
 	const { t, locale } = useT();
-	const [status, setStatus] = useState<ReservationStatus | "all">("all");
-	const [channel, setChannel] = useState<BookingChannel | "all">("all");
-
-	const number = new Intl.NumberFormat(locale);
+	const [status, setStatus] = useState<string | null>(null);
+	const [channel, setChannel] = useState<string | null>(null);
 	const money = moneyFormat(locale);
 	const shortDate = new Intl.DateTimeFormat(locale, {
 		day: "numeric",
 		month: "short",
 	});
-	const ofChannel =
-		channel === "all"
-			? reservations
-			: reservations.filter((row) => row.channel === channel);
-	// A tab shows only for a status that has rows in the chosen channel.
-	const tabs = RESERVATION_STATUSES.map((value) => ({
-		value,
-		count: ofChannel.filter((row) => row.status === value).length,
-	})).filter((tab) => tab.count > 0);
-	// A new channel can empty the chosen tab. Its tab then disappears, so the list shows all rows.
-	const activeStatus = tabs.some((tab) => tab.value === status)
-		? status
-		: "all";
-	const rows =
-		activeStatus === "all"
-			? ofChannel
-			: ofChannel.filter((row) => row.status === activeStatus);
+	const rows = reservations.filter(
+		(row) =>
+			(status === null || row.status === status) &&
+			(channel === null || row.channel === channel),
+	);
 
-	const columns: DataTableColumn<ReservationRow>[] = [
+	const columns: RecordColumn<ReservationRow>[] = [
 		{
 			id: "guest",
 			header: t("reservations.guest"),
 			sortValue: (row) => row.guestName,
-			// justify-items-start: each line is as wide as its text, so a click beside the name does nothing.
+			// justify-items-start: the link is as wide as the name, so a click beside it does nothing.
 			cell: (row) => (
 				<div className="grid justify-items-start">
 					<Link
@@ -77,12 +65,11 @@ export function ReservationsTable({ reservations }: ReservationsTableProps) {
 						{row.guestName}
 					</Link>
 					<span className="text-muted-foreground text-xs tabular-nums">
-						{`${row.code} · ${t(`channels.${row.channel}`)}`}
+						{row.code}
 					</span>
 				</div>
 			),
 		},
-		// The status is the second column: at 375 px it shows beside the name with no sideways scroll.
 		{
 			id: "status",
 			header: t("reservations.status"),
@@ -93,6 +80,7 @@ export function ReservationsTable({ reservations }: ReservationsTableProps) {
 			id: "room",
 			header: t("reservations.room"),
 			sortValue: (row) => Number(row.roomNumber),
+			hideable: true,
 			cell: (row) => (
 				<div className="grid">
 					<span className="tabular-nums">{row.roomNumber}</span>
@@ -106,22 +94,36 @@ export function ReservationsTable({ reservations }: ReservationsTableProps) {
 			id: "stay",
 			header: t("reservations.stay"),
 			sortValue: (row) => isoDayToMs(row.checkIn),
+			hideable: true,
 			cell: (row) => (
 				<div className="grid">
 					<span className="whitespace-nowrap tabular-nums">
 						{`${shortDate.format(dayToDate(row.checkIn))} – ${shortDate.format(dayToDate(row.checkOut))}`}
 					</span>
 					<span className="whitespace-nowrap text-muted-foreground text-xs">
-						{`${countLabel(row.nights, t("units.nightOne"), t("units.nightOther"), locale)} · ${countLabel(row.adults + row.children, t("units.guestOne"), t("units.guestOther"), locale)}`}
+						{countLabel(
+							row.nights,
+							t("units.nightOne"),
+							t("units.nightOther"),
+							locale,
+						)}
 					</span>
 				</div>
 			),
+		},
+		{
+			id: "channel",
+			header: t("reservations.channel"),
+			sortValue: (row) => row.channel,
+			hideable: true,
+			cell: (row) => t(`channels.${row.channel}`),
 		},
 		{
 			id: "total",
 			header: t("reservations.total"),
 			align: "end",
 			sortValue: (row) => row.total,
+			hideable: true,
 			cell: (row) => (
 				<span
 					className={
@@ -139,6 +141,7 @@ export function ReservationsTable({ reservations }: ReservationsTableProps) {
 			header: t("reservations.balance"),
 			align: "end",
 			sortValue: (row) => row.balance,
+			hideable: true,
 			cell: (row) =>
 				row.balance > 0 ? (
 					<span className="font-medium">{money.format(row.balance)}</span>
@@ -155,67 +158,106 @@ export function ReservationsTable({ reservations }: ReservationsTableProps) {
 	];
 
 	return (
-		<DataTable
+		<RecordTable
 			rows={rows}
 			columns={columns}
 			searchText={(row) => `${row.guestName} ${row.code} ${row.roomNumber}`}
-			noResults={t("reservations.noResults")}
+			searchPlaceholder={t("reservations.search")}
 			toolbar={
 				<>
-					<Select
+					<RecordFilter
+						label={t("reservations.status")}
+						options={RESERVATION_STATUSES.map((value) => ({
+							value,
+							label: t(`reservationStatuses.${value}`),
+						}))}
+						value={status}
+						onValueChange={setStatus}
+					/>
+					<RecordFilter
+						label={t("reservations.channel")}
+						options={BOOKING_CHANNELS.map((value) => ({
+							value,
+							label: t(`channels.${value}`),
+						}))}
 						value={channel}
-						onValueChange={(value) =>
-							setChannel(
-								BOOKING_CHANNELS.find((option) => option === value) ?? "all",
-							)
-						}
-					>
-						<SelectTrigger
-							className="w-full sm:w-44"
-							aria-label={t("reservations.channel")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="all">
-								{t("reservations.allChannels")}
-							</SelectItem>
-							{BOOKING_CHANNELS.map((option) => (
-								<SelectItem key={option} value={option}>
-									{t(`channels.${option}`)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<Tabs
-						value={activeStatus}
-						onValueChange={(value) =>
-							setStatus(
-								RESERVATION_STATUSES.find((option) => option === value) ??
-									"all",
-							)
-						}
-						className="max-w-full overflow-x-auto"
-					>
-						<TabsList>
-							<TabsTrigger value="all">
-								{t("reservations.all")}
-								<span className="text-muted-foreground tabular-nums">
-									{number.format(ofChannel.length)}
-								</span>
-							</TabsTrigger>
-							{tabs.map((tab) => (
-								<TabsTrigger key={tab.value} value={tab.value}>
-									{t(`reservationStatuses.${tab.value}`)}
-									<span className="text-muted-foreground tabular-nums">
-										{number.format(tab.count)}
-									</span>
-								</TabsTrigger>
-							))}
-						</TabsList>
-					</Tabs>
+						onValueChange={setChannel}
+					/>
 				</>
 			}
+			rowMenu={(row) => (
+				<>
+					<DropdownMenuItem asChild>
+						<Link
+							to="/app/reservations/$reservationId"
+							params={{ reservationId: row.id }}
+						>
+							{t("reservations.open")}
+						</Link>
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						onSelect={() =>
+							copyToClipboard(row.code, {
+								done: t("table.copied"),
+								failed: t("table.copyFailed"),
+							})
+						}
+					>
+						{t("reservations.copyCode")}
+					</DropdownMenuItem>
+				</>
+			)}
+			selectable
+			bulkActions={(selected) => (
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					className="h-9"
+					onClick={() =>
+						downloadCsv(
+							"reservations-selected.csv",
+							toCsv(selected, reservationCsvColumns(t, locale)),
+						)
+					}
+				>
+					{t("table.exportSelected")}
+				</Button>
+			)}
+			pageSize={20}
+			noResults={t("reservations.noResults")}
 		/>
 	);
+}
+
+/** The columns of the CSV files of the reservations, in the order of the table. */
+export function reservationCsvColumns(
+	t: ReturnType<typeof useT>["t"],
+	locale: string,
+): CsvColumn<ReservationRow>[] {
+	const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+	return [
+		{ header: t("reservations.code"), value: (row) => row.code },
+		{ header: t("reservations.guest"), value: (row) => row.guestName },
+		{
+			header: t("reservations.status"),
+			value: (row) => t(`reservationStatuses.${row.status}`),
+		},
+		{ header: t("reservations.room"), value: (row) => row.roomNumber },
+		{
+			header: t("reservations.arrival"),
+			value: (row) => date.format(dayToDate(row.checkIn)),
+		},
+		{
+			header: t("reservations.departure"),
+			value: (row) => date.format(dayToDate(row.checkOut)),
+		},
+		{ header: t("reservations.nights"), value: (row) => String(row.nights) },
+		{
+			header: t("reservations.channel"),
+			value: (row) => t(`channels.${row.channel}`),
+		},
+		{ header: t("reservations.total"), value: (row) => String(row.total) },
+		{ header: t("reservations.balance"), value: (row) => String(row.balance) },
+	];
 }

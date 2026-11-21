@@ -38,6 +38,8 @@ import {
 	writeExpoUsername,
 } from "../../lib/helpers";
 import type { PreviewTokenState } from "../../lib/use-preview-token";
+import { PANEL_INPUT_CLASS } from "../more/panel-shell";
+import { GATE_ACTION_CLASS } from "./publish-gate-findings";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "./top-bar";
 
 /** Props of the Expo Go panel and its popover. PhonePreview and the publish popover pass them. */
@@ -248,9 +250,9 @@ export function ExpoGoLinkBody({
 const QR_BLOCK_WIDTH_CLASS = "w-[216px] max-w-full";
 
 // A white tile: phone cameras read a dark code on a light ground, in dark mode too.
-// A 1 px shadow only: a large drop shadow reads as a second frame around the QR.
+// A hairline ring only: a drop shadow reads as a second frame around the QR.
 const QR_TILE_CLASS =
-	"aspect-square w-full rounded-[20px] bg-white p-3 shadow-[0_1px_2px_rgb(11_16_51/0.08)] ring-1 ring-night/[0.08] dark:ring-white/10";
+	"aspect-square w-full rounded-[20px] bg-white p-3 ring-1 ring-night/[0.08] dark:ring-white/10";
 
 // The waiting and failed states keep the place and the shape of the QR tile, so nothing jumps.
 const QR_PLACE_CLASS = cn(
@@ -311,7 +313,8 @@ function LinkArea({
 					variant="outline"
 					size="sm"
 					onClick={onRefresh}
-					className="rounded-full border-night/15 bg-white font-grotesk font-medium text-night hover:bg-night/[0.04] hover:text-night dark:border-white/15 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06]"
+					// 28 px: the button sits inside the dashed tile.
+					className={GATE_ACTION_CLASS}
 				>
 					<ArrowClockwiseIcon aria-hidden weight="bold" />
 					{link.status === "ready"
@@ -442,14 +445,14 @@ function UsernameRow({
 					autoCapitalize="none"
 					spellCheck={false}
 					aria-invalid={!isValid}
-					className="h-9 rounded-full border-night/[0.12] bg-white px-3.5 font-mono text-[13px] shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]"
+					className={cn(PANEL_INPUT_CLASS, "font-mono text-[13px]")}
 				/>
-				{/* A quiet pill: the QR is the main action of the column, not the username. */}
+				{/* A flat outline pill: the QR is the main action of the column, not the username. 36 px, as high as the field. */}
 				<Button
 					type="submit"
 					variant="outline"
 					disabled={!isValid}
-					className="h-9 rounded-full border-night/15 bg-white px-4 font-grotesk font-semibold text-night hover:bg-night/[0.04] hover:text-night dark:border-white/15 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06]"
+					className={cn(GATE_ACTION_CLASS, "h-9 px-4")}
 				>
 					{t("appBuilder.expoGo.usernameSave")}
 				</Button>

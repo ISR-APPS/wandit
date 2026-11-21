@@ -12,12 +12,18 @@ export const apiErrorCodes = [
 	"VALIDATION_ERROR",
 	"NOT_FOUND",
 	"EXTERNAL_DOMAIN_UNREGISTERED",
+	"CUSTOM_DOMAINS_PRODUCTION_ONLY",
 	"FORBIDDEN",
 	"PAYMENT_PAST_DUE",
 	"INSUFFICIENT_CREDITS",
 	"GENERATION_PAYMENT_REQUIRED",
 	"SUBSCRIPTIONS_DISABLED",
 	"TOPUPS_DISABLED",
+	// 409 of a Starter pass checkout when the pool does not need the pass: the switch is off, or the pool has a live pass.
+	"STARTER_PASS_NOT_AVAILABLE",
+	// 409 of a Starter pass checkout while a SlickPay Starter pass row of the pool is younger than 30 min.
+	// The caller is a card checkout, or a SlickPay checkout of another team admin.
+	"STARTER_PASS_SLICKPAY_OPEN",
 	"ORGANIZATIONS_DISABLED",
 	"MEMBER_CREDIT_LIMIT_REACHED",
 	"WORKSPACE_PERMISSION_DENIED",
@@ -49,6 +55,10 @@ export const apiErrorCodes = [
 	"V2_ENV_MISSING",
 	"V2_MODEL_UNPRICED",
 	"V2_MODEL_DENIED",
+	// 409 on a turn create whose model differs from the model of the first turn of the chat.
+	"V2_MODEL_LOCKED",
+	// 409 on a turn create when the locked model of the chat has no price row any more. The user starts a new chat.
+	"V2_MODEL_RETIRED",
 	"MOBILE_TEMPLATE_UNAVAILABLE",
 	// 404 of POST /api/v2/projects/from-starter-template: the id is not in the catalog, or the API has no archive for it.
 	"STARTER_TEMPLATE_NOT_FOUND",
@@ -70,6 +80,10 @@ export const apiErrorCodes = [
 	"CODE_PATH_INVALID",
 	"CODE_FILE_NOT_FOUND",
 	"CODE_FILE_TOO_LARGE",
+	// 404 of GET /api/v2/projects/:id/code/archive: the project has no saved version yet.
+	"CODE_ARCHIVE_EMPTY",
+	// 413 of GET /api/v2/projects/:id/code/archive: the tar.gz is over the API download ceiling.
+	"CODE_ARCHIVE_TOO_LARGE",
 	"BACKEND_NOT_READY",
 	"BACKEND_PAUSED",
 	"BACKEND_LIMIT_REACHED",
@@ -129,11 +143,14 @@ export type CreditPayer = z.infer<typeof creditPayerSchema>;
 // never seen. heldCredits is the slice temporarily reserved by running
 // generations (optional: older servers omit it).
 // payer is optional for the same reason; see `creditPayerSchema`.
+// reason is set only when the pool has credits it cannot spend yet. Absent means "not enough credits".
 export const paymentRequiredDetailsSchema = z.object({
 	requiredCredits: z.number().positive(),
 	availableCredits: z.number(),
 	heldCredits: z.number().nonnegative().optional(),
 	payer: creditPayerSchema.optional(),
+	// starter_pass_required: the Starter pass switch is on and the pool has no live pass.
+	reason: z.enum(["starter_pass_required"]).optional(),
 });
 
 export type PaymentRequiredDetails = z.infer<

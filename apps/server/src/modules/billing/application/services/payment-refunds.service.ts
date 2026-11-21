@@ -1,3 +1,9 @@
+/**
+ * Takes back purchased credits when Stripe refunds or disputes a charge.
+ * Gives them back when Wandit wins the dispute. A dispute also takes the Starter pass of its receipt.
+ * StripeEventRouterService, the billing maintenance task, and the reconciliation, refill, and subscription credit services call it.
+ * Writes revoke and restore rows to `credit_ledger` through BillingCreditLedgerRepository and CreditsService.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
@@ -23,6 +29,7 @@ import {
 	type BillingCreditLedgerRow,
 	type BillingCreditLedgerTransaction,
 } from "../../infrastructure/persistence/billing-credit-ledger.repository";
+import { StarterPassesRepository } from "../../infrastructure/persistence/starter-passes.repository";
 import { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
 
 type ClawbackFraction = {
@@ -68,6 +75,11 @@ export class PaymentRefundsService {
 		private readonly orderRefundHandler: WebhookOrderRefundHandler,
 		@Inject(StripeProvider)
 		private readonly stripeProvider: StripeProvider,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"revokeOrMoveForStripePayment"
+		>,
 	) {}
 
 	async handleChargeRefunded(charge: Stripe.Charge): Promise<boolean> {
@@ -684,6 +696,16 @@ export class PaymentRefundsService {
 					);
 				}
 
+				// A dispute is a fraud signal, so the pool loses the pass of this payment under the owner lock.
+				// A refund and a won dispute keep the pass. An admin can grant it again.
+				if (input.disputeId) {
+					await this.starterPasses.revokeOrMoveForStripePayment(
+						paymentReference,
+						`dispute:${input.disputeId}`,
+						tx,
+					);
+				}
+
 				// A matched no-op is handled: a prior refund/dispute already reached
 				// this cumulative target, so the webhook should be terminally acked.
 				return true;
@@ -727,6 +749,7 @@ export class PaymentRefundsService {
 				),
 			0,
 		);
+		// LIMIT: after a partial refund, the credits that stay keep the bonus rate of the full amount. Upgrade: quote the kept amount again.
 		const globalTarget = Math.min(
 			originalGranted,
 			this.floorRatio(originalGranted, fraction),

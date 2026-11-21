@@ -1,6 +1,9 @@
 // Pure decision logic for the prompt → project balance precheck, extracted
 // from useCreateProjectWithPrompt so it stays testable without a DOM.
 
+import type { CreditBalanceResponse } from "@wandit/contracts";
+
+import { isOutOfCredits } from "@/features/credits";
 import { isApiClientError } from "@/lib/api-client";
 
 export type CreatePrecheckResult =
@@ -11,13 +14,14 @@ export type CreatePrecheckResult =
 /**
  * Convenience precheck only — the server reservation stays authoritative.
  * Operations bill measured cost, so ANY positive balance may start a run;
- * only a zero or negative balance blocks locally.
+ * only a zero or negative settled balance, or a pool with no Starter pass, blocks locally.
+ * `balance` is the cached balance of the active workspace pool; undefined while it loads or after it fails.
  */
 export function precheckCreateBalance(
-	availableCredits: number | undefined,
+	balance: CreditBalanceResponse | undefined,
 ): CreatePrecheckResult {
-	if (availableCredits === undefined) return "balance-unavailable";
-	if (availableCredits <= 0) return "insufficient";
+	if (balance === undefined) return "balance-unavailable";
+	if (isOutOfCredits(balance)) return "insufficient";
 	return "ok";
 }
 

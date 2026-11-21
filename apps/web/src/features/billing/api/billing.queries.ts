@@ -1,15 +1,19 @@
-// TanStack Query keys and read hooks for the billing catalog, the current
-// user's subscription view, the DZD pricing of Algeria, and SlickPay payments.
+// TanStack Query keys and read hooks for the wallet, the payment history, the
+// top-up status, the offline request, the DZD rate, and SlickPay payments.
 
 import { useQuery } from "@tanstack/react-query";
 
 import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
 
-import type { SlickpayPaymentView } from "./billing.dto";
+import type {
+	BillingTopupStatusResponse,
+	SlickpayPaymentView,
+} from "./billing.dto";
 import {
 	confirmSlickpayPayment,
-	getBillingPlans,
-	getBillingSubscription,
+	getBillingPayments,
+	getBillingTopupStatus,
+	getBillingWallet,
 	getLocalPricing,
 	getManualSubscriptionRequest,
 } from "./billing.services";
@@ -17,13 +21,16 @@ import {
 // 5 min. The country of a visitor does not change during a visit.
 const LOCAL_PRICING_STALE_TIME_MS = 5 * 60_000;
 
-// The subscription view is workspace-scoped (the header selects whose money);
-// the public plan catalog is global and keeps an unscoped key.
+// The wallet, the payments, and the offline request are workspace-scoped:
+// the workspace header selects whose money.
 export const billingKeys = {
 	all: ["billing"] as const,
 	scope: () => [...billingKeys.all, getActiveWorkspaceId()] as const,
-	plans: () => [...billingKeys.all, "plans"] as const,
-	subscription: () => [...billingKeys.scope(), "subscription"] as const,
+	wallet: () => [...billingKeys.scope(), "wallet"] as const,
+	payments: () => [...billingKeys.scope(), "payments"] as const,
+	// Not workspace-scoped: the API finds the receipt by session id and the session user.
+	topupStatus: (sessionId: string) =>
+		[...billingKeys.all, "topup-status", sessionId] as const,
 	manualRequest: () => [...billingKeys.scope(), "manual-request"] as const,
 	// Not workspace-scoped: the answer depends only on the IP country of the visitor.
 	localPricing: () => [...billingKeys.all, "local-pricing"] as const,
@@ -32,17 +39,39 @@ export const billingKeys = {
 		[...billingKeys.all, "slickpay-payment", paymentId] as const,
 };
 
-export function useBillingPlansQuery() {
+/** Wallet of the active workspace. The top-up dialog, the wallet page, and the credits chip read it. */
+export function useBillingWalletQuery() {
 	return useQuery({
-		queryKey: billingKeys.plans(),
-		queryFn: getBillingPlans,
+		queryKey: billingKeys.wallet(),
+		queryFn: getBillingWallet,
 	});
 }
 
-export function useBillingSubscriptionQuery() {
+/** Payment history of the active workspace. The API answers only a billing manager, so only the owner view calls it. */
+export function useBillingPaymentsQuery() {
 	return useQuery({
-		queryKey: billingKeys.subscription(),
-		queryFn: getBillingSubscription,
+		queryKey: billingKeys.payments(),
+		queryFn: getBillingPayments,
+	});
+}
+
+/** Polls the top-up status of one Stripe Checkout Session on the caller cadence. */
+export function useBillingTopupStatusQuery(
+	sessionId: string,
+	options: {
+		/** False stops all calls, for example after the return page times out. */
+		enabled: boolean;
+		/** Delay in ms before the next call for the last answer, or false to stop. */
+		refetchInterval: (
+			status: BillingTopupStatusResponse | undefined,
+		) => number | false;
+	},
+) {
+	return useQuery({
+		queryKey: billingKeys.topupStatus(sessionId),
+		queryFn: () => getBillingTopupStatus(sessionId),
+		enabled: options.enabled,
+		refetchInterval: (query) => options.refetchInterval(query.state.data),
 	});
 }
 
@@ -53,13 +82,24 @@ export function useManualSubscriptionRequestQuery() {
 	});
 }
 
-/** SlickPay rate for visitors in Algeria. `data.slickpay` is null for all other visitors. */
+/** The DZD rate of GET local-pricing. Read the rate with useDzdPerUsdRate, not from `data` directly. */
 export function useLocalPricingQuery() {
 	return useQuery({
 		queryKey: billingKeys.localPricing(),
 		queryFn: getLocalPricing,
 		staleTime: LOCAL_PRICING_STALE_TIME_MS,
 	});
+}
+
+/**
+ * Decimal DZD per 1 USD for every visitor. The prices show DZD next to USD, and the SlickPay tab shows, only when it is not null.
+ * Null while the answer loads, after an error, or when the API has no SlickPay key.
+ */
+export function useDzdPerUsdRate(): number | null {
+	const { data } = useLocalPricingQuery();
+
+	// An API from before the Starter pass sends the rate only in `slickpay`, and only to visitors in Algeria.
+	return data?.dzdPerUsdRate ?? data?.slickpay?.dzdPerUsdRate ?? null;
 }
 
 /**

@@ -2,7 +2,7 @@
  * Project sharing of V2 app projects (workspaces-sharing.md 2.2 and 5): the Share dialog state,
  * direct grants, Workspace access, the project invite link, transfer, and move.
  * ProjectSharingController calls it. It writes through ProjectSharingRepository and InviteLinksRepository,
- * and reads through ProjectInvitationsRepository, WorkspaceMembersRepository, and SubscriptionsRepository.
+ * and reads through ProjectInvitationsRepository, WorkspaceMembersRepository, and PaidOwnerRepository.
  * It stops turns through MembershipCleanupService and finds the personal workspace through WorkspacesService.
  */
 import {
@@ -25,8 +25,9 @@ import {
 	projectInviteLinkRoleSchema,
 } from "@wandit/contracts";
 
-import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
-import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { backendLimitFor } from "../../../app-builder/domain/backend-lifecycle";
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
+import { ownerFromIds } from "../../../credits/domain/credit-owner";
 import {
 	projectRoleAtLeast,
 	type ResolvedProjectAccess,
@@ -78,8 +79,9 @@ export class ProjectSharingService {
 		private readonly members: WorkspaceMembersRepository,
 		@Inject(WorkspacesService)
 		private readonly workspaces: WorkspacesService,
-		@Inject(SubscriptionsRepository)
-		private readonly subscriptions: SubscriptionsRepository,
+		/** Decides if the destination payer is a paid owner; that decides its backend slots. */
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 	) {}
 
 	/** The Share dialog state. A viewer gets no invitations and no link token. */
@@ -338,12 +340,17 @@ export class ProjectSharingService {
 			);
 		}
 
+		// The read before the move lock is safe: a paid owner never becomes free again.
+		const destinationPayer = ownerFromIds(
+			destination.ownerColumns.userId,
+			destination.ownerColumns.organizationId,
+		);
 		const result = await this.sharing.moveProject({
 			destination: destination.ownerColumns,
-			destinationPlan: await resolveBillingPlan(this.subscriptions, {
-				actorUserId: destination.ownerColumns.userId,
-				organizationId: destination.ownerColumns.organizationId,
-			}),
+			destinationBackendLimit: backendLimitFor(
+				await this.paidOwners.isPaidOwner(destinationPayer),
+				destinationPayer,
+			),
 			keepCollaborators: body.keepCollaborators,
 			projectId: source.id,
 			source: { organizationId: source.organizationId, userId: source.userId },

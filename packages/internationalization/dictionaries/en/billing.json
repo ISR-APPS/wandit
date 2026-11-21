@@ -1,242 +1,122 @@
 {
 	"meta": {
-		"title": "Billing — Wandit"
+		"title": "Wallet — Wandit"
 	},
 	"page": {
-		"title": "Billing",
-		"description": "Manage your plan, credits, and billing activity.",
-		"betaBadge": "Private beta",
-		"betaBody": "Purchases are paused during the private beta. Your granted credits remain available.",
-		"loadErrorTitle": "Billing could not load",
-		"loadErrorBody": "We could not load your latest billing information. Try again.",
+		"title": "Wallet",
+		"description": "Your credits, your top-ups, and your payments. Credits never expire.",
+		"loadErrorTitle": "Your wallet could not load",
+		"loadErrorBody": "We could not load your latest wallet information. Try again.",
 		"retry": "Try again",
-		"balanceTitle": "Credit balance",
-		"balanceDescription": "Credits are spent from plan, promotional, then top-up balances.",
-		"totalBalance": "Total available",
-		"subscriptionTitle": "Current plan",
-		"subscriptionDescription": "Your subscription status and renewal details.",
-		"noSubscriptionTitle": "No active subscription",
-		"noSubscriptionBody": "Choose a plan when you are ready to subscribe.",
-		"statusLabel": "Status",
-		"renewsLabel": "Renews",
-		"endsLabel": "Ends",
-		"pendingTierLabel": "Next tier",
-		"creditsPerCycle": "{count} credits per cycle",
-		"changePlan": "Change plan",
-		"choosePlan": "Choose a plan",
-		"openPortal": "Billing portal",
-		"cancelPlan": "Cancel plan",
-		"cancelTitle": "Cancel your subscription?",
-		"cancelBody": "Your plan remains active until the end of the current billing period. You can resume before then.",
-		"cancelOffer": {
-			"title": "Try Starter instead",
-			"body": "Your current plan stays active until {date}. Starter starts at renewal. Cancel anytime.",
-			"cta": "Switch to Starter instead",
-			"orCancel": "Or tell us why you are leaving"
-		},
-		"cancelReasonPrompt": "What's the main reason you're leaving?",
-		"cancelReasons": {
-			"too_expensive": "It's too expensive",
-			"not_using_enough": "I don't use it enough",
-			"missing_features": "Missing features I need",
-			"technical_issues": "Technical problems",
-			"switching_provider": "I'm switching to another tool",
-			"temporary_pause": "Just pausing for now",
-			"other": "Other"
-		},
-		"cancelDetailsLabel": "Tell us more",
-		"cancelDetailsOptional": "(optional)",
-		"cancelDetailsPlaceholder": "Share any details that could help us improve.",
-		"cancelDetailsRequired": "Please tell us a little more.",
-		"keepPlan": "Keep plan",
-		"confirmCancel": "Cancel at period end",
-		"cancelling": "Scheduling cancellation…",
-		"resumePlan": "Resume plan",
-		"resuming": "Resuming…",
-		"cancelSuccess": "Your plan will end at the close of this billing period.",
-		"resumeSuccess": "Your plan will renew normally.",
-		"topupsTitle": "Top-up packs",
-		"topupsDescription": "Add credits without changing your subscription tier.",
-		"buyTopup": "Buy {count} credits",
+		"balanceTitle": "Wallet balance",
+		"personalWallet": "Personal wallet",
+		"teamWallet": "Wallet of {name}",
+		"totalBalance": "Available credits",
+		"negativeBalance": "Your balance is below zero. A refund or a dispute took back credits that were already spent. Top up to continue.",
+		"topup": "Top up",
+		"purchasesPaused": "Top-ups open soon. Your credits remain available.",
+		"pastInvoices": "Past invoices",
 		"ledgerTitle": "Credit activity",
-		"ledgerDescription": "A complete record of grants, usage, expirations, and top-ups.",
+		"ledgerDescription": "Every credit that comes into or goes out of this wallet.",
 		"previousPage": "Previous",
 		"nextPage": "Next",
 		"pageStatus": "Page {page} of {totalPages}",
-		"offline": {
-			"badge": "Prepaid",
-			"expiresLabel": "Expires",
-			"requestChange": "Request renewal / change",
-			"graceTitle": "Offline payment due",
-			"graceNotice": "Your paid period ended on {endDate}. Renew before {accessEndDate} to keep your plan.",
-			"pending": {
-				"title": "Offline payment request pending",
-				"body": "We will call you at {phone}.",
-				"cancel": "Cancel request",
-				"cancelling": "Canceling…",
-				"cancelTitle": "Cancel this request?",
-				"cancelBody": "We will stop processing it. You can send a new request later.",
-				"keep": "Keep request",
-				"confirmCancel": "Cancel request",
-				"cancelSuccess": "Your request was canceled."
-			}
+		"workspacePersonal": "Personal",
+		"runway": {
+			"days": {
+				"zero": "About {count} days at your pace",
+				"one": "About {count} day at your pace",
+				"two": "About {count} days at your pace",
+				"few": "About {count} days at your pace",
+				"many": "About {count} days at your pace",
+				"other": "About {count} days at your pace"
+			},
+			"weeks": {
+				"zero": "About {count} weeks at your pace",
+				"one": "About {count} week at your pace",
+				"two": "About {count} weeks at your pace",
+				"few": "About {count} weeks at your pace",
+				"many": "About {count} weeks at your pace",
+				"other": "About {count} weeks at your pace"
+			},
+			"longer": "More than 6 months at your pace",
+			"lessThanDay": "Less than a day at your pace"
+		},
+		"neverExpire": "Your credits never expire",
+		"topupCard": {
+			"title": "Add credits",
+			"description": "Slide or type an amount. You see every credit before you pay."
+		},
+		"continue": "Continue · {amount} → {credits}",
+		"tabs": {
+			"label": "Wallet history",
+			"activity": "Activity",
+			"payments": "Payments"
 		}
 	},
-	"status": {
-		"active": "Active",
-		"trialing": "Trial",
-		"past_due": "Payment overdue",
-		"unpaid": "Unpaid",
-		"paused": "Paused",
-		"canceled": "Canceled",
-		"incomplete": "Incomplete",
-		"incomplete_expired": "Expired",
-		"unknown": "Needs attention",
-		"canceling": "Ends at period close"
+	"payments": {
+		"title": "Payment history",
+		"description": "The last 50 payments to this wallet.",
+		"empty": "No payments yet.",
+		"loadError": "Your payment history could not load.",
+		"dateLabel": "Date",
+		"methodLabel": "Method",
+		"amountLabel": "Amount",
+		"creditsLabel": "Credits",
+		"stateLabel": "State",
+		"providers": {
+			"stripe": "Card",
+			"slickpay": "CIB / Edahabia",
+			"offline": "Cash / transfer"
+		},
+		"paid": "Paid",
+		"reversed": "Reversed on {date}",
+		"revoked": "{credits} taken back"
 	},
-	"planPicker": {
-		"loadingTitle": "Loading plans",
-		"loadingBody": "Fetching the latest catalog and your subscription.",
-		"loadErrorTitle": "Plans could not load",
-		"loadErrorBody": "We could not load the latest plans. Close this window and try again.",
-		"catalogEmptyBody": "The plan catalog is temporarily unavailable.",
-		"betaBadge": "Private beta",
-		"betaTitle": "Purchases are not open yet",
-		"betaBody": "Your existing credits remain available while subscriptions and top-ups are paused.",
-		"chooseTitle": "Choose your plan",
-		"chooseDescription": "Pick a billing cycle and the monthly credit amount that fits your work.",
-		"starterName": "Starter",
-		"starterTagline": "For your first store and first campaigns",
-		"proName": "Pro",
-		"proTagline": "For sellers building and iterating every month",
-		"popularBadge": "Popular",
-		"businessName": "Business",
-		"businessTagline": "For teams sharing one credit pool",
-		"businessFromPrice": "From {price}",
-		"starterFeatures": [
-			"AI store pages built in minutes",
-			"AI product images and marketing copy",
-			"Custom domain included",
-			"Leads CRM for your orders",
-			"Publishing always free, cancel anytime"
-		],
-		"proFeatures": [
-			"Fresh plan credits every month",
-			"AI marketing & campaign tools",
-			"AI image generation",
-			"Asset library",
-			"Custom domains",
-			"Connect apps & integrations",
-			"Leads CRM for your orders",
-			"Publishing always free"
-		],
-		"businessFeatures": [
-			"Everything in Pro",
-			"One shared credit pool for the whole team",
-			"Roles, invites & per-member credit limits",
-			"Unlimited seats — pay for credits, not people"
-		],
-		"changeTitle": "Change your plan",
-		"changeDescription": "Preview the exact charge and credit change before confirming.",
-		"currentPlan": "Current subscriber",
+	"topup": {
+		"title": "Top up your wallet",
+		"personalWallet": "The credits go to your personal wallet.",
+		"teamWallet": "The credits go to the wallet of {name}.",
+		"loadErrorTitle": "Top-up options could not load",
+		"loadErrorBody": "Close this window and try again.",
+		"pausedBody": "Your credits remain available. Try again later.",
+		"amountLabel": "Amount",
+		"customAmountLabel": "Other amount in US dollars",
+		"customAmountHint": "A whole number from {min} to {max}.",
+		"amountErrors": {
+			"empty": "Choose or enter an amount.",
+			"notWholeNumber": "Enter a whole number, for example 40.",
+			"belowMinimum": "The minimum is {min}.",
+			"aboveMaximum": "The maximum is {max}."
+		},
+		"creditsYouGet": "You get {credits}",
 		"requiredCredits": "Required",
 		"availableCredits": "Available",
 		"heldCredits": "On hold by running generations",
-		"billingCycle": "Billing cycle",
-		"monthly": "Monthly",
-		"yearly": "Yearly",
-		"twoMonthsFree": "2 months free",
-		"yearlyToMonthlyUnavailable": "Yearly-to-monthly changes are not available in this release.",
-		"creditTier": "Credits per month",
-		"creditsEveryMonth": {
-			"zero": "{count} credits every month",
-			"one": "{count} credit every month",
-			"two": "{count} credits every month",
-			"few": "{count} credits every month",
-			"many": "{count} credits every month",
-			"other": "{count} credits every month"
+		"methodsLabel": "Payment method",
+		"methods": {
+			"card": "Card",
+			"slickpay": "CIB / Edahabia",
+			"offline": "Cash / transfer"
 		},
-		"selectedPrice": "Plan price",
-		"perMonth": "/ month",
-		"perYear": "/ year",
-		"savePercent": "Save {percent}%",
-		"topupTitle": "Need credits now?",
-		"topupBody": "Top-ups do not change your recurring plan.",
-		"currentSelection": "Current plan",
-		"preparing": "Preparing…",
-		"previewChange": "Preview change",
-		"continueToCheckout": "Upgrade",
-		"previewTitle": "Review plan change",
-		"previewDescription": "This preview is locked for a short time so the confirmed amount stays consistent.",
-		"newPlan": "New plan",
-		"payNowCredits": "Pay {amount} now · {credits} credits",
-		"upgradeExplanation": "You are charged the full new tier now and the unused time on your current tier is credited back. Your plan credits reset to the full new allotment right away.",
-		"changesAtRenewal": "Changes at renewal",
-		"downgradeExplanation": "Your current tier remains active through this billing period. The lower tier begins at renewal.",
-		"keepCurrentPlanExplanation": "Your current plan will renew normally. The scheduled change will be removed, with no charge or change to your credits.",
-		"back": "Back",
-		"applying": "Applying…",
-		"confirmChange": "Confirm change",
-		"changeAppliedTitle": "Plan change confirmed",
-		"changeAppliedBody": "Your new tier is active. Your balance will refresh as billing completes.",
-		"downgradeAppliedBody": "Your lower tier is scheduled for the next renewal.",
-		"keepCurrentPlanAppliedBody": "Your scheduled change was removed. Your current plan will renew normally.",
-		"paymentRequiredTitle": "Payment action required",
-		"paymentRequiredBody": "Complete payment on the hosted invoice to finish this plan change.",
-		"openInvoice": "Open invoice",
-		"changeFailedTitle": "Plan change failed",
-		"changeFailedBody": "The provider could not apply this change. Create a fresh preview and try again.",
-		"tryAgain": "Try again",
-		"done": "Done",
-		"changePendingError": "A plan change is already waiting for payment.",
-		"previewExpiredError": "This preview expired. Return and create a new one.",
-		"previewInvalidError": "This preview was already used or is no longer valid.",
-		"resumeFirstTitle": "Resume before changing tiers",
-		"resumeFirstBody": "This subscription is set to end. Resume it first, then choose a different tier.",
-		"resume": "Resume subscription",
-		"resuming": "Resuming…",
-		"paymentAttentionTitle": "Fix your subscription payment",
-		"paymentAttentionBody": "Open the billing portal to resolve payment before changing tiers.",
-		"openPortal": "Open billing portal",
-		"close": "Close",
+		"card": {
+			"description": "Pay in US dollars on the secure Stripe page. You pay one time.",
+			"redirecting": "Opening Stripe…",
+			"dzdEstimate": "That is about {amount}. Stripe charges US dollars."
+		},
 		"slickpay": {
-			"tab": "CIB / Edahabia",
-			"title": "Pay with CIB / Edahabia",
-			"description": "Pay in Algerian dinars on the secure SlickPay page. One payment covers one month or one year. It does not renew automatically.",
+			"description": "Pay in Algerian dinars on the secure SlickPay page. You pay one time.",
 			"formTitle": "Payment details",
 			"formDescription": "SlickPay shows these details on your invoice.",
-			"renewTitle": "Renew your plan",
-			"renewBody": "You pay for one more period of your current plan. The new period starts when the current one ends.",
 			"cityLabel": "City or wilaya",
 			"cityPlaceholder": "e.g. Algiers",
 			"cityError": "Enter your city or wilaya.",
 			"pay": "Pay {amount} with CIB / Edahabia",
-			"renew": "Renew for {amount}",
 			"redirecting": "Opening SlickPay…"
 		},
 		"offline": {
-			"tabs": {
-				"ariaLabel": "Payment method",
-				"card": "Card",
-				"offline": "Cash on delivery"
-			},
-			"managed": {
-				"title": "Your plan is managed offline",
-				"body": "To change or renew it, send us a request."
-			},
-			"cardActive": {
-				"title": "Your plan is billed by card",
-				"body": "To switch to cash or transfer, cancel your card subscription first — it stays active until the end of the paid period — then send us a request."
-			},
-			"title": "Cash or transfer",
-			"description": "Choose your plan and tell us how to reach you. We will call you to arrange payment.",
+			"description": "Tell us how to reach you. We will call you to arrange the payment of {amount}.",
 			"localPriceNote": "We will agree on the local price during the call.",
-			"steps": {
-				"label": "Step {current} of {total}",
-				"plan": "Choose your plan"
-			},
-			"continue": "Continue",
-			"changePlan": "Change",
 			"form": {
 				"title": "Contact details",
 				"description": "Tell us how to contact you about this request.",
@@ -273,9 +153,6 @@
 				"OTHER": "Other"
 			},
 			"validation": {
-				"plan": "Choose a valid plan.",
-				"tierCredits": "Choose a credit tier.",
-				"interval": "Choose a billing cycle.",
 				"fullName": "Enter a name with 2 to 120 characters.",
 				"phone": "Enter a valid phone number.",
 				"company": "Use 120 characters or fewer.",
@@ -287,26 +164,74 @@
 			},
 			"submit": "Send request",
 			"submitting": "Sending…",
-			"close": "Close",
 			"success": {
 				"title": "Request received",
-				"body": "We received your request. We will call you at {phone} shortly."
-			},
-			"pending": {
-				"title": "Offline payment request pending",
-				"body": "We will call you at {phone}.",
-				"planLabel": "Plan",
-				"tierLabel": "Credit tier",
-				"cycleLabel": "Billing cycle",
-				"createdLabel": "Submitted",
-				"cancel": "Cancel request",
-				"cancelling": "Canceling…",
-				"cancelTitle": "Cancel this request?",
-				"cancelBody": "We will stop processing it. You can send a new request later.",
-				"keep": "Keep request",
-				"confirmCancel": "Cancel request",
-				"cancelSuccess": "Your request was canceled."
+				"body": "We received your request. We will call you at {phone} soon."
 			}
-		}
+		},
+		"close": "Close",
+		"amountInputLabel": "Amount in US dollars",
+		"presetsLabel": "Quick amounts",
+		"bonusLabel": "+{percent}%",
+		"bonusTrack": {
+			"label": "Volume bonus",
+			"base": "Base rate"
+		},
+		"receipt": {
+			"label": "Your top-up",
+			"youPay": "You pay",
+			"localPrice": "Or {price} with CIB / Edahabia",
+			"credits": "Credits",
+			"bonus": "Bonus {percent}",
+			"youGet": "You get",
+			"totalUnit": {
+				"zero": "credits",
+				"one": "credit",
+				"two": "credits",
+				"few": "credits",
+				"many": "credits",
+				"other": "credits"
+			},
+			"footer": "Never expires. Works in every project."
+		},
+		"nudge": "Add {amount} to reach {bonus}",
+		"payAction": "Pay {amount} · get {credits}",
+		"shortfall": "You are {credits} short. {amount} covers it.",
+		"openSoon": "Top-ups open soon",
+		"youGetWithBonus": "You get {credits} (+{bonus} bonus)"
+	},
+	"starterPass": {
+		"title": "Starter pass",
+		"dialogTitle": "Get the Starter pass",
+		"why": "Wandit asks for one small real payment before you use credits. It keeps fake accounts and abuse away.",
+		"youGet": "You get {credits}.",
+		"welcomeUnlock": "Your welcome credits unlock too.",
+		"methods": "Pay by card or with CIB / Edahabia. A cash or transfer payment does not buy the Starter pass.",
+		"cta": "Get the Starter pass · {price}",
+		"askOwner": "The credits of this wallet stay locked until its owner buys the Starter pass. Ask the owner to buy it.",
+		"unavailableTitle": "The Starter pass is not open now",
+		"unavailableBody": "Card and CIB / Edahabia payments are closed for now. Try again later."
+	},
+	"offlineRequest": {
+		"title": "Offline top-up request pending",
+		"body": "We will call you at {phone}.",
+		"amountLabel": "Amount",
+		"createdLabel": "Submitted",
+		"cancel": "Cancel request",
+		"cancelling": "Canceling…",
+		"cancelTitle": "Cancel this request?",
+		"cancelBody": "We will stop processing it. You can send a new request later.",
+		"keep": "Keep request",
+		"confirmCancel": "Cancel request",
+		"cancelSuccess": "Your request was canceled."
+	},
+	"history": {
+		"plans": {
+			"starter": "Starter plan",
+			"pro": "Pro plan",
+			"business": "Business plan"
+		},
+		"month": "Monthly",
+		"year": "Yearly"
 	}
 }

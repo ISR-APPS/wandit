@@ -1,15 +1,26 @@
 "use client";
 
+/**
+ * Slider of the web app, on top of the Radix primitive: a thin track and one
+ * round thumb per value. The page editor panels and the V2 model menu use it.
+ */
+
 import { cn } from "@wandit/ui/lib/utils";
 import { Slider as SliderPrimitive } from "radix-ui";
 import * as React from "react";
 
+/**
+ * `aria-label` and `aria-valuetext` go to each thumb, not to the root:
+ * Radix gives the slider role to the thumb, so a screen reader reads them there.
+ */
 function Slider({
 	className,
 	defaultValue,
 	value,
 	min = 0,
 	max = 100,
+	"aria-label": ariaLabel,
+	"aria-valuetext": ariaValueText,
 	...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
 	const _values = React.useMemo(
@@ -53,6 +64,8 @@ function Slider({
 					data-slot="slider-thumb"
 					// biome-ignore lint/suspicious/noArrayIndexKey: thumbs are positional, stock shadcn pattern
 					key={index}
+					aria-label={ariaLabel}
+					aria-valuetext={ariaValueText}
 					className="block size-4 shrink-0 rounded-full border border-primary bg-white shadow-sm ring-ring/50 transition-[color,box-shadow] hover:ring-4 focus-visible:outline-hidden focus-visible:ring-4 disabled:pointer-events-none disabled:opacity-50"
 				/>
 			))}

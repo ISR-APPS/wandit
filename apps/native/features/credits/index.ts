@@ -6,6 +6,7 @@ export { CreditsChip } from "./components/credits-chip";
 export { OutOfCreditsBanner } from "./components/out-of-credits-banner";
 export {
 	type BillingErrorIntent,
+	isStarterPassIntent,
 	toBillingErrorIntent,
 } from "./lib/billing-error";
 export {

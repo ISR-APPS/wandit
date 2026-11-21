@@ -1,9 +1,15 @@
 /**
  * The V2 LLM proxy application service.
  * `LlmProxyController` feeds each inbound request. The service verifies the
- * run token, rejects a revoked run, and checks the model, the rate limit,
- * and the spend caps. It forwards the body to the provider and streams
- * the answer back. A Paper body loses the blocks that Paper refuses.
+ * run token, rejects a revoked run, and checks the model (allow-list and
+ * the admin disabled list), the rate limit, and the spend caps. It
+ * forwards the body to the provider and streams the answer back. A Paper body loses the blocks that Paper refuses.
+ * Every body loses the Claude Code identity: the persona line, the model
+ * bullets, and the model sentences. The Wandit persona line takes their place.
+ * The thinking level of the token sets the Messages effort: `light` lowers it,
+ * `deep` raises it, and `balanced` keeps the effort of Claude Code.
+ * A Claude 400 for a foreign thinking signature gets one retry without the
+ * thinking of earlier turns.
  * It writes one `llm_proxy_requests` row per request. With the Langfuse
  * keys set, it also sends one Langfuse generation for each Messages call.
  * A second controller for the OpenAI-compatible inbound format can reuse
@@ -16,17 +22,21 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
-	allowedLlmModels,
+	type BuilderThinking,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
+	type ProductSettings,
 	uuidSchema,
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/nestjs";
 import { z } from "zod";
 
+import { ProductSettingsService } from "../../../settings";
 import {
 	type AnthropicAssistantMessage,
 	createAnthropicSseUsageParser,
+	gatewayCostFromAnthropicJson,
+	type LlmGatewayCost,
 	type LlmTokenUsage,
 	messageFromAnthropicJson,
 	usageFromAnthropicJson,
@@ -56,7 +66,9 @@ import {
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
 import {
+	LLM_PROXY_TOKEN_TTL_SECONDS,
 	LlmProxyTokenError,
+	type VerifiedLlmProxyToken,
 	verifyLlmProxyToken,
 } from "./llm-proxy-token.service";
 
@@ -77,8 +89,8 @@ export type LlmProxyInboundRequest = {
 	anthropicBeta: string | undefined;
 	// `X-Wandit-Run` header; forwarded unchanged when present.
 	wanditRun: string | undefined;
-	// `x-claude-code-session-id` header; stored on the usage row. Paper
-	// also gets it as `x-session-id` when it is a UUID.
+	// `x-claude-code-session-id` header; stored on the usage row. The
+	// upstream also gets it as `x-session-id` when it is a UUID.
 	claudeSessionId: string | undefined;
 	// Raw request body bytes, forwarded unchanged unless the model field
 	// must be rewritten for the chosen upstream.
@@ -120,15 +132,18 @@ const anthropicRequestBodySchema = z.looseObject({
 	model: z.string().min(1).optional(),
 });
 
-// The `messages` of a request, for the Paper rewrite. Only the block `type`
-// and the blocks nested in a `tool_result` are read; other fields pass through.
+// The `messages` of a request, for the Paper rewrite, the thinking retry, and
+// the identity rewrite. Only the `role`, the block `type` and `text`, and the
+// blocks nested in a `tool_result` are read; other fields pass through.
 const anthropicMessagesSchema = z.array(
 	z.looseObject({
+		role: z.string(),
 		content: z.union([
 			z.string(),
 			z.array(
 				z.looseObject({
 					type: z.string(),
+					text: z.string().optional(),
 					content: z
 						.union([z.string(), z.array(z.looseObject({ type: z.string() }))])
 						.optional(),
@@ -153,6 +168,65 @@ const PAPER_OMITTED_BLOCK = {
 	text: "[Content omitted: this model cannot read PDF files or the thinking of another model.]",
 } as const;
 
+// The 400 text of a Claude upstream for a thinking block that another model
+// signed (live probe 2026-11-19: Gemini history, then Opus). Claude Code
+// matches the same words without the backticks.
+const INVALID_THINKING_SIGNATURE =
+	/invalid `?signature`? in `?thinking`? block/i;
+
+// The blocks the thinking retry removes from the earlier turns.
+const THINKING_BLOCK_TYPES = new Set(["redacted_thinking", "thinking"]);
+
+// Takes the place of an assistant message that held only thinking blocks:
+// Claude refuses an empty `content` array.
+const OMITTED_THINKING_BLOCK = {
+	type: "text",
+	text: "[Thinking omitted: another model wrote it.]",
+} as const;
+
+// The `system` of a request, for the identity rewrite. It has its own parse:
+// a failure in `anthropicRequestBodySchema` would drop the model routing.
+const anthropicSystemSchema = z.union([
+	z.string(),
+	z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
+]);
+
+// The effort fields of a request, for the thinking rewrite. It has its own
+// parse: a failure in `anthropicRequestBodySchema` would drop the model routing.
+const anthropicEffortSchema = z.object({
+	output_config: z.looseObject({ effort: z.string() }),
+	thinking: z.looseObject({ type: z.string() }).optional(),
+});
+
+// The system prompt of Claude Code 2.1.281 opens with one of these lines.
+// The SDK with an appended prompt sends the second line.
+const HARNESS_IDENTITY_LINES = [
+	"You are Claude Code, Anthropic's official CLI for Claude.",
+	"You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+	"You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+] as const;
+
+// Takes the place of each `HARNESS_IDENTITY_LINES` line.
+const WANDIT_IDENTITY_LINE =
+	"You are the Wandit builder, an AI assistant that builds apps for Wandit users.";
+
+// The bullets that name the Claude models, Claude Code, or its help and
+// feedback channel: the "# Environment" bullets and the help bullet of
+// "# Doing tasks" with its two sub-bullets ("  - "). The match takes the
+// whole line and its newline.
+const HARNESS_NAME_BULLET =
+	/^ {1,2}- (?:The most recent Claude models are|Claude Code is available as a CLI|Fast mode for Claude Code|If the user asks for help or wants to give feedback|\/help: Get help with using Claude Code|To give feedback, users should report the issue at)[^\n]*\n?/gm;
+
+// "You are powered by the model named Opus 4.8. The exact model ID is
+// claude-opus-4-8[1m]." A gateway model has no name: "... the model x/y."
+// An id can hold dots, so a dot ends the sentence only before a space, `<`, or the end.
+const MODEL_SENTENCE =
+	/You are powered by the model (?:named [^\n]+?\. The exact model ID is )?\S+?\.(?=\s|$|<)/g;
+
+// Follows `MODEL_SENTENCE`. The match takes the space before it, so no blank stays.
+const KNOWLEDGE_CUTOFF_SENTENCE =
+	/ ?Assistant knowledge cutoff is [^\n]+?\.(?=\s|$|<)/g;
+
 /** Application service behind `LlmProxyController`; see file header. */
 @Injectable()
 export class LlmProxyService {
@@ -168,6 +242,11 @@ export class LlmProxyService {
 		// Null without both Langfuse keys: the proxy then traces nothing.
 		@Inject(LangfuseExporter)
 		private readonly langfuse: LlmGenerationSink | null,
+		// `v2DisabledModels`, the ops switch per model. `get` caches the row 30 s.
+		@Inject(ProductSettingsService)
+		private readonly settings: {
+			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
+		},
 	) {}
 
 	/**
@@ -183,9 +262,9 @@ export class LlmProxyService {
 
 		// 1. Token check: the run token is the only auth on this route. A bad
 		// token writes no row — its claims are untrusted.
-		let claims: LlmProxyTokenClaims;
+		let verified: VerifiedLlmProxyToken;
 		try {
-			claims = this.verifyBearer(input.authorization);
+			verified = this.verifyBearer(input.authorization);
 		} catch (error) {
 			if (error instanceof ServiceUnavailableException) {
 				throw error;
@@ -198,6 +277,7 @@ export class LlmProxyService {
 			);
 			return;
 		}
+		const { claims } = verified;
 
 		// 1b. One Redis round trip reads the revoke flag, the rate window, and
 		// both spend counters. It also marks the request in flight until its
@@ -213,11 +293,35 @@ export class LlmProxyService {
 		);
 		// A bound chat bills the request to the turn that runs now: a continued
 		// Claude Code process keeps the token of an older turn of the chat.
+		// The binding has no `exp`. For an expired token, the bound turn's own
+		// token ends at most one TTL from now, so the spend counter outlives it.
 		const billedClaims: LlmProxyTokenClaims =
 			admission.binding === null
 				? claims
-				: { ...admission.binding, chatId: claims.chatId, exp: claims.exp };
+				: {
+						...admission.binding,
+						chatId: claims.chatId,
+						exp: verified.isExpired
+							? Math.floor(Date.now() / 1000) + LLM_PROXY_TOKEN_TTL_SECONDS
+							: claims.exp,
+					};
 		try {
+			// Security: an expired token passes only for a chat with a live
+			// binding. A kept Claude Code process holds the token of an earlier
+			// turn, and the binding exists only while a turn of that chat runs.
+			// The request then bills to that turn. Every other expired token is dead.
+			if (
+				verified.isExpired &&
+				(claims.chatId === undefined || admission.binding === null)
+			) {
+				await this.sendError(
+					reply,
+					401,
+					"V2_TOKEN_INVALID",
+					"Invalid or expired run token",
+				);
+				return;
+			}
 			await this.checkAndForward(
 				input,
 				reply,
@@ -254,34 +358,49 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 2. Model allow-list: an absent model means the plan default. The
-		// list is the plan list plus the token `model`: the turn's pick, from
-		// any priced row. A bound chat gives the model of the turn that runs
-		// now. Any other named model is denied. Claude Code resolves its
-		// aliases to dated bare ids (`claude-haiku-4-5-20251001`); normalize
-		// them onto the `anthropic/...` list entries before the check.
+		// 2. Model check (pricing v8 D10): every priced model is open to every
+		// user, and the API does not read `claims.plan`. An absent model means
+		// the deploy default. A named model with no price row gets a 403 and a
+		// `model_denied` row here. Claude Code resolves its aliases to dated
+		// bare ids (`claude-haiku-4-5-20251001`); normalize them onto the
+		// `anthropic/...` price ids before the check.
 		const bodyJson = this.parseBody(input.body);
 		const requestedModel =
 			bodyJson?.model === undefined
 				? undefined
 				: normalizeInboundModelId(bodyJson.model);
 		const defaultModel = this.requireEnv("V2_DEFAULT_MODEL");
-		const allowed = allowedLlmModels(claims.plan, defaultModel);
-		if (claims.model !== undefined && !allowed.includes(claims.model)) {
-			allowed.push(claims.model);
-		}
-		if (requestedModel !== undefined && !allowed.includes(requestedModel)) {
+		if (
+			requestedModel !== undefined &&
+			requestedModel !== defaultModel &&
+			llmModelPrice(requestedModel) === undefined
+		) {
+			// The message text stays: `SESSION_BOUND_FAILURE_PATTERN` of the
+			// builder-turn runtime matches it to reset a resumed session.
 			await this.reject(reply, claims, input, startedAt, {
 				status: 403,
 				code: "V2_MODEL_DENIED",
 				message: "This plan may not call that model",
 				reason: requestedModel,
 				rowStatus: "model_denied",
-				bodyFields: { allowed },
 			});
 			return;
 		}
 		const modelId = requestedModel ?? defaultModel;
+
+		// 2b. Ops turned this model off during a provider incident. A retry
+		// cannot help until they turn it on again, so the SDK must not retry.
+		if ((await this.settings.get()).v2DisabledModels.includes(modelId)) {
+			await this.reject(reply, claims, input, startedAt, {
+				status: 403,
+				code: "V2_MODEL_DISABLED",
+				message: "This model is turned off for now",
+				reason: `disabled:${modelId}`,
+				rowStatus: "model_denied",
+				headers: { "x-should-retry": "false" },
+			});
+			return;
+		}
 
 		// 3. Per-run request rate limit, a fixed one-minute window. The
 		// admission counted this request, a denied one included.
@@ -378,7 +497,9 @@ export class LlmProxyService {
 		}
 	}
 
-	private verifyBearer(authorization: string | undefined): LlmProxyTokenClaims {
+	private verifyBearer(
+		authorization: string | undefined,
+	): VerifiedLlmProxyToken {
 		const token = authorization?.startsWith("Bearer ")
 			? authorization.slice("Bearer ".length).trim()
 			: undefined;
@@ -426,6 +547,8 @@ export class LlmProxyService {
 		modelId: string,
 		bodyJson: z.infer<typeof anthropicRequestBodySchema> | undefined,
 		startedAt: number,
+		// The messages of the thinking retry; null on the first attempt.
+		retryMessages: z.infer<typeof anthropicMessagesSchema> | null = null,
 	): Promise<void> {
 		const path =
 			input.endpoint === "count_tokens"
@@ -434,22 +557,47 @@ export class LlmProxyService {
 		const base = upstream.baseUrl.replace(/\/+$/, "");
 		const url = `${base}${path}${input.queryString ? `?${input.queryString}` : ""}`;
 
-		// Rewrite `model` only when the upstream id differs from what the
-		// sandbox sent. An identical id means the raw bytes go out unchanged.
-		// A Paper id never matches (the proxy drops its prefix), so a Paper
-		// body is always rewritten, also its refused blocks.
+		// A Paper id never matches the inbound id (the proxy drops its prefix),
+		// so a Paper body is always rewritten, also its refused blocks. The
+		// thinking retry starts from its own messages.
 		const paperMessages =
-			upstream.provider === PAPER_INSTRUMENTS_PROVIDER && bodyJson !== undefined
+			retryMessages ??
+			(upstream.provider === PAPER_INSTRUMENTS_PROVIDER &&
+			bodyJson !== undefined
 				? paperSafeMessages(bodyJson.messages)
-				: null;
+				: null);
+		// The Claude Code preset names the vendor, the harness, and the model.
+		// Every tier reads it, and Wandit sells the builder under its own name.
+		// The rewrite runs on top of the Paper or the retry output.
+		const system =
+			bodyJson === undefined ? null : wanditSystem(bodyJson.system);
+		const messages =
+			bodyJson === undefined
+				? null
+				: (wanditUserMessages(paperMessages ?? bodyJson.messages) ??
+					paperMessages);
+		// The thinking control of the turn. A count_tokens call has no effort to change.
+		const outputConfig =
+			bodyJson === undefined || input.endpoint === "count_tokens"
+				? null
+				: thinkingOutputConfig(bodyJson, claims.thinking, upstream.provider);
+		// A body that keeps its model id and needs no rewrite keeps its raw
+		// bytes. The rewrite gives the same bytes for the same input, so the
+		// prompt cache still hits.
 		const forwardBody =
-			bodyJson === undefined || bodyJson.model === upstream.upstreamModelId
+			bodyJson === undefined ||
+			(bodyJson.model === upstream.upstreamModelId &&
+				system === null &&
+				messages === null &&
+				outputConfig === null)
 				? input.body
 				: Buffer.from(
 						JSON.stringify({
 							...bodyJson,
 							model: upstream.upstreamModelId,
-							...(paperMessages === null ? {} : { messages: paperMessages }),
+							...(messages === null ? {} : { messages }),
+							...(system === null ? {} : { system }),
+							...(outputConfig === null ? {} : { output_config: outputConfig }),
 						}),
 						"utf8",
 					);
@@ -475,11 +623,12 @@ export class LlmProxyService {
 				headers["anthropic-beta"] = betas;
 			}
 		}
-		// Paper sends all requests of one session id to one replica, so more
-		// input bills at the cache-read rate (5 times cheaper). The sandbox
-		// sets the header, so only a UUID goes out.
+		// Paper sends all requests of one session id to one replica. The AI
+		// Gateway pins one session to one provider credential, which holds the
+		// prompt cache. More input then bills at the cache-read rate. The
+		// sandbox sets the header, so only a UUID goes out.
 		const sessionId = uuidSchema.safeParse(input.claudeSessionId);
-		if (upstream.provider === PAPER_INSTRUMENTS_PROVIDER && sessionId.success) {
+		if (sessionId.success) {
 			headers["x-session-id"] = sessionId.data;
 		}
 		// The real provider key lives only here; the inbound bearer run token
@@ -513,7 +662,10 @@ export class LlmProxyService {
 		}
 
 		const responseHeaders = passthroughHeaders(upstreamResponse.headers);
+		// The AI Gateway names its call in `x-generation-id` (live probe
+		// headers); Anthropic and Paper send `request-id`.
 		const upstreamRequestId =
+			upstreamResponse.headers.get("x-generation-id") ??
 			upstreamResponse.headers.get("request-id") ??
 			upstreamResponse.headers.get("x-request-id") ??
 			undefined;
@@ -540,13 +692,45 @@ export class LlmProxyService {
 				);
 				return;
 			}
+			const errorText = body.toString("utf8");
+			// Claude refuses a thinking block that another model signed, so a
+			// chat that switched from Gemini fails on every call. Retry once
+			// without the thinking of earlier turns. No byte has gone to the
+			// client, and this 400 writes no row: the retry writes the only one.
+			// LIMIT: each call of such a chat pays one extra 400 round trip.
+			// Upgrade: remember the strip per Claude Code session id.
+			if (
+				retryMessages === null &&
+				upstreamResponse.status === 400 &&
+				upstream.provider === "anthropic" &&
+				INVALID_THINKING_SIGNATURE.test(errorText)
+			) {
+				const messages = withoutEarlierThinking(bodyJson?.messages);
+				if (messages !== null) {
+					this.logger.warn(
+						`Retrying without earlier thinking blocks for run ${claims.runId}`,
+						errorText.slice(0, 300),
+					);
+					await this.forwardAndAccount(
+						input,
+						reply,
+						claims,
+						upstream,
+						modelId,
+						bodyJson,
+						startedAt,
+						messages,
+					);
+					return;
+				}
+			}
 			// Paper answers an empty balance with 429 `insufficient_quota`.
 			// Claude Code retries a 429 for minutes, so the turn hangs. It does
 			// not retry a 402, so the turn fails at once. The row keeps 429.
 			const isPaperQuotaEmpty =
 				upstreamResponse.status === 429 &&
 				upstream.provider === PAPER_INSTRUMENTS_PROVIDER &&
-				body.toString("utf8").includes("insufficient_quota");
+				errorText.includes("insufficient_quota");
 			reply.writeHead(
 				isPaperQuotaEmpty ? 402 : upstreamResponse.status,
 				responseHeaders,
@@ -557,17 +741,19 @@ export class LlmProxyService {
 			// rate or spend limit (429). 300 chars of the body name the cause.
 			this.logger.error(
 				`Upstream answered ${upstreamResponse.status} for run ${claims.runId}`,
-				body.toString("utf8").slice(0, 300),
+				errorText.slice(0, 300),
+			);
+			const sentryContext = upstreamSentryContext(
+				claims.runId,
+				upstream,
+				modelId,
+				String(upstreamResponse.status),
 			);
 			if (upstreamResponse.status >= 500) {
 				// A 5xx here is the provider's problem, not the client's.
 				Sentry.captureMessage("LLM upstream answered 5xx", {
 					level: "error",
-					tags: {
-						feature: "llm-proxy",
-						runId: claims.runId,
-						upstreamStatus: String(upstreamResponse.status),
-					},
+					...sentryContext,
 				});
 			} else if (
 				upstreamResponse.status === 401 ||
@@ -579,15 +765,20 @@ export class LlmProxyService {
 				// An operator must act. Another 429 stays out: Claude Code retries it.
 				Sentry.captureMessage(
 					"LLM upstream refused the account (key or funds)",
-					{
-						level: "error",
-						tags: {
-							feature: "llm-proxy",
-							runId: claims.runId,
-							upstreamStatus: String(upstreamResponse.status),
-						},
-					},
+					{ level: "error", ...sentryContext },
 				);
+			} else if (
+				upstreamResponse.status === 400 ||
+				upstreamResponse.status === 404 ||
+				upstreamResponse.status === 413 ||
+				upstreamResponse.status === 422
+			) {
+				// The model refuses this request shape, for example after a Claude
+				// Code upgrade. Claude Code does not retry these, so one event per turn.
+				Sentry.captureMessage("LLM upstream refused the request", {
+					level: "warning",
+					...sentryContext,
+				});
 			}
 			await this.finish(input, claims, upstream, modelId, {
 				status: "upstream_error",
@@ -597,7 +788,7 @@ export class LlmProxyService {
 				latencyMs: Date.now() - startedAt,
 				forwardedBody: forwardBody,
 				message: null,
-				upstreamErrorBody: body.toString("utf8"),
+				upstreamErrorBody: errorText,
 			});
 			return;
 		}
@@ -646,6 +837,7 @@ export class LlmProxyService {
 				// Without Langfuse, the proxy does no content work.
 				this.langfuse === null ? null : messageFromAnthropicJson(json),
 				upstreamRequestId,
+				gatewayCostFromAnthropicJson(json),
 			);
 			return;
 		}
@@ -663,6 +855,7 @@ export class LlmProxyService {
 			// Without Langfuse, the proxy does no content work.
 			message: this.langfuse === null ? null : messageFromAnthropicJson(json),
 			upstreamErrorBody: null,
+			gatewayCost: gatewayCostFromAnthropicJson(json),
 		});
 	}
 
@@ -720,9 +913,15 @@ export class LlmProxyService {
 					`Upstream stream failed for run ${claims.runId}`,
 					error instanceof Error ? error.message : String(error),
 				);
-				Sentry.captureException(error, {
-					tags: { feature: "llm-proxy", runId: claims.runId },
-				});
+				Sentry.captureException(
+					error,
+					upstreamSentryContext(
+						claims.runId,
+						upstream,
+						modelId,
+						"stream_failed",
+					),
+				);
 			}
 		} finally {
 			input.abortSignal.removeEventListener("abort", cancelOnAbort);
@@ -737,6 +936,22 @@ export class LlmProxyService {
 		} else if (streamFailed) {
 			status = "upstream_error";
 			reason = "stream_failed";
+		} else {
+			// The status stays `ok`: the settle bills only ok and client_aborted
+			// rows, and the provider bills the tokens before the problem.
+			const end = parser.streamEnd();
+			reason =
+				end.errorType !== null
+					? `stream_error:${end.errorType}`
+					: end.sawMessageStop
+						? null
+						: "stream_truncated";
+			if (reason !== null) {
+				this.logger.warn(
+					`Upstream stream ended with ${reason} for run ${claims.runId}`,
+					{ model: modelId, provider: upstream.provider },
+				);
+			}
 		}
 		await this.finish(input, claims, upstream, modelId, {
 			status,
@@ -747,6 +962,7 @@ export class LlmProxyService {
 			forwardedBody: options.forwardedBody,
 			message: parser.message(),
 			upstreamErrorBody: null,
+			gatewayCost: parser.gatewayCost(),
 		});
 	}
 
@@ -766,6 +982,8 @@ export class LlmProxyService {
 		forwardedBody: Buffer,
 		message: AnthropicAssistantMessage | null,
 		upstreamRequestId?: string,
+		// Gateway cost of a buffered body that arrived before the abort.
+		gatewayCost?: LlmGatewayCost | null,
 	): Promise<void> {
 		reply.end();
 		await this.finish(input, claims, upstream, modelId, {
@@ -777,6 +995,7 @@ export class LlmProxyService {
 			forwardedBody,
 			message,
 			upstreamErrorBody: null,
+			gatewayCost,
 		});
 	}
 
@@ -818,9 +1037,10 @@ export class LlmProxyService {
 			`Upstream call failed for run ${claims.runId}`,
 			error instanceof Error ? error.message : String(error),
 		);
-		Sentry.captureException(error, {
-			tags: { feature: "llm-proxy", runId: claims.runId },
-		});
+		Sentry.captureException(
+			error,
+			upstreamSentryContext(claims.runId, upstream, modelId, "fetch_failed"),
+		);
 		await this.finish(input, claims, upstream, modelId, {
 			status: "upstream_error",
 			reason: "fetch_failed",
@@ -853,7 +1073,7 @@ export class LlmProxyService {
 			reason: string;
 			rowStatus: LlmProxyRequestStatus;
 			headers?: Record<string, string>;
-			bodyFields?: Record<string, string | number | readonly string[]>;
+			bodyFields?: Record<string, string | number>;
 		},
 	): Promise<void> {
 		await this.sendError(
@@ -902,7 +1122,7 @@ export class LlmProxyService {
 		code: string,
 		message: string,
 		headers?: Record<string, string>,
-		bodyFields?: Record<string, string | number | readonly string[]>,
+		bodyFields?: Record<string, string | number>,
 	): Promise<void> {
 		reply.writeHead(status, {
 			"content-type": "application/json",
@@ -933,6 +1153,9 @@ export class LlmProxyService {
 			message: AnthropicAssistantMessage | null;
 			// The upstream body of a non-2xx answer; null on every other path.
 			upstreamErrorBody: string | null;
+			// Real cost from `provider_metadata.gateway`. Only a 2xx answer has
+			// it; absent or null writes null. Billing never reads it.
+			gatewayCost?: LlmGatewayCost | null | undefined;
 		},
 	): Promise<void> {
 		// Anthropic's count_tokens endpoint is free: the row keeps the token
@@ -979,6 +1202,8 @@ export class LlmProxyService {
 				cacheReadTokens: result.usage.cacheReadTokens,
 				cacheWriteTokens: result.usage.cacheWriteTokens,
 				usdMicros,
+				gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+				gatewayProvider: result.gatewayCost?.provider ?? null,
 				status: result.status,
 				reason: result.reason,
 				upstreamRequestId: result.upstreamRequestId ?? null,
@@ -1019,6 +1244,8 @@ export class LlmProxyService {
 			cacheReadTokens: result.usage.cacheReadTokens,
 			cacheWriteTokens: result.usage.cacheWriteTokens,
 			usdMicros,
+			gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+			gatewayProvider: result.gatewayCost?.provider ?? null,
 			status: result.status,
 			latencyMs: result.latencyMs,
 		});
@@ -1063,12 +1290,201 @@ function paperSafeMessages(
 	});
 }
 
+/**
+ * The `messages` of a Claude request without the thinking blocks of earlier
+ * turns. The current tool loop starts at the last user message without a
+ * `tool_result` block. Claude Code adds text blocks, such as system reminders,
+ * next to a `tool_result`, so that message continues the loop. The loop keeps
+ * its thinking: Claude needs it, and Claude wrote it.
+ * Returns null when the field does not parse or no block goes.
+ */
+function withoutEarlierThinking(
+	messages: unknown,
+): z.infer<typeof anthropicMessagesSchema> | null {
+	const parsed = anthropicMessagesSchema.safeParse(messages);
+	if (!parsed.success) {
+		return null;
+	}
+	const loopStart = parsed.data.findLastIndex(
+		(message) =>
+			message.role === "user" &&
+			!(
+				Array.isArray(message.content) &&
+				message.content.some((block) => block.type === "tool_result")
+			),
+	);
+	let removedBlocks = 0;
+	const stripped = parsed.data.map((message, index) => {
+		if (
+			index >= loopStart ||
+			message.role !== "assistant" ||
+			!Array.isArray(message.content)
+		) {
+			return message;
+		}
+		const content = message.content.filter(
+			(block) => !THINKING_BLOCK_TYPES.has(block.type),
+		);
+		removedBlocks += message.content.length - content.length;
+		return {
+			...message,
+			content: content.length > 0 ? content : [OMITTED_THINKING_BLOCK],
+		};
+	});
+	return removedBlocks === 0 ? null : stripped;
+}
+
+// Sentry tags and grouping for one upstream failure. `failure` is the HTTP
+// status or a failure kind such as `fetch_failed`. One issue per failure
+// and model, so an outage of one model stands out.
+function upstreamSentryContext(
+	runId: string,
+	upstream: LlmUpstream,
+	modelId: string,
+	failure: string,
+) {
+	return {
+		tags: {
+			feature: "llm-proxy",
+			runId,
+			model: modelId,
+			provider: upstream.provider,
+			upstreamStatus: failure,
+		},
+		fingerprint: ["llm-upstream", failure, modelId],
+	};
+}
+
+/**
+ * The `system` of a request without the Claude Code identity. Returns null
+ * when the field is absent, does not parse, or has no identity text. The
+ * field then goes out unchanged; the persona rule of the prompt still applies.
+ */
+function wanditSystem(
+	system: unknown,
+): z.infer<typeof anthropicSystemSchema> | null {
+	const parsed = anthropicSystemSchema.safeParse(system);
+	if (!parsed.success) {
+		return null;
+	}
+	const original = parsed.data;
+	if (!Array.isArray(original)) {
+		const text = wanditSystemText(original);
+		return text === original ? null : text;
+	}
+	const blocks = original.map((block) => {
+		if (block.type !== "text" || block.text === undefined) {
+			return block;
+		}
+		const text = wanditSystemText(block.text);
+		return text === block.text ? block : { ...block, text };
+	});
+	return blocks.some((block, index) => block !== original[index])
+		? blocks
+		: null;
+}
+
+// One system text: the Wandit persona line in place of the harness line,
+// without the model bullets and the model sentences.
+function wanditSystemText(text: string): string {
+	let rewritten = text;
+	for (const line of HARNESS_IDENTITY_LINES) {
+		rewritten = rewritten.replaceAll(line, WANDIT_IDENTITY_LINE);
+	}
+	return withoutModelSentences(rewritten.replace(HARNESS_NAME_BULLET, ""));
+}
+
+/**
+ * The `messages` without the model sentences in the text of user messages.
+ * Claude Code puts them in a `<system-reminder>`. Assistant messages and
+ * tool or thinking blocks stay as they are. Returns null when the field does
+ * not parse or nothing changes.
+ */
+function wanditUserMessages(
+	messages: unknown,
+): z.infer<typeof anthropicMessagesSchema> | null {
+	const parsed = anthropicMessagesSchema.safeParse(messages);
+	if (!parsed.success) {
+		return null;
+	}
+	const original = parsed.data;
+	const rewritten = original.map((message) => {
+		if (message.role !== "user") {
+			return message;
+		}
+		const blocks = message.content;
+		if (!Array.isArray(blocks)) {
+			const content = withoutModelSentences(blocks);
+			return content === blocks ? message : { ...message, content };
+		}
+		const content = blocks.map((block) => {
+			if (block.type !== "text" || block.text === undefined) {
+				return block;
+			}
+			const text = withoutModelSentences(block.text);
+			return text === block.text ? block : { ...block, text };
+		});
+		return content.some((block, index) => block !== blocks[index])
+			? { ...message, content }
+			: message;
+	});
+	return rewritten.some((message, index) => message !== original[index])
+		? rewritten
+		: null;
+}
+
+/**
+ * The `output_config` for the thinking level of the turn, with the same fields.
+ * `light` sends effort "medium". `deep` sends "xhigh", or "max" on an Anthropic model.
+ * Returns null for `balanced` or no level, when the body sends no effort (the
+ * harness knows the model takes none), when the effort already matches, or when thinking is off.
+ */
+function thinkingOutputConfig(
+	body: z.infer<typeof anthropicRequestBodySchema>,
+	/** Level from the run token; absent on a token minted before the field. */
+	level: BuilderThinking | undefined,
+	/** `upstream.provider`: `upstreamFor` resolves it for every request, also `anthropic` for a bare `claude-` id. */
+	provider: string,
+): z.infer<typeof anthropicEffortSchema>["output_config"] | null {
+	// Live test, 2026-11: on Opus 5.5 only "max" changes the thinking, "xhigh" does not.
+	// On Gemini, "xhigh" already raises the thinking a lot.
+	const target =
+		level === "light"
+			? "medium"
+			: level === "deep"
+				? provider === "anthropic"
+					? "max"
+					: "xhigh"
+				: null;
+	if (target === null) {
+		return null;
+	}
+	const parsed = anthropicEffortSchema.safeParse(body);
+	if (!parsed.success) {
+		return null;
+	}
+	const { output_config: original, thinking } = parsed.data;
+	// Claude Code holds the effort down when thinking is off: some models then refuse a higher effort.
+	if (original.effort === target || thinking?.type === "disabled") {
+		return null;
+	}
+	return { ...original, effort: target };
+}
+
+// Removes "You are powered by the model ..." and the cutoff sentence.
+function withoutModelSentences(text: string): string {
+	return text
+		.replace(MODEL_SENTENCE, "")
+		.replace(KNOWLEDGE_CUTOFF_SENTENCE, "");
+}
+
 function zeroUsage(): LlmTokenUsage {
 	return {
 		inputTokens: 0,
 		outputTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
+		cacheWrite5mTokens: 0,
 	};
 }
 

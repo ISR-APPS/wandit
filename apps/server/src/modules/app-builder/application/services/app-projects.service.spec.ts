@@ -125,6 +125,7 @@ function setup() {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		})),
 	};
@@ -206,6 +207,7 @@ function setup() {
 		chats,
 		proxyRequests,
 		starterTemplateTasks,
+		{ get: async () => ({ v2DisabledModels: [] }) },
 		starterTemplates,
 	);
 
@@ -385,6 +387,7 @@ describe("AppProjectsService.create", () => {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 
@@ -395,6 +398,32 @@ describe("AppProjectsService.create", () => {
 		expect(failure).toBeInstanceOf(InsufficientCreditsError);
 		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
 		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("answers 402 with the Starter pass reason while the pool has credits it cannot spend", async () => {
+		const { credits, projects, service } = setup();
+		credits.getSettledBalance.mockResolvedValue({
+			balance: 2_000,
+			plan: 0,
+			promo: 2_000,
+			settledBalance: 2_000,
+			settledPlan: 0,
+			settledPromo: 2_000,
+			settledTopup: 0,
+			starterPassRequired: true,
+			topup: 0,
+		});
+
+		const failure = await service
+			.create(SCOPE, BODY, { countryCode: "MA" })
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(InsufficientCreditsError);
+		// SAFETY: toBeInstanceOf proves the type; getResponse carries the body.
+		expect((failure as InsufficientCreditsError).getResponse()).toMatchObject({
+			details: { reason: "starter_pass_required" },
+		});
+		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
 	});
 
 	it("writes the v2_app block and starts the first turn on the written message", async () => {
@@ -490,10 +519,10 @@ describe("AppProjectsService.create", () => {
 		errorLog.mockRestore();
 	});
 
-	it("still answers the ids and logs no error when the plan has no backend slot", async () => {
+	it("still answers the ids and logs no error when the payer has no backend slot", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(
-			new BackendLimitReachedError("starter", 0),
+			new BackendLimitReachedError(0, "user"),
 		);
 		const errorLog = vi.spyOn(Logger.prototype, "error");
 
@@ -641,6 +670,7 @@ describe("AppProjectsService.createFromStarterTemplate", () => {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 
@@ -854,6 +884,7 @@ describe("AppProjectsService.createChat", () => {
 			createdAt: "2026-08-02T10:00:00.000Z",
 			id: "chat-empty",
 			lastMessageAt: null,
+			model: null,
 			title: null,
 		});
 		expect(chats.createProjectChat).not.toHaveBeenCalled();

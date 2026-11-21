@@ -1,0 +1,33 @@
+{
+	"id": "folio-collections",
+	"removed": [],
+	"theme": {
+		"name": "Folio Collections",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "ivoire"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "lg",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "quiet",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "thin",
+			"navIcon": "plain"
+		}
+	}
+}

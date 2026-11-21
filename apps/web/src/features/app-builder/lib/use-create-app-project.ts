@@ -3,13 +3,17 @@
  * refreshes the credits, and opens `/app/$projectId`. Same result shape as
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
- * Stores the model pick for the new project, so its composer shows it.
+ * A pool with no Starter pass opens the insufficient credits dialog before any call.
+ * Stores the model pick and the thinking pick for the new project, so its
+ * composer shows them.
+ * Starts the audio of the turn end sound at the create gesture (turn-end-sound.ts).
  * The Vercel production build gets a flow that never creates.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type {
+	BuilderThinking,
 	BuilderTurnMode,
 	ComposerMetadata,
 	UploadAttachmentResponse,
@@ -17,14 +21,15 @@ import type {
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { promptStash } from "@/features/auth";
-import { creditsKeys } from "@/features/credits";
+import { creditsKeys, useOutOfCredits } from "@/features/credits";
 import { isInsufficientCreditsApiError } from "@/features/projects";
 import { getApiErrorMessage } from "@/lib/api-client";
 import type { AppTypeChoice } from "@/lib/app-type-choice";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateAppProject } from "../api/app-builder.mutations";
 import { toCreateAppProjectBody } from "./create-app-project-body";
-import { writeBuilderModel } from "./helpers";
+import { writeBuilderModel, writeBuilderThinking } from "./helpers";
+import { unlockTurnEndSound } from "./turn-end-sound";
 
 /** What the dashboard reads: the same four fields as the V1 hook result. */
 export type UseCreateAppProjectWithPromptResult = {
@@ -35,7 +40,7 @@ export type UseCreateAppProjectWithPromptResult = {
 		attachments?: UploadAttachmentResponse[],
 	) => Promise<boolean>;
 	isCreating: boolean;
-	/** True after a 402: the dashboard opens the insufficient credits dialog. */
+	/** True after a 402, or when the pool needs the Starter pass: the dashboard opens the insufficient credits dialog. */
 	insufficientOpen: boolean;
 	setInsufficientOpen: (open: boolean) => void;
 };
@@ -45,20 +50,23 @@ export type UseCreateAppProjectWithPromptResult = {
  * its Plan chip: the server starts the first turn with it, before the
  * navigation. The server checks the balance, and it answers 503 for
  * `mobile` when it has no mobile template. Both come back as errors here,
- * so the dashboard has no precheck. `model` is the pick of the model menu
- * for the first turn. Undefined sends none, as from the landing hero: the
- * server default runs.
+ * so the only precheck is the Starter pass state of the cached balance.
+ * `model` is the pick of the model menu for the first turn. Undefined sends none, as from the landing hero: the
+ * server default runs. `thinking` is the thinking level of the first turn,
+ * from sentThinkingOf. Undefined sends none: the first turn runs "balanced".
  */
 function useAppProjectCreateFlow(
 	appType: AppTypeChoice,
 	mode: BuilderTurnMode,
 	model?: string,
+	thinking?: BuilderThinking,
 ): UseCreateAppProjectWithPromptResult {
 	const { locale } = useTranslation();
 	const createAppProject = useCreateAppProject();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
+	const { starterPassRequired } = useOutOfCredits();
 
 	const create = useCallback(
 		async (
@@ -66,6 +74,14 @@ function useAppProjectCreateFlow(
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
 		) => {
+			// The server starts the first turn before the builder page opens. So the
+			// create click starts the audio of the turn end sound, as Safari needs.
+			unlockTurnEndSound();
+			// Product rule: a pool with no Starter pass cannot spend. The stash stays for the next try.
+			if (starterPassRequired) {
+				setInsufficientOpen(true);
+				return false;
+			}
 			// Claim the post-auth stash so a later dashboard visit cannot create
 			// a second project from the same landing-page draft.
 			promptStash.consume();
@@ -81,6 +97,7 @@ function useAppProjectCreateFlow(
 						appType,
 						mode,
 						model,
+						thinking,
 					}),
 				);
 			} catch (error) {
@@ -98,6 +115,8 @@ function useAppProjectCreateFlow(
 			void queryClient.invalidateQueries({ queryKey: creditsKeys.scope() });
 			// The first turn runs on this model, so the project composer opens on it.
 			if (model !== undefined) writeBuilderModel(created.projectId, model);
+			if (thinking !== undefined)
+				writeBuilderThinking(created.projectId, thinking);
 			try {
 				await navigate({
 					to: "/app/$projectId",
@@ -109,7 +128,17 @@ function useAppProjectCreateFlow(
 			// The server kept the project, so a second submit must not make a twin.
 			return true;
 		},
-		[appType, createAppProject, locale, mode, model, navigate, queryClient],
+		[
+			appType,
+			createAppProject,
+			locale,
+			mode,
+			model,
+			thinking,
+			navigate,
+			queryClient,
+			starterPassRequired,
+		],
 	);
 
 	return {

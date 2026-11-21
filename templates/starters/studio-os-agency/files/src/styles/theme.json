@@ -21,7 +21,7 @@
 		"sidebarCollapse": "rail",
 		"sidebarStart": "open",
 		"sidebarTone": "canvas",
-		"activeItem": "block",
+		"activeItem": "outline",
 		"header": "plain",
 		"userMenu": "sidebar-footer",
 		"frame": "outlined",

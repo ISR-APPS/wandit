@@ -16,12 +16,14 @@ const TOKENS_PER_MTOK = 1_000_000n;
 
 /**
  * One price row per allow-listed model. `cacheWriteUsdPerMTok` is the
- * 1-hour cache-write rate. Rows marked ESTIMATE wait on WANDIT-151's
+ * 1-hour cache-write rate. `priceUsdMicros` bills a 5-minute write on an
+ * `anthropic` row at 1.25x input instead. Rows marked ESTIMATE wait on WANDIT-151's
  * measurements; add a row for `V2_DEFAULT_MODEL` when it is picked. When you
  * change a row, bump `HARNESS_PRICE_TABLE_VERSION` in
  * modules/metering/domain/harness-price-table.ts.
- * The builder menu shows a row `<id>-fast` as the Fast toggle of the row `<id>`,
- * when `<id>` is in this table. A lone `-fast` row keeps its own menu row.
+ * The builder model slider shows only the tier models of `BUILDER_TIERS`
+ * (apps/web, app-builder lib/helpers.ts). A row `<id>-fast` is the Fast mode
+ * of the tier model `<id>`.
  */
 export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 	{
@@ -97,12 +99,13 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 		cacheWriteUsdPerMTok: 0.15,
 	},
 	{
-		// Gateway rates of Fireworks, read 2026-10-22 (/v1/models/<id>/endpoints).
-		// The gateway tries our Fireworks key first, then Baseten at the same
-		// rates. The gateway lists $0.075 / $0.30, the rate of the DeepSeek host.
-		// Cache read is the Baseten rate, the higher of the two. Cache write
-		// has no rate, so it bills as input.
-		// LIMIT: a fallback host with system keys can bill another rate.
+		// Gateway rates read 2026-11-19 (/v1/models/<id>/endpoints). The list
+		// rate is $0.30 / $1.20. The gateway tries our Fireworks key first:
+		// $0.30 / $1.20, cache read $0.006. Then Baseten at the same rates,
+		// cache read $0.007. Cache read is the Baseten rate, the higher of the
+		// two. Cache write has no rate, so it bills as input.
+		// LIMIT: a fallback host with system keys can bill another rate, and
+		// the Fireworks US zone bills $0.45 / $1.80, cache read $0.009.
 		// Upgrade: read `provider_metadata.gateway.marketCost` from the stream.
 		provider: "deepseek",
 		modelId: "deepseek/deepseek-v4.1-flash-1017",
@@ -112,7 +115,7 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 		cacheWriteUsdPerMTok: 0.3,
 	},
 	{
-		// Gateway rates read 2026-10-22. Baseten is the only host. Cache write
+		// Gateway rates read 2026-11-19. Baseten is the only host. Cache write
 		// has no rate, so it bills as input.
 		provider: "deepseek",
 		modelId: "deepseek/deepseek-v4.1-flash-1017-fast",
@@ -169,6 +172,32 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 		cacheWriteUsdPerMTok: 2,
 	},
 	{
+		// Gateway list prices read 2026-11-19, the same on Google and Vertex.
+		// Cache write has no rate, so it bills as input, like the Argon row.
+		// LIMIT: the Vertex US and EU zones bill 10% more ($1.65 / $8.25, cache
+		// read $0.0825). The proxy pins no region, so the global rate applies.
+		// Upgrade: read `provider_metadata.gateway.marketCost` from the stream.
+		provider: "google",
+		modelId: "google/gemini-4-hydrogen",
+		inputUsdPerMTok: 1.5,
+		outputUsdPerMTok: 7.5,
+		cacheReadUsdPerMTok: 0.075,
+		cacheWriteUsdPerMTok: 1.5,
+	},
+	{
+		// Gateway list prices read 2026-11-19, the same on Google and Vertex.
+		// The gateway lists a cache-write rate of $3, equal to input.
+		// LIMIT: the Vertex US and EU zones bill 10% more ($3.30 / $16.50, cache
+		// read $0.165). The proxy pins no region, so the global rate applies.
+		// Upgrade: read `provider_metadata.gateway.marketCost` from the stream.
+		provider: "google",
+		modelId: "google/gemini-4-neon",
+		inputUsdPerMTok: 3,
+		outputUsdPerMTok: 15,
+		cacheReadUsdPerMTok: 0.15,
+		cacheWriteUsdPerMTok: 3,
+	},
+	{
 		// Gateway list prices read 2026-11-03, the same on OpenAI and Azure.
 		// From 272,001 prompt tokens the gateway bills 2x input, cache read,
 		// and cache write, and 1.5x output (`*_tiers`, read 2026-11-17).
@@ -207,6 +236,20 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 		},
 	},
 	{
+		// Gateway list prices read 2026-11-09: the rates above 100k prompt tokens.
+		// A builder request often passes 100k, because the chat compacts at 300k.
+		// A flat row at the lower rates ($0.10 / $0.50) underbills that request.
+		// Cache write is the 1-hour rate, 2x input, like the Opus 5.5 rows.
+		// LIMIT: a request below 100k prompt tokens bills 5x its provider cost.
+		// Upgrade: price each request from its prompt size.
+		provider: "anthropic",
+		modelId: "anthropic/claude-haiku-5.5",
+		inputUsdPerMTok: 0.5,
+		outputUsdPerMTok: 2.5,
+		cacheReadUsdPerMTok: 0.05,
+		cacheWriteUsdPerMTok: 1,
+	},
+	{
 		// ESTIMATE: WANDIT-151 measures the real Haiku rate before billing on it.
 		provider: "anthropic",
 		modelId: "anthropic/claude-haiku-4-5",
@@ -232,9 +275,22 @@ export function llmModelPrice(modelId: string): LlmModelPrice | undefined {
 }
 
 /**
+ * The tier model id of a model id: `<id>-fast` maps to `<id>` when `<id>` has
+ * a price row. Any other id comes back unchanged. The chat model lock of
+ * `TurnsService.create` compares these ids. Web mirrors it in `baseModelIdOf`.
+ */
+export function baseModelIdOf(modelId: string): string {
+	const baseModelId = modelId.replace(/-fast$/, "");
+	return baseModelId !== modelId && llmModelPrice(baseModelId) !== undefined
+		? baseModelId
+		: modelId;
+}
+
+/**
  * Cost of one request in USD micros, integer math throughout. Rounds the
  * total up so a partial million-token unit never underbills. A prompt above
  * `longContext.aboveTokens` bills every token at the long-context rates.
+ * On an `anthropic` row, `usage.cacheWrite5mTokens` bill at 1.25x input.
  * Returns null when the model has no price row — the caller still writes the usage row.
  */
 export function priceUsdMicros(
@@ -253,11 +309,25 @@ export function priceUsdMicros(
 		promptTokens > price.longContext.aboveTokens
 			? price.longContext
 			: price;
+	// Anthropic bills a 5-minute cache write at 1.25x input and a 1-hour write
+	// at 2x input (the row rate). Claude Code sends 5-minute TTLs by default.
+	// Other rows have one cache-write rate. The upstream sends the split, so
+	// min() stops a split above the total from billing extra tokens.
+	const fiveMinuteWrites =
+		price.provider === "anthropic"
+			? Math.min(usage.cacheWrite5mTokens ?? 0, usage.cacheWriteTokens)
+			: 0;
+	const oneHourWrites = usage.cacheWriteTokens - fiveMinuteWrites;
+	// All terms carry a factor of 4, so the 1.25x rate (5/4) stays exact.
 	const numerator =
-		BigInt(usage.inputTokens) * microsPerMTok(rates.inputUsdPerMTok) +
-		BigInt(usage.outputTokens) * microsPerMTok(rates.outputUsdPerMTok) +
-		BigInt(usage.cacheReadTokens) * microsPerMTok(rates.cacheReadUsdPerMTok) +
-		BigInt(usage.cacheWriteTokens) * microsPerMTok(rates.cacheWriteUsdPerMTok);
+		4n *
+			(BigInt(usage.inputTokens) * microsPerMTok(rates.inputUsdPerMTok) +
+				BigInt(usage.outputTokens) * microsPerMTok(rates.outputUsdPerMTok) +
+				BigInt(usage.cacheReadTokens) *
+					microsPerMTok(rates.cacheReadUsdPerMTok) +
+				BigInt(oneHourWrites) * microsPerMTok(rates.cacheWriteUsdPerMTok)) +
+		5n * BigInt(fiveMinuteWrites) * microsPerMTok(rates.inputUsdPerMTok);
+	const denominator = 4n * TOKENS_PER_MTOK;
 	// Ceiling division: any token fraction rounds up to a whole micro.
-	return Number((numerator + TOKENS_PER_MTOK - 1n) / TOKENS_PER_MTOK);
+	return Number((numerator + denominator - 1n) / denominator);
 }

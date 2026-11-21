@@ -1,7 +1,6 @@
 /**
  * Builds the billing service graphs of the Trigger.dev billing tasks by hand, without Nest.
- * The refill, reconciliation, manual expiry, SlickPay sweep, renewal reminder, affiliate, signup grant,
- * and webhook tasks call it.
+ * The reconciliation, SlickPay sweep, affiliate, signup grant, user referral, and webhook tasks call it.
  * Each function takes one task database pool and returns the services that the task calls.
  */
 import { logger as triggerLogger } from "@trigger.dev/sdk";
@@ -16,10 +15,10 @@ import { AffiliateTokenService } from "../modules/affiliates/application/service
 import { AffiliatesRepository } from "../modules/affiliates/infrastructure/persistence/affiliates.repository";
 import { SignupGrantOutboxService } from "../modules/auth/application/services/signup-grant-outbox.service";
 import { SignupGrantOutboxRepository } from "../modules/auth/infrastructure/persistence/signup-grant-outbox.repository";
+import { BillingService } from "../modules/billing/application/services/billing.service";
 import { BillingCustomerService } from "../modules/billing/application/services/billing-customer.service";
 import { BillingWebhookRetryService } from "../modules/billing/application/services/billing-webhook-retry.service";
 import { FinancialReconciliationService } from "../modules/billing/application/services/financial-reconciliation.service";
-import { ManualSubscriptionsService } from "../modules/billing/application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
 import { SlickpayPaymentsService } from "../modules/billing/application/services/slickpay-payments.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
@@ -28,7 +27,6 @@ import { StripeWebhookProcessor } from "../modules/billing/application/services/
 import { SubscriptionCreditsService } from "../modules/billing/application/services/subscription-credits.service";
 import { SubscriptionLifecycleService } from "../modules/billing/application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "../modules/billing/application/services/subscription-refill.service";
-import { SubscriptionRenewalRemindersService } from "../modules/billing/application/services/subscription-renewal-reminders.service";
 import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
@@ -37,9 +35,10 @@ import { BillingTopupReceiptsRepository } from "../modules/billing/infrastructur
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
 import { FinancialReconciliationOutboxRepository } from "../modules/billing/infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { ManualSubscriptionPaymentsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-payments.repository";
-import { ManualSubscriptionRequestsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-requests.repository";
 import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
+import { PaidOwnerRepository } from "../modules/billing/infrastructure/persistence/paid-owner.repository";
 import { SlickpayPaymentsRepository } from "../modules/billing/infrastructure/persistence/slickpay-payments.repository";
+import { StarterPassesRepository } from "../modules/billing/infrastructure/persistence/starter-passes.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
@@ -60,7 +59,6 @@ import {
 	triggerDomainConfigurationTask,
 	triggerDomainPurchaseTask,
 } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
-import { EmailService } from "../modules/email/application/services/email.service";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { DomainRegistrationFulfillment } from "../modules/orders/application/fulfillment/domain-registration.fulfillment";
@@ -75,24 +73,13 @@ import {
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
 import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
 import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
+import { UserReferralsService } from "../modules/user-referrals/application/services/user-referrals.service";
+import { UserReferralsRepository } from "../modules/user-referrals/infrastructure/persistence/user-referrals.repository";
 import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 type TriggerAnalytics = Pick<AnalyticsService, "capture">;
-
-export function createSubscriptionRefillRuntime(db: TriggerDatabase) {
-	const core = createPaymentCore(db);
-
-	return {
-		refills: new SubscriptionRefillService(
-			new SubscriptionCreditsRepository(db),
-			core.credits,
-			core.paymentRefunds,
-			core.reconciliationOutbox,
-		),
-	};
-}
 
 export function createFinancialReconciliationRuntime(db: TriggerDatabase) {
 	const core = createPaymentCore(db);
@@ -105,57 +92,54 @@ export function createFinancialReconciliationRuntime(db: TriggerDatabase) {
 	};
 }
 
-export function createManualBillingRuntime(db: TriggerDatabase) {
-	const core = createPaymentCore(db);
-	const subscriptions = new SubscriptionsRepository(db);
-	const subscriptionCredits = new SubscriptionCreditsRepository(db);
-	const refills = new SubscriptionRefillService(
-		subscriptionCredits,
-		core.credits,
-		core.paymentRefunds,
-		core.reconciliationOutbox,
+/**
+ * The SlickPay sweep graph. A paid SlickPay payment tops up the wallet and writes one receipt.
+ * The sweep never starts a checkout, but the service needs BillingService for the Starter pass checkout.
+ */
+export function createSlickpayRuntime(db: TriggerDatabase) {
+	const credits = createCredits(db);
+	const stripe = new StripeProvider();
+	const billingCustomers = new BillingCustomersRepository(db);
+	const organizationBillingCustomers =
+		new OrganizationBillingCustomersRepository(db);
+	const checkoutAttempts = new BillingCheckoutAttemptsRepository(db);
+	const productSettings = new ProductSettingsService(
+		new ProductSettingsRepository(db, new StarterPassesRepository(db)),
+	);
+	const receipts = new BillingTopupReceiptsRepository(db);
+	const payments = new SlickpayPaymentsRepository(db);
+	const billing = new BillingService(
+		billingCustomers,
+		new SubscriptionsRepository(db),
+		credits,
+		stripe,
+		new BillingCustomerService(
+			billingCustomers,
+			stripe,
+			organizationBillingCustomers,
+			new WorkspaceMembersRepository(db),
+		),
+		checkoutAttempts,
+		organizationBillingCustomers,
+		productSettings,
+		new PaidOwnerRepository(db),
+		receipts,
+		payments,
 	);
 
 	return {
-		manualSubscriptions: new ManualSubscriptionsService(
-			subscriptions,
-			subscriptionCredits,
-			core.credits,
-			refills,
-			new ManualSubscriptionPaymentsRepository(db),
-			new ManualSubscriptionRequestsRepository(db),
-			new SubscriptionStateEventsRepository(db),
-			new BillingCheckoutAttemptsRepository(db),
-			new ProductSettingsService(new ProductSettingsRepository(db)),
-			createLifecycleEvents(db),
-		),
-	};
-}
-
-/** The renewal reminder graph. EmailService reads RESEND_API_KEY and CORS_ORIGIN from env. */
-export function createSubscriptionRenewalRemindersRuntime(db: TriggerDatabase) {
-	return {
-		renewalReminders: new SubscriptionRenewalRemindersService(
-			new SubscriptionsRepository(db),
-			new EmailService(),
-			triggerLogger,
-		),
-	};
-}
-
-/** The SlickPay sweep graph. A paid SlickPay payment grants or renews through the manual billing service. */
-export function createSlickpayRuntime(db: TriggerDatabase) {
-	const { manualSubscriptions } = createManualBillingRuntime(db);
-
-	return {
 		slickpayPayments: new SlickpayPaymentsService(
-			new SlickpayPaymentsRepository(db),
+			payments,
 			slickpayClientFromEnv(),
-			manualSubscriptions,
 			new ManualSubscriptionPaymentsRepository(db),
-			new SubscriptionsRepository(db),
-			new BillingCheckoutAttemptsRepository(db),
-			new ProductSettingsService(new ProductSettingsRepository(db)),
+			new SubscriptionCreditsRepository(db),
+			credits,
+			receipts,
+			createLifecycleEvents(db),
+			checkoutAttempts,
+			productSettings,
+			new StarterPassesRepository(db),
+			billing,
 		),
 	};
 }
@@ -180,7 +164,22 @@ export function createSignupGrantRuntime(db: TriggerDatabase) {
 		outbox: new SignupGrantOutboxService(
 			new SignupGrantOutboxRepository(db),
 			createCredits(db),
-			new ProductSettingsService(new ProductSettingsRepository(db)),
+			new ProductSettingsService(
+				new ProductSettingsRepository(db, new StarterPassesRepository(db)),
+			),
+		),
+	};
+}
+
+/** The user referral sweep graph. The task `user-referral-sweep` calls `userReferrals.runSweep`. */
+export function createUserReferralRuntime(db: TriggerDatabase) {
+	return {
+		userReferrals: new UserReferralsService(
+			new UserReferralsRepository(db),
+			createCredits(db),
+			new ProductSettingsService(
+				new ProductSettingsRepository(db, new StarterPassesRepository(db)),
+			),
 		),
 	};
 }
@@ -224,6 +223,7 @@ export function createBillingWebhookRuntime(
 		payment.reconciliationOutbox,
 		new BillingTopupReceiptsRepository(db),
 		createLifecycleEvents(db),
+		new StarterPassesRepository(db),
 	);
 	const subscriptionSync = new StripeSubscriptionSyncService(
 		billingCustomers,
@@ -277,6 +277,7 @@ function createPaymentCore(db: TriggerDatabase) {
 		credits,
 		orderRefunds,
 		stripe,
+		new StarterPassesRepository(db),
 	);
 
 	return {
@@ -303,6 +304,7 @@ function createAffiliateCore(
 		new OrganizationBillingCustomersRepository(db),
 		stripe,
 		clawback,
+		new BillingCheckoutAttemptsRepository(db),
 	);
 
 	return { affiliates, billingCustomers, clawback, commission, stripe };

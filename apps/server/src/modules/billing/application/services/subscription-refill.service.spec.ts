@@ -67,7 +67,7 @@ function setup(dueSlots: RefillSlotRow[]) {
 		findDuePendingSlotsForSubscription: vi.fn(async () => dueSlots),
 		insertRefillSlots: vi.fn(async () => []),
 	};
-	const credits = { applyCappedRefill: vi.fn(async () => ({})) };
+	const credits = { grant: vi.fn(async () => ({})) };
 	const outbox = {
 		enqueue: vi.fn(
 			async (_input: { chargeId: string; triggerRef: string }) => null,
@@ -103,7 +103,7 @@ describe("SubscriptionRefillService", () => {
 		);
 
 		expect(result).toEqual({ fundingChargeIds: ["ch_old"], granted: 3 });
-		expect(credits.applyCappedRefill).toHaveBeenCalledTimes(3);
+		expect(credits.grant).toHaveBeenCalledTimes(3);
 		expect(outbox.enqueue.mock.calls.map(([input]) => input)).toEqual([
 			{ chargeId: "ch_old", triggerRef: "slot:slot_1" },
 			{ chargeId: "ch_old", triggerRef: "slot:slot_2" },

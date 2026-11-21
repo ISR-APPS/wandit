@@ -58,6 +58,7 @@ import { toast } from "sonner";
 import { formatNumber, formatRelativeTime, useTranslation } from "@/lib/i18n";
 import { LIVE_DESKTOP_STATUSES } from "../../api/desktop.queries";
 import { copyToClipboard } from "../../lib/helpers";
+import { PANEL_INPUT_CLASS } from "../more/panel-shell";
 import {
 	DESTINATION_ACTION_CLASS,
 	DestinationCard,
@@ -82,7 +83,7 @@ const STATUS_CHIP_CLASS: Record<DesktopBuildStatus, string> = {
 };
 
 const CHIP_CLASS =
-	"inline-flex h-5 shrink-0 items-center rounded-full px-2 font-grotesk font-semibold text-[11px]";
+	"inline-flex h-5 shrink-0 items-center rounded-full px-2 font-grotesk font-medium text-[11px]";
 
 const PLATFORM_ICON: Record<DesktopPlatform, Icon> = {
 	windows: WindowsLogoIcon,
@@ -223,7 +224,7 @@ export function DesktopBuildCard({
 					<Button
 						variant="outline"
 						size="sm"
-						className={cn("h-8 rounded-full", GATE_ACTION_CLASS)}
+						className={GATE_ACTION_CLASS}
 						disabled={isCanceling}
 						onClick={() => onCancel(liveBuild.id)}
 					>
@@ -291,11 +292,11 @@ function DownloadLinkRow({
 	const { t } = useTranslation();
 	return (
 		<div className="flex flex-col gap-1">
-			<span className="flex items-center gap-2 px-1 font-grotesk font-semibold text-popover-foreground/55 text-xs">
+			<span className="flex items-center gap-2 px-1 font-grotesk font-medium text-popover-foreground/55 text-xs">
 				{t("appBuilder.desktopBuilds.downloadLink")}
 				<PlatformBadge platform={platform} />
 			</span>
-			<div className="flex items-center gap-1 rounded-full bg-popover-foreground/[0.04] ps-3 pe-1 dark:bg-white/[0.05]">
+			<div className="flex h-9 items-center gap-1 rounded-full bg-popover-foreground/[0.04] ps-3 pe-1 dark:bg-white/[0.05]">
 				{/* A URL reads left to right in every locale. */}
 				<a
 					href={url}
@@ -335,7 +336,7 @@ function GateFindingList({
 	const { t } = useTranslation();
 	return (
 		<div className="flex flex-col gap-2 rounded-[14px] bg-popover-foreground/[0.03] px-3 py-2.5 dark:bg-white/[0.03]">
-			<h4 className="font-grotesk font-semibold text-destructive text-xs">
+			<h4 className="font-grotesk font-medium text-destructive text-xs">
 				{t("appBuilder.desktopBuilds.findingsTitle")}
 			</h4>
 			{/* Many migration files can fail. The list scrolls, so the hint stays in view. */}
@@ -446,7 +447,7 @@ function BuildForm({
 				<div className="flex flex-col gap-1">
 					<label
 						htmlFor={productNameId}
-						className="px-1 font-grotesk font-semibold text-popover-foreground/70 text-xs"
+						className="px-1 font-grotesk font-medium text-popover-foreground/70 text-xs"
 					>
 						{t("appBuilder.desktopBuilds.productName")}
 					</label>
@@ -459,7 +460,7 @@ function BuildForm({
 						disabled={isDisabled}
 						aria-invalid={isProductNameInvalid}
 						aria-describedby={productNameHintId}
-						className="h-9 rounded-full bg-popover px-3.5"
+						className={PANEL_INPUT_CLASS}
 					/>
 					<p
 						id={productNameHintId}
@@ -479,7 +480,7 @@ function BuildForm({
 			<div className="flex flex-col gap-1">
 				<label
 					htmlFor={notesId}
-					className="px-1 font-grotesk font-semibold text-popover-foreground/70 text-xs"
+					className="px-1 font-grotesk font-medium text-popover-foreground/70 text-xs"
 				>
 					{t("appBuilder.desktopBuilds.notes")}
 				</label>
@@ -492,7 +493,12 @@ function BuildForm({
 					dir="auto"
 					disabled={isDisabled}
 					aria-describedby={notesHintId}
-					className="min-h-14 rounded-[14px] bg-popover px-3.5 text-[13px] md:text-[13px]"
+					// The kit Textarea grows with its text, so `h-auto` removes the fixed height of the field class.
+					// A field with two lines cannot be a pill, so it has the 14 px corner of a row.
+					className={cn(
+						PANEL_INPUT_CLASS,
+						"h-auto min-h-14 rounded-[14px] text-[13px] md:text-[13px]",
+					)}
 				/>
 				<p
 					id={notesHintId}
@@ -505,7 +511,7 @@ function BuildForm({
 				<div className="flex flex-col gap-1">
 					<span
 						id={platformLabelId}
-						className="px-1 font-grotesk font-semibold text-popover-foreground/70 text-xs"
+						className="px-1 font-grotesk font-medium text-popover-foreground/70 text-xs"
 					>
 						{t("appBuilder.desktopBuilds.platformLabel")}
 					</span>
@@ -531,7 +537,7 @@ function BuildForm({
 								<ToggleGroupItem
 									key={option}
 									value={option}
-									className="flex-1 rounded-full"
+									className="flex-1 rounded-full shadow-none"
 								>
 									<OptionIcon
 										data-icon="inline-start"

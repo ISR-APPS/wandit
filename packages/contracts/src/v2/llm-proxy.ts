@@ -6,8 +6,9 @@
  */
 import { z } from "zod";
 
-import { type BillingPlanId, billingPlanIdSchema } from "../v1/billing";
+import { billingPlanIdSchema } from "../v1/billing";
 import { uuidSchema } from "../v1/shared/primitives";
+import { builderThinkingSchema } from "./turns";
 
 /**
  * Claims inside a signed LLM run token. The token is the only auth on the
@@ -22,7 +23,10 @@ export const llmProxyTokenClaimsSchema = z.object({
 	projectId: uuidSchema,
 	// Organization id; null when the project lives in a personal workspace.
 	workspaceId: z.string().min(1).nullable(),
-	plan: billingPlanIdSchema,
+	// Unread since pricing v8: every priced model is open to every user.
+	// Optional so a new API accepts a token with no plan. The minters still
+	// write one constant for one release: an old API instance requires it.
+	plan: billingPlanIdSchema.optional(),
 	// Per-run spend ceiling in USD. Decimal dollars, for example 0.5.
 	capUsd: z.number().nonnegative(),
 	// Expiry in unix seconds. The API mints exp = now + 65 minutes so a
@@ -32,10 +36,12 @@ export const llmProxyTokenClaimsSchema = z.object({
 	// chat binding for it, so a request on an older connection of the chat is
 	// billed to the turn that runs now. Absent on a token minted before.
 	chatId: uuidSchema.optional(),
-	// Model id of the turn, in allow-list form, for example
-	// `anthropic/claude-opus-5`. The proxy allows it on top of the plan
-	// list. Absent on a token minted before the model picker.
+	// Model id of the turn, in price-table form, for example
+	// `anthropic/claude-opus-5`. Absent on a token minted before the model picker.
 	model: z.string().min(1).optional(),
+	// Thinking level of the turn. The proxy maps it to `output_config.effort`; see `builderThinkingSchema`.
+	// Absent on a token minted before the control: no change to the body.
+	thinking: builderThinkingSchema.optional(),
 });
 
 /** TypeScript run-token claims type. */
@@ -119,9 +125,23 @@ export const llmModelPriceSchema = z.object({
 export type LlmModelPrice = z.infer<typeof llmModelPriceSchema>;
 
 /**
+ * The WANDIT-151 typical message: one builder turn is about 60k fresh
+ * input, 180k cache reads, 20k cache writes, and 12k output tokens.
+ * The server prices the turn estimate with it. The web model slider shows
+ * the cost ratio of each tier with it. Source: Linear WANDIT-151, D2 notes.
+ */
+export const TYPICAL_TURN_USAGE = {
+	cacheReadTokens: 180_000,
+	cacheWriteTokens: 20_000,
+	inputTokens: 60_000,
+	outputTokens: 12_000,
+} as const;
+
+/**
  * Answer of `GET /api/v2/models`: the models the builder dropdown offers.
- * Every row of the server price table is pickable; a turn or project
- * create refuses any other id with 400 `V2_MODEL_DENIED`.
+ * Every row of the server price table is pickable, except the ids in the
+ * admin setting `v2DisabledModels`, which the list leaves out. A turn or
+ * project create refuses any other id with 400 `V2_MODEL_DENIED`.
  */
 export const builderModelsResponseSchema = z.object({
 	// `V2_DEFAULT_MODEL` of the deploy: a turn without a `model` runs on it.
@@ -133,37 +153,3 @@ export const builderModelsResponseSchema = z.object({
 
 /** TypeScript models-list answer. */
 export type BuilderModelsResponse = z.infer<typeof builderModelsResponseSchema>;
-
-/** Validates a plan → model-id map; every billing plan must appear. */
-export const llmProxyModelAllowListSchema = z.record(
-	billingPlanIdSchema,
-	z.array(z.string().min(1)),
-);
-
-/**
- * Anthropic models each plan may call beyond the deploy default.
- * `allowedLlmModels` adds `V2_DEFAULT_MODEL` for every plan at call time.
- * The `billing_plan` enum has no `free` value; starter is the free tier.
- * Claude Code runs its subagents and helper calls on haiku, on every plan.
- */
-export const llmProxyAllowedModels = {
-	starter: ["anthropic/claude-haiku-4-5"],
-	pro: ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5"],
-	business: [
-		"anthropic/claude-sonnet-5",
-		"anthropic/claude-opus-5",
-		"anthropic/claude-haiku-4-5",
-	],
-} as const satisfies Record<BillingPlanId, readonly string[]>;
-
-/**
- * Model ids a plan may send to the proxy: the deploy's `V2_DEFAULT_MODEL`
- * plus the plan's paid list. The proxy also allows the token `model` of
- * the turn. It rejects any other named model.
- */
-export function allowedLlmModels(
-	plan: BillingPlanId,
-	defaultModel: string,
-): string[] {
-	return [...new Set([defaultModel, ...llmProxyAllowedModels[plan]])];
-}

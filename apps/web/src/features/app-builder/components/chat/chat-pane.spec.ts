@@ -14,7 +14,7 @@ import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BuilderMessage } from "../../api/dto";
+import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
 import { ChatPane, type ChatPaneProps } from "./chat-pane";
 
 const MESSAGES: BuilderMessage[] = [
@@ -155,6 +155,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						targets: [],
 						isReadOnly: false,
 						payerOutOfCredits: false,
+						payerStarterPassRequired: false,
 						isPayerActiveWorkspace: true,
 						onRemoveTarget: vi.fn(),
 						isSending: false,
@@ -180,7 +181,11 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 							models: undefined,
 							modelId: undefined,
 							setModelId: vi.fn(),
+							thinking: "balanced",
+							setThinking: vi.fn(),
 						},
+						modelLock: null,
+						canCloneSite: false,
 						contextUsage: null,
 						onCancel: () => {},
 						errorText: null,
@@ -453,6 +458,196 @@ describe("ChatPane", () => {
 			],
 			files: [],
 		});
+	});
+
+	// Product rule: the ideas show only under the last reply, once it ended and
+	// waits for nothing, while the user can send. Else a click skips an open card.
+	it.each<{
+		name: string;
+		extraPart: BuilderMessagePart | null;
+		props: Partial<ChatPaneProps>;
+		isLast: boolean;
+		list: "shows" | "hides";
+	}>([
+		{
+			name: "a settled last reply",
+			extraPart: null,
+			props: {},
+			isLast: true,
+			list: "shows",
+		},
+		{
+			name: "an error",
+			extraPart: {
+				type: "data-error",
+				id: "e1",
+				data: { code: "SANDBOX_LOST", message: "Turn failed", retryable: true },
+			},
+			props: {},
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "a stop",
+			extraPart: {
+				type: "data-stopped",
+				id: "s1",
+				data: { status: "canceled" },
+			},
+			props: {},
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "an open question",
+			extraPart: QUESTION_MESSAGE.parts[0] ?? null,
+			props: {},
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "an open approval",
+			extraPart: {
+				type: "data-approval",
+				id: "ap-1",
+				data: {
+					approvalId: "ap-1",
+					toolName: "run_sql_write",
+					input: '{"query":"delete from notes"}',
+					decision: null,
+					isOpen: true,
+				},
+			},
+			props: {},
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "an open plan",
+			extraPart: {
+				type: "data-plan",
+				id: "plan-call-9",
+				data: {
+					toolCallId: "call-9",
+					title: "Tracker",
+					summary: "A tracker.",
+					sections: [],
+					assumptions: [],
+					isOpen: true,
+				},
+			},
+			props: {},
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "a viewer",
+			extraPart: null,
+			props: { isReadOnly: true },
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "a running turn",
+			extraPart: null,
+			props: { isSending: true },
+			isLast: true,
+			list: "hides",
+		},
+		{
+			name: "an older reply",
+			extraPart: null,
+			props: {},
+			isLast: false,
+			list: "hides",
+		},
+	])("$list the follow-ups for $name", ({ extraPart, props, isLast, list }) => {
+		const reply: BuilderMessage = {
+			id: "a1",
+			role: "assistant",
+			parts: [
+				{ type: "text", text: "Done." },
+				{
+					type: "data-follow-ups",
+					id: "a1-follow-ups",
+					data: { followUps: ["Add a dark mode", "Add a login page"] },
+				},
+				...(extraPart === null ? [] : [extraPart]),
+			],
+		};
+		const later: BuilderMessage[] = isLast
+			? []
+			: [{ id: "u2", role: "user", parts: [{ type: "text", text: "Next" }] }];
+		renderPane({ messages: [reply, ...later], ...props });
+		expect(
+			screen.queryByRole("button", { name: "Add a dark mode" }) !== null,
+		).toBe(list === "shows");
+	});
+
+	// Like the composer: no mode, so the Plan toggle decides the turn.
+	it("sends a clicked follow-up idea as the next message", () => {
+		const { onSend } = renderPane({
+			messages: [
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{ type: "text", text: "Done." },
+						{
+							type: "data-follow-ups",
+							id: "a1-follow-ups",
+							data: { followUps: ["Add a dark mode", "Add a login page"] },
+						},
+					],
+				},
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add a dark mode" }));
+		expect(onSend).toHaveBeenCalledWith({ text: "Add a dark mode", files: [] });
+	});
+
+	// Security: a searched page can make the agent write a phishing link.
+	it("opens a link of a reply with sources only after the confirm", () => {
+		const open = vi.fn<typeof window.open>(() => null);
+		vi.stubGlobal("open", open);
+		renderPane({
+			messages: [
+				{
+					id: "a1",
+					role: "assistant",
+					parts: [
+						{
+							type: "text",
+							text: "See [the guide](https://evil.example/login).",
+						},
+						{
+							type: "data-sources",
+							id: "a1-sources",
+							data: {
+								sources: [
+									{
+										url: "https://react.dev/blog",
+										href: "https://react.dev/blog",
+										title: "React blog",
+										hostname: "react.dev",
+										favicon: null,
+									},
+								],
+							},
+						},
+					],
+				},
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "the guide" }));
+		expect(open).not.toHaveBeenCalled();
+		expect(screen.getByText("https://evil.example/login")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Open link" }));
+		expect(open).toHaveBeenCalledWith(
+			"https://evil.example/login",
+			"_blank",
+			"noopener,noreferrer",
+		);
 	});
 
 	it("follows new content at the end, stops after a scroll up, and jumps back on a send", () => {

@@ -437,6 +437,8 @@ Run these before you say that the work is done:
 - The app calls AI models through the wandit AI gateway. Each call uses the wandit credits of the project.
 - Call `enable_ai` once, before you build the first AI feature. The user approves the call.
   It answers `defaultModel` and `models`. Use `defaultModel`, or another id from `models`.
+  Keep `defaultModel` unless the feature needs a stronger model: a larger model costs many times more credits.
+  It also answers `mediaModels` and `speechVoices`. See Media features.
 - `enable_ai` puts two secrets in the Edge Functions: `WANDIT_AI_API_KEY` and `WANDIT_AI_GATEWAY_URL`.
   You never see the key. Never ask the user for it.
 - Only an Edge Function calls the gateway. Never put the key in the code, the chat, `.env`,
@@ -503,6 +505,21 @@ Deno.serve(async (request) => {
   return new Response(upstream.body, { status: upstream.status, headers: { ...corsHeaders, "Content-Type": "text/event-stream" } });
 });
 ```
+
+### Media features
+
+- The gateway also makes media. Each kind has its own route below `WANDIT_AI_GATEWAY_URL`:
+  - Images: `POST /images/generations`.
+  - Speech (text to speech): `POST /audio/speech`.
+  - Transcription (speech to text): `POST /audio/transcriptions`.
+  - Video: `POST /videos`, then `GET /videos/status` and `GET /videos/content`.
+- A media feature needs `enable_ai`, like a chat feature.
+- Only an Edge Function calls a media route, never the client.
+- Each call uses the credits of the project owner. The model and the call values set the cost.
+- A video is a job. The app starts it, then polls its status until it ends.
+  A completed video costs credits also when no one reads it.
+- Load the `ai-media` skill (`.claude/skills/ai-media/SKILL.md`) before you build one of these features.
+  It has the body fields, the answers, the storage rules, and one example for each kind.
 
 ## Public form contract
 

@@ -2,11 +2,11 @@
 	"backToDashboard": "Retour au tableau de bord",
 	"tabsAriaLabel": "Vues de l'espace de travail",
 	"autosaved": "Enregistré",
-	"upgrade": "Mettre à niveau",
-	"upgradeCard": {
-		"titlePro": "Passer à Pro",
-		"titleBusiness": "Passer à Business",
-		"body": "Plus de crédits et d'options"
+	"topup": "Recharger",
+	"topupCard": {
+		"titlePersonal": "Recharger votre portefeuille",
+		"titleTeam": "Recharger le portefeuille d'équipe",
+		"body": "Les crédits n'expirent jamais"
 	},
 	"meta": {
 		"title": "Espace de travail — Wandit"
@@ -897,7 +897,12 @@
 			"receiptStoppedAt": "Génération arrêtée à {percent}% — abandonnée.",
 			"receiptDismissed": "Génération échouée ignorée.",
 			"errorCode": "erreur · {code}",
-			"openPageTab": "Ouvrir l'onglet Page"
+			"openPageTab": "Ouvrir l'onglet Page",
+			"starterPass": {
+				"title": "Cette génération a besoin du Pass Démarrage.",
+				"message": "Ton compte ne peut pas utiliser de crédits avant le Pass Démarrage. Ta dernière version est intacte. Obtiens le pass, puis réessaie.",
+				"cta": "Obtenir le Pass Démarrage"
+			}
 		},
 		"leadScrape": {
 			"title": "Recherche de prospects",
@@ -1249,12 +1254,12 @@
 			},
 			"limit": {
 				"inUse": {
-					"one": "Ton offre {plan} inclut {count} base de données d'app, et elle est utilisée.",
-					"other": "Ton offre {plan} inclut {count} bases de données d'app, et toutes sont utilisées."
+					"one": "Cet espace inclut {count} base de données d'app, et elle est utilisée.",
+					"other": "Cet espace inclut {count} bases de données d'app, et toutes sont utilisées."
 				},
-				"notIncluded": "Ton offre actuelle n'inclut pas de base de données d'app.",
-				"generic": "Ton offre n'a plus de base de données d'app libre.",
-				"seePlans": "Voir les offres"
+				"notIncluded": "Une base de données d'app est incluse dès la première recharge de ce portefeuille.",
+				"generic": "Cet espace n'a plus de base de données d'app libre.",
+				"topup": "Recharger"
 			},
 			"waiting": "Installation de ton backend. Cela prend environ 2 minutes.",
 			"restoring": "Réveil de ta base de données.",

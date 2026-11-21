@@ -1,8 +1,8 @@
 /**
  * Orchestration behind the V2 app-project routes: create, get, the
  * conversations of a project, the cost of one chat, and the project cost
- * caps. Called by `app-projects.controller.ts`
- * and `cost-caps.controller.ts`. Create order: 1. the template version of the
+ * caps. Called by `app-projects.controller.ts`, `cost-caps.controller.ts`,
+ * and the MCP tools (`mcp-tools.ts`). Create order: 1. the template version of the
  * platform. 2. the attachment and model checks. 3. the settled-balance gate. 4. one
  * transaction (project, chat, first message, builder session). 5. the
  * backend provision handoff. 6. the first builder turn, which adopts the
@@ -28,6 +28,7 @@ import {
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	type CreateProjectChatResponse,
+	type ProductSettings,
 	type ProjectChatListResponse,
 	type ProjectCostCaps,
 	type TurnErrorData,
@@ -57,6 +58,7 @@ import {
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { ProductSettingsService } from "../../../settings";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { starterTemplateNoteMessage } from "../../domain/starter-template-note";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
@@ -72,8 +74,8 @@ import { TemplateVersionService } from "../../infrastructure/template/template-v
 import { TriggerApplyStarterTemplateTaskStarter } from "../../infrastructure/trigger/trigger-apply-starter-template-task-starter";
 import { BackendsService } from "./backends.service";
 import {
-	assertPickableModel,
 	HARNESS_BY_ENV,
+	resolvePickableModel,
 	TURN_HOLD_DEFAULT_CREDITS,
 	TurnsService,
 } from "./turns.service";
@@ -169,19 +171,32 @@ export class AppProjectsService {
 			TriggerApplyStarterTemplateTaskStarter,
 			"start"
 		>,
+		/** `v2DisabledModels` of the create check. `get` caches the row 30 s. */
+		@Inject(ProductSettingsService)
+		private readonly settings: {
+			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
+		},
 		/** Nest passes nothing, so the API gets the catalog and the archive folder. */
 		@Optional()
 		private readonly starterTemplates: StarterTemplateSource = STARTER_TEMPLATE_SOURCE,
 	) {}
 
 	/**
-	 * `POST /v2/projects`. Answers the ids of the project, its first chat,
-	 * and the first builder turn (null when the turn could not start).
+	 * `POST /v2/projects` and the MCP `create_project` tool. Answers the ids of the project,
+	 * its first chat, and the first builder turn (null when the turn could not start).
+	 * A second create with the same `request.ids` fails on the project primary key, before any credit hold.
 	 */
 	async create(
 		scope: ProjectScope,
 		body: CreateAppProjectRequest,
-		request: { countryCode: string | null },
+		request: {
+			/** Edge geo header of the request, or null. It picks the backend region. */
+			countryCode: string | null;
+			/** Fixed ids from the MCP `create_project` request key. The web route passes none: each create gets new ids. */
+			ids?: { projectId: string; chatId: string };
+			/** Dedupe key of the first builder turn, for the replay of `create_project`. Default: the new turn id. */
+			firstTurnRequestKey?: string;
+		},
 	): Promise<CreateAppProjectResponse> {
 		// First, before any row: a server without the mobile or desktop
 		// template answers 503 for a create of that platform.
@@ -191,16 +206,18 @@ export class AppProjectsService {
 		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
 		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
-		// Before any row: an unpriced pick must not leave a project whose
-		// first turn already failed.
-		if (body.model !== undefined) {
-			assertPickableModel(body.model);
-		}
+		// Before any row: an unpriced or disabled model must not leave a project
+		// whose first turn already failed.
+		const model = resolvePickableModel(
+			body.model,
+			this.v2Env.V2_DEFAULT_MODEL ?? null,
+			(await this.settings.get()).v2DisabledModels,
+		);
 
 		await this.assertPayerHasCredits(scope);
 
-		const projectId = randomUUID();
-		const chatId = randomUUID();
+		const projectId = request.ids?.projectId ?? randomUUID();
+		const chatId = request.ids?.chatId ?? randomUUID();
 		const messageId = randomUUID();
 		const derivedName = deriveProjectName(body.prompt);
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
@@ -218,7 +235,7 @@ export class AppProjectsService {
 				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,
-				model: body.model ?? this.v2Env.V2_DEFAULT_MODEL ?? null,
+				model,
 				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},
@@ -248,8 +265,12 @@ export class AppProjectsService {
 					message: body.prompt,
 					mode: body.mode,
 					model: body.model,
+					thinking: body.thinking,
 				},
-				{ existingMessageId: messageId },
+				{
+					existingMessageId: messageId,
+					requestKey: request.firstTurnRequestKey,
+				},
 			);
 			turnId = turn.turnId;
 		} catch (error) {
@@ -394,11 +415,21 @@ export class AppProjectsService {
 
 	/**
 	 * D-C: a create holds nothing and debits nothing. It only refuses a payer
-	 * with no credits, before any row exists. Throws `InsufficientCreditsError` (402).
+	 * with no credits, or with no Starter pass, before any row exists. Throws `InsufficientCreditsError` (402).
 	 */
 	private async assertPayerHasCredits(scope: ProjectScope): Promise<void> {
 		const payer = subjectPayer(meteringSubjectFrom(scope));
 		const balance = await this.credits.getSettledBalance(payer);
+		// The same refusal as the reserve admission: the first turn would fail, so no empty project is made.
+		if (balance.starterPassRequired) {
+			throw new InsufficientCreditsError(
+				TURN_HOLD_DEFAULT_CREDITS,
+				balance.balance,
+				balance.settledBalance,
+				creditPayerOf(payer, scope.actorUserId),
+				"starter_pass_required",
+			);
+		}
 		if (balance.settledBalance <= 0) {
 			throw new InsufficientCreditsError(
 				TURN_HOLD_DEFAULT_CREDITS,
@@ -410,8 +441,8 @@ export class AppProjectsService {
 	}
 
 	/**
-	 * D18 and D3: a V2 project gets one backend at creation when the payer's
-	 * plan has a free slot. A failure here must not lose the project: the
+	 * D18 and D3: a V2 project gets one backend at creation when the payer
+	 * is a paid owner with a free backend slot. A failure here must not lose the project: the
 	 * `app_backends` row stays `error` or absent, and the first turn still
 	 * runs. `BackendsService` gives a desktop project no backend.
 	 */
@@ -423,11 +454,11 @@ export class AppProjectsService {
 		try {
 			await this.backends.provisionBackend(projectId, {
 				countryCode,
-				// The payer's plan decides the backend slot: the project owner columns.
+				// The payer decides the backend slot: the project owner columns.
 				...projectOwnerColumns(scope),
 			});
 		} catch (error) {
-			// A plan without a free backend slot is a product rule, not a
+			// A payer without a free backend slot is a product rule, not a
 			// failure: `BackendsService` already logged it.
 			if (!(error instanceof BackendLimitReachedError)) {
 				this.logger.error(
@@ -577,6 +608,7 @@ export class AppProjectsService {
 				createdAt: row.createdAt.toISOString(),
 				id: row.id,
 				lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+				model: row.model,
 				title: row.title,
 			})),
 		};
@@ -604,6 +636,8 @@ export class AppProjectsService {
 				createdAt: chat.createdAt.toISOString(),
 				id: chat.id,
 				lastMessageAt: null,
+				// A chat with no message has no turn, so no locked model.
+				model: null,
 				title: null,
 			},
 		};

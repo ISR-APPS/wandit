@@ -1,3 +1,7 @@
+/**
+ * Card "MRR by plan": list-price MRR and ARPU of each old plan.
+ * RevenueAnalyticsPage renders it. After pricing v8 it shows history only.
+ */
 import type {
 	AdminAnalyticsArpuByPlan,
 	AdminAnalyticsMrrByPlan,
@@ -164,7 +168,7 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 							<h2>MRR by plan</h2>
 						</CardTitle>
 						<CardDescription className="mt-1">
-							Annual plans normalized to a monthly value
+							History (plans ended). Annual plans normalized to a monthly value
 						</CardDescription>
 					</div>
 					<Badge variant="outline" className="shrink-0">

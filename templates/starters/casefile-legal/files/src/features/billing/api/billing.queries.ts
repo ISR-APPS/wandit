@@ -1,55 +1,46 @@
-// Reads of the billing page: hours per day, hours by practice area, the invoice list, the totals, and one invoice.
-// The /app/billing route prefetches the first four. The trend reads other periods and the dialog reads one
-// invoice with useQuery, after a click.
+// Reads of the billing page: the KPI row of a period, the recent invoices and payments, the open invoices,
+// and one invoice. The /app/billing route prefetches the first three with the default period.
+// Another period loads in the page with useQuery. The dialog reads one invoice with useQuery, after a click.
 // The queryFn returns sample rows today. A later turn replaces its body with a Supabase call (STARTER.md).
 import { queryOptions } from "@tanstack/react-query";
-import { getSampleTables } from "~/features/practice";
+import { getSampleTables, type PeriodDays } from "~/features/practice";
 import {
-	buildBillingTotals,
+	buildBillingSummary,
 	buildInvoiceFile,
-	buildInvoiceList,
-	hoursByArea,
-	hoursPerDay,
+	buildOpenInvoices,
+	buildRecentLines,
 } from "../lib/billing";
 
-/** Logged hours per day for the last `days` days, with the same days one period earlier. Feeds the trend panel. */
-export function hoursPerDayQueryOptions(days: number) {
+/** The first period of the page header. A firm bills in 30-day periods. */
+export const BILLING_DEFAULT_DAYS: PeriodDays = 30;
+
+/** Collected, billed, days to pay, and outstanding for the last `days` days. Feeds the KPI row. */
+export function billingSummaryQueryOptions(days: PeriodDays) {
 	return queryOptions({
-		queryKey: ["time-entries", "per-day", days],
+		queryKey: ["invoices", "summary", days],
 		queryFn: async () => {
 			const now = Date.now();
-			return hoursPerDay(getSampleTables(now), days, now);
+			return buildBillingSummary(getSampleTables(now), days, now);
 		},
 	});
 }
 
-/** Logged hours by practice area in the last `days` days, the largest first. Feeds the breakdown panel. */
-export function hoursByAreaQueryOptions(days: number) {
+/** The invoices issued and the payments received in the last `days` days, newest first. Feeds the "Recent" tab. */
+export function recentLinesQueryOptions(days: PeriodDays) {
 	return queryOptions({
-		queryKey: ["time-entries", "by-area", days],
+		queryKey: ["invoices", "recent", days],
 		queryFn: async () => {
 			const now = Date.now();
-			return hoursByArea(getSampleTables(now), days, now);
+			return buildRecentLines(getSampleTables(now), days, now);
 		},
 	});
 }
 
-/** Every invoice with its client and matter names, newest first. */
-export function invoicesQueryOptions() {
+/** Every invoice with an open balance, the earliest due date first. Feeds the "Upcoming" tab. */
+export function openInvoicesQueryOptions() {
 	return queryOptions({
-		queryKey: ["invoices", "list"],
-		queryFn: async () => buildInvoiceList(getSampleTables()),
-	});
-}
-
-/** The outstanding, overdue, and collected totals of the billing header. */
-export function billingTotalsQueryOptions() {
-	return queryOptions({
-		queryKey: ["invoices", "totals"],
-		queryFn: async () => {
-			const now = Date.now();
-			return buildBillingTotals(getSampleTables(now), now);
-		},
+		queryKey: ["invoices", "open"],
+		queryFn: async () => buildOpenInvoices(getSampleTables()),
 	});
 }
 

@@ -1,6 +1,7 @@
 import type { ProjectMember, ProjectMemberRole } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
+import type { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import type { ResolvedProjectAccess } from "../../../projects";
 import {
 	type InviteLinksRepository,
@@ -12,11 +13,6 @@ import {
 import type { ProjectInvitationsRepository } from "../../infrastructure/persistence/project-invitations.repository";
 import type { ProjectSharingRepository } from "../../infrastructure/persistence/project-sharing.repository";
 import { ProjectSharingService } from "./project-sharing.service";
-
-/** The seventh constructor parameter. The billing module has no barrel for its repository type. */
-type SubscriptionsRepository = ConstructorParameters<
-	typeof ProjectSharingService
->[6];
 
 const ACTOR = { id: "user_actor", ipAddress: "203.0.113.9" };
 const TARGET_USER_ID = "user_target";
@@ -100,8 +96,9 @@ function setup(input: {
 			role: input.destinationRole ?? "owner",
 		}),
 	};
-	const subscriptions: Pick<SubscriptionsRepository, "findActiveByOwner"> = {
-		findActiveByOwner: async () => null,
+	// A free destination: the backend slot check gets a limit of 0.
+	const paidOwners: Pick<PaidOwnerRepository, "isPaidOwner"> = {
+		isPaidOwner: async () => false,
 	};
 
 	const service = new ProjectSharingService(
@@ -117,8 +114,7 @@ function setup(input: {
 		members as WorkspaceMembersRepository,
 		// SAFETY: these cases never move into the personal workspace.
 		{} as WorkspacesService,
-		// SAFETY: resolveBillingPlan calls only findActiveByOwner.
-		subscriptions as SubscriptionsRepository,
+		paidOwners,
 	);
 
 	return { movedProjectIds, roleWrites, service };

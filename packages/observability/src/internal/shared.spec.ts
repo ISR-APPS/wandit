@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { redactPreviewSecrets, scrubEvent } from "./shared";
+import {
+	redactPreviewSecrets,
+	scrubEvent,
+	stripEventUrlQueries,
+	stripSpanUrlQueries,
+} from "./shared";
 
 const autoVercelAiEvent = () => ({
 	exception: {
@@ -128,5 +133,72 @@ describe("redactPreviewSecrets", () => {
 		],
 	])("handles %s", (_name, input, expected) => {
 		expect(redactPreviewSecrets(input)).toBe(expected);
+	});
+});
+
+// Security: a query can hold a video billing token or an OAuth code.
+describe("stripEventUrlQueries", () => {
+	const TOKEN_URL =
+		"https://api.wandit.test/api/v2/ai/v1/videos/callback?token=secret";
+
+	it.each([
+		["an error event", undefined],
+		["a transaction event", "transaction"],
+	])("removes every query of %s", (_name, type) => {
+		const event = {
+			type,
+			request: { url: TOKEN_URL, query_string: "token=secret" },
+			breadcrumbs: [
+				{
+					data: {
+						url: "https://cdn.video.test/v.mp4",
+						"http.query": "?sig=secret",
+						"http.fragment": "#secret",
+					},
+				},
+			],
+		};
+
+		const scrubbed = stripEventUrlQueries(event);
+
+		expect(JSON.stringify(scrubbed)).not.toContain("secret");
+		expect(scrubbed.request.url).toBe(
+			"https://api.wandit.test/api/v2/ai/v1/videos/callback",
+		);
+	});
+
+	it("keeps a URL with no query", () => {
+		const url = "https://api.wandit.test/api/v2/ai/v1/videos";
+
+		expect(stripEventUrlQueries({ request: { url } }).request.url).toBe(url);
+	});
+});
+
+describe("stripSpanUrlQueries", () => {
+	it("removes the query from http span data and the http span name", () => {
+		const span = stripSpanUrlQueries({
+			op: "http.client",
+			description: "GET https://cdn.video.test/v.mp4?sig=secret",
+			data: {
+				"url.full": "https://cdn.video.test/v.mp4?sig=secret",
+				"http.url": "https://cdn.video.test/v.mp4?sig=secret",
+				"http.target": "/v.mp4?sig=secret",
+				"url.query": "?sig=secret",
+				"url.path": "/v.mp4",
+			},
+		});
+
+		expect(JSON.stringify(span)).not.toContain("secret");
+		expect(span.data["url.path"]).toBe("/v.mp4");
+		expect(span.data["http.target"]).toBe("/v.mp4");
+	});
+
+	// A SQL span name holds `?` placeholders that are not a URL query.
+	it("keeps the name of a span that is not http", () => {
+		const description = "select * from users where id = ?";
+
+		expect(stripSpanUrlQueries({ op: "db", description }).description).toBe(
+			description,
+		);
 	});
 });

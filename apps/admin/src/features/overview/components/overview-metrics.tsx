@@ -1,11 +1,15 @@
+/**
+ * Metric tiles of the dashboard overview: revenue, Starter passes, tokens, and totals.
+ * OverviewPage renders it with the snapshot of the overview stats query.
+ */
 import type { LucideIcon } from "lucide-react";
 import {
-	CircleDollarSignIcon,
 	CoinsIcon,
 	Globe2Icon,
 	HeartPulseIcon,
 	ImagesIcon,
 	MinusIcon,
+	TicketCheckIcon,
 	TrendingDownIcon,
 	TrendingUpIcon,
 	UserRoundPlusIcon,
@@ -88,20 +92,24 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "revenue",
 			label: "Gross revenue",
 			tooltip:
-				"Money actually received. Subscription payments recorded since June 2026 (migration 0029); older payments are not included.",
+				"Money actually received in USD by Stripe: card top-ups, domain orders, and plan payments recorded since June 2026 (migration 0029). Offline and SlickPay money is on the Offline billing page.",
 			value: formatOverviewRoundedUsdMinor(revenue.totalUsdMinor),
 			description: "Collected · USD",
 			changePercent: revenue.changePercent,
 			icon: WalletCardsIcon,
 		},
 		{
-			key: "mrr",
-			label: "MRR",
+			key: "starter-passes",
+			label: "Starter passes",
 			tooltip:
-				"Monthly recurring revenue at list price. Yearly plans are counted as their price divided by 12. Discounts are not subtracted.",
-			value: formatOverviewRoundedUsdMinor(snapshot.mrrMinor),
-			description: "Live subs · list price",
-			icon: CircleDollarSignIcon,
+				"Starter passes bought in the selected range: $1 by card or by SlickPay at the DZD rate. Staff grants, offline top-ups, and the grandfather backfill do not count.",
+			// An older API omits the count. The tile then shows a dash, not a false zero.
+			value:
+				totals.starterPassesInRange === undefined
+					? "—"
+					: formatOverviewWholeNumber(totals.starterPassesInRange),
+			description: "Bought by card or SlickPay",
+			icon: TicketCheckIcon,
 		},
 		{
 			key: "tokens",

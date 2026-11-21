@@ -10,7 +10,7 @@
 		"mode": "light",
 		"primary": "look",
 		"font": "look",
-		"displayFont": "look",
+		"displayFont": "schibsted-grotesk",
 		"scale": "sm",
 		"radius": "sm",
 		"border": "1",
@@ -24,7 +24,7 @@
 		"activeItem": "bar",
 		"header": "bar",
 		"userMenu": "sidebar-footer",
-		"frame": "flat",
+		"frame": "outlined",
 		"icons": "regular",
 		"navIcon": "plain"
 	},
@@ -101,8 +101,8 @@
 				"href": "https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&display=swap"
 			},
 			"display": {
-				"family": "IBM Plex Mono",
-				"href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+				"family": "Schibsted Grotesk",
+				"href": "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap"
 			},
 			"arabicSans": {
 				"family": "IBM Plex Sans Arabic",

@@ -3,7 +3,7 @@
  * sort headers and page controls, or one SQL result without them. Pure
  * presentation: the caller owns the page, the sort, and the query. Rendered
  * by database-panel.tsx and sql-editor.tsx; builds on the Table of
- * @wandit/ui. Also exports the table look of every Cloud panel, the page
+ * @wandit/ui. Also exports the table look, the pager button look, the page
  * controls of users-panel.tsx, and the first-load skeleton.
  */
 
@@ -65,22 +65,32 @@ export type RowsGridProps = {
 };
 
 /**
- * The one table look of the Cloud panels, on the div around a kit Table: a
- * white card, a grotesk header row on a faint navy wash, 13 px body rows
- * with hairlines. Descendant selectors beat the kit classes of the cells.
+ * The one table look of the Cloud panels, on the div around a kit Table.
+ * A flat card: a 36 px header row on a faint ink tint, 13 px body rows with
+ * hairlines. Descendant selectors beat the kit classes of the cells.
  */
 export const CLOUD_TABLE_CLASS = cn(
 	PANEL_CARD_CLASS,
 	"overflow-hidden text-night/85 dark:text-foreground/85 [&_table]:text-[13px]",
-	"[&_thead_tr]:border-night/[0.07] [&_thead_tr]:bg-night/[0.025] [&_thead_tr]:hover:bg-night/[0.025] dark:[&_thead_tr]:border-white/[0.07] dark:[&_thead_tr]:bg-white/[0.03] dark:[&_thead_tr]:hover:bg-white/[0.03]",
-	"[&_th]:h-10 [&_th]:px-4 [&_th]:font-grotesk [&_th]:font-medium [&_th]:text-[12px] [&_th]:text-night/55 dark:[&_th]:text-foreground/55",
+	"[&_thead_tr]:border-night/[0.07] [&_thead_tr]:bg-night/[0.04] [&_thead_tr]:hover:bg-night/[0.04] dark:[&_thead_tr]:border-white/[0.07] dark:[&_thead_tr]:bg-white/[0.04] dark:[&_thead_tr]:hover:bg-white/[0.04]",
+	"[&_th]:h-9 [&_th]:px-4 [&_th]:font-grotesk [&_th]:font-medium [&_th]:text-[12px] [&_th]:text-night/60 dark:[&_th]:text-foreground/55",
 	"[&_td]:px-4 [&_td]:py-2.5",
-	"[&_tbody_tr]:border-night/[0.06] [&_tbody_tr]:hover:bg-night/[0.02] dark:[&_tbody_tr]:border-white/[0.06] dark:[&_tbody_tr]:hover:bg-white/[0.03]",
+	"[&_tbody_tr]:border-night/[0.06] [&_tbody_tr]:hover:bg-night/[0.025] dark:[&_tbody_tr]:border-white/[0.06] dark:[&_tbody_tr]:hover:bg-white/[0.03]",
 );
 
 /** Faint text of a secondary cell, like a date or a count. */
 export const CLOUD_CELL_MUTED_CLASS =
 	"text-night/55 tabular-nums dark:text-foreground/55";
+
+/**
+ * Second-action icon button of a pager row, 28 px, for the kit Button with
+ * `variant="outline"`. The row sits next to a list, so it is one step smaller
+ * than a 32 px bar control. logs-panel.tsx uses it for its window buttons.
+ */
+export const CLOUD_PAGER_BUTTON_CLASS = cn(
+	PANEL_SECONDARY_BUTTON_CLASS,
+	"size-7",
+);
 
 /** `aria-sort` value of the sorted column header, per direction. */
 const ARIA_SORT = { asc: "ascending", desc: "descending" } as const;
@@ -228,7 +238,7 @@ export function PageControls({
 	const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
 	return (
-		<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-[13px] text-night/55 tabular-nums dark:text-foreground/55">
+		<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-night/60 text-xs tabular-nums dark:text-foreground/55">
 			<span>{countText}</span>
 			<div className="flex items-center gap-1.5">
 				<span className="me-1.5">
@@ -241,7 +251,7 @@ export function PageControls({
 					<Button
 						variant="outline"
 						size="icon-sm"
-						className={PANEL_SECONDARY_BUTTON_CLASS}
+						className={CLOUD_PAGER_BUTTON_CLASS}
 						disabled={page <= 1}
 						onClick={() => onPageChange(page - 1)}
 					>
@@ -257,7 +267,7 @@ export function PageControls({
 					<Button
 						variant="outline"
 						size="icon-sm"
-						className={PANEL_SECONDARY_BUTTON_CLASS}
+						className={CLOUD_PAGER_BUTTON_CLASS}
 						disabled={page >= pageCount}
 						onClick={() => onPageChange(page + 1)}
 					>

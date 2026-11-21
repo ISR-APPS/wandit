@@ -1,5 +1,5 @@
-// The agenda of the month: one block per day that has items, with one row per item.
-// CalendarPage renders it below the small container width, where a month grid has no room.
+// The agenda of the shown month or week: one block per day that has items, with one row per item.
+// CalendarPage renders it in the agenda view, and below the small container width, where a day grid has no room.
 // In the current month it starts at today. A button above shows the earlier days.
 import { useState } from "react";
 import { fillMessage } from "~/features/marketing";

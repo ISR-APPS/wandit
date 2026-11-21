@@ -146,6 +146,8 @@ function setup(
 		V2_DEFAULT_MODEL: DEFAULT_MODEL,
 		V2_HARNESS: "claude-code",
 	},
+	// `product_settings.v2DisabledModels`: the models ops turned off.
+	v2DisabledModels: string[] = [],
 ) {
 	const turns = {
 		create: vi.fn(
@@ -169,6 +171,9 @@ function setup(
 			async () => null,
 		),
 		findById: vi.fn<BuilderTurnsRepository["findById"]>(async () => null),
+		findLockedModelByChat: vi.fn<
+			BuilderTurnsRepository["findLockedModelByChat"]
+		>(async () => null),
 		findByRequestKey: vi.fn<BuilderTurnsRepository["findByRequestKey"]>(
 			async () => null,
 		),
@@ -263,6 +268,7 @@ function setup(
 			settledPlan: 5_000,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		})),
 	};
@@ -283,6 +289,7 @@ function setup(
 		backends,
 		credits,
 		{ findBranch: vi.fn(async () => null) },
+		{ get: async () => ({ v2DisabledModels }) },
 	);
 
 	return {
@@ -516,6 +523,132 @@ describe("TurnsService.create", () => {
 				...BODY,
 				model: "x/unpriced",
 			})
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BadRequestException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as BadRequestException).getResponse()).toMatchObject({
+			code: "V2_MODEL_DENIED",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			case: "a locked chat refuses another model",
+			locked: "anthropic/claude-opus-5",
+			picked: DEFAULT_MODEL,
+			refusal: "V2_MODEL_LOCKED",
+			runsOn: null,
+		},
+		{
+			case: "a locked chat runs a send with no model on its lock",
+			locked: "anthropic/claude-opus-5",
+			picked: undefined,
+			refusal: null,
+			runsOn: "anthropic/claude-opus-5",
+		},
+		{
+			case: "a locked model with no price row refuses",
+			locked: "x/retired",
+			picked: undefined,
+			refusal: "V2_MODEL_RETIRED",
+			runsOn: null,
+		},
+		{
+			case: "a locked chat refuses another tier from its Fast row",
+			locked: "anthropic/claude-opus-5.5-fast",
+			picked: DEFAULT_MODEL,
+			refusal: "V2_MODEL_LOCKED",
+			runsOn: null,
+		},
+		{
+			case: "a locked tier model switches to its Fast row",
+			locked: "anthropic/claude-opus-5.5",
+			picked: "anthropic/claude-opus-5.5-fast",
+			refusal: null,
+			runsOn: "anthropic/claude-opus-5.5-fast",
+		},
+		{
+			case: "a locked Fast row switches back to its tier model",
+			locked: "anthropic/claude-opus-5.5-fast",
+			picked: "anthropic/claude-opus-5.5",
+			refusal: null,
+			runsOn: "anthropic/claude-opus-5.5",
+		},
+		{
+			case: "a locked Fast row runs a send with no model on Fast",
+			locked: "anthropic/claude-opus-5.5-fast",
+			picked: undefined,
+			refusal: null,
+			runsOn: "anthropic/claude-opus-5.5-fast",
+		},
+		{
+			case: "a locked chat refuses an unpriced Fast row of its tier",
+			locked: DEFAULT_MODEL,
+			picked: `${DEFAULT_MODEL}-fast`,
+			refusal: "V2_MODEL_DENIED",
+			runsOn: null,
+		},
+		{
+			case: "a Fast change while a question card waits refuses",
+			locked: "anthropic/claude-opus-5.5-fast",
+			picked: "anthropic/claude-opus-5.5",
+			refusal: "V2_MODEL_LOCKED",
+			runsOn: null,
+			cardWaits: true,
+		},
+	])("model lock: $case", async ({
+		locked,
+		picked,
+		refusal,
+		runsOn,
+		cardWaits,
+	}) => {
+		const { metering, service, turns } = setup();
+		turns.findLockedModelByChat.mockResolvedValue(locked);
+		if (cardWaits === true) {
+			turns.findWaitingForUser.mockResolvedValue(
+				turnRow({ status: "waiting_for_answer" }),
+			);
+		}
+
+		const result = await service
+			.create(SCOPE, "project-1", {
+				...BODY,
+				...(picked === undefined ? {} : { model: picked }),
+			})
+			.catch((error: unknown) => error);
+
+		if (refusal !== null) {
+			expect(result).toBeInstanceOf(HttpException);
+			// SAFETY: toBeInstanceOf above proves the error type; getResponse
+			// carries the { code, message } body passed to the constructor.
+			expect((result as HttpException).getResponse()).toMatchObject({
+				code: refusal,
+			});
+			expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+			expect(turns.create).not.toHaveBeenCalled();
+		} else {
+			expect(turns.create).toHaveBeenCalledWith(
+				expect.objectContaining({ model: runsOn }),
+			);
+		}
+	});
+
+	it.each([
+		["a picked model", "anthropic/claude-opus-5", null],
+		["the deploy default", undefined, null],
+		["the chat lock", undefined, "anthropic/claude-opus-5"],
+	])("denies %s that ops turned off before the hold", async (_label, model, locked) => {
+		const disabled = model ?? locked ?? DEFAULT_MODEL;
+		const { metering, service, turns } = setup(undefined, [disabled]);
+		turns.findLockedModelByChat.mockResolvedValue(locked);
+
+		const failure = await service
+			.create(SCOPE, "project-1", { ...BODY, model })
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(BadRequestException);

@@ -20,6 +20,7 @@ import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 	preferredCountryIsoByDial,
+	type StarterPassSource,
 	type SuspendedReasonCode,
 } from "@wandit/contracts";
 import {
@@ -53,11 +54,28 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { PAID_OWNER_MIN_TOPUP_CENTI_CREDITS } from "../../../billing/infrastructure/persistence/paid-owner.repository";
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 import {
 	AI_SPEND_STATUSES,
 	aiUsageEventCostProvenance,
 	aiUsageEventCostUsdMicros,
 } from "./ai-usage-cost.sql";
+
+/**
+ * The fields of a live `starter_passes` row that the admin API shows.
+ * `createdAt` is a string when it comes from `json_build_object` in `summaryColumns`.
+ */
+export type AdminStarterPassRow = {
+	source: StarterPassSource;
+	createdAt: Date | string;
+	/** The staff account of an admin grant. Null for a paid or grandfathered pass. */
+	grantedByUserId: string | null;
+	note: string | null;
+};
 
 export type AdminUserSummaryRow = {
 	id: string;
@@ -72,6 +90,10 @@ export type AdminUserSummaryRow = {
 	createdAt: Date;
 	lastSeenAt: Date | null;
 	plan: string | null;
+	/** Personal pool has a top-up of 10 USD or more, or had a subscription. See `personalPaidOwnerFilter`. */
+	isPaidOwner: boolean;
+	/** Live Starter pass of the personal pool. Null when it has none. */
+	starterPass: AdminStarterPassRow | null;
 	// UNIT: integer centi-credits (ledger sums); mappers divide by 100.
 	creditsBalance: number;
 	creditsConsumed: number;
@@ -270,6 +292,23 @@ export class AdminRepository {
 	): Promise<T> {
 		return this.db.transaction(async (tx) => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+
+			return fn(tx);
+		});
+	}
+
+	/**
+	 * Runs `fn` in a transaction that holds the balance lock of the pool.
+	 * The lock value is the one CreditsService takes for a credit grant, so pass and ledger writes serialize.
+	 */
+	withCreditOwnerLock<T>(
+		owner: CreditOwner,
+		fn: (tx: AdminTransaction) => Promise<T>,
+	): Promise<T> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(owner)}))`,
+			);
 
 			return fn(tx);
 		});
@@ -944,6 +983,22 @@ export class AdminRepository {
 				order by "subscriptions"."created_at" desc
 				limit 1
 			)`,
+			isPaidOwner: sql<boolean>`${personalPaidOwnerFilter(userId)}`,
+			// A team pass has `user_id` NULL, so `organization_id is null` keeps only the personal pool.
+			// The partial unique index on live personal passes serves this lookup.
+			starterPass: sql<AdminStarterPassRow | null>`(
+				select json_build_object(
+					'source', "starter_passes"."source",
+					'createdAt', "starter_passes"."created_at",
+					'grantedByUserId', "starter_passes"."granted_by_user_id",
+					'note', "starter_passes"."note"
+				)
+				from "starter_passes"
+				where "starter_passes"."user_id" = ${userId}
+					and "starter_passes"."organization_id" is null
+					and "starter_passes"."revoked_at" is null
+				limit 1
+			)`,
 			creditsBalance: userCreditsBalance(userId),
 			creditsConsumed: userCreditsConsumed(userId),
 			projectsCount: userProjectsCount(userId),
@@ -1002,9 +1057,11 @@ export class AdminRepository {
 					: sql`${creditsBalance} > 0`,
 			);
 
+			// "Free credits" means a user who never paid. A top-up alone makes a
+			// user paid, so the subscription-only plan filter is not enough here.
 			filters.push(
 				and(
-					freePlanUserFilter(userId),
+					sql`not ${personalPaidOwnerFilter(userId)}`,
 					signupFreeCreditsGrantExists(userId),
 					or(...balanceFilters),
 				),
@@ -1307,6 +1364,25 @@ function personalEntitledSubscriptionExists(
 				plans.map((plan) => sql`${plan}`),
 				sql`, `,
 			)}))`;
+}
+
+// Copy of `paidOwnerCondition` (billing paid-owner.repository.ts) for the
+// personal pool, correlated with the outer "user" row. That function takes a
+// fixed owner id, so a list query cannot use it. Keep the two rules equal.
+// `organization_id is null`: a team subscription row holds the buyer in user_id.
+function personalPaidOwnerFilter(userId: SQL) {
+	return sql`(exists (select 1
+			from "subscriptions"
+			where "subscriptions"."user_id" = ${userId}
+				and "subscriptions"."organization_id" is null
+				and "subscriptions"."status" not in ('incomplete', 'incomplete_expired'))
+		or exists (select 1
+			from "credit_ledger"
+			where "credit_ledger"."user_id" = ${userId}
+				and "credit_ledger"."organization_id" is null
+				and "credit_ledger"."bucket" = 'topup'
+				and "credit_ledger"."kind" = 'topup'
+				and "credit_ledger"."delta" >= ${PAID_OWNER_MIN_TOPUP_CENTI_CREDITS}))`;
 }
 
 function freePlanUserFilter(userId: SQL) {

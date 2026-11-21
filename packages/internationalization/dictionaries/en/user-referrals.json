@@ -1,0 +1,112 @@
+{
+	"meta": {
+		"title": "Invite friends — Wandit"
+	},
+	"title": "Invite friends",
+	"units": {
+		"days": {
+			"one": "{count} day",
+			"other": "{count} days"
+		},
+		"friends": {
+			"one": "{count} friend",
+			"other": "{count} friends"
+		}
+	},
+	"hero": {
+		"badge": "Up to {max} per friend",
+		"headline": "Give credits. Get credits.",
+		"offer": "Your friend gets {friend} extra. You get up to {max} per friend.",
+		"personalWorkspaceNote": "Rewards go to your Personal workspace."
+	},
+	"link": {
+		"label": "Your invite link",
+		"copy": "Copy my link",
+		"copied": "Link copied",
+		"copyFailed": "The copy failed. Select the link and copy it.",
+		"shareLabel": "Share with",
+		"nativeShare": "Share",
+		"email": "Email",
+		"shareText": "I build apps with AI on Wandit. Sign up with my link and get {friend} extra: {url}",
+		"emailSubject": "{friend} extra to try Wandit",
+		"shareFailed": "The share failed. Copy the link instead.",
+		"loadError": "Your link did not load.",
+		"retry": "Try again"
+	},
+	"steps": {
+		"title": "How it works",
+		"share": {
+			"title": "Share your link",
+			"body": "Your friend signs up and gets {friend}."
+		},
+		"build": {
+			"title": "Your friend builds",
+			"body": "When they use {min}, you get {activation}."
+		},
+		"subscribe": {
+			"title": "Your friend makes a first payment",
+			"body": "{days} after the first payment, you get {paid}."
+		}
+	},
+	"stats": {
+		"title": "Your numbers",
+		"joined": "Friends joined",
+		"activated": "Friends who built",
+		"subscribed": "Friends who paid",
+		"earned": "Credits earned",
+		"pending": "{pending} on the way"
+	},
+	"friends": {
+		"title": "Your friends",
+		"newestNote": {
+			"one": "The list shows your newest friend.",
+			"other": "The list shows your {count} newest friends."
+		},
+		"joinedOn": "Joined {date}",
+		"status": {
+			"joined": "Joined",
+			"activated": "Building",
+			"subscribed": "Paid"
+		},
+		"earned": "Earned {credits}",
+		"hints": {
+			"activation": "{activation} when they use {min}",
+			"paid": "{paid} when they make a first payment",
+			"paidPending": "On the way: {pending}, {days} after their first payment"
+		},
+		"empty": {
+			"title": "No friends yet",
+			"body": "Share your link. Your friends show here when they sign up."
+		},
+		"loadError": "Your numbers did not load."
+	},
+	"rules": {
+		"title": "Good to know",
+		"newAccounts": "Only new accounts count. Your friend must sign up with your link.",
+		"window": "Your friend has {days} to use {min}. You get this reward for up to {friends} every {days}.",
+		"noCash": "Credits have no cash value. If an account must buy the Starter pass, its credits unlock after that payment.",
+		"abuse": "Fake or duplicate accounts lose their rewards."
+	},
+	"card": {
+		"title": "Get free credits",
+		"body": "Invite a friend. Earn up to {max}.",
+		"progress": {
+			"one": "{count} friend joined · {earned} earned",
+			"other": "{count} friends joined · {earned} earned"
+		}
+	},
+	"dialog": {
+		"title": "Get free credits",
+		"seeRewards": "See your rewards"
+	},
+	"entry": {
+		"button": "Earn free credits",
+		"menuItem": "Invite friends",
+		"creditsLink": "Invite friends, get free credits",
+		"authModalLine": "Your friend gave you {friend}."
+	},
+	"claim": {
+		"bonusTitle": "You got {friend} extra.",
+		"bonusBody": "A gift from the friend who invited you. Start to build."
+	}
+}

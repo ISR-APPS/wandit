@@ -1,8 +1,6 @@
 export {
-	dailyRevenueQueryOptions,
-	nextEventsQueryOptions,
-	overviewKpisQueryOptions,
-	todaySalesQueryOptions,
+	homeSummaryQueryOptions,
+	recentOrdersQueryOptions,
 } from "./api/overview.queries";
 export {
 	DEFAULT_DAYS,

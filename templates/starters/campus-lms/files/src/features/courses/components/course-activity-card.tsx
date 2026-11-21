@@ -1,43 +1,43 @@
-// The rail card of the course page with the newest events: modules finished, work turned in, grades, and enrollments.
-// CourseDetailPage renders it last in the rail. The events come newest first from the course query.
-// Each event kind has its own icon, so the eye finds the grades and the new students fast.
+// The "Latest activity" card of the course page: the newest events of the course on a line timeline.
+// CourseDetailPage renders it first in the wide column, as the kit profile. The newest event gets a badge,
+// and a button to its work when it is a submission or a grade.
 import {
-	BookOpenTextIcon,
+	CheckCircleIcon,
+	ClockIcon,
+	type Icon,
 	PaperPlaneTiltIcon,
 	SealCheckIcon,
 	UserPlusIcon,
 } from "@phosphor-icons/react";
-import {
-	DISPLAY_CARD_TITLE,
-	fillMessage,
-	formatRelativeTime,
-} from "~/features/school";
+import { Link } from "@tanstack/react-router";
+import { fillMessage, formatRelativeTime } from "~/features/school";
 import { useT } from "~/shared/i18n";
+import { Badge } from "~/shared/ui/badge";
+import { Button } from "~/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
-import type { KitIcon } from "~/shared/ui/icons";
 import type { CourseEvent } from "../api/courses.queries";
 
-/** The icon of each event kind. */
-const EVENT_ICONS = {
-	module: BookOpenTextIcon,
+/** The icon in the dot of each kind of event. */
+const EVENT_ICON = {
+	module: SealCheckIcon,
 	submission: PaperPlaneTiltIcon,
-	grade: SealCheckIcon,
+	grade: CheckCircleIcon,
 	enrollment: UserPlusIcon,
-} satisfies Record<CourseEvent["kind"], KitIcon>;
+} satisfies Record<CourseEvent["kind"], Icon>;
 
 type CourseActivityCardProps = {
-	/** The newest events of the course, newest first. */
+	/** The newest events, newest first, from the course query. */
 	events: CourseEvent[];
 };
 
-/** A vertical timeline. The line between the icons is a border of the list item. */
+/** No event: one sentence. */
 export function CourseActivityCard({ events }: CourseActivityCardProps) {
 	const { t, locale } = useT();
 	const number = new Intl.NumberFormat(locale);
 	const now = Date.now();
 
-	// The words after the name of the student, for each event kind.
-	const describe = (event: CourseEvent): string => {
+	// The sentence of one event, in the words of its kind.
+	function sentenceOf(event: CourseEvent): string {
 		switch (event.kind) {
 			case "module":
 				return fillMessage(t("courses.events.module"), {
@@ -55,14 +55,12 @@ export function CourseActivityCard({ events }: CourseActivityCardProps) {
 			case "enrollment":
 				return t("courses.events.enrollment");
 		}
-	};
+	}
 
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle className={DISPLAY_CARD_TITLE}>
-					{t("courses.activity")}
-				</CardTitle>
+				<CardTitle>{t("courses.activity")}</CardTitle>
 			</CardHeader>
 			<CardContent>
 				{events.length === 0 ? (
@@ -70,38 +68,49 @@ export function CourseActivityCard({ events }: CourseActivityCardProps) {
 						{t("courses.noActivity")}
 					</p>
 				) : (
-					<ol className="grid">
+					<ol className="ms-3 grid border-s">
 						{events.map((event, index) => {
-							const EventIcon = EVENT_ICONS[event.kind];
+							const EventIcon = EVENT_ICON[event.kind];
 							return (
 								<li
 									key={event.id}
-									className="relative flex gap-3 pb-4 last:pb-0"
+									className="relative grid gap-1.5 ps-6 pb-8 last:pb-0"
 								>
-									{/* The rail line joins this icon to the next one. The last event has none. */}
-									{index < events.length - 1 ? (
-										<span
-											aria-hidden="true"
-											className="absolute start-3.5 top-8 bottom-0 w-px bg-border/20"
-										/>
-									) : null}
 									<span
 										aria-hidden="true"
-										className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground [&_svg]:size-4"
+										className="absolute -start-3 top-0 flex size-6 items-center justify-center rounded-full border bg-muted"
 									>
-										<EventIcon />
+										<EventIcon className="size-3 text-primary" />
 									</span>
-									<div className="grid min-w-0 gap-0.5 pt-0.5 text-sm">
-										<p>
-											<span className="font-medium">{event.studentName}</span>{" "}
-											<span className="text-muted-foreground">
-												{describe(event)}
-											</span>
-										</p>
-										<p className="text-muted-foreground text-xs">
-											{formatRelativeTime(event.occurredAt, now, locale)}
-										</p>
-									</div>
+									<h3 className="flex flex-wrap items-center gap-2 font-semibold">
+										{event.studentName}
+										{index === 0 ? (
+											<Badge variant="outline">{t("courses.latest")}</Badge>
+										) : null}
+									</h3>
+									<time
+										dateTime={event.occurredAt}
+										className="flex items-center gap-1.5 text-muted-foreground text-sm leading-none"
+									>
+										<ClockIcon aria-hidden="true" className="size-3" />
+										{formatRelativeTime(event.occurredAt, now, locale)}
+									</time>
+									<p className="text-muted-foreground text-sm">
+										{sentenceOf(event)}
+									</p>
+									{index === 0 &&
+									(event.kind === "submission" || event.kind === "grade") ? (
+										<div className="pt-1">
+											<Button variant="outline" size="sm" asChild>
+												<Link
+													to="/app/assignments"
+													search={{ submission: event.submissionId }}
+												>
+													{t("courses.openWork")}
+												</Link>
+											</Button>
+										</div>
+									) : null}
 								</li>
 							);
 						})}

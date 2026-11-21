@@ -1,14 +1,23 @@
+/**
+ * Page where Stripe sends the buyer back: /billing/success?purpose=<purpose>&session_id=<id>.
+ * Rendered by routes/_auth/billing_.success.tsx. A top-up polls its status, an order polls the order.
+ * `purpose=subscription` stays for one release, for a checkout opened before pricing v8.
+ */
 import { useQueryClient } from "@tanstack/react-query";
-import type { CheckoutPurpose, PaymentOrder } from "@wandit/contracts";
+import {
+	billingTopupStatusQuerySchema,
+	type CheckoutPurpose,
+	type PaymentOrder,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
-	useCreateBillingPortal,
-	useSyncBillingSubscription,
-} from "@/features/billing/api/billing.mutations";
+	billingKeys,
+	useBillingTopupStatusQuery,
+} from "@/features/billing/api/billing.queries";
 import {
 	BillingReturnShell,
 	DashboardButton,
@@ -21,23 +30,25 @@ import {
 	orderReturnStateFor,
 	shouldPollOrder,
 } from "@/features/billing/lib/order-return-state";
-import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
-import { subscriptionReturnStateFor } from "@/features/billing/lib/subscription-return-state";
+import { formatCreditAmount } from "@/features/credits";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
-import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { domainKeys } from "@/features/domains/api/domains.queries";
 import { useReconcileSession } from "@/features/orders/api/orders.mutations";
 import { useOrderQuery } from "@/features/orders/api/orders.queries";
-import { formatNumber, useDictionary, useTranslation } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 
+// The order and the top-up flows use the same cadence: one check each 3 s, for 3 min.
 const ORDER_POLL_INTERVAL_MS = 3_000;
 const ORDER_TIMEOUT_MS = 3 * 60_000;
 
 type BillingSuccessPageProps = {
+	/** `purpose` search param. The route sets undefined for a value that is not a known purpose. */
 	purpose: CheckoutPurpose | undefined;
+	/** Raw `session_id` search param, trimmed. The route does not validate it. This page parses it. */
 	sessionId: string | undefined;
 };
 
+/** Picks the return flow from `purpose`. A bad session id on a top-up shows the invalid-link page. */
 export default function BillingSuccessPage({
 	purpose,
 	sessionId,
@@ -47,17 +58,25 @@ export default function BillingSuccessPage({
 	const [attempt, setAttempt] = useState(0);
 	const retry = () => setAttempt((current) => current + 1);
 
-	if (purpose === "subscription") {
+	// Pricing v8 sells no plan. A subscription checkout opened before the release can still return here.
+	// A top-up URL from before the release has no session id. Both get the neutral text and a balance refresh.
+	if (purpose === "subscription" || (purpose === "topup" && !sessionId)) {
+		return <PaymentReceivedFlow />;
+	}
+
+	// The session id comes from the URL. A value that is not a Stripe session id gets the invalid-link page.
+	const topupQuery =
+		purpose === "topup"
+			? billingTopupStatusQuerySchema.safeParse({ sessionId })
+			: null;
+	if (topupQuery?.success) {
 		return (
-			<SubscriptionSuccessFlow
-				key={`subscription-${attempt}`}
+			<TopupSuccessFlow
+				key={`${topupQuery.data.sessionId}-${attempt}`}
+				sessionId={topupQuery.data.sessionId}
 				onRetry={retry}
 			/>
 		);
-	}
-
-	if (purpose === "topup") {
-		return <TopupSuccessFlow />;
 	}
 
 	if (purpose === "order" && sessionId?.trim()) {
@@ -80,54 +99,100 @@ export default function BillingSuccessPage({
 	);
 }
 
-function TopupSuccessFlow() {
+function PaymentReceivedFlow() {
 	const { locale } = useTranslation();
 	const copy = getBillingReturnCopy(locale);
 	const queryClient = useQueryClient();
 
 	useEffect(() => {
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+		void queryClient.invalidateQueries({ queryKey: billingKeys.all });
 	}, [queryClient]);
 
 	return (
 		<BillingReturnShell
 			tone="success"
-			title={copy.topup.updatedTitle}
-			body={copy.topup.updatedBody}
+			title={copy.received.title}
+			body={copy.received.body}
 			actions={<DashboardButton label={copy.backToDashboard} />}
 		/>
 	);
 }
 
-function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
-	const { locale } = useTranslation();
-	const planPickerCopy = useDictionary().billing.planPicker;
+/** Polls GET billing/topup/status until the webhook writes the receipt, then refreshes the balance once. */
+function TopupSuccessFlow({
+	sessionId,
+	onRetry,
+}: {
+	/** Stripe Checkout Session id from the success URL. */
+	sessionId: string;
+	onRetry: () => void;
+}) {
+	const { locale, t } = useTranslation();
 	const copy = getBillingReturnCopy(locale);
 	const queryClient = useQueryClient();
-	const sync = useSyncBillingSubscription();
-	const portal = useCreateBillingPortal();
-	const syncStarted = useRef(false);
-	const { mutate } = sync;
+	const [timedOut, setTimedOut] = useState(false);
+	const statusQuery = useBillingTopupStatusQuery(sessionId, {
+		enabled: !timedOut,
+		refetchInterval: (status) =>
+			status?.status === "credited" ? false : ORDER_POLL_INTERVAL_MS,
+	});
+	const topupStatus = statusQuery.data;
+	const credited = topupStatus?.status === "credited";
 
 	useEffect(() => {
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
+		if (!credited) {
+			return;
+		}
+		// The receipt and the ledger row commit in one transaction, so the balance is final now.
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+		void queryClient.invalidateQueries({ queryKey: billingKeys.all });
+	}, [credited, queryClient]);
 
-		if (syncStarted.current) {
+	useEffect(() => {
+		if (credited) {
 			return;
 		}
 
-		syncStarted.current = true;
-		mutate();
-	}, [mutate, queryClient]);
+		const timer = window.setTimeout(() => {
+			setTimedOut(true);
+		}, ORDER_TIMEOUT_MS);
 
-	if (sync.isError) {
+		return () => window.clearTimeout(timer);
+	}, [credited]);
+
+	if (topupStatus?.status === "credited") {
+		const grantedCredits = topupStatus.credits;
+		return (
+			<BillingReturnShell
+				tone="success"
+				title={copy.topup.creditedTitle}
+				body={copy.topup.creditedBody}
+				details={
+					grantedCredits === null ? undefined : (
+						<dl className="grid gap-3 sm:grid-cols-2">
+							{/* The SlickPay return page shows the same "Credits" label, so the two flows use one text. */}
+							<ReturnDetail
+								label={copy.slickpay.creditsLabel}
+								value={t("credits.creditUnit", {
+									count: grantedCredits,
+									countDisplay: formatCreditAmount(grantedCredits, locale),
+								})}
+							/>
+						</dl>
+					)
+				}
+				actions={<DashboardButton label={copy.backToDashboard} />}
+			/>
+		);
+	}
+
+	if (statusQuery.isError) {
 		return (
 			<BillingReturnShell
 				tone="error"
-				title={copy.subscription.syncErrorTitle}
-				body={copy.subscription.syncErrorBody}
+				title={copy.topup.errorTitle}
+				body={copy.topup.errorBody}
 				actions={
 					<ReturnActions
 						backLabel={copy.backToDashboard}
@@ -139,22 +204,12 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 		);
 	}
 
-	if (!sync.data) {
-		return (
-			<BillingReturnShell
-				tone="progress"
-				title={copy.subscription.syncingTitle}
-				body={copy.subscription.syncingBody}
-			/>
-		);
-	}
-
-	if (!sync.data.subscription) {
+	if (timedOut) {
 		return (
 			<BillingReturnShell
 				tone="warning"
-				title={copy.subscription.notFoundTitle}
-				body={copy.subscription.notFoundBody}
+				title={copy.topup.timeoutTitle}
+				body={copy.topup.timeoutBody}
 				actions={
 					<ReturnActions
 						backLabel={copy.backToDashboard}
@@ -166,49 +221,11 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 		);
 	}
 
-	const subscription = sync.data.subscription;
-	const state = subscriptionReturnStateFor(subscription, copy.subscription);
-
 	return (
 		<BillingReturnShell
-			tone={state.tone}
-			title={state.title}
-			body={state.body}
-			details={
-				<dl className="grid gap-3 sm:grid-cols-2">
-					<ReturnDetail
-						label={copy.subscription.planLabel}
-						value={`${getBillingPlanName(subscription.plan, planPickerCopy)} · ${formatNumber(
-							subscription.tierCredits,
-							locale,
-						)}`}
-					/>
-					<ReturnDetail
-						label={copy.subscription.creditsLabel}
-						value={formatCreditBalance(
-							sync.data.balance.settledBalance,
-							locale,
-						)}
-					/>
-				</dl>
-			}
-			actions={
-				state.needsPortal ? (
-					<>
-						<DashboardButton label={copy.backToDashboard} variant="outline" />
-						<Button
-							type="button"
-							disabled={portal.isPending}
-							onClick={() => portal.mutate()}
-							className="active:scale-[0.98]"
-						>
-							{copy.subscription.fixPaymentLabel}
-						</Button>
-					</>
-				) : (
-					<DashboardButton label={copy.backToDashboard} />
-				)
-			}
+			tone="progress"
+			title={copy.topup.checkingTitle}
+			body={copy.topup.checkingBody}
 		/>
 	);
 }

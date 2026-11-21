@@ -4,12 +4,11 @@
 import {
 	billingCheckoutResponseSchema,
 	billingLocalPricingResponseSchema,
-	billingPlansResponseSchema,
+	billingPaymentsResponseSchema,
 	billingPortalResponseSchema,
 	billingRoutes,
-	billingSubscriptionChangeOutcomeResponseSchema,
-	billingSubscriptionChangePreviewResponseSchema,
-	billingSubscriptionViewResponseSchema,
+	billingTopupStatusResponseSchema,
+	billingWalletResponseSchema,
 	manualSubscriptionRequestViewResponseSchema,
 	slickpayPaymentViewSchema,
 	startSlickpayCheckoutResponseSchema,
@@ -17,35 +16,43 @@ import {
 
 import { ApiService } from "@/lib/api-client";
 import type {
-	BillingCancelRequest,
 	BillingCheckoutResponse,
 	BillingLocalPricingResponse,
-	BillingPlansResponse,
+	BillingPaymentsResponse,
 	BillingPortalResponse,
-	BillingSubscriptionChangeOutcomeResponse,
-	BillingSubscriptionChangePreviewResponse,
-	BillingSubscriptionViewResponse,
-	ChangeBillingSubscriptionBody,
-	CreateBillingCheckoutBody,
+	BillingTopupStatusResponse,
+	BillingWalletResponse,
 	CreateBillingTopupBody,
 	CreateManualSubscriptionRequestBody,
 	ManualSubscriptionRequestViewResponse,
-	PreviewBillingSubscriptionChangeBody,
 	SlickpayPaymentView,
 	StartSlickpayCheckoutBody,
 	StartSlickpayCheckoutResponse,
 } from "./billing.dto";
 
-export async function getBillingPlans(): Promise<BillingPlansResponse> {
-	const payload = await ApiService.get<unknown>(billingRoutes.plans);
+/** Wallet of the active workspace: balance, paid owner flag, and the top-up limits that the dialog uses. */
+export async function getBillingWallet(): Promise<BillingWalletResponse> {
+	const payload = await ApiService.get<unknown>(billingRoutes.wallet);
 
-	return billingPlansResponseSchema.parse(payload);
+	return billingWalletResponseSchema.parse(payload);
 }
 
-export async function getBillingSubscription(): Promise<BillingSubscriptionViewResponse> {
-	const payload = await ApiService.get<unknown>(billingRoutes.subscription);
+/** The last 50 receipts of the active workspace wallet, newest first. The API allows it only to a billing manager. */
+export async function getBillingPayments(): Promise<BillingPaymentsResponse> {
+	const payload = await ApiService.get<unknown>(billingRoutes.payments);
 
-	return billingSubscriptionViewResponseSchema.parse(payload);
+	return billingPaymentsResponseSchema.parse(payload);
+}
+
+/** "credited" when the receipt of this Stripe Checkout Session exists for the session user. */
+export async function getBillingTopupStatus(
+	sessionId: string,
+): Promise<BillingTopupStatusResponse> {
+	const payload = await ApiService.get<unknown>(billingRoutes.topupStatus, {
+		query: { sessionId },
+	});
+
+	return billingTopupStatusResponseSchema.parse(payload);
 }
 
 export async function getManualSubscriptionRequest(): Promise<ManualSubscriptionRequestViewResponse> {
@@ -54,17 +61,10 @@ export async function getManualSubscriptionRequest(): Promise<ManualSubscription
 	return manualSubscriptionRequestViewResponseSchema.parse(payload);
 }
 
-export async function createBillingCheckout(
-	body: CreateBillingCheckoutBody,
-): Promise<BillingCheckoutResponse> {
-	const payload = await ApiService.post<unknown, CreateBillingCheckoutBody>(
-		billingRoutes.checkout,
-		body,
-	);
-
-	return billingCheckoutResponseSchema.parse(payload);
-}
-
+/**
+ * Opens a Stripe Checkout Session for a wallet top-up (`{ amountUsd }`) or for the Starter pass (`{ starterPass: true }`).
+ * The API computes the credits. The caller sends the browser to the returned URL.
+ */
 export async function createBillingTopupCheckout(
 	body: CreateBillingTopupBody,
 ): Promise<BillingCheckoutResponse> {
@@ -99,51 +99,6 @@ export async function createBillingPortal(): Promise<BillingPortalResponse> {
 	const payload = await ApiService.post<unknown>(billingRoutes.portal);
 
 	return billingPortalResponseSchema.parse(payload);
-}
-
-export async function previewBillingSubscriptionChange(
-	body: PreviewBillingSubscriptionChangeBody,
-): Promise<BillingSubscriptionChangePreviewResponse> {
-	const payload = await ApiService.post<
-		unknown,
-		PreviewBillingSubscriptionChangeBody
-	>(billingRoutes.changePreview, body);
-
-	return billingSubscriptionChangePreviewResponseSchema.parse(payload);
-}
-
-export async function changeBillingSubscription(
-	body: ChangeBillingSubscriptionBody,
-): Promise<BillingSubscriptionChangeOutcomeResponse> {
-	const payload = await ApiService.post<unknown, ChangeBillingSubscriptionBody>(
-		billingRoutes.change,
-		body,
-	);
-
-	return billingSubscriptionChangeOutcomeResponseSchema.parse(payload);
-}
-
-export async function cancelBillingSubscription(
-	body: BillingCancelRequest,
-): Promise<BillingSubscriptionViewResponse> {
-	const payload = await ApiService.post<unknown, BillingCancelRequest>(
-		billingRoutes.cancel,
-		body,
-	);
-
-	return billingSubscriptionViewResponseSchema.parse(payload);
-}
-
-export async function resumeBillingSubscription(): Promise<BillingSubscriptionViewResponse> {
-	const payload = await ApiService.post<unknown>(billingRoutes.resume);
-
-	return billingSubscriptionViewResponseSchema.parse(payload);
-}
-
-export async function syncBillingSubscription(): Promise<BillingSubscriptionViewResponse> {
-	const payload = await ApiService.post<unknown>(billingRoutes.sync);
-
-	return billingSubscriptionViewResponseSchema.parse(payload);
 }
 
 /** Public route. The answer depends on the IP country of the visitor, so the API never caches it. */

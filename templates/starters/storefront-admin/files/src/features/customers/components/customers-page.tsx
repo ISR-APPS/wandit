@@ -1,36 +1,65 @@
-// The customer page behind login: four figures, the segment tabs, and the searchable customer table.
+// The customer page behind login, in the anatomy of the kit user list: the title and the export,
+// then the table with a search, the Segment, Region, and Orders filters, a column menu, row checkboxes, and pages.
 // The /app/customers route renders it after its loader. The route also uses the skeleton and the error below.
 // A customer name puts the customer in the URL (?customer=), and the side sheet shows that customer.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import {
+	type CsvColumn,
 	CustomerAvatar,
+	copyToClipboard,
+	downloadCsv,
 	formatRelativeTime,
 	moneyFormat,
+	SALES_AREAS,
+	salesAreaOf,
+	toCsv,
 } from "~/features/shop";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
+import {
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+} from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { type Customer, customersQueryOptions } from "../api/customers.queries";
-import { CUSTOMER_SEGMENTS, type CustomerSegment } from "../lib/segment";
-import { CustomerFacts } from "./customer-facts";
+import { CUSTOMER_SEGMENTS, LOYAL_FROM_ORDERS } from "../lib/segment";
 import { CustomerSheet } from "./customer-sheet";
 import { SegmentBadge } from "./segment-badge";
 
 const routeApi = getRouteApi("/app/customers");
 
-/** The list page. The segment tab cuts the rows; then DataTable searches, sorts, and pages them. */
+/** The bands of the Orders filter. The last band starts at the loyal count of the segment rule. */
+const ORDER_COUNT_BANDS = ["one", "few", "many"] as const;
+
+type OrderCountBand = (typeof ORDER_COUNT_BANDS)[number];
+
+// The band of an order count: 1, then 2 up to the loyal count, then the loyal count and more.
+function orderCountBandOf(orderCount: number): OrderCountBand {
+	if (orderCount <= 1) {
+		return "one";
+	}
+	return orderCount < LOYAL_FROM_ORDERS ? "few" : "many";
+}
+
+/** The list page. The three filters cut the rows; then RecordTable searches, sorts, and pages them. */
 export function CustomersPage() {
 	const { t, locale } = useT();
 	const { data: customers } = useSuspenseQuery(customersQueryOptions());
 	const { customer: customerId } = routeApi.useSearch();
 	const navigate = routeApi.useNavigate();
-	const [segment, setSegment] = useState<CustomerSegment | "all">("all");
+	const [segment, setSegment] = useState<string | null>(null);
+	const [area, setArea] = useState<string | null>(null);
+	const [orderBand, setOrderBand] = useState<string | null>(null);
 	// The id of the customer that the sheet showed last. The sheet keeps this customer while it slides out.
 	const [closingId, setClosingId] = useState<string | null>(null);
 
@@ -41,147 +70,200 @@ export function CustomersPage() {
 	const sheetCustomer =
 		openCustomer ?? customers.find((row) => row.id === closingId) ?? null;
 
-	// A tab shows only for a segment that has rows.
-	const tabs = CUSTOMER_SEGMENTS.map((value) => ({
-		value,
-		count: customers.filter((row) => row.segment === value).length,
-	})).filter((tab) => tab.count > 0);
-	const activeSegment = tabs.some((tab) => tab.value === segment)
-		? segment
-		: "all";
-	const rows =
-		activeSegment === "all"
-			? customers
-			: customers.filter((row) => row.segment === activeSegment);
+	function openPanel(customer: Customer) {
+		navigate({ search: { customer: customer.id }, replace: true });
+	}
 
-	const columns: DataTableColumn<Customer>[] = [
+	const rows = customers.filter(
+		(row) =>
+			(segment === null || row.segment === segment) &&
+			(area === null || salesAreaOf(row.region) === area) &&
+			(orderBand === null || orderCountBandOf(row.orderCount) === orderBand),
+	);
+
+	const csvColumns: CsvColumn<Customer>[] = [
+		{ header: t("customers.customer"), value: (row) => row.name },
+		{ header: t("customers.email"), value: (row) => row.email },
+		{
+			header: t("customers.place"),
+			value: (row) => `${row.city}, ${row.region}`,
+		},
+		{ header: t("customers.orders"), value: (row) => String(row.orderCount) },
+		{ header: t("customers.spent"), value: (row) => String(row.spent) },
+		{ header: t("customers.lastOrder"), value: (row) => row.lastOrderAt },
+		{
+			header: t("customers.segment"),
+			value: (row) => t(`customers.segments.${row.segment}`),
+		},
+	];
+
+	const columns: RecordColumn<Customer>[] = [
 		{
 			id: "customer",
 			header: t("customers.customer"),
 			sortValue: (row) => row.name,
 			cell: (row) => (
-				<div className="flex items-center gap-3">
-					<CustomerAvatar name={row.name} className="@3xl/main:flex hidden" />
-					{/* On a phone the card edge falls on the end of the Spent column, so no badge is cut in the middle. */}
-					{/* 15.625rem is the card padding and border, three cell paddings, and the next two cells (w-22, w-20). */}
-					<div className="grid @5xl/main:w-64 @md/main:w-40 w-[calc(100cqw-15.625rem)] justify-items-start">
-						{/* pe-0.5: the font draws the dot of a last "i" past the text box, and truncate clips it without this padding. */}
-						<button
-							type="button"
-							className="relative max-w-full truncate rounded-sm pe-0.5 text-start font-medium outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 max-sm:before:absolute max-sm:before:-inset-3"
-							dir="auto"
-							onClick={() =>
-								navigate({ search: { customer: row.id }, replace: true })
-							}
-						>
-							{row.name}
-						</button>
-						<span className="max-w-full truncate text-muted-foreground text-xs">
-							{row.email}
-						</span>
-					</div>
+				<div className="flex items-center gap-4">
+					<CustomerAvatar name={row.name} />
+					<button
+						type="button"
+						className="max-w-48 truncate pe-0.5 text-start font-medium hover:underline"
+						dir="auto"
+						onClick={() => openPanel(row)}
+					>
+						{row.name}
+					</button>
 				</div>
-			),
-		},
-		{
-			id: "segment",
-			header: t("customers.segment"),
-			sortValue: (row) => CUSTOMER_SEGMENTS.indexOf(row.segment),
-			cell: (row) => (
-				<div className="@md/main:w-auto w-22">
-					<SegmentBadge segment={row.segment} />
-				</div>
-			),
-		},
-		{
-			id: "spent",
-			header: t("customers.spent"),
-			align: "end",
-			sortValue: (row) => row.spent,
-			cell: (row) => (
-				<div className="@md/main:w-auto w-20">{money.format(row.spent)}</div>
 			),
 		},
 		{
 			id: "orders",
 			header: t("customers.orders"),
-			align: "end",
+			hideable: true,
 			sortValue: (row) => row.orderCount,
-			cell: (row) => number.format(row.orderCount),
+			cell: (row) => (
+				<span className="tabular-nums">{number.format(row.orderCount)}</span>
+			),
 		},
 		{
-			id: "lastOrder",
-			header: t("customers.lastOrder"),
-			sortValue: (row) => Date.parse(row.lastOrderAt),
-			cell: (row) => formatRelativeTime(row.lastOrderAt, now, locale),
+			id: "spent",
+			header: t("customers.spent"),
+			hideable: true,
+			sortValue: (row) => row.spent,
+			cell: (row) => (
+				<span className="tabular-nums">{money.format(row.spent)}</span>
+			),
+		},
+		{
+			id: "email",
+			header: t("customers.email"),
+			hideable: true,
+			sortValue: (row) => row.email,
+			cell: (row) => row.email,
 		},
 		{
 			id: "place",
 			header: t("customers.place"),
+			hideable: true,
 			sortValue: (row) => `${row.region} ${row.city}`,
 			cell: (row) => <bdi>{`${row.city}, ${row.region}`}</bdi>,
+		},
+		{
+			id: "lastOrder",
+			header: t("customers.lastOrder"),
+			hideable: true,
+			sortValue: (row) => Date.parse(row.lastOrderAt),
+			cell: (row) => formatRelativeTime(row.lastOrderAt, now, locale),
+		},
+		{
+			id: "segment",
+			header: t("customers.segment"),
+			hideable: true,
+			sortValue: (row) => CUSTOMER_SEGMENTS.indexOf(row.segment),
+			cell: (row) => <SegmentBadge segment={row.segment} />,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("customers.title")}
-				description={t("customers.description")}
+				actions={
+					<Button
+						type="button"
+						disabled={rows.length === 0}
+						onClick={() =>
+							downloadCsv("customers.csv", toCsv(rows, csvColumns))
+						}
+					>
+						<DownloadSimpleIcon />
+						{t("common.exportCsv")}
+					</Button>
+				}
 			/>
 			{customers.length === 0 ? (
-				<Card>
-					<CardContent className="py-10 text-center text-muted-foreground text-sm">
-						{t("customers.empty")}
-					</CardContent>
-				</Card>
+				<p className="rounded-md border p-10 text-center text-muted-foreground text-sm">
+					{t("customers.empty")}
+				</p>
 			) : (
-				<>
-					<CustomerFacts customers={customers} />
-					<Card>
-						{/* A narrower padding on a phone gives the table room for its first three columns. */}
-						<CardContent className="@md/main:px-6 px-4">
-							<DataTable
-								rows={rows}
-								columns={columns}
-								searchText={(row) =>
-									`${row.name} ${row.email} ${row.city} ${row.region}`
-								}
-								noResults={t("customers.noResults")}
-								toolbar={
-									<Tabs
-										value={activeSegment}
-										onValueChange={(value) =>
-											setSegment(
-												CUSTOMER_SEGMENTS.find((option) => option === value) ??
-													"all",
-											)
-										}
-										className="max-w-full"
-									>
-										{/* On a narrow card the tabs wrap to a second line, so no tab label is cut. */}
-										<TabsList className="flex-wrap group-data-[orientation=horizontal]/tabs:h-auto">
-											<TabsTrigger value="all">
-												{t("customers.all")}
-												<span className="text-muted-foreground tabular-nums">
-													{number.format(customers.length)}
-												</span>
-											</TabsTrigger>
-											{tabs.map((tab) => (
-												<TabsTrigger key={tab.value} value={tab.value}>
-													{t(`customers.segments.${tab.value}`)}
-													<span className="text-muted-foreground tabular-nums">
-														{number.format(tab.count)}
-													</span>
-												</TabsTrigger>
-											))}
-										</TabsList>
-									</Tabs>
-								}
+				<RecordTable
+					rows={rows}
+					columns={columns}
+					searchText={(row) =>
+						`${row.name} ${row.email} ${row.city} ${row.region}`
+					}
+					searchPlaceholder={t("customers.search")}
+					selectable
+					pageSize={10}
+					noResults={t("customers.noResults")}
+					toolbar={
+						<>
+							<RecordFilter
+								label={t("customers.segment")}
+								options={CUSTOMER_SEGMENTS.map((value) => ({
+									value,
+									label: t(`customers.segments.${value}`),
+								}))}
+								value={segment}
+								onValueChange={setSegment}
 							/>
-						</CardContent>
-					</Card>
-				</>
+							<RecordFilter
+								label={t("customers.region")}
+								options={SALES_AREAS.map((value) => ({
+									value,
+									label: t(`areas.${value}`),
+								}))}
+								value={area}
+								onValueChange={setArea}
+							/>
+							<RecordFilter
+								label={t("customers.orders")}
+								options={ORDER_COUNT_BANDS.map((value) => ({
+									value,
+									label: t(`customers.orderBands.${value}`),
+								}))}
+								value={orderBand}
+								onValueChange={setOrderBand}
+							/>
+						</>
+					}
+					bulkActions={(selected) => (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="h-9"
+							onClick={() =>
+								downloadCsv(
+									"customers-selected.csv",
+									toCsv(selected, csvColumns),
+								)
+							}
+						>
+							<DownloadSimpleIcon />
+							{t("table.exportSelected")}
+						</Button>
+					)}
+					rowMenu={(row) => (
+						<>
+							<DropdownMenuLabel>{t("table.actions")}</DropdownMenuLabel>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onSelect={() => openPanel(row)}>
+								{t("customers.open")}
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									copyToClipboard(row.email, {
+										done: t("table.copied"),
+										failed: t("table.copyFailed"),
+									})
+								}
+							>
+								{t("customers.copyEmail")}
+							</DropdownMenuItem>
+						</>
+					)}
+				/>
 			)}
 			<CustomerSheet
 				customer={sheetCustomer}
@@ -203,19 +285,17 @@ const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 /** Placeholder while the customer loader runs. The route sets it as pendingComponent. */
 export function CustomersPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
+		<div className="grid gap-4">
+			<div className="flex items-end justify-between gap-3">
 				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-xs" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full sm:max-w-sm" />
+			<div className="grid gap-2">
+				{SKELETON_ROWS.map((key) => (
+					<Skeleton key={key} className="h-14 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }

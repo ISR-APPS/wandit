@@ -48,7 +48,10 @@ import {
 	TRANSCRIPTION_MAX_DURATION_SECONDS,
 } from "../../../metering/domain/operation-registry";
 import { AiGatewayNotConfiguredError } from "../../domain/errors/ai-gateway-not-configured.error";
-import { readAudioDurationSeconds } from "./audio-duration";
+import {
+	normalizeAudioMediaType,
+	readAudioDurationSeconds,
+} from "./audio-duration";
 
 const METERING_WRITE_ATTEMPTS = 3;
 const TRANSCRIPTION_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
@@ -558,21 +561,4 @@ async function retryMeteringWrite<T>(write: () => Promise<T>): Promise<T> {
 	throw lastError instanceof Error
 		? lastError
 		: new Error("Metering persistence failed");
-}
-
-// Clean up the client-provided content type before sending it to the gateway.
-function normalizeAudioMediaType(mimeType: string): string {
-	// Browsers often add codec details ("audio/webm;codecs=opus") — drop them.
-	const bareType = mimeType.split(";")[0]?.trim().toLowerCase() ?? mimeType;
-
-	// Common aliases for AAC-in-MP4 audio map to the one name the gateway knows.
-	if (
-		bareType === "audio/m4a" ||
-		bareType === "audio/x-m4a" ||
-		bareType === "audio/aac"
-	) {
-		return "audio/mp4";
-	}
-
-	return bareType;
 }

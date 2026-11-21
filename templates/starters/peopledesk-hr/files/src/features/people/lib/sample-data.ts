@@ -1,4 +1,4 @@
-// The sample tables of the HR desk: 80 employees, their career events, their time-off requests,
+// The sample tables of the HR desk: about 80 employees, their career events, their time-off requests,
 // the open positions, and the candidates. Only the query files (api/*.queries.ts) read them, through readPeopleTables().
 // The rows stand in for a database. A later turn replaces each queryFn with a Supabase call, then deletes this file.
 // Every date is an offset in days from the midnight that starts today. A seeded generator makes the same rows all day.
@@ -1549,7 +1549,7 @@ const POSITION_SPECS: PositionSpec[] = [
 		managerRole: "sales_manager",
 		location: "lisbon",
 		status: "open",
-		openedDaysAgo: 31,
+		openedDaysAgo: 24,
 		applicationsPerDay: 1,
 		experience: [0, 3],
 		currentRoles: [
@@ -1562,6 +1562,117 @@ const POSITION_SPECS: PositionSpec[] = [
 			"Receptionist at a gym chain",
 			"Language teacher at a private school",
 			"Barista and shift lead at a cafe chain",
+		],
+	},
+	// Older posts, filled over the last five months. Their hires feed the "time to hire" figure of each period.
+	{
+		id: "REQ-110",
+		title: "UX Researcher",
+		department: "product",
+		managerRole: "head_product",
+		location: "remote",
+		status: "filled",
+		openedDaysAgo: 63,
+		closedDaysAgo: 19,
+		applicationsPerDay: 0.5,
+		experience: [2, 8],
+		currentRoles: [
+			"Researcher at a usability lab",
+			"UX researcher at an energy company",
+			"Market researcher at a polling firm",
+			"Design researcher at a hospital group",
+			"Product researcher at a mobility startup",
+			"Insights analyst at a streaming service",
+			"PhD candidate in human factors",
+			"Research operations lead at a SaaS vendor",
+		],
+	},
+	{
+		id: "REQ-107",
+		title: "Office Manager",
+		department: "operations",
+		managerRole: "head_ops",
+		location: "lisbon",
+		status: "filled",
+		openedDaysAgo: 80,
+		closedDaysAgo: 33,
+		applicationsPerDay: 0.6,
+		experience: [2, 12],
+		currentRoles: [
+			"Office coordinator at a law firm",
+			"Executive assistant at a bank",
+			"Facilities assistant at a university",
+			"Team assistant at a consultancy",
+			"Front office lead at a hotel",
+			"Administration officer at a charity",
+			"Operations assistant at a coworking space",
+			"Event coordinator at a trade fair",
+		],
+	},
+	{
+		id: "REQ-104",
+		title: "Sales Operations Analyst",
+		department: "sales",
+		managerRole: "sales_manager",
+		location: "berlin",
+		status: "filled",
+		openedDaysAgo: 95,
+		closedDaysAgo: 47,
+		applicationsPerDay: 0.5,
+		experience: [1, 7],
+		currentRoles: [
+			"Sales analyst at a beverage group",
+			"CRM administrator at a software vendor",
+			"Revenue analyst at a marketplace",
+			"Commercial controller at a manufacturer",
+			"Business analyst at a telecom firm",
+			"Pricing analyst at a car rental company",
+			"Reporting analyst at a staffing agency",
+			"Junior consultant at a strategy firm",
+		],
+	},
+	{
+		id: "REQ-101",
+		title: "Support Specialist",
+		department: "customer_success",
+		managerRole: "head_cs",
+		location: "lisbon",
+		status: "filled",
+		openedDaysAgo: 115,
+		closedDaysAgo: 71,
+		applicationsPerDay: 0.7,
+		experience: [0, 5],
+		currentRoles: [
+			"Support agent at a telecom firm",
+			"Help desk technician at a school group",
+			"Customer service lead at an airline",
+			"Technical support at a printer maker",
+			"Live chat agent at an online shop",
+			"Service desk analyst at an insurer",
+			"Store assistant at an electronics chain",
+			"Call center agent at a utility",
+		],
+	},
+	{
+		id: "REQ-097",
+		title: "QA Engineer",
+		department: "engineering",
+		managerRole: "em",
+		location: "lisbon",
+		status: "filled",
+		openedDaysAgo: 150,
+		closedDaysAgo: 104,
+		applicationsPerDay: 0.5,
+		experience: [2, 9],
+		currentRoles: [
+			"Test engineer at a medical device maker",
+			"QA analyst at a game studio",
+			"Automation tester at a bank",
+			"Software tester at a public agency",
+			"Quality engineer at an e-commerce shop",
+			"Test lead at a telecom firm",
+			"Junior developer at a web studio",
+			"Release engineer at a mobile app company",
 		],
 	},
 ];
@@ -1773,11 +1884,70 @@ function fillPosition(
 	}
 }
 
+// Calendar days from the hire of a candidate to the first working day: about four weeks of notice.
+const START_AFTER_HIRE_DAYS = 29;
+
+// Each hire of a filled post becomes an employee on its first working day. A start date still ahead adds nobody yet.
+function addJoinedHires(
+	context: Context,
+	employees: EmployeeDraft[],
+	positions: PositionRow[],
+	candidates: CandidateRow[],
+) {
+	for (const spec of POSITION_SPECS) {
+		const position = positions.find((row) => row.id === spec.id);
+		const hire = candidates.find(
+			(candidate) =>
+				candidate.positionId === spec.id && candidate.stage === "hired",
+		);
+		if (!position || !hire || spec.closedDaysAgo === undefined) {
+			continue;
+		}
+		const startOffset = nextWeekday(
+			context,
+			START_AFTER_HIRE_DAYS - spec.closedDaysAgo,
+		);
+		if (startOffset > 0) {
+			continue;
+		}
+		const [first = hire.name, ...rest] = hire.name.split(" ");
+		const last = rest.join(" ");
+		employees.push({
+			id: `PD-${1001 + employees.length}`,
+			firstName: first,
+			lastName: last,
+			email: mailOf(first, last),
+			title: spec.title,
+			department: spec.department,
+			managerId: position.hiringManagerId,
+			location: spec.location,
+			contract: "permanent",
+			weeklyHours: 40,
+			startDate: context.day(startOffset),
+			endDate: null,
+			status: "active",
+			annualAllowance: 25,
+			role: {
+				key: `hire-${spec.id}`,
+				title: spec.title,
+				department: spec.department,
+				count: 1,
+				reportsTo: spec.managerRole,
+				level: "mid",
+			},
+			startOffset,
+		});
+	}
+}
+
 function buildTables(dayStart: number): PeopleTables {
 	const context = createContext(dayStart);
 	const { random } = context;
 	const pickName = createNamePicker(random);
 	const employees = buildEmployees(context, pickName);
+	// The hiring runs first: its hires join the staff before the statuses and the time off are built.
+	const { positions, candidates } = buildHiring(context, employees, pickName);
+	addJoinedHires(context, employees, positions, candidates);
 	// Two mid-level people are on parental leave, and two others have resigned.
 	const longTenure = employees.filter(
 		(employee) => employee.role.level === "mid" && employee.startOffset < -500,
@@ -1804,7 +1974,6 @@ function buildTables(dayStart: number): PeopleTables {
 	assignStatuses(context, employees, onParentalLeave, leavers);
 	const requests = buildRequests(context, employees, onParentalLeave);
 	const careerEvents = buildCareerEvents(context, employees, requests, leavers);
-	const { positions, candidates } = buildHiring(context, employees, pickName);
 	return {
 		dayStart,
 		employees: employees.map(

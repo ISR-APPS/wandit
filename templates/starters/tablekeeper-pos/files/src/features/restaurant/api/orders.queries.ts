@@ -1,5 +1,5 @@
 // Reads of the checks of the business day: the list and one check by its number.
-// The orders pages, the floor, the menu, and the day report read them, so their numbers agree.
+// The orders pages, the home, the menu, and the day report read them, so their numbers agree.
 // Each queryFn returns the sample rows of sample-orders.ts. To make it real, replace its body with a Supabase select.
 import { queryOptions } from "@tanstack/react-query";
 import { listOrders } from "../lib/sample-orders";

@@ -135,7 +135,13 @@ function createDeps(
 
 	return {
 		requests,
-		deps: { fetch: fetchImpl, cancelTurn, getActiveTurnState },
+		deps: {
+			fetch: fetchImpl,
+			cancelTurn,
+			getActiveTurnState,
+			playTurnEndSoundWhenAway:
+				vi.fn<BuilderChatDeps["playTurnEndSoundWhenAway"]>(),
+		},
 	};
 }
 
@@ -202,6 +208,8 @@ function renderThread(
 		historyPending?: boolean;
 		/** The cache of an earlier render: the user comes back to the project. A new cache when left out. */
 		queryClient?: QueryClient;
+		/** The model of the next turn, from the page. None when left out. */
+		model?: string;
 	} = {},
 ) {
 	const queryClient =
@@ -211,7 +219,11 @@ function renderThread(
 				queries: { staleTime: Number.POSITIVE_INFINITY, retry: false },
 			},
 		});
-	const openChat = options.openChat ?? { id: CHAT_ID, isOldest: true };
+	const openChat = options.openChat ?? {
+		id: CHAT_ID,
+		isOldest: true,
+		lockedModelId: null,
+	};
 	// Every case seeds or fails the history query, so the real API is never called.
 	if (options.messagesError) {
 		failQueryDuringMount(
@@ -226,7 +238,8 @@ function renderThread(
 		);
 	}
 	const view = renderHook(
-		() => useBuilderThread(PROJECT_ID, openChat, undefined, deps),
+		() =>
+			useBuilderThread(PROJECT_ID, openChat, options.model, undefined, deps),
 		{
 			wrapper: ({ children }: { children: ReactNode }) =>
 				createElement(
@@ -258,9 +271,15 @@ async function waitForResume(
 }
 
 // An error answer of the turn routes, as the status-preserving fetch throws it.
-function turnRouteError(statusCode: number, code: string) {
+// `details` is the raw details field of the error envelope.
+function turnRouteError(
+	statusCode: number,
+	code: string,
+	details?: ApiClientError["details"],
+) {
 	return new ApiClientError({
 		code,
+		details,
 		message: "The turn route failed.",
 		path: `/api/v2/projects/${PROJECT_ID}/turns`,
 		requestId: "req-turn",
@@ -289,6 +308,28 @@ describe("turnErrorKey and canReconnectAfter", () => {
 			error: turnRouteError(409, "BUILDER_OTHER_CHAT_BUSY"),
 			isSendRefused: true,
 			key: "errors.codes.BUILDER_OTHER_CHAT_BUSY",
+			canReconnect: false,
+		},
+		// The pool has credits but no Starter pass: "no credits" would be false.
+		{
+			failure: "a send refused for the Starter pass",
+			error: turnRouteError(402, "INSUFFICIENT_CREDITS", {
+				requiredCredits: 6,
+				availableCredits: 40,
+				reason: "starter_pass_required",
+			}),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.starterPassRequired",
+			canReconnect: false,
+		},
+		{
+			failure: "a send refused for credits",
+			error: turnRouteError(402, "INSUFFICIENT_CREDITS", {
+				requiredCredits: 6,
+				availableCredits: 0,
+			}),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.noCredits",
 			canReconnect: false,
 		},
 		{
@@ -371,7 +412,7 @@ describe("useBuilderThread", () => {
 	// made. The first-build lines and the create scene must not show for it.
 	it("does not count the first turn of a newer conversation as the first turn of the project", async () => {
 		const { result } = renderThread(createDeps().deps, {
-			openChat: { id: CHAT_ID, isOldest: false },
+			openChat: { id: CHAT_ID, isOldest: false, lockedModelId: null },
 		});
 
 		await waitFor(() => expect(result.current.isReady).toBe(true));
@@ -549,6 +590,109 @@ describe("useBuilderThread", () => {
 		);
 		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
 			mode: "plan",
+		});
+	});
+
+	// Bug fix: a locked chat sent no model, so a Fast switch of the lock chip
+	// never reached the server. The page now picks the model of a locked chat.
+	it("sends the model of the page on a locked chat", async () => {
+		const fake = createDeps();
+		const { result } = renderThread(fake.deps, {
+			openChat: {
+				id: CHAT_ID,
+				isOldest: true,
+				lockedModelId: "anthropic/claude-opus-5.5",
+			},
+			model: "anthropic/claude-opus-5.5-fast",
+		});
+		await waitForResume(fake, result);
+
+		act(() => {
+			result.current.send({ text: "Add a cart", files: [] });
+		});
+
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "POST"),
+			).toBe(true),
+		);
+		const post = fake.requests.find(
+			(request) => request.init?.method === "POST",
+		);
+		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
+			model: "anthropic/claude-opus-5.5-fast",
+		});
+	});
+
+	// Bug fix: the API resumes a waiting card on the model of its turn and
+	// answers 409 V2_MODEL_LOCKED to a Fast change made on the lock chip.
+	it("sends the stored model while an approval card waits", async () => {
+		const fake = createDeps();
+		const { result } = renderThread(fake.deps, {
+			openChat: {
+				id: CHAT_ID,
+				isOldest: true,
+				lockedModelId: "anthropic/claude-opus-5.5",
+			},
+			model: "anthropic/claude-opus-5.5-fast",
+			history: {
+				pages: [
+					{
+						items: [
+							{
+								id: crypto.randomUUID(),
+								chatId: CHAT_ID,
+								role: "user",
+								parts: [{ type: "text", text: "Delete the old notes" }],
+								metadata: null,
+								seq: 1,
+								createdAt: "2026-11-21T00:00:00.000Z",
+							},
+							{
+								id: crypto.randomUUID(),
+								chatId: CHAT_ID,
+								role: "assistant",
+								parts: [
+									{
+										type: "data-approval",
+										id: "ap-1",
+										data: {
+											approvalId: "ap-1",
+											toolCallId: "call-1",
+											toolName: "run_sql_write",
+											input: '{"query":"delete from notes"}',
+											decision: null,
+										},
+									},
+								],
+								metadata: null,
+								seq: 2,
+								createdAt: "2026-11-21T00:00:01.000Z",
+							},
+						],
+						nextCursor: null,
+					},
+				],
+				pageParams: [null],
+			},
+		});
+		await waitForResume(fake, result);
+		expect(result.current.isCardWaiting).toBe(true);
+
+		act(() => {
+			result.current.decideApproval("ap-1", true);
+		});
+
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "POST"),
+			).toBe(true),
+		);
+		const post = fake.requests.find(
+			(request) => request.init?.method === "POST",
+		);
+		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
+			model: "anthropic/claude-opus-5.5",
 		});
 	});
 

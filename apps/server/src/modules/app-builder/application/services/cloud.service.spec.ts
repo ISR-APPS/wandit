@@ -49,6 +49,7 @@ const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: PROJECT_ID,
+	name: "My app",
 	organizationId: "org-1",
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
@@ -543,9 +544,9 @@ describe("CloudService backend routes", () => {
 		expect(answer.status).toBe("active");
 	});
 
-	it("ensureBackend answers 403 BACKEND_LIMIT_REACHED when the plan has no free slot", async () => {
+	it("ensureBackend answers 403 BACKEND_LIMIT_REACHED when the payer has no free slot", async () => {
 		const { service } = fixture({
-			provisionError: new BackendLimitReachedError("pro", 1),
+			provisionError: new BackendLimitReachedError(1, "user"),
 		});
 
 		expect(

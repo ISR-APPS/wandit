@@ -81,13 +81,14 @@ export const workerScriptUploadResultSchema = z.object({
 	tags: z.array(z.string()).nullish(),
 });
 
-/** One item of `GET .../scripts`. `script.id` is the script name; Cloudflare answers null for no tags. */
+/**
+ * One item of `GET .../scripts`. The item is flat: `id` is the script name; Cloudflare answers null for no tags.
+ * The item has more keys (`etag`, `limits`, ...); the schema keeps only the keys the client reads.
+ */
 export const namespaceScriptSchema = z.object({
+	id: z.string(),
 	created_on: z.string(),
-	script: z.object({
-		id: z.string(),
-		tags: z.array(z.string()).nullish(),
-	}),
+	tags: z.array(z.string()).nullish(),
 });
 
 /**

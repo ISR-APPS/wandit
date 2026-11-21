@@ -1,11 +1,16 @@
-// A list of open follow-up tasks: the title, the deal or the rep, the due time, and the due state when the caller asks for it.
-// The follow-up card of the activities page and the follow-up card of the deal page render it.
+// A list of open follow-up tasks: the title, the deal or the rep, the priority, the due time, and the due state when the caller asks for it.
+// The Follow-ups tab of the deal page renders it.
 import { Link } from "@tanstack/react-router";
-import { formatRelativeTime, PersonAvatar } from "~/features/crm";
+import {
+	formatRelativeTime,
+	PersonAvatar,
+	PriorityBadge,
+	type TaskDueState,
+	taskDueState,
+} from "~/features/crm";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
 import type { Task } from "../api/tasks.queries";
-import { type TaskDueState, taskDueState } from "../lib/task-due";
 
 /** Badge classes per due state: red for overdue, amber for today, gray for later. They follow the tinted kit variants. */
 const DUE_BADGE = {
@@ -58,11 +63,14 @@ export function TaskList({ tasks, now, showDeal, showState }: TaskListProps) {
 						</div>
 						<div className="flex shrink-0 items-center gap-2.5">
 							<div className="grid justify-items-end gap-1">
-								{showState ? (
-									<Badge variant="secondary" className={DUE_BADGE[state]}>
-										{t(`tasks.states.${state}`)}
-									</Badge>
-								) : null}
+								<span className="flex items-center gap-1.5">
+									<PriorityBadge priority={task.priority} />
+									{showState ? (
+										<Badge variant="secondary" className={DUE_BADGE[state]}>
+											{t(`tasks.states.${state}`)}
+										</Badge>
+									) : null}
+								</span>
 								<time
 									dateTime={task.dueAt}
 									className="text-muted-foreground text-xs tabular-nums"

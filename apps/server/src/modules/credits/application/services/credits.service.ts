@@ -1,7 +1,8 @@
 /**
- * Grants, consumes, refunds, expires, and revokes credits of one pool in the
+ * Grants, consumes, refunds, and revokes credits of one pool in the
  * append-only `credit_ledger`, and tracks plan holds. Metering, billing, admin,
  * and the credits controller call it. It reads and writes through CreditsRepository.
+ * Pricing v8: no method writes an `expire` row or lowers a plan hold at a refill.
  */
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
@@ -84,20 +85,6 @@ export type GrantCreditResult = {
 	row: CreditLedgerRow;
 };
 
-export type CappedRefillResult = {
-	carriedCredits: number;
-	expiredCredits: number;
-	grant: CreditLedgerRow;
-	preRefillPlanBalance: number;
-	replayed: boolean;
-};
-
-export type CappedRefillOptions = {
-	capMultiplier?: number;
-	idempotencyKey: string;
-	meta?: CreditMeta;
-};
-
 export type RefundConsumeAmountOptions = {
 	amount: number;
 	idempotencyKey: string;
@@ -134,6 +121,28 @@ export class CreditsService {
 		transaction?: CreditsTransaction,
 	): Promise<number> {
 		return this.creditsRepository.netConsumedCentiCredits(userId, transaction);
+	}
+
+	/**
+	 * Net consumption of the pool of `owner` since `since`, in centi-credits. Personal or team pool.
+	 * The wallet view of BillingService calls it. A late refund can make it negative.
+	 */
+	netConsumedCentiCreditsSince(
+		owner: CreditOwner,
+		since: Date,
+	): Promise<number> {
+		return this.creditsRepository.netConsumedCentiCreditsSince(owner, since);
+	}
+
+	/**
+	 * Settled net consumption of personal pools, in centi-credits, keyed by user id.
+	 * A user with an in-flight hold, or with no consumption, is absent from the map.
+	 * The user referral sweep calls it for each page of friends that are not activated.
+	 */
+	settledNetConsumedCentiCreditsByUser(
+		userIds: string[],
+	): Promise<Map<string, number>> {
+		return this.creditsRepository.settledNetConsumedCentiCreditsByUser(userIds);
 	}
 
 	/**
@@ -203,6 +212,18 @@ export class CreditsService {
 			);
 
 			if (options.admission === "requirePositiveBalance") {
+				// Fraud gate: with the switch on, a pool that never paid cannot start new work.
+				// It runs after the replay return, so a reserve that already committed stays admitted.
+				if (balance.starterPassRequired) {
+					throw new InsufficientCreditsError(
+						amount,
+						balance.balance,
+						balance.settledBalance,
+						this.refusedPayer(owner, options.actorUserId),
+						"starter_pass_required",
+					);
+				}
+
 				// Ruling 5 admission on the SETTLED view: a positive settled balance
 				// admits the spend even while reserve holds dip the raw ledger
 				// negative — a running build must never lock its owner out of chat,
@@ -751,248 +772,6 @@ export class CreditsService {
 		);
 	}
 
-	/**
-	 * Apply one rollover-capped plan refill under the owner's advisory lock.
-	 *
-	 * The pre-refill snapshot, excess expiration, and grant share one database
-	 * transaction. The grant key is the durable completion marker: a replay
-	 * never takes a new balance snapshot after the refill has already landed.
-	 */
-	async applyCappedRefill(
-		owner: CreditOwner,
-		allotment: number,
-		options: CappedRefillOptions,
-		transaction?: CreditsTransaction,
-	): Promise<CappedRefillResult> {
-		this.assertPositiveCreditAmount(allotment);
-
-		const capMultiplier = options.capMultiplier ?? 1;
-
-		if (!Number.isFinite(capMultiplier) || capMultiplier < 0) {
-			throw new BadRequestException(
-				"Credit refill cap multiplier must be a non-negative number",
-			);
-		}
-
-		return this.creditsRepository.withOwnerLock(
-			owner,
-			async (tx) => {
-				const existingGrant = await this.creditsRepository.findByIdempotencyKey(
-					options.idempotencyKey,
-					tx,
-				);
-
-				if (existingGrant) {
-					this.assertGrantReplayMatches(
-						existingGrant,
-						owner,
-						allotment,
-						"plan",
-					);
-					this.assertCappedRefillReplayMatches(
-						existingGrant,
-						allotment,
-						capMultiplier,
-					);
-
-					return this.cappedRefillReplay(existingGrant);
-				}
-
-				const expireKey = `${options.idempotencyKey}:expire`;
-				const existingExpiration =
-					await this.creditsRepository.findByIdempotencyKey(expireKey, tx);
-
-				if (
-					existingExpiration &&
-					(!this.rowOwnerMatches(existingExpiration, owner) ||
-						existingExpiration.bucket !== "plan" ||
-						existingExpiration.kind !== "expire" ||
-						existingExpiration.delta >= 0)
-				) {
-					throw new Error(
-						`Credit refill expiration idempotency replay conflict for key ${expireKey}`,
-					);
-				}
-
-				const balance = await this.creditsRepository.getBalance(owner, tx);
-				const previouslyExpired = existingExpiration
-					? Math.abs(existingExpiration.delta)
-					: 0;
-				const planHolds = await this.creditsRepository.listRefundablePlanHolds(
-					owner,
-					tx,
-				);
-				const oldPoolIds = [
-					...new Set(
-						planHolds.flatMap((hold) => (hold.poolId ? [hold.poolId] : [])),
-					),
-				];
-				const holdPools = await this.creditsRepository.findPlanHoldPools(
-					oldPoolIds,
-					tx,
-				);
-				const poolById = new Map(holdPools.map((pool) => [pool.id, pool]));
-				const pooledActiveCredits = new Map<string, number>();
-				let unpooledActiveCredits = 0;
-
-				for (const hold of planHolds) {
-					if (!hold.active) {
-						continue;
-					}
-
-					if (!hold.poolId) {
-						unpooledActiveCredits += hold.refundableCredits;
-						continue;
-					}
-
-					pooledActiveCredits.set(
-						hold.poolId,
-						(pooledActiveCredits.get(hold.poolId) ?? 0) +
-							hold.refundableCredits,
-					);
-				}
-
-				let activeHeldPlanCredits = unpooledActiveCredits;
-
-				for (const [poolId, memberCredits] of pooledActiveCredits) {
-					const pool = poolById.get(poolId);
-
-					if (
-						!pool ||
-						!this.poolOwnerMatches(pool, owner) ||
-						pool.closedAt !== null
-					) {
-						throw new Error(
-							`Credit plan hold pool ${poolId} is invalid at refill`,
-						);
-					}
-
-					activeHeldPlanCredits += Math.min(
-						memberCredits,
-						pool.remainingCredits,
-					);
-				}
-
-				const ledgerPlanBalance = Math.max(balance.plan + previouslyExpired, 0);
-				const preRefillPlanBalance = ledgerPlanBalance + activeHeldPlanCredits;
-				const cap = Math.floor(allotment * capMultiplier);
-				const carriedCredits = Math.min(preRefillPlanBalance, cap);
-				const carriedLedgerCredits = Math.min(ledgerPlanBalance, cap);
-				const carriedHeldCredits = carriedCredits - carriedLedgerCredits;
-				const expiredLedgerCredits = Math.max(
-					0,
-					ledgerPlanBalance - carriedLedgerCredits,
-				);
-				const expiredHeldCredits = Math.max(
-					0,
-					activeHeldPlanCredits - carriedHeldCredits,
-				);
-				const expiredCredits = expiredLedgerCredits + expiredHeldCredits;
-
-				if (existingExpiration && previouslyExpired !== expiredLedgerCredits) {
-					throw new Error(
-						`Credit refill expiration replay conflict for key ${expireKey}`,
-					);
-				}
-
-				if (expiredLedgerCredits > 0 && !existingExpiration) {
-					await this.creditsRepository.insertLedgerEntry(
-						{
-							bucket: "plan",
-							delta: -expiredLedgerCredits,
-							idempotencyKey: expireKey,
-							kind: "expire",
-							meta: this.withReason(
-								{
-									...(options.meta ?? {}),
-									refillIdempotencyKey: options.idempotencyKey,
-								},
-								"subscription_refill_rollover_expiration",
-							),
-							...ownerColumns(owner),
-						},
-						tx,
-					);
-				}
-
-				let newPoolId: string | null = null;
-
-				if (carriedHeldCredits > 0) {
-					const pool = await this.creditsRepository.insertPlanHoldPool(
-						{
-							boundaryIdempotencyKey: options.idempotencyKey,
-							owner,
-							remainingCredits: carriedHeldCredits,
-						},
-						tx,
-					);
-
-					if (
-						!this.poolOwnerMatches(pool, owner) ||
-						pool.remainingCredits !== carriedHeldCredits ||
-						pool.closedAt !== null
-					) {
-						throw new Error(
-							`Credit plan hold pool replay conflict for key ${options.idempotencyKey}`,
-						);
-					}
-
-					newPoolId = pool.id;
-				}
-
-				await this.creditsRepository.applyPlanHoldBoundary(
-					owner,
-					newPoolId,
-					tx,
-				);
-				await this.creditsRepository.closePlanHoldPools(
-					owner,
-					oldPoolIds.filter((poolId) => poolId !== newPoolId),
-					tx,
-				);
-
-				const grant = await this.creditsRepository.insertLedgerEntry(
-					{
-						bucket: "plan",
-						delta: allotment,
-						idempotencyKey: options.idempotencyKey,
-						kind: "grant",
-						meta: this.withGrantFingerprint(
-							{
-								...(options.meta ?? {}),
-								refill: {
-									allotment,
-									capMultiplier,
-									carriedCredits,
-									carriedHeldCredits,
-									carriedLedgerCredits,
-									expiredCredits,
-									expiredHeldCredits,
-									expiredLedgerCredits,
-									preRefillPlanBalance,
-								},
-							},
-							owner,
-							allotment,
-						),
-						...ownerColumns(owner),
-					},
-					tx,
-				);
-				this.assertGrantReplayMatches(grant, owner, allotment, "plan");
-
-				return {
-					carriedCredits,
-					expiredCredits,
-					grant,
-					preRefillPlanBalance,
-					replayed: false,
-				};
-			},
-			transaction,
-		);
-	}
-
 	/** amount is centi-credits: billing converts pack credits x100 before calling. */
 	async topup(
 		owner: CreditOwner,
@@ -1025,100 +804,6 @@ export class CreditsService {
 				}
 
 				return row;
-			},
-			transaction,
-		);
-	}
-
-	async expirePlanRemainder(
-		owner: CreditOwner,
-		options: CreditWriteOptions = {},
-		transaction?: CreditsTransaction,
-	): Promise<number> {
-		return this.creditsRepository.withOwnerLock(
-			owner,
-			async (tx) => {
-				// A terminal subscription boundary invalidates both unresolved holds
-				// and same-cycle reconciliation rights before any delayed refund can
-				// reintroduce subscription-funded credits.
-				await this.creditsRepository.forfeitAllPlanHolds(owner, tx);
-
-				const existingAmount = await this.findExistingNegativeAmount(
-					owner,
-					options.idempotencyKey,
-					tx,
-				);
-
-				if (existingAmount !== null) {
-					return existingAmount;
-				}
-
-				const balance = await this.creditsRepository.getBalance(owner, tx);
-				const amountToExpire = Math.max(balance.plan, 0);
-
-				if (amountToExpire === 0) {
-					return 0;
-				}
-
-				await this.creditsRepository.insertLedgerEntry(
-					{
-						bucket: "plan",
-						delta: -amountToExpire,
-						idempotencyKey: options.idempotencyKey,
-						kind: "expire",
-						meta: this.withReason(options.meta, "plan_expiration"),
-						...ownerColumns(owner),
-					},
-					tx,
-				);
-
-				return amountToExpire;
-			},
-			transaction,
-		);
-	}
-
-	async expireAmount(
-		owner: CreditOwner,
-		amount: number,
-		options: CreditWriteOptions = {},
-		transaction?: CreditsTransaction,
-	): Promise<number> {
-		this.assertPositiveCreditAmount(amount);
-
-		return this.creditsRepository.withOwnerLock(
-			owner,
-			async (tx) => {
-				const existingAmount = await this.findExistingNegativeAmount(
-					owner,
-					options.idempotencyKey,
-					tx,
-				);
-
-				if (existingAmount !== null) {
-					return existingAmount;
-				}
-
-				const balance = await this.creditsRepository.getBalance(owner, tx);
-				const amountToExpire = Math.min(amount, Math.max(balance.plan, 0));
-
-				if (amountToExpire === 0) {
-					return 0;
-				}
-
-				await this.creditsRepository.insertLedgerEntry(
-					{
-						bucket: "plan",
-						delta: -amountToExpire,
-						idempotencyKey: options.idempotencyKey,
-						kind: "expire",
-						meta: this.withReason(options.meta, "plan_expiration"),
-						...ownerColumns(owner),
-					},
-					tx,
-				);
-
-				return amountToExpire;
 			},
 			transaction,
 		);
@@ -1203,28 +888,6 @@ export class CreditsService {
 		);
 
 		return rows.filter((row): row is CreditLedgerRow => row !== null);
-	}
-
-	private async findExistingNegativeAmount(
-		owner: CreditOwner,
-		idempotencyKey: string | undefined,
-		tx: CreditsTransaction,
-	) {
-		if (!idempotencyKey) {
-			return null;
-		}
-
-		const existing = await this.creditsRepository.findByIdempotencyKeys(
-			owner,
-			[idempotencyKey],
-			tx,
-		);
-
-		if (!existing[0]) {
-			return null;
-		}
-
-		return Math.abs(existing[0].delta);
 	}
 
 	private consumeIdempotencyKey(idempotencyKey: string, bucket: CreditBucket) {
@@ -1431,28 +1094,6 @@ export class CreditsService {
 				`Credit revoke idempotency replay conflict for key ${row.idempotencyKey ?? "<missing>"}`,
 			);
 		}
-	}
-
-	private cappedRefillReplay(grant: CreditLedgerRow): CappedRefillResult {
-		const meta = this.isRecord(grant.meta) ? grant.meta : null;
-		const refill = this.isRecord(meta?.refill) ? meta.refill : null;
-		const carriedCredits = this.integer(refill?.carriedCredits) ?? 0;
-		const expiredCredits = this.nonNegativeInteger(refill?.expiredCredits) ?? 0;
-		const preRefillPlanBalance =
-			this.integer(refill?.preRefillPlanBalance) ??
-			carriedCredits + expiredCredits;
-
-		return {
-			carriedCredits,
-			expiredCredits,
-			grant,
-			preRefillPlanBalance,
-			replayed: true,
-		};
-	}
-
-	private nonNegativeInteger(value: unknown): number | null {
-		return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
 	}
 
 	private integer(value: unknown): number | null {
@@ -1934,37 +1575,6 @@ export class CreditsService {
 		) {
 			throw new Error(
 				`Credit grant idempotency replay conflict for key ${row.idempotencyKey ?? "<missing>"}`,
-			);
-		}
-	}
-
-	private assertCappedRefillReplayMatches(
-		row: CreditLedgerRow,
-		allotment: number,
-		capMultiplier: number,
-	): void {
-		const meta = this.isRecord(row.meta) ? row.meta : null;
-		const refill = this.isRecord(meta?.refill) ? meta.refill : null;
-		const preRefillPlanBalance = this.integer(refill?.preRefillPlanBalance);
-		const carriedCredits = this.integer(refill?.carriedCredits);
-		const expiredCredits = this.nonNegativeInteger(refill?.expiredCredits);
-		const expectedCap = Math.floor(allotment * capMultiplier);
-		const expectedCarry =
-			preRefillPlanBalance === null
-				? null
-				: Math.min(preRefillPlanBalance, expectedCap);
-
-		if (
-			refill?.allotment !== allotment ||
-			refill?.capMultiplier !== capMultiplier ||
-			preRefillPlanBalance === null ||
-			carriedCredits === null ||
-			expiredCredits === null ||
-			carriedCredits !== expectedCarry ||
-			expiredCredits !== Math.max(0, preRefillPlanBalance - carriedCredits)
-		) {
-			throw new Error(
-				`Credit capped-refill replay conflict for key ${row.idempotencyKey ?? "<missing>"}`,
 			);
 		}
 	}

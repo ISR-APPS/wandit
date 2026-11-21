@@ -1,3 +1,8 @@
+/**
+ * Headline tiles of the revenue analytics page: MRR, ARPU, paid users, trials.
+ * RevenueAnalyticsPage renders it with the tiles of the revenue response.
+ * MRR, ARPU, and active paid read live subscriptions, so they show as history after pricing v8.
+ */
 import {
 	ActivityIcon,
 	BadgeDollarSignIcon,
@@ -33,7 +38,7 @@ function RevenueMetrics({ tiles }: RevenueMetricsProps) {
 					tooltip:
 						"Monthly recurring revenue at list price. Yearly plans are counted as their price divided by 12. Discounts are not subtracted.",
 					value: formatOverviewRoundedUsdMinor(tiles.mrrMinor),
-					description: "Monthly revenue · list price",
+					description: "History (plans ended) · list price",
 					icon: BadgeDollarSignIcon,
 					badge: (
 						<Badge variant="outline" className="px-1.5">
@@ -47,7 +52,7 @@ function RevenueMetrics({ tiles }: RevenueMetricsProps) {
 					tooltip:
 						"Average revenue per paying user: MRR divided by active paid users.",
 					value: formatOverviewRoundedUsdMinor(tiles.arpuMinor),
-					description: "MRR per active paid user.",
+					description: "History (plans ended): MRR per active paid user.",
 					icon: ReceiptTextIcon,
 				},
 				{
@@ -55,7 +60,7 @@ function RevenueMetrics({ tiles }: RevenueMetricsProps) {
 					label: "Active paid",
 					tooltip: "Paying accounts with a subscription that is active now.",
 					value: formatOverviewWholeNumber(tiles.activePaidUsers),
-					description: "Live subscriptions today.",
+					description: "History (plans ended): live subscriptions today.",
 					icon: UserRoundCheckIcon,
 				},
 				{

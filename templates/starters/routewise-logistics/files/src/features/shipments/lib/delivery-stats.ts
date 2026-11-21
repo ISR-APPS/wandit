@@ -1,15 +1,12 @@
-// The math of the delivery figures: closed shipments per day and outcome, the totals of a period, and late deliveries by reason.
+// The math of the delivery figures: closed shipments per day and outcome, and the totals of a period.
 // deliveries.queries.ts calls these pure functions on the sample rows. SQL read functions do the same math later.
 import {
-	type BreakdownSlice,
 	type CategoryPoint,
 	changeRatio,
 	DELIVERY_OUTCOMES,
 	type DeliveryOutcome,
 	dayKey,
 	daysAgoOf,
-	EXCEPTION_REASONS,
-	type ExceptionReason,
 	outcomeOf,
 	type ShipmentRow,
 } from "~/features/logistics";
@@ -89,33 +86,4 @@ export function onTimeRateChange(totals: PeriodTotals): number | null {
 	return current === null || previous === null
 		? null
 		: changeRatio(current, previous);
-}
-
-/** Late deliveries of the last `days` full days by reason, the largest part first. A reason with no delivery is left out. */
-export function buildLateByReason(
-	rows: ShipmentRow[],
-	days: number,
-	dayStart: number,
-): BreakdownSlice<ExceptionReason>[] {
-	const counts = new Map<ExceptionReason, number>();
-	for (const row of rows) {
-		if (
-			outcomeOf(row, dayStart) !== "late" ||
-			!row.closedAt ||
-			!row.exceptionReason
-		) {
-			continue;
-		}
-		const daysAgo = daysAgoOf(row.closedAt, dayStart);
-		if (daysAgo >= 1 && daysAgo <= days) {
-			counts.set(
-				row.exceptionReason,
-				(counts.get(row.exceptionReason) ?? 0) + 1,
-			);
-		}
-	}
-	return EXCEPTION_REASONS.flatMap((reason) => {
-		const value = counts.get(reason) ?? 0;
-		return value > 0 ? [{ label: reason, value }] : [];
-	}).sort((first, second) => second.value - first.value);
 }

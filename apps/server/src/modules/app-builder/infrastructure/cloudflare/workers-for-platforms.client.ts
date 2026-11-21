@@ -310,8 +310,8 @@ export class WorkersForPlatformsClient {
 		});
 		return scripts.map((item) => ({
 			createdOn: item.created_on,
-			scriptName: item.script.id,
-			tags: item.script.tags ?? [],
+			scriptName: item.id,
+			tags: item.tags ?? [],
 		}));
 	}
 

@@ -15,7 +15,11 @@ import {
 	desktopEngineSchema,
 	targetPlatformSchema,
 } from "../v1/shared/target-platform";
-import { builderMessageMaxLength, builderTurnModeSchema } from "./turns";
+import {
+	builderMessageMaxLength,
+	builderThinkingSchema,
+	builderTurnModeSchema,
+} from "./turns";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
 // `projectSchema` carries it now. This line keeps earlier V2 imports working.
@@ -66,6 +70,9 @@ export const createAppProjectRequestSchema = z
 		// The model of the first turn, same rule as `model` of the create-turn
 		// body. The session row stores it. Absent: the deploy default.
 		model: z.string().min(1).optional(),
+		// The thinking level of the first turn, same rule as `thinking` of the
+		// create-turn body. Absent: "balanced".
+		thinking: builderThinkingSchema.optional(),
 	})
 	.refine(
 		(body) =>

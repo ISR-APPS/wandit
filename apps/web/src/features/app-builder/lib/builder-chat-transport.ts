@@ -8,6 +8,7 @@
 
 import {
 	appBuilderRoutes,
+	builderThinkingSchema,
 	builderTurnModeSchema,
 	type ChatMessage,
 	type CreateTurnRequest,
@@ -36,14 +37,16 @@ import type { TurnMessage } from "../api/dto";
 /**
  * Extras `sendMessage` passes through `options.body`: an answer to a
  * `data-approval` card, the answers to the open `data-question` cards, the
- * paid model this turn runs on, or the turn mode of the Plan toggle. The
- * SDK types the field loosely, so the schema keeps the boundary typed.
+ * paid model this turn runs on, the turn mode of the Plan toggle, or the
+ * thinking level. The SDK types the field loosely, so the schema keeps the
+ * boundary typed.
  */
 const turnSendOptionsSchema = z.object({
 	approval: turnApprovalAnswerSchema.optional(),
 	answers: z.array(turnQuestionAnswerSchema).min(1).max(8).optional(),
 	model: z.string().min(1).optional(),
 	mode: builderTurnModeSchema.optional(),
+	thinking: builderThinkingSchema.optional(),
 });
 
 /**
@@ -101,7 +104,7 @@ export function createBuilderChatTransport(input: {
 				part.type === "data-targets" ? part.data.targets : [],
 			);
 			// The SDK always passes an object here (resolvedBody + options.body).
-			// A malformed approval, answer, model, or mode must throw. parse throws,
+			// A malformed approval, answer, model, mode, or thinking must throw. parse throws,
 			// and useChat surfaces the ZodError as `error`; a plain turn would
 			// hide the bug.
 			const extras = turnSendOptionsSchema.parse(body);
@@ -116,6 +119,7 @@ export function createBuilderChatTransport(input: {
 					...(extras.answers ? { answers: extras.answers } : {}),
 					...(extras.model ? { model: extras.model } : {}),
 					...(extras.mode ? { mode: extras.mode } : {}),
+					...(extras.thinking ? { thinking: extras.thinking } : {}),
 					...(targets.length > 0 ? { targets } : {}),
 				} satisfies CreateTurnRequest,
 				headers: { ...headers, ...workspaceScopeHeaders() },

@@ -11,7 +11,7 @@ import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
-import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
+import { PaidOwnerRepository } from "../billing/infrastructure/persistence/paid-owner.repository";
 import { CreditsModule } from "../credits/credits.module";
 import { DomainsModule } from "../domains/domains.module";
 import { GenerationModule } from "../generation/generation.module";
@@ -20,8 +20,11 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { AppAiAdmission } from "./application/services/app-ai-admission";
 import { AppAiGatewayService } from "./application/services/app-ai-gateway.service";
 import { AppAiKeysService } from "./application/services/app-ai-keys.service";
+import { AppAiMediaService } from "./application/services/app-ai-media.service";
+import { AppAiVideoService } from "./application/services/app-ai-video.service";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { AppThemeService } from "./application/services/app-theme.service";
 import { AppThemeDesignService } from "./application/services/app-theme-design.service";
@@ -253,8 +256,11 @@ export function createCloudSupabaseClient(
 		WorkspacesModule,
 	],
 	providers: [
+		AppAiAdmission,
 		AppAiGatewayService,
 		AppAiKeysService,
+		AppAiMediaService,
+		AppAiVideoService,
 		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,
@@ -298,8 +304,8 @@ export function createCloudSupabaseClient(
 		SandboxWakeService,
 		SecurityScansRepository,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
-		// all it needs (the turn model allow-list reads the plan).
-		SubscriptionsRepository,
+		// all it needs (the backend limit and the device minutes read it).
+		PaidOwnerRepository,
 		TemplateVersionService,
 		// `AppProjectsService` queues the starter template apply through it.
 		TriggerApplyStarterTemplateTaskStarter,

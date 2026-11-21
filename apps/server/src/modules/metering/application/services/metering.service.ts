@@ -2543,6 +2543,7 @@ export class MeteringService {
 				settlement.modelId,
 				settlement.usage,
 				usdMicrosPerCredit,
+				settlement.promptTokens,
 			);
 
 			return {

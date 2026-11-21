@@ -1,5 +1,5 @@
 // The delta line of a figure: an arrow, a signed percent, and a text for screen readers.
-// The won figure of the pipeline header and the total of the activity trend render it.
+// KpiCard of the home and the total of the activity trend card render it.
 // It follows the KPI form "number" of the app-dashboard skill.
 import { TrendDownIcon, TrendUpIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";

@@ -28,9 +28,9 @@
 			"activeItem": "pill",
 			"header": "blur",
 			"userMenu": "header",
-			"frame": "outlined",
+			"frame": "flat",
 			"icons": "regular",
-			"navIcon": "soft"
+			"navIcon": "color"
 		}
 	}
 }

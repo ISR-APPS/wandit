@@ -18,8 +18,8 @@
 	},
 	"v2Banner": {
 		"title": "Wandit V2 arrive bientôt.",
-		"body": "Tu pourras créer des apps mobiles et web. Les abonnés y auront accès en priorité, avec des crédits en plus.",
-		"cta": "Voir les offres"
+		"body": "Tu pourras créer des apps mobiles et web. Les clients qui rechargent y auront accès en priorité.",
+		"cta": "Voir les tarifs"
 	},
 	"hero": {
 		"leadStart": "Crée-moi une",
@@ -36,7 +36,7 @@
 		"inputLabel": "Décris ton app",
 		"sub": "Wandit dessine les écrans, écrit le code et installe la connexion et la base de données. Essaie-la sur ton téléphone en quelques minutes.",
 		"cta": "Construire",
-		"ctaHint": "Commence gratuitement. Sans code.",
+		"ctaHint": "Inscription gratuite. Sans code.",
 		"stageLabel": "Aperçu d'une app que Wandit construit",
 		"scanToOpen": "Scanne pour l'ouvrir sur ton téléphone",
 		"log": {
@@ -203,14 +203,14 @@
 	"pricing": {
 		"meta": {
 			"title": "Tarifs — Wandit",
-			"description": "Commence gratuitement, puis passe à Pro quand tu as besoin de plus de crédits. Facturation mensuelle ou annuelle."
+			"description": "Recharge dès 10 $, en dollars US ou en dinars algériens. Crédits bonus dès 40 $. Sans abonnement. Les crédits n’expirent jamais."
 		},
 		"kicker": "Tarifs",
-		"title": "Commence petit. Évolue quand tu as besoin de plus.",
+		"title": "Paie ce que tu construis.",
 		"note": "La publication reste gratuite. Les actions IA, dont la collecte de leads, utilisent des crédits.",
 		"free": {
 			"name": "Gratuit",
-			"tagline": "Pour la bêta et tes premiers projets",
+			"tagline": "Tes premiers crédits sont offerts. Construis et publie avant de payer.",
 			"price": "Gratuit",
 			"creditsLine": {
 				"zero": "{count} crédit gratuit",
@@ -225,49 +225,107 @@
 				"Publication toujours gratuite",
 				"La collecte de leads utilise des crédits",
 				"Pages en AR, FR & EN",
-				"Passe à une offre payante quand tu as besoin de plus d’IA"
+				"Recharge quand tu as besoin de plus d’IA"
 			],
 			"cta": "Commencer gratuitement"
 		},
-		"pro": {
-			"name": "Pro",
-			"badge": "Populaire",
-			"tagline": "Pour les vendeurs qui créent et améliorent chaque mois",
-			"loading": "Chargement des tarifs en direct",
-			"catalogUnavailable": "Les tarifs en direct sont temporairement indisponibles.",
-			"intervalLabel": "Période de facturation",
-			"monthly": "Mensuel",
-			"yearly": "Annuel",
-			"twoMonthsFree": "2 mois offerts",
-			"tierLabel": "Crédits mensuels inclus",
-			"creditsUnit": "crédits",
-			"perMonth": "/ mois",
-			"perYear": "/ an",
-			"savings": "Économise {percent} %",
-			"features": [
-				"De nouveaux crédits chaque mois",
-				"Neuf paliers adaptés à ta charge de travail",
-				"Facturation mensuelle ou annuelle",
-				"La publication reste gratuite"
-			],
-			"cta": "Choisir Pro"
+		"starterPass": {
+			"name": "Pass Démarrage",
+			"title": "{price} pour commencer",
+			"tagline": "Un petit paiement réel avant tes premiers crédits tient les faux comptes à l’écart. Tu reçois {credits}.",
+			"welcomeUnlock": "Tes crédits de bienvenue se débloquent aussi.",
+			"cta": "Obtenir le Pass Démarrage"
 		},
-		"business": {
-			"name": "Business",
-			"tagline": "Pour les équipes qui partagent un pool de crédits",
-			"fromPrice": "À partir de {price}",
-			"perMonth": "/ mois",
+		"payg": {
+			"name": "Paiement à l’usage",
+			"badge": "Sans abonnement",
+			"tagline": "Choisis un montant. Le reçu affiche chaque crédit avant le paiement.",
+			"loading": "Chargement des prix",
+			"rate": "pour {credits} crédits",
+			"amountLabel": "Montant de la recharge",
+			"credits": "{credits} crédits",
+			"range": "Recharge dès {min}. Choisis un montant en dollars US entiers jusqu’à {max}. Un montant libre reçoit le même bonus.",
 			"features": [
-				"Tout ce qui est inclus dans Pro",
-				"Un pool de crédits partagé pour toute l'équipe",
-				"Rôles, invitations et limites par membre",
-				"Sièges illimités — payez les crédits, pas les personnes"
+				"Les crédits n’expirent jamais",
+				"Paiements uniques, aucun prélèvement automatique",
+				"Tous les modèles d’IA, à leur coût réel",
+				"Un portefeuille d’équipe partagé par toute l’équipe"
 			],
-			"cta": "Créer un espace d'équipe"
+			"cta": "Recharger {price}"
 		},
 		"beta": {
 			"badge": "Bêta",
 			"cta": "Rejoindre la bêta"
+		},
+		"sub": {
+			"rate": "{price} = {credits}.",
+			"bonus": "Crédits bonus dès {price}.",
+			"terms": "Sans abonnement. Les crédits n’expirent jamais."
+		},
+		"meter": {
+			"title": "Choisis ta recharge",
+			"footnote": "Chaque bonus s’affiche avant le paiement.",
+			"ctaEmpty": "Choisis un montant"
+		},
+		"where": {
+			"kicker": "Où vont les crédits",
+			"title": "Des prix clairs pour chaque action.",
+			"sub": "Quelques actions ont un prix fixe. Le travail de l’IA coûte ce que coûte l’IA, et tu vois chaque débit dans ton activité.",
+			"columns": {
+				"action": "Action",
+				"price": "Prix"
+			},
+			"groups": {
+				"fixed": "Prix fixe",
+				"metered": "Au coût réel",
+				"free": "Gratuit"
+			},
+			"meteredNote": "Le coût réel de l’IA, affiché dans ton activité après chaque action.",
+			"meteredPrice": "Coût réel de l’IA",
+			"freePrice": "Gratuit",
+			"items": {
+				"androidBuild": "Build Android (APK)",
+				"desktopBuild": "Build desktop (Windows ou macOS)",
+				"builderMessages": "Messages au builder",
+				"images": "Images",
+				"video": "Vidéo",
+				"publishing": "Publication sur une adresse wandit.app"
+			}
+		},
+		"trophies": {
+			"kicker": "Trophées",
+			"title": "Construis, publie, collectionne.",
+			"sub": "Les trophées marquent ce que tu crées. Ils donnent des points et des niveaux, jamais de crédits.",
+			"link": "Voir tous les trophées"
+		},
+		"faq": {
+			"title": "Questions sur les tarifs",
+			"termsLink": "Lire les conditions d’utilisation",
+			"bonusCustom": {
+				"q": "Un montant libre reçoit-il un bonus ?",
+				"a": "Oui. Un montant libre reçoit le même bonus qu’un montant proposé de même taille. Le reçu affiche le bonus avant le paiement."
+			},
+			"expiry": {
+				"q": "Les crédits expirent-ils ?",
+				"a": "Non. Tes crédits restent dans ton portefeuille jusqu’à ce que tu les utilises."
+			},
+			"subscription": {
+				"q": "Y a-t-il un abonnement ?",
+				"a": "Non. Chaque recharge est un paiement unique. Wandit ne te prélève jamais de lui-même."
+			},
+			"teamWallet": {
+				"q": "Comment marche le portefeuille d’équipe ?",
+				"a": "Chaque équipe a son propre portefeuille, séparé de ton portefeuille personnel. Le propriétaire de l’équipe le recharge, et le travail dans les projets de l’équipe utilise ses crédits."
+			},
+			"algeria": {
+				"q": "Puis-je payer depuis l’Algérie ?",
+				"a": "Oui. Chaque prix s’affiche en dollars US et en dinars algériens, au taux de 1 dollar US = {price}. Tu peux payer en dinars par CIB ou Edahabia via SlickPay. Quand l’option est disponible, tu peux aussi demander un paiement en espèces ou par virement, et notre équipe t’appelle.",
+				"aWithoutRate": "Oui. Quand les paiements par CIB / Edahabia sont ouverts, les prix s’affichent aussi en dinars algériens. Quand l’option est disponible, tu peux aussi demander un paiement en espèces ou par virement, et notre équipe t’appelle."
+			},
+			"refunds": {
+				"q": "Puis-je être remboursé ?",
+				"a": "Nos conditions d’utilisation expliquent quand un remboursement s’applique."
+			}
 		}
 	},
 	"faq": {
@@ -295,7 +353,7 @@
 			},
 			{
 				"q": "Comment marchent les crédits ?",
-				"a": "Chaque action de l'IA utilise des crédits, et tu vois ce que chacune a utilisé. Commence gratuitement, puis choisis un plan quand tu as besoin de plus."
+				"a": "Chaque action de l'IA utilise des crédits, et tu vois ce que chacune a utilisé. Recharge dès 10 $, avec des crédits bonus dès 40 $. Tu peux payer en dollars US ou en dinars algériens. Il n'y a pas d'abonnement, et les crédits n'expirent jamais."
 			}
 		]
 	},

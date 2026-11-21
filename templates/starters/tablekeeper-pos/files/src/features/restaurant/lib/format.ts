@@ -1,4 +1,4 @@
-// Formatters of the restaurant pages: money in cents, clock times, minutes, relative times, and message fill.
+// Formatters of the restaurant pages: money in cents, clock times, minutes, relative times, counts, and message fill.
 // Every page imports them from ~/features/restaurant, so amounts and times look the same everywhere.
 // They take the `locale` of useT(), so a second app language needs no change here.
 import { RESTAURANT_CURRENCY } from "./sample-menu";
@@ -98,4 +98,20 @@ export function fillMessage(
 	return template.replace(/\{(\w+)\}/g, (slot, name: string) =>
 		Object.hasOwn(values, name) ? (values[name] ?? slot) : slot,
 	);
+}
+
+/**
+ * A count with its noun, for example "1 cover" or "4 covers".
+ * `one` and `other` are messages with a {count} slot, from the `counts` group. Intl.PluralRules picks one for the language.
+ */
+export function countLabel(
+	count: number,
+	one: string,
+	other: string,
+	locale: string,
+): string {
+	const isOne = new Intl.PluralRules(locale).select(count) === "one";
+	return fillMessage(isOne ? one : other, {
+		count: new Intl.NumberFormat(locale).format(count),
+	});
 }

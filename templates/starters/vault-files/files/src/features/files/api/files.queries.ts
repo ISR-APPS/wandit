@@ -36,7 +36,7 @@ export function filesQueryOptions() {
 	});
 }
 
-/** One live file with its versions, shares, activity, and neighbors, or null for an unknown or trashed id. */
+/** One live file with its versions, shares, activity, editors, folder bytes, and share views, or null for an unknown or trashed id. */
 export function fileQueryOptions(fileId: string) {
 	return queryOptions({
 		queryKey: ["files", "detail", fileId],

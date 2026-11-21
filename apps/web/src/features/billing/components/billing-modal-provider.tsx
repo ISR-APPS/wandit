@@ -1,17 +1,10 @@
 /**
- * Owns the plan picker and the workspace billing notice for the whole web app.
- * Listens to billing-error-dispatch.ts: a refusal opens the picker or a notice.
- * Components open the picker through useBillingModal().openPlanPicker.
+ * Owns the top-up dialog and the workspace billing notice for the whole web app.
+ * Listens to billing-error-dispatch.ts: a refusal opens the top-up dialog or a notice.
+ * Components open the dialog through useBillingModal().openTopup. The dialog sells the Starter pass while the wallet needs it.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "@tanstack/react-router";
-import type {
-	BillingInterval,
-	BillingPlanId,
-	CreditPayer,
-	CreditTier,
-	ProductEventSurface,
-} from "@wandit/contracts";
+import type { CreditPayer, ProductEventSurface } from "@wandit/contracts";
 import {
 	createContext,
 	type ReactNode,
@@ -29,27 +22,20 @@ import {
 	type WorkspaceBillingNoticeKind,
 } from "@/features/workspaces/components/workspace-billing-notice-dialog";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { billingKeys } from "../api/billing.queries";
 import {
 	type BillingErrorIntent,
 	subscribeToBillingErrors,
 	type UpgradeModalIntent,
 } from "../lib/billing-error-dispatch";
-import type { PlanPickerPaymentMethod } from "../lib/billing-ui-policy";
-import { landingPlanSelection } from "../lib/landing-plan-selection";
-import { PlanPickerDialog } from "./plan-picker-dialog";
+import { TopupDialog } from "./topup-dialog";
 
 type BillingModalContextValue = {
-	openPlanPicker: (
-		surface: ProductEventSurface,
-		selection?: PlanPickerSelection,
-	) => void;
-};
-
-type PlanPickerSelection = {
-	interval: BillingInterval;
-	plan: BillingPlanId;
-	tierCredits: CreditTier;
-	paymentMethod?: PlanPickerPaymentMethod;
+	/**
+	 * Opens the top-up dialog for the active workspace wallet. A signed-out visitor gets the auth modal.
+	 * `amountUsd` is whole USD to select at open. The dialog ignores it while the wallet needs the Starter pass.
+	 */
+	openTopup: (surface: ProductEventSurface, amountUsd?: number) => void;
 };
 
 const BillingModalContext = createContext<BillingModalContextValue | null>(
@@ -57,7 +43,7 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 );
 
 /**
- * True when the plan picker can refill the pool that refused the turn.
+ * True when the top-up dialog can refill the pool that refused the turn.
  * A purchase credits the active workspace, so a refusal of any other pool gets the pool-empty notice.
  */
 export function canBuyForPayer(input: {
@@ -84,9 +70,12 @@ export function canBuyForPayer(input: {
 	);
 }
 
+/**
+ * Mounted once in routes/__root.tsx. A signed-out openTopup opens the auth modal.
+ * A 402 for a pool that the user cannot pay for shows a notice, not the dialog.
+ */
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
-	const pathname = useLocation({ select: (location) => location.pathname });
 	const { data: session } = useSession();
 	const sessionUserId = session?.user.id;
 	const { open: openAuth } = useAuthModal();
@@ -94,19 +83,23 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 		useWorkspace();
 	const [open, setOpen] = useState(false);
 	const [intent, setIntent] = useState<UpgradeModalIntent | null>(null);
-	const [selection, setSelection] = useState<PlanPickerSelection | null>(null);
+	const [amountUsd, setAmountUsd] = useState<number | undefined>(undefined);
 	const [surface, setSurface] = useState<ProductEventSurface>("plan_picker");
 	const [notice, setNotice] = useState<{
 		kind: WorkspaceBillingNoticeKind;
 		limitCredits?: number;
 	} | null>(null);
+	const [askOwnerForStarterPass, setAskOwnerForStarterPass] = useState(false);
 
 	useEffect(
 		() =>
 			subscribeToBillingErrors((nextIntent: BillingErrorIntent) => {
 				void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+				const isStarterPassRefusal =
+					nextIntent.code !== "MEMBER_CREDIT_LIMIT_REACHED" &&
+					nextIntent.reason === "starter_pass_required";
 
-				// The plan picker cannot fix a member's monthly cap, and members
+				// A top-up cannot fix a member's monthly cap, and members
 				// cannot fix an empty org pool — both get a notice instead
 				// (teams-workspaces.md §9; billing is owner-only). The pool of a
 				// shared project can also differ from the active workspace.
@@ -118,52 +111,60 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				if (
-					!canBuyForPayer({
-						payer: nextIntent.payer,
-						activeWorkspaceId,
-						isPersonal,
-						actorCanManageBilling,
-					})
-				) {
+				const canBuy = canBuyForPayer({
+					payer: nextIntent.payer,
+					activeWorkspaceId,
+					isPersonal,
+					actorCanManageBilling,
+				});
+
+				// The pool has credits but no Starter pass. "Pool empty" is not true, so the dialog asks for the owner.
+				if (!canBuy && isStarterPassRefusal) {
+					setIntent(null);
+					setAskOwnerForStarterPass(true);
+					setOpen(true);
+					return;
+				}
+
+				if (!canBuy) {
 					setNotice({ kind: "poolEmptyMember" });
 					return;
 				}
 
-				setIntent(nextIntent);
-				setSelection(null);
-				setSurface("plan_picker");
-				setOpen(true);
+				const openDialog = () => {
+					setIntent(nextIntent);
+					setAmountUsd(undefined);
+					setAskOwnerForStarterPass(false);
+					// A 402 opens the dialog from no named screen. "plan_picker" is the analytics value of the dialog itself.
+					// The value stays: it is in the shared surface enum, and old funnel reports use it.
+					setSurface("plan_picker");
+					setOpen(true);
+				};
+
+				// The dialog picks the Starter pass mode from the wallet. A cached wallet can be from before the switch.
+				// So the dialog opens after a fresh wallet. A failed reload still opens it, with the cached wallet.
+				if (isStarterPassRefusal) {
+					void queryClient
+						.refetchQueries({ queryKey: billingKeys.wallet() })
+						.finally(openDialog);
+					return;
+				}
+
+				openDialog();
 			}),
 		[actorCanManageBilling, activeWorkspaceId, isPersonal, queryClient],
 	);
 
-	useEffect(() => {
-		// In-place sign-in from the landing page performs a full navigation to
-		// /billing. Leave the one-shot value intact until that destination mounts.
-		if (!sessionUserId || pathname !== "/billing") return;
-
-		const pendingSelection = landingPlanSelection.consume();
-		if (!pendingSelection) return;
-
-		setIntent(null);
-		setSelection(pendingSelection);
-		setSurface("marketing_pricing");
-		setOpen(true);
-	}, [pathname, sessionUserId]);
-
-	const openPlanPicker = useCallback(
-		(nextSurface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
+	const openTopup = useCallback(
+		(nextSurface: ProductEventSurface, nextAmountUsd?: number) => {
 			if (!sessionUserId) {
-				if (nextSurface === "marketing_pricing" && nextSelection) {
-					landingPlanSelection.stash(nextSelection);
-				}
 				openAuth({ next: "/billing" });
 				return;
 			}
 
 			setIntent(null);
-			setSelection(nextSelection ?? null);
+			setAmountUsd(nextAmountUsd);
+			setAskOwnerForStarterPass(false);
 			setSurface(nextSurface);
 			setOpen(true);
 		},
@@ -174,26 +175,25 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 		setOpen(nextOpen);
 		if (!nextOpen) {
 			setIntent(null);
-			setSelection(null);
+			setAmountUsd(undefined);
+			setAskOwnerForStarterPass(false);
 		}
 	}, []);
 
-	const value = useMemo(() => ({ openPlanPicker }), [openPlanPicker]);
+	const value = useMemo(() => ({ openTopup }), [openTopup]);
 
 	return (
 		<BillingModalContext.Provider value={value}>
 			{children}
-			<PlanPickerDialog
-				initialInterval={selection?.interval}
-				initialPlan={selection?.plan}
-				initialTierCredits={selection?.tierCredits}
-				initialPaymentMethod={selection?.paymentMethod}
+			<TopupDialog
+				initialAmountUsd={amountUsd}
 				open={open}
 				onOpenChange={handleOpenChange}
 				surface={surface}
 				requiredCredits={intent?.requiredCredits}
 				availableCredits={intent?.availableCredits}
 				heldCredits={intent?.heldCredits}
+				askOwnerForStarterPass={askOwnerForStarterPass}
 			/>
 			<WorkspaceBillingNoticeDialog
 				kind={notice?.kind ?? "memberLimit"}
@@ -209,6 +209,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 	);
 }
 
+/** Gives `openTopup`. Throws outside BillingModalProvider, which __root.tsx mounts around the app. */
 export function useBillingModal() {
 	const context = useContext(BillingModalContext);
 	if (!context) {

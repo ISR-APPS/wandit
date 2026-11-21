@@ -1,5 +1,5 @@
 // Reads of courses: the list with the seat and lesson figures, and one course with its modules, students, work, and events.
-// The /app/courses loaders prefetch them. The course cards and the course page read them from the cache.
+// The /app/courses loader prefetches the list and the first course; the course page loader prefetches its course.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -99,7 +99,15 @@ export type CourseAssignment = {
 	graded: number;
 	/** The mean grade in points. null with no grade yet. */
 	averagePoints: number | null;
+	/** "open" before the due day ends; after it, "to_grade" while work waits, else "graded". */
+	state: CourseAssignmentState;
 };
+
+/** The states of an assignment in the course tables. The label is `courses.assignmentStates.<state>`. */
+export const COURSE_ASSIGNMENT_STATES = ["open", "to_grade", "graded"] as const;
+
+/** One assignment state. */
+export type CourseAssignmentState = (typeof COURSE_ASSIGNMENT_STATES)[number];
 
 /** One event of the course feed: who did what, and when. */
 export type CourseEvent = {
@@ -113,10 +121,17 @@ export type CourseEvent = {
 			kind: "module";
 			moduleTitle: string;
 	  }
-	| { kind: "submission"; assignmentTitle: string }
+	| {
+			kind: "submission";
+			assignmentTitle: string;
+			/** The id of the work. The feed links to it on the Assignments page. */
+			submissionId: string;
+	  }
 	| {
 			kind: "grade";
 			assignmentTitle: string;
+			/** The id of the graded work. */
+			submissionId: string;
 			/** The grade in points. */
 			points: number;
 	  }
@@ -146,7 +161,7 @@ export type CourseDetail = Course & {
 // The list shows the courses of today first, then the next ones, then the finished ones.
 const STATUS_ORDER = { running: 0, upcoming: 1, completed: 2 } as const;
 // The feed of the course page shows this many events.
-const EVENT_COUNT = 8;
+const EVENT_COUNT = 5;
 // The feed keeps this many events of one kind, so a mix of kinds shows.
 const EVENTS_PER_KIND = 3;
 
@@ -200,6 +215,12 @@ function summarize(
 			(row) => assignmentIds.has(row.assignmentId) && row.gradedAt === null,
 		).length,
 	};
+}
+
+/** The course that the Courses page shows first: the first running course, else the first of the list. undefined with no course. */
+export function featuredCourseId(courses: Course[]): string | undefined {
+	return (courses.find((course) => course.status === "running") ?? courses[0])
+		?.id;
 }
 
 /** Every course: the running ones by first day, then the next ones, then the finished ones, newest first. */
@@ -356,6 +377,7 @@ export function courseQueryOptions(id: string) {
 					kind: "submission" as const,
 					studentName: nameOf(row.studentId),
 					assignmentTitle: assignmentTitles.get(row.assignmentId) ?? "",
+					submissionId: row.id,
 					occurredAt: row.submittedAt,
 				})),
 				...submissions.flatMap((row) =>
@@ -366,6 +388,7 @@ export function courseQueryOptions(id: string) {
 									kind: "grade" as const,
 									studentName: nameOf(row.studentId),
 									assignmentTitle: assignmentTitles.get(row.assignmentId) ?? "",
+									submissionId: row.id,
 									points: row.points,
 									occurredAt: row.gradedAt,
 								},
@@ -413,19 +436,26 @@ export function courseQueryOptions(id: string) {
 						const work = submissions.filter(
 							(row) => row.assignmentId === assignment.id,
 						);
+						const graded = work.filter((row) => row.gradedAt !== null).length;
 						return {
 							id: assignment.id,
 							title: assignment.title,
 							kind: assignment.kind,
 							dueAt: assignment.dueAt,
 							submitted: work.length,
-							graded: work.filter((row) => row.gradedAt !== null).length,
+							graded,
 							averagePoints: averageOf(
 								work.flatMap((row) =>
 									row.points === null ? [] : [row.points],
 								),
 							),
-						};
+							state:
+								Date.parse(assignment.dueAt) > now
+									? "open"
+									: graded < work.length
+										? "to_grade"
+										: "graded",
+						} satisfies CourseAssignment;
 					})
 					.sort((first, second) => first.dueAt.localeCompare(second.dueAt)),
 				events,

@@ -77,6 +77,18 @@ export const TIME_OFF_TYPE_COLOR = {
 	unpaid: "var(--chart-5)",
 } satisfies Record<TimeOffType, string>;
 
+/**
+ * Chip classes per type for the leave calendars: a start rule in the type color on a light tint of it.
+ * They use the same chart token as TIME_OFF_TYPE_COLOR. The chip text always names the person and the type.
+ */
+export const TIME_OFF_TYPE_CHIP = {
+	vacation: "border-chart-1 bg-chart-1/15",
+	sick: "border-chart-3 bg-chart-3/15",
+	personal: "border-chart-2 bg-chart-2/15",
+	parental: "border-chart-4 bg-chart-4/20",
+	unpaid: "border-chart-5 bg-chart-5/20",
+} satisfies Record<TimeOffType, string>;
+
 /** Time-off request statuses, in the order of the tabs. Labels: `timeOffStatuses.<code>`. */
 export const TIME_OFF_STATUSES = [
 	"pending",
@@ -117,6 +129,18 @@ export const BOARD_STAGES = [
 	"offer",
 	"hired",
 ] as const satisfies readonly Stage[];
+
+/** Dot and bar class per board stage: the hiring funnel of the home and the board columns share them. */
+export const STAGE_DOT = {
+	applied: "bg-chart-1",
+	screening: "bg-chart-2",
+	interview: "bg-chart-3",
+	offer: "bg-chart-4",
+	hired: "bg-chart-5",
+} satisfies Record<BoardStage, string>;
+
+/** One stage of the board: every stage except "rejected". */
+export type BoardStage = (typeof BOARD_STAGES)[number];
 
 /** Badge per stage. Offer is the warning: the candidate must answer soon. */
 export const STAGE_BADGE = {

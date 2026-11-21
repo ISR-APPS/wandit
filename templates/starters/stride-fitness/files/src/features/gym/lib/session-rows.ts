@@ -2,7 +2,12 @@
 // The classes query and the member query call it. The home, the timetable, and the roster panel read the rows.
 // A roster entry keeps its check-in time, also when it is later today. The pages hide it until that time.
 import type { CheckIn, ClassSession } from "./sample-activity";
-import { type ClassTypeId, classTypeOf, coachOf } from "./sample-classes";
+import {
+	type ClassTypeId,
+	classTypeOf,
+	coachOf,
+	type Studio,
+} from "./sample-classes";
 import type { Member } from "./sample-members";
 
 /** One booked member of a session. */
@@ -22,7 +27,7 @@ export type SessionRow = {
 	className: string;
 	coachName: string;
 	/** The room of the class. Data, not a UI text. */
-	studio: string;
+	studio: Studio;
 	startsAt: number;
 	endsAt: number;
 	/** Spots of the session. The roster never holds more entries. */

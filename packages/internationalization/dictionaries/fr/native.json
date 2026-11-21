@@ -24,7 +24,8 @@
 		"tryHint": "Essaie : page COD pour une montre vintage →",
 		"tryPrompt": "Une page produit COD pour une montre vintage en cuir — photo héro, trois blocs bénéfices, et un formulaire de commande avec wilaya et commune.",
 		"createProjectError": "Impossible de créer le projet. Réessaie.",
-		"greetingNeutral": "On lance quoi aujourd'hui ?"
+		"greetingNeutral": "On lance quoi aujourd'hui ?",
+		"starterPassRequired": "Ton compte a besoin du Pass Démarrage. Ouvre ton portefeuille sur le web pour l'obtenir."
 	},
 	"drawer": {
 		"signOut": "Se déconnecter",
@@ -381,10 +382,11 @@
 	"credits": {
 		"title": "Crédits",
 		"left": "{count} restants",
-		"betaNote": "Crédits de forfait, promo et recharges cumulés",
-		"bucketPlan": "Forfait",
+		"betaNote": "Votre portefeuille. Les crédits n’expirent jamais.",
+		"bucketPlan": "Inclus",
 		"bucketPromo": "Promo",
-		"bucketTopup": "Recharge"
+		"bucketTopup": "Recharge",
+		"starterPassCta": "Obtenir le Pass Démarrage"
 	},
 	"projectSheet": {
 		"viewsLabel": "Vues du projet",

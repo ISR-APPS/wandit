@@ -19,14 +19,14 @@
 		"content": "full",
 		"sidebarStyle": "inset",
 		"sidebarCollapse": "icons",
-		"sidebarStart": "collapsed",
+		"sidebarStart": "open",
 		"sidebarTone": "brand",
 		"activeItem": "block",
 		"header": "plain",
 		"userMenu": "header",
-		"frame": "outlined",
+		"frame": "flat",
 		"icons": "fill",
-		"navIcon": "plain"
+		"navIcon": "color"
 	},
 	"resolved": {
 		"light": {

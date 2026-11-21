@@ -47,7 +47,9 @@ import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { StoryLinksModule } from "./modules/story-links/story-links.module";
 import { SupportModule } from "./modules/support/support.module";
+import { TrophiesModule } from "./modules/trophies/trophies.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
+import { UserReferralsModule } from "./modules/user-referrals/user-referrals.module";
 import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 
 @Module({
@@ -100,6 +102,8 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		StorageModule,
 		GenerationModule,
 		UploadsModule,
+		UserReferralsModule,
+		TrophiesModule,
 	],
 	providers: [
 		{

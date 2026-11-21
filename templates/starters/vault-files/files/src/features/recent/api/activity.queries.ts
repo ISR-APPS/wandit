@@ -8,7 +8,7 @@ import {
 	readWorkspace,
 } from "~/features/workspace";
 
-/** The feed covers today and the 29 days before: the life of a file in the trash. */
+/** The feed covers today and the 29 days before: the life of a file in the trash. The Recent page names it. */
 export const FEED_DAYS = 30;
 
 /** Every feed entry since the start of the first feed day. */

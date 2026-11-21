@@ -1,5 +1,5 @@
 /**
- * The organization detail page: balance, members, ledger, and staff grant actions.
+ * The organization detail page: balance, Starter pass, members, ledger, and staff grant actions.
  * The route /organizations/$organizationId renders it. It reads useOrganizationQuery.
  * A personal workspace hides the org grants, because the owner's personal pool pays for it.
  */
@@ -37,11 +37,13 @@ import {
 	useAdminPermission,
 } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
-import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
+import { RecordTopupDialog } from "@/features/offline-billing";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
+import { useChangeOrganizationStarterPassMutation } from "@/features/organizations/api/organizations.mutations";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
 import { GrantOrgCreditsDialog } from "@/features/organizations/components/grant-org-credits-dialog";
 import { OrgMembersCard } from "@/features/organizations/components/org-members-card";
+import { StarterPassCard } from "@/features/users";
 import { UserCreditLedger } from "@/features/users/components/detail/user-credit-ledger";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
 import {
@@ -63,11 +65,12 @@ export function OrganizationDetailPage({
 	organizationId,
 }: OrganizationDetailPageProps) {
 	const [grantOpen, setGrantOpen] = useState(false);
-	const [offlineGrantOpen, setOfflineGrantOpen] = useState(false);
+	const [recordTopupOpen, setRecordTopupOpen] = useState(false);
 	const organizationQuery = useOrganizationQuery(organizationId);
 	const { data: session } = useSession();
 	const hasGrantPermission = useAdminPermission({ credits: ["grant"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+	const starterPassMutation = useChangeOrganizationStarterPassMutation();
 
 	if (organizationQuery.isLoading) {
 		return (
@@ -159,16 +162,37 @@ export function OrganizationDetailPage({
 				isPersonal={isPersonal}
 				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setGrantOpen(true)}
-				onGrantOffline={() => setOfflineGrantOpen(true)}
+				onRecordTopup={() => setRecordTopupOpen(true)}
 			/>
 			<BalanceMetrics detail={detail} isPersonal={isPersonal} />
 
+			{/* A personal workspace shows the pass of the owner's personal pool. Staff change it on the user page. */}
+			<StarterPassCard
+				starterPass={detail.starterPass}
+				poolLabel={
+					isPersonal
+						? "the owner's personal wallet"
+						: `the team wallet of ${detail.name}`
+				}
+				canChange={canGrantCredits}
+				readOnlyHint={
+					isPersonal
+						? "Grant or revoke this pass on the owner's user page."
+						: undefined
+				}
+				isPending={starterPassMutation.isPending}
+				onChange={async (action, note) => {
+					await starterPassMutation.mutateAsync({
+						organizationId: detail.id,
+						action,
+						note,
+					});
+				}}
+			/>
+
 			<div className="grid gap-6 xl:grid-cols-2">
 				{detail.subscription ? (
-					<UserSubscriptionCard
-						subscription={detail.subscription}
-						ownerLabel={detail.name}
-					/>
+					<UserSubscriptionCard subscription={detail.subscription} />
 				) : null}
 				<AttributionCard
 					detail={detail}
@@ -194,12 +218,13 @@ export function OrganizationDetailPage({
 				/>
 			) : null}
 			{canManageBilling && !isPersonal ? (
-				<GrantManualSubscriptionDialog
-					open={offlineGrantOpen}
-					onOpenChange={setOfflineGrantOpen}
+				<RecordTopupDialog
+					open={recordTopupOpen}
+					onOpenChange={setRecordTopupOpen}
 					prefill={{
 						user: offlineBillingUser,
 						organization: { id: detail.id, name: detail.name },
+						starterPass: detail.starterPass,
 					}}
 				/>
 			) : null}
@@ -212,7 +237,7 @@ function DetailHeader({
 	isPersonal,
 	canGrantCredits,
 	onGrantCredits,
-	onGrantOffline,
+	onRecordTopup,
 }: {
 	detail: OrganizationDetail;
 	/** True for a user's personal workspace: no org grants, and a short reason replaces them. */
@@ -220,7 +245,8 @@ function DetailHeader({
 	/** credits:grant, minus a support grant to an org where it is a member (the API rejects it). */
 	canGrantCredits: boolean;
 	onGrantCredits: () => void;
-	onGrantOffline: () => void;
+	/** Opens "Record top-up" for the team wallet. */
+	onRecordTopup: () => void;
 }) {
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
@@ -235,21 +261,19 @@ function DetailHeader({
 						<h1 className="truncate font-semibold text-2xl tracking-tight">
 							{detail.name}
 						</h1>
-						<Badge
-							variant={detail.plan === "free" ? "outline" : "default"}
-							className="capitalize"
-						>
-							{detail.plan}
-						</Badge>
 						{isPersonal ? <Badge variant="secondary">Personal</Badge> : null}
+						{/* Paid: the pool that pays has a top-up or had a subscription. */}
+						<Badge variant={detail.isPaidOwner ? "default" : "secondary"}>
+							{detail.isPaidOwner ? "Paid" : "Free"}
+						</Badge>
 					</div>
 					<p className="mt-1 text-muted-foreground text-sm">
 						{detail.slug} · created {formatAdminDate(detail.createdAt)}
 					</p>
 					{isPersonal ? (
 						<p className="mt-1 text-muted-foreground text-sm">
-							The owner's personal pool pays for this workspace. Grant credits
-							or a plan on the owner's user page.
+							The owner's personal wallet pays for this workspace. Grant credits
+							or record a top-up on the owner's user page.
 						</p>
 					) : null}
 				</div>
@@ -261,15 +285,16 @@ function DetailHeader({
 						All organizations
 					</Link>
 				</Button>
-				{canManageBilling && !detail.subscription && !isPersonal ? (
+				{/* A personal workspace has no team wallet. Its top-up goes on the owner's user page. */}
+				{canManageBilling && !isPersonal ? (
 					<Button
 						type="button"
 						variant="outline"
 						size="sm"
-						onClick={onGrantOffline}
+						onClick={onRecordTopup}
 					>
 						<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
-						Grant offline subscription
+						Record top-up
 					</Button>
 				) : null}
 				{canGrantCredits ? (
@@ -300,32 +325,15 @@ function BalanceMetrics({
 	const heldCredits = roundCreditAmount(
 		balance.settledBalance - balance.balance,
 	);
-	const buckets = [
-		{
-			label: "Plan credits",
-			value: balance.plan,
-			held: roundCreditAmount(balance.settledPlan - balance.plan),
-		},
-		{
-			label: "Promo credits",
-			value: balance.promo,
-			held: roundCreditAmount(balance.settledPromo - balance.promo),
-		},
-		{
-			label: "Top-up credits",
-			value: balance.topup,
-			held: roundCreditAmount(balance.settledTopup - balance.topup),
-		},
-	];
-
+	// Pricing v8 shows one wallet number. The plan, promo, and top-up buckets stay internal.
 	return (
-		<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+		<div className="grid gap-3 sm:grid-cols-2">
 			<Card className="shadow-none">
 				<CardContent className="py-4">
 					<p className="text-muted-foreground text-xs">
 						{isPersonal
-							? "Owner's personal pool — what the owner sees"
-							: "Pool balance — what the user sees"}
+							? "Owner's personal wallet — what the owner sees"
+							: "Team wallet — what the members see"}
 					</p>
 					<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
 						{formatCreditBalance(balance.settledBalance)}
@@ -346,24 +354,6 @@ function BalanceMetrics({
 					) : null}
 				</CardContent>
 			</Card>
-			{buckets.map((metric) => (
-				<Card key={metric.label} className="shadow-none">
-					<CardContent className="py-4">
-						<p className="text-muted-foreground text-xs">{metric.label}</p>
-						<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
-							{formatCreditBalance(metric.value)}
-						</p>
-						{metric.held > 0 ? (
-							<p className="mt-1 text-muted-foreground text-xs">
-								On hold:{" "}
-								<span className="font-mono tabular-nums">
-									{formatCreditAmount(metric.held)}
-								</span>
-							</p>
-						) : null}
-					</CardContent>
-				</Card>
-			))}
 		</div>
 	);
 }

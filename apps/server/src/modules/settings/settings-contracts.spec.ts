@@ -42,10 +42,16 @@ describe("workstream 5 contract round-trips", () => {
 			paidSubscriptionsEnabled: true,
 			signupGrantCredits: 20,
 			signupGrantEnabled: true,
+			starterPassRequired: false,
 			topupsEnabled: true,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: "admin_1",
+			userReferralActivationCredits: 10,
+			userReferralFriendCredits: 10,
+			userReferralPaidCredits: 100,
+			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
+			v2DisabledModels: [],
 			version: 4,
 		};
 
@@ -94,6 +100,10 @@ describe("workstream 5 contract round-trips", () => {
 				signupGrantCredits,
 				signupGrantEnabled: true,
 				topupsEnabled: false,
+				userReferralActivationCredits: 10,
+				userReferralFriendCredits: 10,
+				userReferralPaidCredits: 100,
+				userReferralsEnabled: false,
 				v2BuilderEnabled: false,
 			}),
 		).toMatchObject({ signupGrantCredits });
@@ -111,10 +121,16 @@ describe("workstream 5 contract round-trips", () => {
 			paidSubscriptionsEnabled: false,
 			signupGrantCredits: 0.5,
 			signupGrantEnabled: true,
+			starterPassRequired: false,
 			topupsEnabled: false,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: null,
+			userReferralActivationCredits: 10,
+			userReferralFriendCredits: 10,
+			userReferralPaidCredits: 100,
+			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
+			v2DisabledModels: [],
 			version: 1,
 		};
 
@@ -125,6 +141,34 @@ describe("workstream 5 contract round-trips", () => {
 				version: 1,
 			}).success,
 		).toBe(false);
+	});
+
+	it.each([
+		{ userReferralsEnabled: true },
+		{ userReferralFriendCredits: 1 },
+		{ userReferralActivationCredits: 25 },
+		{ userReferralPaidCredits: 10_000 },
+		{ starterPassRequired: true },
+	])("accepts a patch that holds only the setting %o", (change) => {
+		expect(
+			patchProductSettingsBodySchema.parse({ ...change, version: 4 }),
+		).toEqual({ ...change, version: 4 });
+	});
+
+	// Zero is not legal: the credit grant throws on an amount of 0.
+	it.each([
+		0, -1, 0.5, 10_001,
+	])("rejects a user referral amount of %s credits", (credits) => {
+		for (const key of [
+			"userReferralFriendCredits",
+			"userReferralActivationCredits",
+			"userReferralPaidCredits",
+		] as const) {
+			expect(
+				patchProductSettingsBodySchema.safeParse({ [key]: credits, version: 4 })
+					.success,
+			).toBe(false);
+		}
 	});
 
 	it("keeps the DZD rate writable by admins but out of public settings", () => {

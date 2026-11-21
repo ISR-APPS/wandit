@@ -324,7 +324,7 @@ describe("AdminAnalyticsRepository snapshot queries", () => {
 		],
 		[
 			"checkoutStarted",
-			"inner join billing_checkout_attempts a on a.user_id = c.user_id and a.purpose = 'subscription'",
+			"inner join billing_checkout_attempts a on a.user_id = c.user_id cross join bounds b",
 		],
 	] as const)("runs the %s user list as one bounded pool query", async (step, membershipJoin) => {
 		const { queries, transaction } = await collectFunnelStepUserQueries(step);
@@ -367,8 +367,8 @@ describe("AdminAnalyticsRepository snapshot queries", () => {
 		expect(query.sql).toMatch(/limit \$\d+ offset \$\d+/);
 		expect(query.params.slice(-2)).toEqual([20, 0]);
 		expect(query.sql).toContain("from subscriptions s");
-		expect(query.sql).toContain("s.created_at < b.snapshot_end");
-		expect(query.sql).not.toContain("s.status");
+		expect(query.sql).toContain("p.paid_at < b.snapshot_end");
+		expect(query.sql).not.toContain("s.status in (");
 	});
 
 	it.each([
@@ -841,7 +841,7 @@ describe("AdminAnalyticsRepository funnel SQL", () => {
 			productSteps.match(/where e\.created_at < b\.snapshot_end/g),
 		).toHaveLength(2);
 		expect(funnel.sql).toContain(
-			"inner join billing_checkout_attempts a on a.user_id = c.user_id and a.purpose = 'subscription'",
+			"inner join billing_checkout_attempts a on a.user_id = c.user_id",
 		);
 		expect(funnel.sql).toContain(
 			"(select count(*) from pricing_viewed_users)::bigint as pricing_viewed_users",
@@ -903,9 +903,8 @@ describe("AdminAnalyticsRepository funnel SQL", () => {
 		const funnel = queryContaining(queries, "signup_cohort as");
 
 		expect(funnel.sql).toContain("billing_checkout_attempts a");
-		expect(funnel.sql).toMatch(/\.purpose = 'subscription'/);
 		expect(funnel.sql).toContain("a.created_at < b.snapshot_end");
-		expect(funnel.sql).toContain("s.created_at < b.snapshot_end");
+		expect(funnel.sql).toContain("p.paid_at < b.snapshot_end");
 		expect(funnel.sql).toContain("e.created_at < b.snapshot_end");
 		expect(funnel.sql).toContain("p.created_at < b.snapshot_end");
 	});
@@ -1060,9 +1059,7 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(matureCohortStart).toBeGreaterThan(paidUsersStart);
 
 		const signupToPaid = funnel.sql.slice(paidUsersStart, matureCohortStart);
-		expect(signupToPaid).toContain(
-			"inner join subscriptions s on s.user_id = c.user_id",
-		);
+		expect(signupToPaid).toContain("p on p.user_id = c.user_id");
 		expect(signupToPaid).not.toContain("s.provider");
 	});
 
@@ -1447,13 +1444,9 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 
 	it("bounds subscription conversion and checkout sources on their leading timestamps", async () => {
 		const { queries } = await collectQueries("revenue");
+		// New paid = first payment of any kind, so no live-status filter.
 		const newPaid = queryContaining(queries, "daily as (");
-		expect(newPaid.sql).toContain("s.status in (");
-		expect(
-			newPaid.params.filter((value) =>
-				(LIVE_SUBSCRIPTION_STATUSES as readonly unknown[]).includes(value),
-			),
-		).toEqual([...LIVE_SUBSCRIPTION_STATUSES]);
+		expect(newPaid.sql).not.toContain("s.status in (");
 		const conversion = queryContaining(queries, "conversion_days as");
 		const checkout = queryContaining(
 			queries,
@@ -1461,8 +1454,8 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		);
 
 		for (const query of [newPaid, conversion]) {
-			expect(query.sql).toContain("s.created_at < b.range_end");
-			expectRange(query, "f.first_subscription_at");
+			expect(query.sql).toContain("p.paid_at < b.range_end");
+			expectRange(query, "f.first_paid_at");
 		}
 		expectRange(checkout, "a.created_at");
 		expect(checkout.sql).toContain(
@@ -1524,10 +1517,10 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		);
 		expectRange(adoption, "e.created_at");
 		expectRange(adoption, "d.created_at");
-		expect(adoption.sql).toContain("s.created_at < b.snapshot_end");
+		expect(adoption.sql).toContain("p.paid_at < b.snapshot_end");
 	});
 
-	it("reuses live-owner policy and bounds credit/cost scans", async () => {
+	it("reuses paid-owner policy and bounds credit/cost scans", async () => {
 		const { queries } = await collectQueries("features");
 		const creditRange = queryContaining(queries, "ledger_range as");
 		const freeConsumption = queryContaining(queries, "free_owners as (");
@@ -1537,15 +1530,10 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		);
 
 		for (const query of [creditRange, freeConsumption]) {
-			expect(
-				query.params.filter((value) =>
-					(LIVE_SUBSCRIPTION_STATUSES as readonly unknown[]).includes(value),
-				),
-			).toEqual([...LIVE_SUBSCRIPTION_STATUSES]);
 			expect(query.sql).toContain(
 				"coalesce(s.organization_id, s.user_id) as owner_id",
 			);
-			expect(query.sql).toContain("s.created_at < b.snapshot_end");
+			expect(query.sql).toContain("p.paid_at < b.snapshot_end");
 		}
 
 		expect(creditRange.sql).toContain("c.created_at >= b.range_start");
@@ -1607,14 +1595,12 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(beforeUpgrade.sql).toContain(netConsumptionSql("c"));
 		expect(freeConsumption.sql).toContain("c.created_at < b.snapshot_end");
 		expect(freeConsumption.sql).toContain("u.created_at < b.snapshot_end");
-		expect(beforeUpgrade.sql).toContain("s.created_at < b.snapshot_end");
-		expect(beforeUpgrade.sql).toContain(
-			"f.first_subscription_at < b.snapshot_end",
-		);
+		expect(beforeUpgrade.sql).toContain("p.paid_at < b.snapshot_end");
+		expect(beforeUpgrade.sql).toContain("f.first_paid_at < b.snapshot_end");
 		expect(beforeUpgrade.sql).toContain("u.created_at < b.snapshot_end");
 		expect(beforeUpgrade.sql).toContain("c.created_at >= u.created_at");
 		expect(beforeUpgrade.sql).toContain(
-			`${effectiveAtSql("c")} < u.first_subscription_at`,
+			`${effectiveAtSql("c")} < u.first_paid_at`,
 		);
 		expect(beforeUpgrade.sql).toContain("c.organization_id is null");
 	});
@@ -1630,10 +1616,10 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 			"coalesce(s.organization_id, s.user_id) as owner_id",
 		);
 		expect(adoption.sql).toContain(
-			"min(s.created_at) as first_subscription_at",
+			"select p.owner_id, min(p.paid_at) as first_paid_at",
 		);
-		expect(adoption.sql).toContain("s.first_subscription_at >= f.first_use_at");
-		expect(adoption.sql).toContain("s.first_subscription_at < b.snapshot_end");
+		expect(adoption.sql).toContain("s.first_paid_at >= f.first_use_at");
+		expect(adoption.sql).toContain("s.first_paid_at < b.snapshot_end");
 		expect(adoption.sql).toContain(
 			"coalesce(c.converted_users, 0)::bigint as converted_after_use_users",
 		);
@@ -1655,9 +1641,7 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(freeCredits.sql).toContain(
 			"c.cumulative_consumed >= c.grant_credits",
 		);
-		expect(freeCredits.sql).toContain(
-			"s.first_subscription_at >= c.crossing_at",
-		);
+		expect(freeCredits.sql).toContain("s.first_paid_at >= c.crossing_at");
 		expect(freeCredits.sql).toContain("not exists ( select 1");
 		expect(freeCredits.sql).toContain("other_grant.id <> c.grant_id");
 		expect(freeCredits.sql).toContain("other_grant.delta > 0");
@@ -1676,10 +1660,8 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(conversion.sql).toContain(
 			`sum(-c.delta) filter (where ${netConsumptionSql("c")})`,
 		);
-		expect(conversion.sql).toContain(
-			"select distinct coalesce(s.organization_id, s.user_id) as owner_id",
-		);
-		expect(conversion.sql).toContain("s.created_at < b.snapshot_end");
+		expect(conversion.sql).toContain("select distinct p.owner_id");
+		expect(conversion.sql).toContain("p.paid_at < b.snapshot_end");
 		expect(conversion.sql).not.toContain("s.status in");
 		expect(conversion.sql).toContain(
 			"left join owner_consumption c on c.owner_id = u.owner_id",

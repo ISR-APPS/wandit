@@ -2,7 +2,20 @@
 // The sample tables, the badges, the board, and the filters read them. Labels come from messages.ts by code.
 // A later database keeps the same lists as check constraints (STARTER.md).
 
-import { BugIcon, SparkleIcon, WrenchIcon } from "@phosphor-icons/react";
+import {
+	ArrowDownIcon,
+	ArrowLineUpIcon,
+	ArrowRightIcon,
+	ArrowUpIcon,
+	BugIcon,
+	CheckCircleIcon,
+	CircleDashedIcon,
+	CircleHalfIcon,
+	CircleIcon,
+	EyeIcon,
+	SparkleIcon,
+	WrenchIcon,
+} from "@phosphor-icons/react";
 import type { VariantProps } from "class-variance-authority";
 import type { badgeVariants } from "~/shared/ui/badge";
 import type { KitIcon } from "~/shared/ui/icons";
@@ -31,14 +44,14 @@ export const TASK_STATUS_BADGE = {
 	done: "success",
 } satisfies Record<TaskStatus, BadgeVariant>;
 
-/** The dot color of each status in a board column head and a workload bar. */
-export const TASK_STATUS_DOT = {
-	backlog: "bg-muted-foreground/50",
-	todo: "bg-muted-foreground",
-	"in-progress": "bg-info",
-	"in-review": "bg-warning",
-	done: "bg-success",
-} satisfies Record<TaskStatus, string>;
+/** The icon before the status word in the Tasks table. Each status keeps its word, so the icon is never the only signal. */
+export const TASK_STATUS_ICON = {
+	backlog: CircleDashedIcon,
+	todo: CircleIcon,
+	"in-progress": CircleHalfIcon,
+	"in-review": EyeIcon,
+	done: CheckCircleIcon,
+} satisfies Record<TaskStatus, KitIcon>;
 
 /** The task priorities, the most urgent first. Sort keys use this order. */
 export const TASK_PRIORITIES = ["urgent", "high", "medium", "low"] as const;
@@ -46,7 +59,15 @@ export const TASK_PRIORITIES = ["urgent", "high", "medium", "low"] as const;
 /** One task priority. */
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
-/** The kinds of task. A bug feeds the "Bugs reported" series of the overview. */
+/** The arrow before the priority word in the Tasks table: up for urgent work, down for low. */
+export const TASK_PRIORITY_ICON = {
+	urgent: ArrowLineUpIcon,
+	high: ArrowUpIcon,
+	medium: ArrowRightIcon,
+	low: ArrowDownIcon,
+} satisfies Record<TaskPriority, KitIcon>;
+
+/** The kinds of task. Bugs and chores form the "Fixes" series of the work chart. */
 export const TASK_KINDS = ["feature", "bug", "chore"] as const;
 
 /** One kind of task. */

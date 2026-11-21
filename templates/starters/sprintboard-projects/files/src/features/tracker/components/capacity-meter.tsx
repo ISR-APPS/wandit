@@ -1,5 +1,5 @@
 // A load meter: committed story points against the capacity of one person, as a bar and a percent.
-// My tasks and the Team page render it. Above 100 % the bar is full and takes the destructive color.
+// The Team page and its member sheet render it. Above 100 % the bar is full and takes the destructive color.
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 

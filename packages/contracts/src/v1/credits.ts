@@ -73,6 +73,9 @@ export const creditBalanceResponseSchema = z.object({
 	settledPlan: z.number(),
 	settledPromo: z.number(),
 	settledTopup: z.number(),
+	// True when the pool must buy the Starter pass before it can spend: the switch is on and the pool has no live pass.
+	// Optional, so a new client still parses the answer of an old API.
+	starterPassRequired: z.boolean().optional(),
 });
 
 export type CreditBalanceResponse = z.infer<typeof creditBalanceResponseSchema>;
@@ -145,7 +148,10 @@ export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 // the plan allowance (WANDIT-196); `app_ai_gateway` is one AI call of a
 // V2 app through the app AI gateway, billed by tokens; `desktop_build` is
 // one desktop build, Windows or macOS, of a V2 desktop app; `theme_design`
-// is one AI theme design of the builder Thème sheet.
+// is one AI theme design of the builder Thème sheet; `web_search` is one
+// Exa search of the `web_search` host tool in a builder turn;
+// `web_fetch` is one page read of the `web_fetch` host tool through Firecrawl;
+// `site_capture` is one page capture of the `capture_site` host tool through Firecrawl.
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -162,6 +168,9 @@ export const creditActivityOperations = [
 	"app_ai_gateway",
 	"desktop_build",
 	"theme_design",
+	"web_search",
+	"web_fetch",
+	"site_capture",
 	"topup_adjust",
 ] as const;
 
@@ -209,6 +218,36 @@ export type CreditActivityResponse = z.infer<
 // at $0.04/credit. The DB and product settings store centi-credits; the server
 // converts at the API boundary.
 export const SIGNUP_GRANT_CREDITS = 20;
+
+// Spend badges (pricing v8). "Spend badge" is not the "Made with Wandit" page badge.
+/** Ids in threshold order. The web maps each id to a translated name and an icon. */
+export const spendBadgeIds = [
+	"spark",
+	"apprentice",
+	"builder",
+	"artisan",
+	"master",
+	"legend",
+] as const;
+
+/** Id of one spend badge. The Fuel trophy ids are `spend_<id>`. */
+export type SpendBadgeId = (typeof spendBadgeIds)[number];
+
+/**
+ * Lifetime credits a user must spend from the personal wallet to earn each badge, lowest first.
+ * Whole display credits. A badge gives no credits and no money.
+ */
+export const SPEND_BADGES = [
+	{ id: "spark", thresholdCredits: 10 },
+	{ id: "apprentice", thresholdCredits: 100 },
+	{ id: "builder", thresholdCredits: 500 },
+	{ id: "artisan", thresholdCredits: 2000 },
+	{ id: "master", thresholdCredits: 5000 },
+	{ id: "legend", thresholdCredits: 20000 },
+] as const satisfies ReadonlyArray<{
+	id: SpendBadgeId;
+	thresholdCredits: number;
+}>;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",

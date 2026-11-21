@@ -1,6 +1,7 @@
 import type { DomainSource, RequiredDomainRecord } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import { CustomHostnameMissingError } from "../../domain/errors/domain.errors";
 import { ApexZoneStep } from "./apex-zone.step";
 import type {
 	CustomerZone,
@@ -1268,6 +1269,32 @@ describe("ApexZoneStep", () => {
 			expect(state.persistApexDns).toHaveBeenCalledExactlyOnceWith(configured, {
 				zoneStatus: "initializing",
 			});
+		});
+
+		it("creates a deleted apex hostname again and stores the new id", async () => {
+			const { customHostnames, step, zones } = setup();
+			zones.getZoneStatus.mockResolvedValue("active");
+			customHostnames.refreshCustomHostnameValidation.mockRejectedValueOnce(
+				new CustomHostnameMissingError(),
+			);
+			customHostnames.getCustomHostnameStatus.mockRejectedValueOnce(
+				new CustomHostnameMissingError(),
+			);
+			customHostnames.createApexCustomHostname.mockResolvedValueOnce(
+				customHostname("cf_apex_new"),
+			);
+
+			const result = await step.execute(configured);
+
+			expect(customHostnames.createApexCustomHostname).toHaveBeenCalledWith(
+				"example.com",
+			);
+			expect(result.dns).toMatchObject({
+				apexConfigured: true,
+				apexCustomHostnameId: "cf_apex_new",
+			});
+			expect(result.dns).not.toHaveProperty("apexCustomHostnameNudged");
+			expect(result.dns).not.toHaveProperty("apexError");
 		});
 
 		it("marks the zone active and nudges the apex hostname exactly once", async () => {

@@ -1,11 +1,13 @@
 /**
  * Reads and changes organizations (team and personal workspaces) for the admin dashboard.
  * AdminOrganizationsController calls it. It calls AdminOrganizationsRepository,
- * CreditsService for balances and credit grants to the org pool, and
- * MembershipCleanupService after a change to viewer.
+ * CreditsService for balances and credit grants to the org pool,
+ * PaidOwnerRepository for the paid state of the pool, StarterPassesRepository for the
+ * Starter pass of the pool, and MembershipCleanupService after a change to viewer.
  */
 import {
 	BadRequestException,
+	ConflictException,
 	Inject,
 	Injectable,
 	Logger,
@@ -22,12 +24,16 @@ import {
 	type AdminListOrganizationsResponse,
 	type AdminOrganizationDetail,
 	type AdminSetMemberRoleInput,
+	type AdminStarterPassBody,
+	type AdminStarterPassResponse,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	isAdminRole,
 	normalizeStoredRole,
 } from "@wandit/contracts";
 
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
+import { StarterPassesRepository } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { orgOwner, userOwner } from "../../../credits/domain/credit-owner";
 import { MembershipCleanupService } from "../../../workspaces";
@@ -37,6 +43,8 @@ import {
 	mapAdminOrganizationSubscription,
 	mapAdminOrganizationSummary,
 } from "../../infrastructure/mappers/admin-organization.mapper";
+import { mapAdminStarterPass } from "../../infrastructure/mappers/admin-user.mapper";
+import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 import {
 	type AdminOrganizationSummaryRow,
 	AdminOrganizationsRepository,
@@ -57,6 +65,19 @@ export class AdminOrganizationsService {
 		private readonly membershipCleanup: Pick<
 			MembershipCleanupService,
 			"handleMembershipReduced"
+		>,
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"findLive" | "grantIfAbsent" | "revokeLive"
+		>,
+		// Only for the balance lock of the pool (`withCreditOwnerLock`).
+		@Inject(AdminRepository)
+		private readonly adminRepository: Pick<
+			AdminRepository,
+			"withCreditOwnerLock"
 		>,
 	) {}
 
@@ -98,6 +119,8 @@ export class AdminOrganizationsService {
 			spentByUser,
 			attributionUserId,
 			aiSpend,
+			isPaidOwner,
+			starterPass,
 		] = await Promise.all([
 			this.repository.listMembersWithUsers(organizationId),
 			this.repository.findLatestSubscription(organizationId),
@@ -109,6 +132,8 @@ export class AdminOrganizationsService {
 			this.repository.sumMemberSpendThisMonth(organizationId, new Date()),
 			this.repository.findAttributionUserId(organizationId),
 			this.repository.sumAiSpend(organizationId),
+			this.paidOwners.isPaidOwner(pool),
+			this.starterPasses.findLive(pool),
 		]);
 
 		return {
@@ -147,6 +172,9 @@ export class AdminOrganizationsService {
 					: centiCreditsToCredits(defaultMemberMonthlyCreditLimit),
 			attributionUserId,
 			personalOwnerUserId: summary.personalOwnerUserId,
+			isPaidOwner,
+			starterPass:
+				starterPass === null ? null : mapAdminStarterPass(starterPass),
 		};
 	}
 
@@ -201,6 +229,94 @@ export class AdminOrganizationsService {
 		);
 
 		return this.getOrganizationDetail(organizationId);
+	}
+
+	/**
+	 * Gives the Starter pass to the team pool, with source `admin`. Returns the live pass.
+	 * A pool that already has a live pass keeps it: the call returns that pass and writes nothing.
+	 * Throws 400 for a personal workspace, and when a non-admin staff account is a member of the organization.
+	 */
+	async grantStarterPass(
+		actor: Pick<AuthUser, "id" | "role">,
+		organizationId: string,
+		input: AdminStarterPassBody,
+	): Promise<AdminStarterPassResponse> {
+		await this.requireTeamPool(organizationId);
+
+		// Same rule as the credit grant: support cannot unlock a pool that it spends from. Admins are exempt.
+		if (
+			!isAdminRole(actor.role) &&
+			(await this.repository.findMember(organizationId, actor.id)) !== null
+		) {
+			throw new BadRequestException(
+				"Support accounts cannot grant the Starter pass to an organization they belong to",
+			);
+		}
+
+		const owner = orgOwner(organizationId);
+		// The balance lock serializes this write with the receipt grant, the reverse, and the dispute paths.
+		const result = await this.adminRepository.withCreditOwnerLock(
+			owner,
+			async (tx) => {
+				const live = await this.starterPasses.findLive(owner, tx);
+
+				if (live) {
+					return { pass: live, granted: false };
+				}
+
+				const granted = await this.starterPasses.grantIfAbsent(
+					owner,
+					{ source: "admin", grantedByUserId: actor.id, note: input.note },
+					tx,
+				);
+
+				// Null means a writer without the owner lock inserted a pass after the read above.
+				if (!granted) {
+					throw new ConflictException(
+						"The Starter pass changed during the grant. Try again",
+					);
+				}
+
+				return { pass: granted, granted: true };
+			},
+		);
+
+		this.logger.log(
+			`admin_grant_org_starter_pass admin=${actor.id} role=${normalizeStoredRole(actor.role)} org=${organizationId} pass=${result.pass.id} granted=${result.granted}`,
+		);
+
+		return { starterPass: mapAdminStarterPass(result.pass) };
+	}
+
+	/**
+	 * Revokes the live Starter pass of the team pool. The reason is `admin:{note}`.
+	 * A pool with no live pass is a no-op. The answer is always `{ starterPass: null }`.
+	 * Throws 400 for a personal workspace.
+	 */
+	async revokeStarterPass(
+		actor: Pick<AuthUser, "id" | "role">,
+		organizationId: string,
+		input: AdminStarterPassBody,
+	): Promise<AdminStarterPassResponse> {
+		await this.requireTeamPool(organizationId);
+
+		const owner = orgOwner(organizationId);
+		// The balance lock serializes this write with the receipt grant, the reverse, and the dispute paths.
+		const revoked = await this.adminRepository.withCreditOwnerLock(
+			owner,
+			(tx) =>
+				this.starterPasses.revokeLive(
+					owner,
+					{ revokedByUserId: actor.id, reason: `admin:${input.note}` },
+					tx,
+				),
+		);
+
+		this.logger.log(
+			`admin_revoke_org_starter_pass admin=${actor.id} role=${normalizeStoredRole(actor.role)} org=${organizationId} pass=${revoked?.id ?? "none"}`,
+		);
+
+		return { starterPass: null };
 	}
 
 	/**
@@ -286,6 +402,17 @@ export class AdminOrganizationsService {
 		}
 
 		return this.getOrganizationDetail(organizationId);
+	}
+
+	// The owner's personal pool pays in a personal workspace. Staff use the user routes for it.
+	private async requireTeamPool(organizationId: string): Promise<void> {
+		const summary = await this.requireOrganizationSummary(organizationId);
+
+		if (summary.personalOwnerUserId !== null) {
+			throw new BadRequestException(
+				"A personal workspace has no credit pool. Use the Starter pass of its owner",
+			);
+		}
 	}
 
 	private async requireOrganizationSummary(

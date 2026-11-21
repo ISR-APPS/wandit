@@ -21,7 +21,7 @@
 		"sidebarCollapse": "icons",
 		"sidebarStart": "open",
 		"sidebarTone": "tint",
-		"activeItem": "bar",
+		"activeItem": "quiet",
 		"header": "blur",
 		"userMenu": "sidebar-footer",
 		"frame": "outlined",

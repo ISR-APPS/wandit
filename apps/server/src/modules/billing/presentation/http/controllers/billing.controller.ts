@@ -1,36 +1,42 @@
-import { Body, Controller, Get, Inject, Post, UseGuards } from "@nestjs/common";
+/**
+ * HTTP routes of the wallet under /v1/billing: wallet view, top-up checkout, top-up status,
+ * payment history, Stripe portal, and the plan reads that cached web bundles still call.
+ * It calls BillingService. The x-wandit-workspace header selects the pool, except for the top-up status.
+ */
+import {
+	Body,
+	Controller,
+	Get,
+	Inject,
+	Post,
+	Query,
+	UseGuards,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
-	type BillingCancelRequest,
 	type BillingCheckoutResponse,
+	type BillingPaymentsResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
-	type BillingSubscriptionChangeOutcomeResponse,
-	type BillingSubscriptionChangePreviewResponse,
 	type BillingSubscriptionViewResponse,
-	billingCancelRequestSchema,
-	type ChangeBillingSubscriptionBody,
-	type CreateBillingCheckoutBody,
+	type BillingTopupStatusQuery,
+	type BillingTopupStatusResponse,
+	type BillingWalletResponse,
+	billingTopupStatusQuerySchema,
 	type CreateBillingTopupBody,
-	changeBillingSubscriptionBodySchema,
-	createBillingCheckoutBodySchema,
 	createBillingTopupBodySchema,
-	type PreviewBillingSubscriptionChangeBody,
-	previewBillingSubscriptionChangeBodySchema,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser, Public } from "../../../../auth";
-import {
-	SubscriptionsEnabledGuard,
-	TopupsEnabledGuard,
-} from "../../../../settings";
+import { TopupsEnabledGuard } from "../../../../settings";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { BillingService } from "../../../application/services/billing.service";
+import { WebOriginWriteGuard } from "../guards/web-origin-write.guard";
 
 // Workspace-scoped billing: the x-wandit-workspace header selects whose money
 // this is (design §2/§5.4). Personal scope is byte-identical to pre-teams.
@@ -43,12 +49,14 @@ export class BillingController {
 		private readonly billingService: BillingService,
 	) {}
 
+	// Cached pricing v7 web bundles call it for one release. The new web does not.
 	@Public()
 	@Get("plans")
 	plans(): BillingPlansResponse {
 		return this.billingService.plans();
 	}
 
+	// Cached pricing v7 web bundles call it for one release. The new web does not.
 	@Get("subscription")
 	subscription(
 		@CurrentUser() user: AuthUser,
@@ -58,19 +66,17 @@ export class BillingController {
 		return this.billingService.getSubscriptionView(user.id, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard)
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("checkout")
-	checkout(
+	@Get("wallet")
+	wallet(
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
-		@Body(new ZodValidationPipe(createBillingCheckoutBodySchema))
-		body: CreateBillingCheckoutBody,
-	): Promise<BillingCheckoutResponse> {
-		return this.billingService.checkout(user, body, workspace);
+	): Promise<BillingWalletResponse> {
+		// Readable by any workspace member: the pooled balance is shared context.
+		return this.billingService.getWallet(user.id, workspace);
 	}
 
-	@UseGuards(TopupsEnabledGuard)
+	// WebOriginWriteGuard: a cross-site form must not start a payment with the session cookie.
+	@UseGuards(TopupsEnabledGuard, WebOriginWriteGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("topup")
 	topup(
@@ -82,6 +88,26 @@ export class BillingController {
 		return this.billingService.topup(user, body, workspace);
 	}
 
+	// No workspace: the receipt is found by session id and payer, so a stale header cannot hide it.
+	@Get("topup/status")
+	topupStatus(
+		@CurrentUser() user: AuthUser,
+		@Query(new ZodValidationPipe(billingTopupStatusQuerySchema))
+		query: BillingTopupStatusQuery,
+	): Promise<BillingTopupStatusResponse> {
+		return this.billingService.getTopupStatus(user.id, query.sessionId);
+	}
+
+	// Payment history is money data: owner only for a team.
+	@RequireWorkspacePermission("billing", "manage")
+	@Get("payments")
+	payments(
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<BillingPaymentsResponse> {
+		return this.billingService.listPayments(user, workspace);
+	}
+
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("portal")
 	portal(
@@ -89,66 +115,5 @@ export class BillingController {
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<BillingPortalResponse> {
 		return this.billingService.portal(user, workspace);
-	}
-
-	@UseGuards(SubscriptionsEnabledGuard)
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("change/preview")
-	previewChange(
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
-		@Body(new ZodValidationPipe(previewBillingSubscriptionChangeBodySchema))
-		body: PreviewBillingSubscriptionChangeBody,
-	): Promise<BillingSubscriptionChangePreviewResponse> {
-		return this.billingService.previewChange(user, body, workspace);
-	}
-
-	@UseGuards(SubscriptionsEnabledGuard)
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("change")
-	change(
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
-		@Body(new ZodValidationPipe(changeBillingSubscriptionBodySchema))
-		body: ChangeBillingSubscriptionBody,
-	): Promise<BillingSubscriptionChangeOutcomeResponse> {
-		return this.billingService.change(user, body, workspace);
-	}
-
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("cancel")
-	cancel(
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
-		@Body(new ZodValidationPipe(billingCancelRequestSchema))
-		body: BillingCancelRequest,
-	): Promise<BillingSubscriptionViewResponse> {
-		return this.billingService.cancel(user, body, workspace);
-	}
-
-	// No SubscriptionsEnabledGuard here: a MANUAL subscriber must be able to
-	// undo a scheduled cancellation even in an offline-only rollout (Stripe
-	// subscriptions paused). BillingService.resume enforces the switch for
-	// Stripe subscriptions itself.
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("resume")
-	resume(
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
-	): Promise<BillingSubscriptionViewResponse> {
-		return this.billingService.resume(user, workspace);
-	}
-
-	// Owner-only like the rest of the money surface (teams-workspaces.md §5.4):
-	// its single caller is the checkout return page, which only the purchasing
-	// owner ever lands on, and it drives Stripe API calls + a subscription
-	// mirror write that non-owners have no reason to trigger.
-	@RequireWorkspacePermission("billing", "manage")
-	@Post("sync")
-	sync(
-		@CurrentUser() user: AuthUser,
-		@CurrentWorkspace() workspace: WorkspaceContext,
-	): Promise<BillingSubscriptionViewResponse> {
-		return this.billingService.sync(user, workspace);
 	}
 }

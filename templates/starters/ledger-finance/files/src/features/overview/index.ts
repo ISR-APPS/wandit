@@ -1,6 +1,6 @@
 export {
-	dailyCashFlowQueryOptions,
-	overviewKpisQueryOptions,
+	monthlyExpensesQueryOptions,
+	overviewQueryOptions,
 } from "./api/overview.queries";
 export {
 	DEFAULT_DAYS,

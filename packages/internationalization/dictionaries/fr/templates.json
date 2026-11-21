@@ -57,6 +57,8 @@
 	"detail": {
 		"back": "Tous les templates",
 		"use": "Utiliser ce template",
+		"livePreview": "Aperçu en direct",
+		"newTab": "(s’ouvre dans un nouvel onglet)",
 		"appNote": "C’est une application. Crée un compte dans l’aperçu pour te connecter et la voir.",
 		"coverAlt": "Écran d’accueil de {name}",
 		"shotAlt": "{name}, capture d’écran {number}"

@@ -12,12 +12,13 @@ import { suspendedReasonCodes } from "../v2/publish";
 import {
 	billingIntervalSchema,
 	billingPlanIdSchema,
-	creditTierSchema,
-	isPurchasableTier,
 	manualPaymentMethodSchema,
 	manualSubscriptionRequestSchema,
 	manualSubscriptionRequestStatusSchema,
 	OPEN_MANUAL_REQUEST_STATUSES,
+	preferredPaymentMethodSchema,
+	starterPassSourceSchema,
+	topupReceiptProviderSchema,
 } from "./billing";
 import {
 	creditBalanceResponseSchema,
@@ -167,6 +168,34 @@ export const adminUserCountryFilters = [
 
 export type AdminUserCountryFilter = DialCountryIso | "unknown";
 
+/** The live Starter pass of one pool (a row of `starter_passes` with no `revoked_at`). */
+export const adminStarterPassSchema = z.object({
+	source: starterPassSourceSchema,
+	createdAt: isoDateTimeSchema,
+	// The staff account that granted it. Null for a pass from a payment or from the grandfather backfill.
+	grantedByUserId: z.string().nullable(),
+	// The note of the staff grant, or of the dev seed. Null for a pass from a payment.
+	note: z.string().nullable(),
+});
+
+export type AdminStarterPass = z.infer<typeof adminStarterPassSchema>;
+
+/** Body of the admin Starter pass grant and revoke routes. The note goes to the audit log and the pass row. */
+export const adminStarterPassBodySchema = z.object({
+	note: z.string().trim().min(3).max(500),
+});
+
+export type AdminStarterPassBody = z.infer<typeof adminStarterPassBodySchema>;
+
+/** Answer of the admin Starter pass grant and revoke routes: the live pass after the call, null after a revoke. */
+export const adminStarterPassResponseSchema = z.object({
+	starterPass: adminStarterPassSchema.nullable(),
+});
+
+export type AdminStarterPassResponse = z.infer<
+	typeof adminStarterPassResponseSchema
+>;
+
 export const adminUserSummarySchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -182,6 +211,11 @@ export const adminUserSummarySchema = z.object({
 	// the user has never been seen since the column was introduced.
 	lastSeenAt: isoDateTimeSchema.nullable(),
 	plan: adminUserPlanSchema,
+	// True when the personal pool has a top-up or had a subscription (the
+	// paid-owner rule of billing). "plan: free" with this true means a past payer.
+	isPaidOwner: z.boolean(),
+	// Live Starter pass of the personal pool. Null when it has none. Optional: an older API omits it.
+	starterPass: adminStarterPassSchema.nullable().optional(),
 	// Decimal credits (server divides internal centi-credits by 100).
 	creditsBalance: z.number(),
 	creditsConsumed: z.number().nonnegative(),
@@ -929,6 +963,11 @@ export const adminOrganizationDetailSchema =
 		// The only user who may hold `owner` in a personal workspace; null for a team.
 		// Staff can give `owner` back to this user. Optional: an older API omits it.
 		personalOwnerUserId: z.string().nullable().optional(),
+		// The pool that pays has a top-up or had a subscription (spec section 6).
+		// A personal workspace reads the personal pool of its owner.
+		isPaidOwner: z.boolean(),
+		// Live Starter pass of the pool that pays. Null when it has none. Optional: an older API omits it.
+		starterPass: adminStarterPassSchema.nullable().optional(),
 	});
 
 export type AdminOrganizationDetail = z.infer<
@@ -1077,6 +1116,9 @@ export const adminOverviewTotalsSchema = z.object({
 	signupsChangePercent: z.number(),
 	activeUsers: z.int().nonnegative(),
 	activationPercent: z.number().min(0).max(100),
+	// Starter passes bought in the range (source stripe or slickpay). Grants and the backfill do not count.
+	// Optional: an older API omits it.
+	starterPassesInRange: z.int().nonnegative().optional(),
 });
 
 export type AdminOverviewTotals = z.infer<typeof adminOverviewTotalsSchema>;
@@ -1201,10 +1243,10 @@ export type AdminWebhookReplayResponse = z.infer<
 // ---------------------------------------------------------------------------
 // Offline / manual billing (admin side).
 //
-// Requests arrive from the web plan picker ("pay by cash / transfer"). The
-// admin calls the contact, then either rejects the request or grants a
-// `provider = "manual"` subscription (which approves and links the request).
-// Renewals and early terminations are admin actions on the subscription.
+// Requests arrive from the web top-up dialog ("pay by cash / transfer"). The
+// admin calls the contact, then either rejects the request or records a
+// top-up (which writes a receipt and approves the request). Manual
+// subscriptions from before pricing v8 stay readable for history.
 // ---------------------------------------------------------------------------
 
 export const adminManualBillingUserSchema = z.object({
@@ -1287,7 +1329,7 @@ export type AdminListManualRequestsResponse = z.infer<
 >;
 
 // PATCH accepts OPEN statuses, rejection, cancellation, and note edits.
-// Approval requires the grant endpoint to link the subscription.
+// Approval goes through "Record top-up" (adminRoutes.topupReceipts) with a requestId.
 export const adminUpdateManualRequestBodySchema = z
 	.object({
 		status: z
@@ -1302,76 +1344,6 @@ export const adminUpdateManualRequestBodySchema = z
 
 export type AdminUpdateManualRequestBody = z.infer<
 	typeof adminUpdateManualRequestBodySchema
->;
-
-export const adminManualPaymentInputSchema = z.object({
-	method: manualPaymentMethodSchema,
-	// Minor units of `currency` (DZD centimes, USD cents). 0 is allowed for a
-	// period the admin grants without collecting money (goodwill, trial).
-	amountMinor: z.int().min(0).max(1_000_000_000),
-	currency: z
-		.string()
-		.trim()
-		.length(3)
-		.transform((value) => value.toUpperCase()),
-	reference: z.string().trim().min(1).max(120).optional(),
-	note: z.string().trim().min(1).max(1000).optional(),
-});
-
-export type AdminManualPaymentInput = z.infer<
-	typeof adminManualPaymentInputSchema
->;
-
-export const adminGrantManualSubscriptionInputSchema = z
-	.object({
-		// Contact / provenance user. For an org grant this is the billing owner the
-		// admin spoke to; the credit POOL is the organization.
-		userId: z.string().min(1),
-		organizationId: z.string().min(1).nullable().optional(),
-		plan: billingPlanIdSchema,
-		tierCredits: creditTierSchema,
-		interval: billingIntervalSchema,
-		// Defaults: periodStart = now, periodEnd = periodStart + interval.
-		periodStart: isoDateTimeSchema.optional(),
-		periodEnd: isoDateTimeSchema.optional(),
-		payment: adminManualPaymentInputSchema,
-		// When set, the request is marked approved and linked to the subscription.
-		requestId: uuidSchema.optional(),
-		adminNotes: z.string().trim().max(2000).optional(),
-		// Client-minted per-submission id: it keys the payment row AND the
-		// subscription's provider id, so a retried submit cannot grant twice.
-		idempotencyKey: uuidSchema,
-	})
-	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
-		message: "Tier is not purchasable for the selected plan",
-		path: ["tierCredits"],
-	});
-
-export type AdminGrantManualSubscriptionInput = z.infer<
-	typeof adminGrantManualSubscriptionInputSchema
->;
-
-export const adminRenewManualSubscriptionInputSchema = z.object({
-	// Default: one interval after the current period end (still active) or
-	// after now (already ended).
-	periodEnd: isoDateTimeSchema.optional(),
-	payment: adminManualPaymentInputSchema,
-	// When set, the open renewal/change request is marked approved and linked
-	// to this subscription (same rule as the grant endpoint).
-	requestId: uuidSchema.optional(),
-	idempotencyKey: uuidSchema,
-});
-
-export type AdminRenewManualSubscriptionInput = z.infer<
-	typeof adminRenewManualSubscriptionInputSchema
->;
-
-export const adminEndManualSubscriptionInputSchema = z.object({
-	reason: z.string().trim().min(1).max(500).optional(),
-});
-
-export type AdminEndManualSubscriptionInput = z.infer<
-	typeof adminEndManualSubscriptionInputSchema
 >;
 
 export const adminManualPaymentSchema = z.object({
@@ -1460,6 +1432,100 @@ export type AdminListManualSubscriptionsResponse = z.infer<
 	typeof adminListManualSubscriptionsResponseSchema
 >;
 
+/**
+ * Body of the admin action "Record top-up": money an admin collected offline, with or without a request.
+ * The API grants top-up credits and writes one `offline:{idempotencyKey}` receipt in one transaction.
+ */
+export const adminRecordTopupInputSchema = z.object({
+	// Contact user. The pool is this user, or `organizationId` when it is set.
+	userId: z.string().min(1),
+	organizationId: z.string().min(1).nullable().optional(),
+	// The offline request this money funds. Without it, the API uses the open request of the owner, if any.
+	requestId: uuidSchema.optional(),
+	// Minor units of `currency` (DZD centimes, USD cents). Every top-up receives money.
+	amountMinor: z.int().positive().max(1_000_000_000),
+	// Receipts store the currency in lower case, the same as Stripe receipts.
+	// The offline stats group money by this code, so only 3 letters pass.
+	currency: z
+		.string()
+		.trim()
+		.regex(/^[A-Za-z]{3}$/, "Use a 3-letter ISO 4217 code")
+		.transform((value) => value.toLowerCase()),
+	// SlickPay has its own checkout and receipts, so an admin cannot record it here.
+	method: preferredPaymentMethodSchema,
+	reference: z.string().trim().min(1).max(120).optional(),
+	note: z.string().trim().min(1).max(1000).optional(),
+	// Decimal display credits that replace the computed credits. The maximum keeps centi-credits inside a Postgres integer.
+	credits: z.number().min(0.01).max(1_000_000).optional(),
+	// Client-minted per-submission id. It keys the receipt and the ledger row, so a retried submit grants once.
+	idempotencyKey: uuidSchema,
+});
+
+export type AdminRecordTopupInput = z.infer<typeof adminRecordTopupInputSchema>;
+
+/**
+ * Body of the admin action "Reverse top-up". Only a SlickPay or offline receipt can be reversed.
+ * The API revokes the receipt credits from bucket `topup`. The balance can go below zero.
+ */
+export const adminReverseTopupInputSchema = z.object({
+	// Id of the row in `billing_topup_receipts`.
+	receiptId: uuidSchema,
+});
+
+export type AdminReverseTopupInput = z.infer<
+	typeof adminReverseTopupInputSchema
+>;
+
+/** One wallet receipt in the admin app, any provider. The answer of "Record top-up" and "Reverse top-up". */
+export const adminTopupReceiptSchema = z.object({
+	// Id of the row in `billing_topup_receipts`.
+	id: uuidSchema,
+	provider: topupReceiptProviderSchema,
+	// Stripe session id, `slickpay:{paymentId}`, or `offline:{idempotencyKey}`. Unique.
+	providerReference: z.string(),
+	// The buyer. For a team receipt this is the acting billing manager.
+	user: adminManualBillingUserSchema,
+	organization: adminManualBillingOrganizationSchema.nullable(),
+	method: manualPaymentMethodSchema.nullable(),
+	// Minor units of `currency`. `currency` is lower case.
+	amountMinor: z.int().min(0),
+	currency: z.string(),
+	// USD value that set the credits, in cents. Null for a receipt from before pricing v8.
+	amountUsdCents: z.int().positive().nullable(),
+	// Decimal display credits granted. Null for a receipt from before pricing v8.
+	credits: z.number().positive().nullable(),
+	reference: z.string().nullable(),
+	note: z.string().nullable(),
+	// The offline request this receipt approved.
+	requestId: uuidSchema.nullable(),
+	// The admin who recorded an offline receipt. Null for Stripe and SlickPay.
+	recordedBy: adminManualBillingUserSchema.nullable(),
+	paidAt: isoDateTimeSchema,
+	reversedAt: isoDateTimeSchema.nullable(),
+	reversedBy: adminManualBillingUserSchema.nullable(),
+	createdAt: isoDateTimeSchema,
+});
+
+export type AdminTopupReceipt = z.infer<typeof adminTopupReceiptSchema>;
+
+/** Query of the admin receipt list. The offline billing page reads it to reverse a receipt. */
+export const adminListTopupReceiptsQuerySchema = paginationQuerySchema.extend({
+	provider: topupReceiptProviderSchema.optional(),
+});
+
+export type AdminListTopupReceiptsQuery = z.infer<
+	typeof adminListTopupReceiptsQuerySchema
+>;
+
+/** Answer of the admin receipt list. One page of receipts. Without `provider` in the query, it holds SlickPay and offline receipts. */
+export const adminListTopupReceiptsResponseSchema = paginatedResultSchema(
+	adminTopupReceiptSchema,
+);
+
+export type AdminListTopupReceiptsResponse = z.infer<
+	typeof adminListTopupReceiptsResponseSchema
+>;
+
 /** One collected-money line of the offline stats, per currency. */
 export const adminManualBillingCollectedSchema = z.object({
 	currency: z.string(),
@@ -1501,7 +1567,7 @@ export type AdminManualBillingReceiptConfig = z.infer<
 	typeof adminManualBillingReceiptConfigSchema
 >;
 
-// --- User refunds (the "Refund last payment" action in the users table) ---
+// --- User refunds (the "Refund last plan payment" action in the users table) ---
 
 /**
  * The last paid Stripe plan payment of a user. The amounts come live from the Stripe charge.
@@ -1531,7 +1597,8 @@ export type AdminUserRefundPayment = z.infer<
 export const adminUserRefundPreviewSchema = z.object({
 	// Null when the user has no paid personal Stripe plan payment, or when `paidOffline` is true.
 	payment: adminUserRefundPaymentSchema.nullable(),
-	// True when the user has a live personal offline or SlickPay subscription. These have no refund API.
+	// True when the personal pool has a SlickPay or offline top-up receipt (not reversed)
+	// newer than the last paid Stripe plan invoice. These payments have no refund API.
 	paidOffline: z.boolean(),
 });
 
@@ -1546,7 +1613,7 @@ export const adminUserRefundInputSchema = z.object({
 
 export type AdminUserRefundInput = z.infer<typeof adminUserRefundInputSchema>;
 
-/** POST answer of the refund route. The webhooks remove the plan credits later. */
+/** POST answer of the refund route. The charge.refunded webhook later revokes the credits of that charge. */
 export const adminUserRefundResultSchema = z.object({
 	// Null when Stripe had refunded the full charge already, so no new refund was made.
 	refund: z
@@ -1585,6 +1652,12 @@ export const adminRoutes = {
 		`/api/v1/admin/organizations/${organizationId}`,
 	organizationGrantCredits: (organizationId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/credits`,
+	/** POST grants the Starter pass to the team pool. Body adminStarterPassBodySchema. Same permission as the credit grant. */
+	organizationGrantStarterPass: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/starter-pass`,
+	/** POST revokes the live Starter pass of the team pool. Body adminStarterPassBodySchema. */
+	organizationRevokeStarterPass: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/starter-pass/revoke`,
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	publications: "/api/v1/admin/publications",
@@ -1612,6 +1685,12 @@ export const adminRoutes = {
 	generationAttempt: (surface: string, attemptId: string) =>
 		`/api/v1/admin/generations/${surface}/${attemptId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
+	/** POST grants the Starter pass to the personal pool. Body adminStarterPassBodySchema. Same permission as the credit grant. */
+	grantStarterPass: (userId: string) =>
+		`/api/v1/admin/users/${userId}/starter-pass`,
+	/** POST revokes the live Starter pass of the personal pool. Body adminStarterPassBodySchema. */
+	revokeStarterPass: (userId: string) =>
+		`/api/v1/admin/users/${userId}/starter-pass/revoke`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
 	/** GET reads the refund preview. POST refunds the last Stripe plan payment and cancels the plan. Needs billing:manage. */
@@ -1628,8 +1707,8 @@ export const adminRoutes = {
 	manualSubscriptions: "/api/v1/admin/manual-subscriptions",
 	manualSubscription: (subscriptionId: string) =>
 		`/api/v1/admin/manual-subscriptions/${subscriptionId}`,
-	manualSubscriptionRenew: (subscriptionId: string) =>
-		`/api/v1/admin/manual-subscriptions/${subscriptionId}/renew`,
-	manualSubscriptionEnd: (subscriptionId: string) =>
-		`/api/v1/admin/manual-subscriptions/${subscriptionId}/end`,
+	/** GET lists receipts (billing:read). POST is "Record top-up" (billing:manage), body adminRecordTopupInputSchema. */
+	topupReceipts: "/api/v1/admin/topup-receipts",
+	/** POST is "Reverse top-up" (billing:manage), body adminReverseTopupInputSchema. SlickPay and offline receipts only. */
+	topupReceiptReverse: "/api/v1/admin/topup-receipts/reverse",
 } as const;

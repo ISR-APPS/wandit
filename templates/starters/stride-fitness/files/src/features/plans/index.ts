@@ -1,7 +1,4 @@
-export {
-	planSummariesQueryOptions,
-	upcomingPaymentsQueryOptions,
-} from "./api/plans.queries";
+export { plansOverviewQueryOptions } from "./api/plans.queries";
 export {
 	PlansPage,
 	PlansPageError,

@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AdminSecurityModule } from "../admin/admin-security.module";
 import { BillingPaymentsModule } from "../billing/billing-payments.module";
+import { BillingCheckoutAttemptsRepository } from "../billing/infrastructure/persistence/billing-checkout-attempts.repository";
 import { AffiliateAdminService } from "./application/services/affiliate-admin.service";
 import { AffiliateApprovalService } from "./application/services/affiliate-approval.service";
 import { AffiliateAttributionService } from "./application/services/affiliate-attribution.service";
@@ -50,6 +51,8 @@ import { AffiliatePortalController } from "./presentation/http/controllers/affil
 		AffiliatePortalService,
 		AffiliateSelfReferralService,
 		AffiliateTokenService,
+		// `AffiliateCommissionService` reads the top-up payer. `BillingModule` imports this module, so it cannot provide it.
+		BillingCheckoutAttemptsRepository,
 		TriggerAffiliateAttributionDispatcherService,
 	],
 })

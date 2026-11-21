@@ -1,5 +1,5 @@
 // A round avatar with the initials of a person of the firm or of a client.
-// The board slips, the tables, the team card, and the client sheet render it.
+// The matter cards, the tables, the team cards, and the client sheet render it.
 // The sample rows have no photo, so it always shows the initials.
 import { cn } from "~/shared/lib/utils";
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";

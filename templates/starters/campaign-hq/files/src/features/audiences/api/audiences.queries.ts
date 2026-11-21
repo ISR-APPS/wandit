@@ -1,5 +1,5 @@
 // Reads of audiences: every segment with its size history and the campaigns that target it.
-// The /app/audiences loader prefetches it. The audience table, the figures, and the audience panel read it from the cache.
+// The /app/audiences loader prefetches it. The audience table and the audience panel read it from the cache.
 // The queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {

@@ -1,5 +1,5 @@
 // The stock of one item at the end of each day, with its minimum as a dashed line.
-// The item page renders it in its rail. The points come from itemQueryOptions (the `levels` field).
+// The item page renders it in its Movements tab. The points come from itemQueryOptions (the `levels` field).
 // The steps show each delivery as a jump up and the picks as the slope down to the next delivery.
 import { useId } from "react";
 import {
@@ -68,7 +68,7 @@ export function ItemLevelCard({ levels, minimum, unit }: ItemLevelCardProps) {
 					config={config}
 					role="img"
 					aria-label={`${t("itemDetail.levelTitle")}. ${t("itemDetail.levelLowest")}: ${number.format(lowest)}. ${t("itemDetail.minimum")}: ${number.format(minimum)}`}
-					className="aspect-auto h-44 w-full"
+					className="aspect-auto h-64 w-full"
 				>
 					<AreaChart
 						data={levels}

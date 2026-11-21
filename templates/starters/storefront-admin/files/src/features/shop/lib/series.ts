@@ -33,6 +33,21 @@ export function changeRatio(current: number, previous: number): number | null {
 	return previous === 0 ? null : (current - previous) / previous;
 }
 
+/** One figure of a stat card: the value of the period and its change against the period before. */
+export type PeriodFigure = {
+	value: number;
+	/** Ratio against the previous period of the same length: 0.12 is +12 %. null when the period before is 0. */
+	change: number | null;
+};
+
+/** The home stat cards and the product figure cards build each figure with it. */
+export function periodFigureOf(
+	current: number,
+	previous: number,
+): PeriodFigure {
+	return { value: current, change: changeRatio(current, previous) };
+}
+
 // The local calendar day `daysAgo` days before the day of `dayStart`, as YYYY-MM-DD.
 function dayKey(dayStart: number, daysAgo: number): string {
 	const date = new Date(dayStart);

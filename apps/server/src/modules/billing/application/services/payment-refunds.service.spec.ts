@@ -244,7 +244,7 @@ class InMemoryBillingCreditLedgerRepository {
 						row.kind === "expire" &&
 						row.bucket === "plan" &&
 						row.userId === group.userId &&
-						row.createdAt >= group.earliestGrantAt &&
+						row.createdAt > group.earliestGrantAt &&
 						(row.meta as CreditMeta).subscriptionId === subscriptionId,
 				)
 				.reduce((total, row) => total + Math.abs(row.delta), 0);
@@ -462,15 +462,20 @@ function setup(input: { orderHandled?: boolean } = {}) {
 		updateRefundStatus: vi.fn(async () => input.orderHandled ?? false),
 	};
 
+	const starterPasses = {
+		revokeOrMoveForStripePayment: vi.fn(async () => null),
+	};
 	const service = new PaymentRefundsService(
 		repository as unknown as BillingCreditLedgerRepository,
 		credits as unknown as CreditsService,
 		orderRefundHandler,
 		stripe as unknown as StripeProvider,
+		starterPasses,
 	);
 
 	return {
 		credits,
+		starterPasses,
 		orderRefundHandler,
 		repository,
 		service,
@@ -1174,6 +1179,29 @@ describe("PaymentRefundsService", () => {
 				.filter((row) => row.kind === "revoke")
 				.reduce((sum, row) => sum + Math.abs(row.delta), 0),
 		).toBe(500);
+	});
+
+	it("takes the Starter pass of a disputed payment in the clawback lock, and keeps it on a refund", async () => {
+		const { repository, service, starterPasses } = setup();
+		repository.seed({
+			bucket: "topup",
+			chargeId: "ch_1",
+			delta: 500,
+			kind: "topup",
+			paymentIntentId: "pi_1",
+		});
+
+		await service.handleChargeRefunded(
+			charge({ amountCaptured: 2_000, amountRefunded: 500 }),
+		);
+		expect(starterPasses.revokeOrMoveForStripePayment).not.toHaveBeenCalled();
+
+		await service.handleChargeDisputeCreated(dispute({}));
+		expect(starterPasses.revokeOrMoveForStripePayment).toHaveBeenCalledWith(
+			{ chargeId: "ch_1", paymentIntentId: "pi_1" },
+			"dispute:dp_1",
+			repository.transactionClient,
+		);
 	});
 
 	it("claws back a partial dispute proportionally to the captured amount", async () => {

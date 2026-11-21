@@ -101,7 +101,11 @@ export * from "./sandbox-sessions";
 export * from "./security-scans";
 // Story-link campaign and click analytics tables.
 export * from "./story-links";
+// Trophies that each user unlocked.
+export * from "./trophies";
 // Authenticated-user daily activity analytics.
 export * from "./user-activity";
 // Signup acquisition attribution.
 export * from "./user-attributions";
+// User referral program: invite codes and referred friends.
+export * from "./user-referrals";

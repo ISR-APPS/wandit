@@ -4,6 +4,7 @@
  * `CodeService` calls them with the blob paths of the stored commit. A
  * project with no commit gives the `git ls-files` paths of its sandbox.
  * `McpChangesService` calls the write rule `isWritableCodePath`.
+ * `VersionsService` calls `isAgentFilePath` for the GitHub Update.
  * This file does no I/O.
  */
 import type { CodeTreeNode } from "@wandit/contracts";
@@ -25,11 +26,22 @@ const PREFETCH_MAX_PATHS = 300;
 /** 4096 bytes, the Linux PATH_MAX. A longer path cannot name a file. */
 const PREFETCH_MAX_PATH_BYTES = 4_096;
 
+// Folders that the Code view hides, at any depth. `.git` holds the repository internals.
+// `.claude` holds the agent settings, hooks, and skills: not app code.
+const HIDDEN_FOLDER_NAMES = new Set([".git", ".claude"]);
+
+// Agent instruction files that the Code view hides, at any depth. They are not app code.
+const HIDDEN_FILE_NAMES = new Set([
+	"CLAUDE.md",
+	"CLAUDE.local.md",
+	"AGENTS.md",
+]);
+
 /**
- * True when the Code view may list and read `path`, a path relative to the
- * worktree root. A `.env*` file holds env values, for example the backend
- * `.env` that the host writes. `.git` holds the repository internals. So both
- * stay hidden.
+ * True when the Code view and the MCP `list_files` and `read_file` tools may
+ * list and read `path`, a path relative to the worktree root. A `.env*` file
+ * holds env values, for example the backend `.env` that the host writes. So
+ * it stays hidden, with the folders and files of the sets above.
  */
 export function isReadableCodePath(path: string): boolean {
 	if (path.startsWith("/") || path.includes("\0")) {
@@ -43,24 +55,48 @@ export function isReadableCodePath(path: string): boolean {
 				segment === "" ||
 				segment === "." ||
 				segment === ".." ||
-				segment === ".git",
+				HIDDEN_FOLDER_NAMES.has(segment),
 		);
 	const fileName = path.slice(path.lastIndexOf("/") + 1);
-	return !hasBadSegment && !fileName.startsWith(".env");
+	return (
+		!hasBadSegment &&
+		!fileName.startsWith(".env") &&
+		!HIDDEN_FILE_NAMES.has(fileName)
+	);
 }
 
-// Folders that an `apply_changes` path must not enter, at any depth: git internals,
-// agent settings, and installed packages.
-const PROTECTED_FOLDER_NAMES = new Set([".git", ".claude", "node_modules"]);
+// The agent folder, at any depth: Claude Code loads its settings, hooks, and skills.
+const AGENT_FOLDER_NAME = ".claude";
 
-// File names that `apply_changes` must not write, at any depth. Agents load a nested
-// CLAUDE.md or AGENTS.md as instructions. pnpm and git read a nested config file too.
-const PROTECTED_FILE_NAMES = new Set([
+// Agent file names, at any depth. Agents load a nested CLAUDE.md or AGENTS.md as instructions.
+const AGENT_FILE_NAMES = new Set([
 	"CLAUDE.md",
 	"CLAUDE.local.md",
 	"AGENTS.md",
 	".mcp.json",
 	"opencode.json",
+]);
+
+/**
+ * True when `path`, relative to the worktree root, is an agent instruction or config file.
+ * `isWritableCodePath` denies these paths. The GitHub Update in `VersionsService` keeps their pre-merge state.
+ * The match is case-sensitive, like the Linux sandbox.
+ */
+export function isAgentFilePath(path: string): boolean {
+	const segments = path.split("/");
+	return (
+		segments.includes(AGENT_FOLDER_NAME) ||
+		AGENT_FILE_NAMES.has(segments[segments.length - 1] ?? "")
+	);
+}
+
+// Folders that an `apply_changes` path must not enter, at any depth: git internals
+// and installed packages. `isAgentFilePath` covers the agent folder.
+const PROTECTED_FOLDER_NAMES = new Set([".git", "node_modules"]);
+
+// File names that `apply_changes` must not write, at any depth, after the agent files.
+// pnpm and git read a nested config file too.
+const PROTECTED_FILE_NAMES = new Set([
 	".npmrc",
 	".pnpmfile.cjs",
 	".pnpmfile.mjs",
@@ -114,6 +150,7 @@ export function isWritableCodePath(path: string): boolean {
 	return (
 		!hasBadSegment &&
 		!fileName.startsWith(".env") &&
+		!isAgentFilePath(path) &&
 		!PROTECTED_FILE_NAMES.has(fileName) &&
 		!PROTECTED_ROOT_PATHS.has(path)
 	);
@@ -194,11 +231,7 @@ export function pickDefaultFilePath(tree: CodeTreeNode[]): string | null {
  */
 export function pickPrefetchPaths(tree: CodeTreeNode[]): string[] {
 	const picked = listFilePaths(tree).filter(
-		(path) =>
-			// `.claude/` holds the agent skills: about 140 Markdown files and
-			// 3.5 MB in the web-app template, not app code.
-			!path.startsWith(".claude/") &&
-			Buffer.byteLength(path) <= PREFETCH_MAX_PATH_BYTES,
+		(path) => Buffer.byteLength(path) <= PREFETCH_MAX_PATH_BYTES,
 	);
 	// The Code view opens the default file first, so the path cap and the
 	// byte budget must not drop it.

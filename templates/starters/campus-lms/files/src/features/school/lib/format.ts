@@ -23,6 +23,16 @@ export function dateFormat(locale: string): Intl.DateTimeFormat {
 	return new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
 }
 
+/** The start time of a class, "18:30" in the school time zone, as "6:30 PM" in the app language. */
+export function formatClassTime(classTime: string, locale: string): string {
+	// The UTC date and the UTC format cancel out, so the text shows the stored hour as it is.
+	return new Intl.DateTimeFormat(locale, {
+		hour: "numeric",
+		minute: "2-digit",
+		timeZone: "UTC",
+	}).format(new Date(`2024-01-07T${classTime}:00Z`));
+}
+
 // 7 January 2024 is a Sunday. Day `weekday` after it has that weekday number (0 is Sunday).
 const FIRST_SUNDAY_UTC = Date.UTC(2024, 0, 7);
 
@@ -39,11 +49,6 @@ export function formatSchedule(
 		weekday: "short",
 		timeZone: "UTC",
 	});
-	const time = new Intl.DateTimeFormat(locale, {
-		hour: "numeric",
-		minute: "2-digit",
-		timeZone: "UTC",
-	});
 	const days = new Intl.ListFormat(locale, {
 		style: "short",
 		type: "conjunction",
@@ -53,7 +58,7 @@ export function formatSchedule(
 			weekday.format(new Date(FIRST_SUNDAY_UTC + day * 86_400_000)),
 		),
 	);
-	return `${days}, ${time.format(new Date(`2024-01-07T${classTime}:00Z`))}`;
+	return `${days}, ${formatClassTime(classTime, locale)}`;
 }
 
 /** The first letters of the first and the last word of a name, for an avatar: "Amara Okafor" gives "AO". */

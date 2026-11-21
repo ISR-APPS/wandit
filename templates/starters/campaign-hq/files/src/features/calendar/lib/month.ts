@@ -1,4 +1,4 @@
-// Month math of the calendar: month keys ("2026-11"), the day cells of a month grid, and month steps.
+// Month and week math of the calendar: month keys ("2026-11"), the day cells of a month or a week, and the steps.
 // CalendarPage and its grid call these pure functions. Weeks start on Monday, as in most agency planners.
 import { dayKeyOf } from "~/features/marketing";
 
@@ -30,13 +30,36 @@ export function shiftMonth(monthKey: string, delta: number): string {
 	return monthKeyOf(date.getTime());
 }
 
+/** Local midnight of a YYYY-MM-DD day key. */
+export function dayStart(day: string): number {
+	const [year, month, date] = day.split("-").map(Number);
+	return new Date(year ?? 1970, (month ?? 1) - 1, date ?? 1).getTime();
+}
+
+/** The local midnight of the Monday on or before `ms`. */
+function mondayOf(ms: number): Date {
+	const monday = new Date(ms);
+	monday.setHours(0, 0, 0, 0);
+	// getDay() is 0 on Sunday. Monday starts the week, so Sunday is 6 days after it.
+	monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+	return monday;
+}
+
+/** The seven cells of the week that holds `day` (YYYY-MM-DD), from Monday. Every cell counts as in the view. */
+export function weekCells(day: string): MonthCell[] {
+	const cursor = mondayOf(dayStart(day));
+	const cells: MonthCell[] = [];
+	for (let weekday = 0; weekday < 7; weekday++) {
+		const startMs = cursor.getTime();
+		cells.push({ day: dayKeyOf(startMs), startMs, inMonth: true });
+		cursor.setDate(cursor.getDate() + 1);
+	}
+	return cells;
+}
+
 /** The cells of the grid of a month: whole weeks from the Monday on or before the 1st, 5 or 6 rows. */
 export function monthCells(monthKey: string): MonthCell[] {
-	const first = new Date(monthStart(monthKey));
-	// getDay() is 0 on Sunday. Monday starts the week, so Sunday is 6 days after it.
-	const lead = (first.getDay() + 6) % 7;
-	const cursor = new Date(first);
-	cursor.setDate(first.getDate() - lead);
+	const cursor = mondayOf(monthStart(monthKey));
 	const cells: MonthCell[] = [];
 	do {
 		for (let weekday = 0; weekday < 7; weekday++) {

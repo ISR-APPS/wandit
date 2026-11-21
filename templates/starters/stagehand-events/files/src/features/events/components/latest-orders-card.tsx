@@ -1,37 +1,38 @@
-// The newest orders of one event. Each row opens that order in the guest list of the event.
-// EventDetailPage renders it at the end of the rail. Each row shows the buyer, the tier, the count, and the amount.
+// The latest orders card of one event: a short table of the newest orders with the buyer, the door status, and the date.
+// EventDetailPage renders it under the run of show. Each buyer opens the order panel of the guest list.
+// It follows the kit "transaction history" card: a plain table with a status badge per row.
 import { Link } from "@tanstack/react-router";
-import {
-	countLabel,
-	formatRelativeTime,
-	initialsOf,
-	moneyFormat,
-	type Order,
-} from "~/features/organiser";
+import { AttendanceBadge } from "~/features/organiser";
 import { useT } from "~/shared/i18n";
-import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "~/shared/ui/table";
+import type { EventOrder } from "../api/events.queries";
+
+// 6 rows, as in the kit card. The Orders tab lists every order.
+const SHOWN_ORDERS = 6;
 
 type LatestOrdersCardProps = {
-	/** The id of the event, for the guest list links. */
-	eventId: string;
-	/** The newest orders first. */
-	orders: Order[];
-	/** The time of the load, in milliseconds since 1970. */
-	now: number;
+	/** The orders of the event, the newest first. */
+	orders: EventOrder[];
 };
 
-/** A refunded order keeps its row, with its amount struck through. A row click opens its guest panel. */
-export function LatestOrdersCard({
-	eventId,
-	orders,
-	now,
-}: LatestOrdersCardProps) {
+/** An event with no order shows one muted sentence. */
+export function LatestOrdersCard({ orders }: LatestOrdersCardProps) {
 	const { t, locale } = useT();
-	const money = moneyFormat(locale);
+	const date = new Intl.DateTimeFormat(locale, {
+		day: "numeric",
+		month: "short",
+	});
 
 	return (
-		<Card>
+		<Card className="min-w-0">
 			<CardHeader>
 				<CardTitle>{t("events.latestOrders")}</CardTitle>
 			</CardHeader>
@@ -41,52 +42,38 @@ export function LatestOrdersCard({
 						{t("events.noOrders")}
 					</p>
 				) : (
-					<ul className="-mx-2 grid gap-1">
-						{orders.map((order) => (
-							<li key={order.id}>
-								<Link
-									to="/app/attendees"
-									search={{ event: eventId, order: order.id }}
-									className="flex items-center gap-3 rounded-control px-2 py-1.5 outline-none transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
-								>
-									<Avatar className="size-8">
-										<AvatarFallback className="text-xs">
-											{initialsOf(order.buyerName)}
-										</AvatarFallback>
-									</Avatar>
-									<div className="grid min-w-0 flex-1 justify-items-start">
-										<span
-											className="max-w-full truncate font-medium text-sm"
-											dir="auto"
-										>
-											{order.buyerName}
-										</span>
-										<span className="max-w-full truncate text-muted-foreground text-xs">
-											{countLabel(
-												order.quantity,
-												t("attendees.ticketOne"),
-												t("attendees.ticketOther"),
-												locale,
-											)}
-											{" · "}
-											<bdi>{order.tierName}</bdi>
-											{" · "}
-											{formatRelativeTime(order.placedAt, now, locale)}
-										</span>
-									</div>
-									<span
-										className={
-											order.refundedAt === null
-												? "text-sm tabular-nums"
-												: "text-muted-foreground text-sm tabular-nums line-through"
-										}
-									>
-										{money.format(order.amount)}
-									</span>
-								</Link>
-							</li>
-						))}
-					</ul>
+					<div className="overflow-x-auto">
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>{t("attendees.guest")}</TableHead>
+									<TableHead>{t("attendees.status")}</TableHead>
+									<TableHead className="text-end">{t("events.date")}</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{orders.slice(0, SHOWN_ORDERS).map((order) => (
+									<TableRow key={order.id}>
+										<TableCell className="max-w-40">
+											<Link
+												to="/app/attendees"
+												search={{ order: order.id }}
+												className="block truncate hover:underline"
+											>
+												{order.buyerName}
+											</Link>
+										</TableCell>
+										<TableCell>
+											<AttendanceBadge status={order.status} />
+										</TableCell>
+										<TableCell className="text-end text-muted-foreground tabular-nums">
+											{date.format(order.placedAt)}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</div>
 				)}
 			</CardContent>
 		</Card>

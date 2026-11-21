@@ -1,6 +1,8 @@
-// The client list behind login: four figures, the relation tabs, and the searchable table.
+// The client list behind login, on the anatomy of the kit users page: a header with one action,
+// then a table toolbar (filter field, Relation, Industry, and Lead filters, columns menu), the table, and the pages.
 // The /app/clients route renders it after its loader, and also uses the skeleton and the error below.
-// A client name opens the client sheet with its projects and invoices.
+// A client name or the row menu opens the client sheet with its projects and invoices.
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
@@ -10,220 +12,231 @@ import {
 	CLIENT_RELATIONS,
 	type ClientRelation,
 	type ClientSummary,
-	type Figure,
-	FigureBand,
+	type CsvColumn,
+	copyToClipboard,
+	downloadCsv,
 	PageError,
 	PersonAvatar,
 	RelationBadge,
+	toCsv,
 	useFormatters,
 } from "~/features/studio";
 import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Card, CardContent } from "~/shared/ui/card";
-import { DataTable, type DataTableColumn } from "~/shared/ui/data-table";
-import { useSidebar } from "~/shared/ui/sidebar";
+import { Button } from "~/shared/ui/button";
+import { DropdownMenuItem } from "~/shared/ui/dropdown-menu";
+import {
+	type RecordColumn,
+	RecordFilter,
+	RecordTable,
+} from "~/shared/ui/record-table";
 import { Skeleton } from "~/shared/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { clientsQueryOptions } from "../api/clients.queries";
 import { ClientSheet } from "./client-sheet";
 
-/** The list page. The relation tab filters the rows; then DataTable searches, sorts, and pages them. */
+// A list page shows ten rows per page, as the kit users page does.
+const CLIENTS_PAGE_SIZE = 10;
+
+/** The list page. The three filters cut the rows; then RecordTable searches, sorts, selects, and pages them. */
 export function ClientsPage() {
 	const { t, locale } = useT();
-	const format = useFormatters();
+	const { money } = useFormatters();
 	const { data: clients } = useSuspenseQuery(clientsQueryOptions());
 	const { data: projects } = useSuspenseQuery(projectsQueryOptions());
 	const { data: invoices } = useSuspenseQuery(invoicesQueryOptions());
-	// A phone shows the client and the outstanding money. The relation moves under the name.
-	const { isMobile } = useSidebar();
-	const [relation, setRelation] = useState<ClientRelation | "all">("all");
+	const [relation, setRelation] = useState<string | null>(null);
+	const [industry, setIndustry] = useState<string | null>(null);
+	const [lead, setLead] = useState<string | null>(null);
 	// The sheet keeps the last client while it slides out, so the panel never closes empty.
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [isSheetOpen, setIsSheetOpen] = useState(false);
 
-	const number = new Intl.NumberFormat(locale);
-	const rows =
-		relation === "all"
-			? clients
-			: clients.filter((client) => client.relation === relation);
-	const countOf = (value: ClientRelation) =>
-		clients.filter((client) => client.relation === value).length;
-	const billed = clients.reduce(
-		(sum, client) => sum + client.billedLastYear,
-		0,
+	const rows = clients.filter(
+		(client) =>
+			(relation === null || client.relation === relation) &&
+			(industry === null || client.industry === industry) &&
+			(lead === null || client.leadId === lead),
 	);
-	const figures: Figure[] = [
+	const collator = new Intl.Collator(locale);
+	const industryOptions = [...new Set(clients.map((client) => client.industry))]
+		.map((value) => ({ value, label: t(`codes.industries.${value}`) }))
+		.sort((first, second) => collator.compare(first.label, second.label));
+	const leadOptions = [
+		...new Map(clients.map((client) => [client.leadId, client.leadName])),
+	]
+		.map(([value, label]) => ({ value, label }))
+		.sort((first, second) => collator.compare(first.label, second.label));
+
+	function openClient(clientId: string) {
+		setOpenId(clientId);
+		setIsSheetOpen(true);
+	}
+
+	const csvColumns: CsvColumn<ClientSummary>[] = [
+		{ header: t("clients.client"), value: (row) => row.name },
 		{
-			id: "active",
-			label: t("clients.figures.active"),
-			value: number.format(clients.length - countOf("dormant")),
+			header: t("clients.industry"),
+			value: (row) => t(`codes.industries.${row.industry}`),
+		},
+		{ header: t("clients.lead"), value: (row) => row.leadName },
+		{
+			header: t("clients.liveProjects"),
+			value: (row) => String(row.liveProjects),
+		},
+		{ header: t("clients.billed"), value: (row) => String(row.billedLastYear) },
+		{
+			header: t("clients.outstanding"),
+			value: (row) => String(row.outstanding),
 		},
 		{
-			id: "retainers",
-			label: t("clients.figures.retainers"),
-			value: number.format(countOf("retainer")),
-		},
-		{
-			id: "billed",
-			label: t("clients.figures.billed"),
-			value: format.compactMoney(billed),
-		},
-		{
-			id: "top",
-			label: t("clients.figures.topShare"),
-			// The share of the largest client in the billing of the year: a concentration risk.
-			value: format.percent(
-				billed === 0
-					? 0
-					: Math.max(...clients.map((client) => client.billedLastYear)) /
-							billed,
-			),
+			header: t("clients.relation"),
+			value: (row) => t(`codes.relations.${row.relation}`),
 		},
 	];
 
-	const columns: DataTableColumn<ClientSummary>[] = [
+	const columns: RecordColumn<ClientSummary>[] = [
 		{
-			id: "client",
+			id: "name",
 			header: t("clients.client"),
 			sortValue: (row) => row.name,
 			cell: (row) => (
-				<div className="grid justify-items-start">
-					<button
-						type="button"
-						onClick={() => {
-							setOpenId(row.id);
-							setIsSheetOpen(true);
-						}}
-						// min-h-11 gives the button a 44 px touch area on a phone.
-						className="inline-flex min-h-11 items-center text-start font-medium hover:underline md:min-h-0"
-					>
-						{row.name}
-					</button>
-					<span className="text-muted-foreground text-xs">
-						{t(`codes.industries.${row.industry}`)}
-					</span>
-					{isMobile ? (
-						<span className="pt-1.5">
-							<RelationBadge relation={row.relation} />
-						</span>
-					) : null}
-				</div>
+				<button
+					type="button"
+					onClick={() => openClient(row.id)}
+					className="flex items-center gap-3 text-start font-medium hover:underline"
+				>
+					<PersonAvatar name={row.name} className="size-8" />
+					{row.name}
+				</button>
 			),
 		},
 		{
-			id: "outstanding",
-			header: t("clients.outstanding"),
-			align: "end",
-			sortValue: (row) => row.outstanding,
-			cell: (row) => (
-				<div className="grid justify-items-end">
-					<span
-						className={cn(row.outstanding === 0 && "text-muted-foreground")}
-					>
-						{format.money(row.outstanding)}
-					</span>
-					{row.overdue > 0 ? (
-						<span className="font-medium text-destructive text-xs">
-							{t("clients.overdueAmount").replace(
-								"{amount}",
-								format.money(row.overdue),
-							)}
-						</span>
-					) : null}
-				</div>
-			),
-		},
-		{
-			id: "billed",
-			header: t("clients.billed"),
-			align: "end",
-			sortValue: (row) => row.billedLastYear,
-			cell: (row) => format.money(row.billedLastYear),
-		},
-		{
-			id: "relation",
-			header: t("clients.relation"),
-			sortValue: (row) => CLIENT_RELATIONS.indexOf(row.relation),
-			// The live count shares the relation cell, so the table fits a 1024 px screen.
-			cell: (row) => (
-				<div className="grid justify-items-start gap-1">
-					<RelationBadge relation={row.relation} />
-					{row.liveProjects > 0 ? (
-						<span className="text-muted-foreground text-xs">
-							{row.liveProjects === 1
-								? t("clients.liveOne")
-								: t("clients.liveMany").replace(
-										"{count}",
-										number.format(row.liveProjects),
-									)}
-						</span>
-					) : null}
-				</div>
-			),
+			id: "industry",
+			header: t("clients.industry"),
+			sortValue: (row) => t(`codes.industries.${row.industry}`),
+			hideable: true,
+			cell: (row) => t(`codes.industries.${row.industry}`),
 		},
 		{
 			id: "lead",
 			header: t("clients.lead"),
 			sortValue: (row) => row.leadName,
+			hideable: true,
+			cell: (row) => row.leadName,
+		},
+		{
+			id: "projects",
+			header: t("clients.liveProjects"),
+			sortValue: (row) => row.liveProjects,
+			align: "end",
+			hideable: true,
+			cell: (row) => new Intl.NumberFormat(locale).format(row.liveProjects),
+		},
+		{
+			id: "billed",
+			header: t("clients.billed"),
+			sortValue: (row) => row.billedLastYear,
+			align: "end",
+			hideable: true,
+			cell: (row) => money(row.billedLastYear),
+		},
+		{
+			id: "outstanding",
+			header: t("clients.outstanding"),
+			sortValue: (row) => row.outstanding,
+			align: "end",
+			hideable: true,
 			cell: (row) => (
-				<span className="flex items-center gap-2">
-					<PersonAvatar
-						name={row.leadName}
-						className="size-6 text-[0.625rem]"
-					/>
-					{row.leadName}
+				<span className={row.overdue > 0 ? "text-destructive" : undefined}>
+					{money(row.outstanding)}
 				</span>
 			),
+		},
+		{
+			id: "relation",
+			header: t("clients.relation"),
+			sortValue: (row) => row.relation,
+			hideable: true,
+			cell: (row) => <RelationBadge relation={row.relation} />,
 		},
 	];
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<PageHeader
 				title={t("clients.title")}
 				description={t("clients.description")}
+				actions={
+					<Button
+						onClick={() => downloadCsv("clients.csv", toCsv(rows, csvColumns))}
+					>
+						<DownloadSimpleIcon />
+						<span className="hidden lg:inline">{t("clients.export")}</span>
+					</Button>
+				}
 			/>
-			<FigureBand figures={figures} />
-			<Card>
-				<CardContent>
-					<DataTable
-						rows={rows}
-						columns={isMobile ? columns.slice(0, 2) : columns}
-						searchText={(row) => `${row.name} ${row.leadName}`}
-						noResults={t("clients.noResults")}
-						toolbar={
-							<Tabs
-								value={relation}
-								onValueChange={(value) =>
-									setRelation(
-										CLIENT_RELATIONS.find((option) => option === value) ??
-											"all",
-									)
-								}
-								className="max-w-full overflow-x-auto"
-							>
-								{/* A phone wraps the tabs onto two lines, so no tab is cut at the edge. */}
-								<TabsList className="max-md:h-auto! max-md:flex-wrap max-md:justify-start max-md:*:flex-none">
-									<TabsTrigger value="all">
-										{t("clients.all")}
-										<span className="tabular-nums opacity-60">
-											{number.format(clients.length)}
-										</span>
-									</TabsTrigger>
-									{CLIENT_RELATIONS.map((value) => (
-										<TabsTrigger key={value} value={value}>
-											{t(`codes.relations.${value}`)}
-											<span className="tabular-nums opacity-60">
-												{number.format(countOf(value))}
-											</span>
-										</TabsTrigger>
-									))}
-								</TabsList>
-							</Tabs>
+			<RecordTable
+				rows={rows}
+				columns={columns}
+				searchText={(row) => `${row.name} ${row.leadName}`}
+				searchPlaceholder={t("clients.search")}
+				toolbar={
+					<>
+						<RecordFilter
+							label={t("clients.relation")}
+							options={CLIENT_RELATIONS.map((value: ClientRelation) => ({
+								value,
+								label: t(`codes.relations.${value}`),
+							}))}
+							value={relation}
+							onValueChange={setRelation}
+						/>
+						<RecordFilter
+							label={t("clients.industry")}
+							options={industryOptions}
+							value={industry}
+							onValueChange={setIndustry}
+						/>
+						<RecordFilter
+							label={t("clients.lead")}
+							options={leadOptions}
+							value={lead}
+							onValueChange={setLead}
+						/>
+					</>
+				}
+				selectable
+				bulkActions={(selected) => (
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() =>
+							downloadCsv("clients.csv", toCsv(selected, csvColumns))
 						}
-					/>
-				</CardContent>
-			</Card>
+					>
+						<DownloadSimpleIcon />
+						{t("table.exportSelected")}
+					</Button>
+				)}
+				rowMenu={(row) => (
+					<>
+						<DropdownMenuItem onSelect={() => openClient(row.id)}>
+							{t("table.open")}
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							onSelect={() =>
+								copyToClipboard(row.id, {
+									done: t("table.copied"),
+									failed: t("table.copyFailed"),
+								})
+							}
+						>
+							{t("table.copyId")}
+						</DropdownMenuItem>
+					</>
+				)}
+				pageSize={CLIENTS_PAGE_SIZE}
+				noResults={t("clients.noResults")}
+			/>
 			<ClientSheet
 				client={clients.find((client) => client.id === openId) ?? null}
 				open={isSheetOpen}
@@ -235,31 +248,24 @@ export function ClientsPage() {
 	);
 }
 
-// Placeholder rows of the skeleton. Fixed keys, because the rows never reorder.
-const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6", "7", "8"];
-
-/** Placeholder while the list loader runs. The route sets it as pendingComponent. */
+/** Placeholder while the loader runs: the header, the toolbar, and the table. */
 export function ClientsPageSkeleton() {
 	return (
-		<div className="grid gap-6">
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-36" />
-				<Skeleton className="h-4 w-72" />
+		<div className="grid gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-4">
+				<div className="grid gap-2">
+					<Skeleton className="h-8 w-40" />
+					<Skeleton className="h-4 w-72" />
+				</div>
+				<Skeleton className="h-9 w-32" />
 			</div>
-			<Skeleton className="h-20 rounded-surface" />
-			<Card>
-				<CardContent className="grid gap-3">
-					<Skeleton className="h-9 w-full sm:max-w-md" />
-					{SKELETON_ROWS.map((key) => (
-						<Skeleton key={key} className="h-12 w-full" />
-					))}
-				</CardContent>
-			</Card>
+			<Skeleton className="h-9 w-full max-w-xl" />
+			<Skeleton className="h-96 rounded-surface" />
 		</div>
 	);
 }
 
-/** Error state of the list when the loader fails. Try again runs the loader again. */
+/** Error state of the Clients page when the loader fails. Try again runs the loader again. */
 export function ClientsPageError() {
 	const { t } = useT();
 	return <PageError message={t("clients.loadError")} />;

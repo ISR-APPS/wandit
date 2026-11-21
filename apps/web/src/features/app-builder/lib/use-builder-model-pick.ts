@@ -1,16 +1,23 @@
 /**
- * State of the model menu: the priced models, the pick of one project or of
- * the next new project, and its setter. The builder page and the dashboard
- * (through the barrel) call it. Reads `GET /api/v2/models` through
- * app-builder.queries.ts, and the stored pick through helpers.ts.
+ * State of the model menu: the priced models, the model pick and the
+ * thinking pick of one project or of the next new project, and their
+ * setters. The builder page and the dashboard (through the barrel) call it.
+ * Reads `GET /api/v2/models` through app-builder.queries.ts, and the stored
+ * picks through helpers.ts. The builder composer and the dashboard prompt
+ * box show the thinking pick.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import type { LlmModelPrice } from "@wandit/contracts";
+import type { BuilderThinking, LlmModelPrice } from "@wandit/contracts";
 import { useMemo, useState } from "react";
 
 import { builderModelsQuery } from "../api/app-builder.queries";
-import { readBuilderModel, writeBuilderModel } from "./helpers";
+import {
+	readBuilderModel,
+	readBuilderThinking,
+	writeBuilderModel,
+	writeBuilderThinking,
+} from "./helpers";
 
 /** What the model menu reads and sets. BuilderModelPicker renders it. */
 export type BuilderModelPick = {
@@ -20,6 +27,10 @@ export type BuilderModelPick = {
 	modelId: string | undefined;
 	/** Uses this listed model id from the next send, and stores it for the project. */
 	setModelId: (modelId: string) => void;
+	/** Thinking level of the next send. The thinking row of the model card or the lock chip sets it. "balanced" when nothing valid is stored. */
+	thinking: BuilderThinking;
+	/** Uses this thinking level from the next send, and stores it for the project. */
+	setThinking: (thinking: BuilderThinking) => void;
 };
 
 /**
@@ -41,15 +52,34 @@ function useBuilderModelPickInBuild(
 		() => (data === undefined ? undefined : readBuilderModel(projectId, data)),
 		[projectId, data],
 	);
+	// Ops can turn a model off. A pick that the list no longer holds then falls back to the stored-pick rule.
+	const isPickListed =
+		pick !== null &&
+		pick.projectId === projectId &&
+		data?.models.some((row) => row.modelId === pick.modelId) === true;
+	// The same project rule as the model pick above.
+	const [thinkingPick, setThinkingPick] = useState<{
+		projectId: string | null;
+		thinking: BuilderThinking;
+	} | null>(null);
+	const storedThinking = useMemo(
+		() => readBuilderThinking(projectId),
+		[projectId],
+	);
 	return {
 		models: data?.models,
-		modelId:
-			pick !== null && pick.projectId === projectId
-				? pick.modelId
-				: storedModelId,
+		modelId: isPickListed ? pick.modelId : storedModelId,
 		setModelId: (modelId) => {
 			writeBuilderModel(projectId, modelId);
 			setPick({ projectId, modelId });
+		},
+		thinking:
+			thinkingPick !== null && thinkingPick.projectId === projectId
+				? thinkingPick.thinking
+				: storedThinking,
+		setThinking: (thinking) => {
+			writeBuilderThinking(projectId, thinking);
+			setThinkingPick({ projectId, thinking });
 		},
 	};
 }
@@ -59,6 +89,8 @@ const NO_MODEL_PICK: BuilderModelPick = {
 	models: undefined,
 	modelId: undefined,
 	setModelId: () => undefined,
+	thinking: "balanced",
+	setThinking: () => undefined,
 };
 
 /**

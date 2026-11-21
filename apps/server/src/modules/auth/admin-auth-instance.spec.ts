@@ -2,6 +2,7 @@ import {
 	ADMIN_ACCESS_REQUIRED_ERROR_CODE,
 	adminAuth,
 	auth,
+	authCookiePrefix,
 	createAuth,
 } from "@wandit/auth";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
@@ -23,7 +24,8 @@ vi.mock("@wandit/env/server", async (importOriginal) => {
 describe("@wandit/auth isolated admin instance", () => {
 	it("keeps web and admin paths, plugins, and providers separate", () => {
 		expect(auth.options.basePath).toBe("/api/auth");
-		expect(auth.options.advanced).not.toHaveProperty("cookiePrefix");
+		// vitest.config.ts sets BETTER_AUTH_URL to localhost:3000, and the mock sets development.
+		expect(auth.options.advanced?.cookiePrefix).toBe("better-auth-3000");
 		expect(auth.options.plugins?.map((plugin) => plugin.id)).toEqual(
 			expect.arrayContaining([
 				"expo",
@@ -45,7 +47,7 @@ describe("@wandit/auth isolated admin instance", () => {
 		]);
 
 		expect(adminAuth.options.basePath).toBe("/api/admin-auth");
-		expect(adminAuth.options.advanced?.cookiePrefix).toBe("wandit-admin");
+		expect(adminAuth.options.advanced?.cookiePrefix).toBe("wandit-admin-3000");
 		expect(adminAuth.options.advanced).not.toHaveProperty("cookies");
 		expect(adminAuth.options.plugins?.map((plugin) => plugin.id)).toEqual([
 			"admin",
@@ -135,16 +137,16 @@ describe("@wandit/auth isolated admin instance", () => {
 		expect(webContext.baseURL).toBe(`${authOrigin}/api/auth`);
 		expect(adminContext.baseURL).toBe(`${authOrigin}/api/admin-auth`);
 		expect(webContext.authCookies.sessionToken.name).toBe(
-			`${securePrefix}better-auth.session_token`,
+			`${securePrefix}better-auth-3000.session_token`,
 		);
 		expect(webContext.authCookies.sessionData.name).toBe(
-			`${securePrefix}better-auth.session_data`,
+			`${securePrefix}better-auth-3000.session_data`,
 		);
 		expect(adminContext.authCookies.sessionToken.name).toBe(
-			`${securePrefix}wandit-admin.session_token`,
+			`${securePrefix}wandit-admin-3000.session_token`,
 		);
 		expect(adminContext.authCookies.sessionData.name).toBe(
-			`${securePrefix}wandit-admin.session_data`,
+			`${securePrefix}wandit-admin-3000.session_data`,
 		);
 		expect(adminContext.authCookies.sessionToken.attributes.sameSite).toBe(
 			webContext.authCookies.sessionToken.attributes.sameSite,
@@ -157,6 +159,21 @@ describe("@wandit/auth isolated admin instance", () => {
 		);
 		expect(googleProvider?.disableImplicitSignUp).toBe(true);
 		expect(googleProvider?.options?.disableSignUp).toBe(true);
+	});
+
+	// A hosted API with a new cookie name signs out every user.
+	it.each([
+		{ nodeEnv: "production", authUrl: "https://api.wandit.dev" },
+		{ nodeEnv: "development", authUrl: "https://api-staging.wandit.dev" },
+		{ nodeEnv: "test", authUrl: "http://localhost:3000" },
+		{ nodeEnv: "development", authUrl: "http://localhost" },
+	])("keeps the base cookie prefix for $nodeEnv on $authUrl", ({
+		nodeEnv,
+		authUrl,
+	}) => {
+		expect(authCookiePrefix({ authUrl, base: "better-auth", nodeEnv })).toBe(
+			"better-auth",
+		);
 	});
 
 	it("refuses to create an admin session for a non-admin user", async () => {

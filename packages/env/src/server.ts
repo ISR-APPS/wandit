@@ -196,6 +196,12 @@ export const env = createEnv({
 			.int()
 			.nonnegative()
 			.default(1000),
+		// Exa (exa.ai) key of the `web_search` host tool of V2 builder turns. The
+		// Trigger worker reads it. Absent: the turns have no web search at all.
+		EXA_API_KEY: z.string().min(1).optional(),
+		// Firecrawl (firecrawl.dev) key of the `web_fetch`, `capture_site`, and `compare_clone` host tools of
+		// V2 builder turns. The Trigger worker reads it. Absent: the turns have none of the three tools.
+		FIRECRAWL_API_KEY: z.string().min(1).optional(),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),
 		R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),

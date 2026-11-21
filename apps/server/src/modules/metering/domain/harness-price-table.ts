@@ -2,8 +2,11 @@
  * Prices a builder turn from the one LLM price table.
  * `turns.service.ts` calls it for the create-time estimate; the
  * builder-turn runtime calls it for the settle pricing snapshot.
- * Calls `llm-model-prices.ts` and `model-pricing.ts`; pure math, no I/O.
+ * Calls `llm-model-prices.ts` and `model-pricing.ts`, and reads the typical
+ * turn usage from contracts; pure math, no I/O.
  */
+import { TYPICAL_TURN_USAGE } from "@wandit/contracts";
+
 import {
 	llmModelPrice,
 	priceUsdMicros,
@@ -12,10 +15,10 @@ import { usdMicrosToCentiCredits } from "./model-pricing";
 
 /**
  * The settle `pricingSnapshot.table` value. Bump it when a row in
- * `LLM_MODEL_PRICES` changes so a settled event names the table that
- * priced it.
+ * `LLM_MODEL_PRICES` or the price math changes, so a settled event names
+ * the table that priced it. @7 bills 5-minute cache writes at 1.25x input.
  */
-export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@5";
+export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@7";
 
 /**
  * Cost of `modelId` relative to the default model, rounded to 2 decimals.
@@ -35,20 +38,9 @@ export function harnessModelMultiplier(
 }
 
 /**
- * The WANDIT-151 typical message: one builder turn is about 60k fresh
- * input, 180k cache reads, 20k cache writes, and 12k output tokens.
- * Source: Linear WANDIT-151 measurements, D2 notes.
- */
-export const TYPICAL_TURN_USAGE = {
-	cacheReadTokens: 180_000,
-	cacheWriteTokens: 20_000,
-	inputTokens: 60_000,
-	outputTokens: 12_000,
-} as const satisfies Parameters<typeof priceUsdMicros>[1];
-
-/**
- * Centi-credit estimate of one typical turn on `modelId` (1 credit =
- * 100 cc). Throws when the model has no price row.
+ * Centi-credit estimate of one typical turn (TYPICAL_TURN_USAGE, from
+ * contracts) on `modelId` (1 credit = 100 cc). Throws when the model has
+ * no price row.
  */
 export function typicalTurnCredits(
 	modelId: string,

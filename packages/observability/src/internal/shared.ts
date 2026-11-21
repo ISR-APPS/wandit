@@ -156,6 +156,103 @@ const scrubSecretStrings = (node: unknown, seen: WeakSet<object>): void => {
 };
 
 /**
+ * Span data and breadcrumb data keys that hold a full URL, or a path with
+ * its query. Sentry 10.69 writes them on http server spans, http and fetch
+ * client spans, and http breadcrumbs.
+ */
+const URL_DATA_KEYS = ["url", "url.full", "http.url", "http.target"];
+
+/** Data keys that hold only the query or the hash of a URL. They go whole. */
+const URL_QUERY_DATA_KEYS = [
+	"url.query",
+	"http.query",
+	"url.fragment",
+	"http.fragment",
+];
+
+/** One value of span data or breadcrumb data; Sentry types span attributes so. */
+type TelemetryValue =
+	| string
+	| number
+	| boolean
+	| Array<string | number | boolean | null | undefined>
+	| null
+	| undefined;
+
+/** The `data` object of a span or a breadcrumb. */
+type TelemetryData = { [key: string]: TelemetryValue };
+
+/** Structural subset of Sentry's `SpanJSON` that can hold a URL. */
+interface UrlBearingSpan {
+	/** For example `http.server`, `http.client`, or `db`. */
+	op?: string;
+	description?: string;
+	data?: TelemetryData;
+}
+
+/** Structural subset of a Sentry error or transaction event that can hold a URL. */
+interface UrlBearingEvent {
+	request?: {
+		url?: string;
+		query_string?: string | { [key: string]: string } | Array<[string, string]>;
+	};
+	breadcrumbs?: Array<{ data?: TelemetryData }>;
+}
+
+/**
+ * Removes the query and the hash of a URL or a path. A query can hold a
+ * secret, for example a video billing token or an OAuth code.
+ */
+const stripUrlQuery = (url: string): string => url.split(/[?#]/, 1)[0] ?? url;
+
+const stripDataUrlQueries = (data: TelemetryData | undefined): void => {
+	if (data === undefined) {
+		return;
+	}
+	for (const key of URL_DATA_KEYS) {
+		const value = data[key];
+		if (typeof value === "string") {
+			data[key] = stripUrlQuery(value);
+		}
+	}
+	for (const key of URL_QUERY_DATA_KEYS) {
+		delete data[key];
+	}
+};
+
+/**
+ * Removes every URL query from the request data and the breadcrumbs of a
+ * server error or transaction event. `nestjs.ts` calls it before `scrubEvent`.
+ */
+export const stripEventUrlQueries = <E extends UrlBearingEvent>(
+	event: E,
+): E => {
+	if (event.request !== undefined) {
+		if (event.request.url !== undefined) {
+			event.request.url = stripUrlQuery(event.request.url);
+		}
+		delete event.request.query_string;
+	}
+	for (const breadcrumb of event.breadcrumbs ?? []) {
+		stripDataUrlQueries(breadcrumb.data);
+	}
+	return event;
+};
+
+/**
+ * `beforeSendSpan` of the server. Removes every URL query from the span data.
+ * Sentry 10.69 runs it on the root span and on each child span of a transaction.
+ */
+export const stripSpanUrlQueries = <S extends UrlBearingSpan>(span: S): S => {
+	stripDataUrlQueries(span.data);
+	// Only an http span name holds a URL. A SQL span name holds `?` placeholders.
+	if (span.op?.startsWith("http") && span.description !== undefined) {
+		span.description = stripUrlQuery(span.description);
+	}
+	return span;
+};
+
+/**
  * `tracesSampler` factory: drops health-check noise, honors the sampling
  * decision of the calling service (so a sampled SPA pageload keeps its API
  * spans and an unsampled one doesn't create orphans), otherwise applies

@@ -14,7 +14,7 @@
 			"mode": "dark",
 			"primary": "look",
 			"font": "look",
-			"displayFont": "look",
+			"displayFont": "epilogue",
 			"scale": "md",
 			"radius": "sm",
 			"border": "2",

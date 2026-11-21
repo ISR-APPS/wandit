@@ -1,5 +1,5 @@
-// A round avatar with the initials of a person: an agent or a customer contact.
-// The queue, the ticket pages, and the customer sheet render it. No photo exists for these people.
+// A round avatar with the initials of a name: an agent, a customer contact, or a customer company.
+// The home table, the ticket pages, and the customer list render it. No photo exists for these people or companies.
 import { cn } from "~/shared/lib/utils";
 import { Avatar, AvatarFallback } from "~/shared/ui/avatar";
 import { initialsOf } from "../lib/format";

@@ -3,7 +3,8 @@
  * history of the open conversation with the live turn stream of
  * use-builder-chat.ts. Maps the messages to the card shapes the pane
  * renders. Turns a chat error into a dictionary sentence and a Reconnect
- * action, holds the Plan toggle, and puts the model pick on every send.
+ * action, holds the Plan toggle, and puts the model and the thinking level
+ * of the page on every send. The page picks the model of a locked chat.
  * The page picks the open conversation; a new one switches the thread in
  * place. Calls the history query of app-builder.queries.ts,
  * use-builder-chat.ts, builder-chat-transport.ts, and turn-parts.ts.
@@ -11,6 +12,7 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type {
+	BuilderThinking,
 	BuilderTurnMode,
 	ChatMessage,
 	PreviewTarget,
@@ -21,6 +23,7 @@ import type {
 import type { FileUIPart } from "ai";
 import { useEffect, useMemo, useState } from "react";
 
+import { isStarterPassRequiredError } from "@/features/credits";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { chatHistoryQuery } from "../api/app-builder.queries";
@@ -140,6 +143,11 @@ export type BuilderThreadState = {
 	 * a send with 409 BUILDER_OTHER_CHAT_BUSY. The pane then locks the composer.
 	 */
 	busyChatId: string | null;
+	/**
+	 * True while the last reply holds an open question or approval card. The
+	 * API pauses that turn, so every send then carries the stored model.
+	 */
+	isCardWaiting: boolean;
 };
 
 // A shared empty list keeps the useMemo deps stable while the history
@@ -172,6 +180,10 @@ export function turnErrorKey(
 	isSendRefused: boolean,
 ): TranslationKey | null {
 	if (isApiClientError(error)) {
+		// The pool has credits but no Starter pass, so "no credits" would be false.
+		if (isStarterPassRequiredError(error)) {
+			return "appBuilder.chat.errors.starterPassRequired";
+		}
 		// A bare 402 arrives as HTTP_402 when the answer carries no error envelope.
 		if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) {
 			return "appBuilder.chat.errors.noCredits";
@@ -190,6 +202,11 @@ export function turnErrorKey(
 				return "appBuilder.chat.errors.modelDenied";
 			case "V2_MODEL_UNPRICED":
 				return "appBuilder.chat.errors.modelUnpriced";
+			// The chat keeps the tier of its first turn. Both answers ask for a new conversation.
+			case "V2_MODEL_LOCKED":
+				return "appBuilder.chat.errors.modelLocked";
+			case "V2_MODEL_RETIRED":
+				return "appBuilder.chat.errors.modelRetired";
 		}
 		// The composer holds the draft of a refused send again. This sentence
 		// asks the user to send it again. A refused 409 BUILDER_TURN_ACTIVE
@@ -227,15 +244,19 @@ function turnErrorText(
  * stream, and every further send goes through the real turn routes.
  * `openChat` is the open conversation, from `openChatOf` in the page. Null
  * while the conversation list loads or after its load failed: nothing sends
- * then. `model` is the pick of the model menu. Every send carries it, also
- * Retry, question answers, and approval answers. Undefined sends none: the
- * server default runs. `deps` is the test seam of use-builder-chat.ts;
- * production passes nothing.
+ * then. `model` is the model of the next turn, from the page: the model
+ * menu pick, or the locked tier model or its Fast row (lockedTurnModelOf).
+ * Every send carries it, also Retry, question answers, and approval
+ * answers. While a card waits, a send carries `openChat.lockedModelId`
+ * instead. Undefined sends none: the server default runs. `thinking` is the
+ * pick of the thinking row, sent the same way; undefined runs "balanced".
+ * `deps` is the test seam of use-builder-chat.ts; production passes nothing.
  */
 export function useBuilderThread(
 	projectId: string,
 	openChat: OpenChat | null,
 	model: string | undefined,
+	thinking: BuilderThinking | undefined,
 	deps?: BuilderChatDeps,
 ): BuilderThreadState {
 	const { t } = useTranslation();
@@ -274,7 +295,6 @@ export function useBuilderThread(
 	// for each query, so a new conversation starts from false.
 	const isHistorySettled =
 		history !== undefined || historyQuery.isFetchedAfterMount;
-
 	const chat = useBuilderChat(
 		{ projectId, chatId, initialMessages, isHistorySettled },
 		deps,
@@ -337,6 +357,20 @@ export function useBuilderThread(
 		}
 	}
 	const isPlanMode = planModePick ?? latestTurnMode === "plan";
+	// A plan card does not pause the turn: the API only waits on a question or an approval.
+	const isCardWaiting =
+		messages
+			.findLast((message) => message.role === "assistant")
+			?.parts.some(
+				(part) =>
+					(part.type === "data-question" || part.type === "data-approval") &&
+					part.data.isOpen,
+			) ?? false;
+	// The API resumes a waiting card on the model of that turn, and answers 409 V2_MODEL_LOCKED to a Fast change.
+	const sentModel =
+		isCardWaiting && openChat !== null && openChat.lockedModelId !== null
+			? openChat.lockedModelId
+			: model;
 	const sendTurn = (input: BuilderChatSend) => {
 		// A send with no mode runs in the mode of the toggle. With an open plan,
 		// a build turn approves the whole plan, so a preview fix must not send one.
@@ -344,7 +378,7 @@ export function useBuilderThread(
 		// Until the created frame of the new turn arrives, the toggle and the
 		// header chip show the mode of this send.
 		setPlanModePick(mode === "plan");
-		return chat.send({ ...input, mode, model });
+		return chat.send({ ...input, mode, model: sentModel, thinking });
 	};
 
 	// A failed stream ends with a data-turn-error frame and an error chunk.
@@ -391,7 +425,12 @@ export function useBuilderThread(
 			sendTurn({ text, files, targets, mode }),
 		// No mode, so a build turn: only a build turn pauses on an approval.
 		decideApproval: (approvalId, approved) =>
-			void chat.send({ text: "", approval: { approvalId, approved }, model }),
+			void chat.send({
+				text: "",
+				approval: { approvalId, approved },
+				model: sentModel,
+				thinking,
+			}),
 		answerQuestions: ({ message, answers, files }) =>
 			sendTurn({ text: message, answers, files }),
 		cancel: chat.cancel,
@@ -430,5 +469,6 @@ export function useBuilderThread(
 		isPlanMode,
 		setPlanMode: setPlanModePick,
 		busyChatId: chat.busyChatId,
+		isCardWaiting,
 	};
 }

@@ -1,0 +1,116 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.orchard {
+	--plum: var(--foreground);
+	--paper: var(--background);
+	--blush: color-mix(in oklch, var(--background) 62%, var(--primary));
+	background: var(--paper);
+	color: var(--plum);
+	font-family: var(--font-sans);
+}
+.orchard header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	justify-content: space-between;
+	align-items: center;
+	border-block-end: 2px solid currentcolor;
+	padding: 1rem 4vw;
+}
+.orchard :where(header) > a {
+	font-size: 1.3rem;
+	line-height: 1;
+	font-weight: 800;
+	letter-spacing: -0.06em;
+}
+.orchard nav {
+	display: flex;
+	gap: 1.8rem;
+	font-size: 0.9rem;
+	font-weight: bold;
+}
+.orchard-hero {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	border-block-end: 2px solid currentcolor;
+}
+.orchard-hero div {
+	display: grid;
+	align-content: center;
+	justify-items: start;
+	gap: 1.6rem;
+	padding: 4rem 4vw;
+}
+.orchard h1,
+.orchard h2 {
+	font-family: "Arial Black", var(--font-sans);
+	font-weight: 900;
+	letter-spacing: -0.09em;
+	line-height: 0.95;
+}
+.orchard h1 {
+	font-size: clamp(3.5rem, 7.1vw, 8rem);
+}
+.orchard h2 {
+	font-size: clamp(2.5rem, 6vw, 6rem);
+}
+.orchard-hero p {
+	max-width: 30ch;
+	font-size: 1.08rem;
+}
+.orchard-hero img {
+	height: 100%;
+	width: 100%;
+	min-height: 29rem;
+	object-fit: cover;
+	border-inline-start: 2px solid currentcolor;
+}
+.orchard-hero a {
+	background: var(--plum);
+	color: var(--paper);
+	padding: 0.85rem 1.2rem;
+}
+.orchard a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.24em;
+}
+.orchard-programs,
+.orchard-visit {
+	padding: 3.5rem 4vw;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+	gap: 2rem;
+}
+.orchard-programs {
+	background: var(--blush);
+}
+.orchard-programs dl > div {
+	display: grid;
+	grid-template-columns: 8rem 1fr;
+	gap: 1rem;
+	border-block-start: 1px solid currentcolor;
+	padding-block: 1rem;
+}
+.orchard-programs dd span {
+	display: block;
+}
+.orchard-visit h3 {
+	font-weight: 800;
+}
+.orchard-visit p {
+	margin-block-end: 1.1rem;
+}
+@media (max-width: 700px) {
+	.orchard-hero,
+	.orchard-programs,
+	.orchard-visit {
+		grid-template-columns: 1fr;
+	}
+	.orchard-hero img {
+		min-height: 0;
+		max-height: 23rem;
+		border-inline-start: 0;
+		border-block-start: 2px solid currentcolor;
+	}
+}

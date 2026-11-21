@@ -1,18 +1,5 @@
-// Shapes of the home data: daily points, breakdown slices, and KPI items, plus the one change formula.
-// overview-data.ts builds them. The entity rows, the trend cards, the breakdown, and the figures take the types.
-
-/** One day of a trend. `day` is a local "YYYY-MM-DD". `previous` is the same day one period earlier. */
-export type DailyPoint = {
-	day: string;
-	current: number;
-	previous: number;
-};
-
-/** One part of a breakdown. `label` is a service code; the page translates it. */
-export type BreakdownSlice = {
-	label: string;
-	value: number;
-};
+// The KPI item of the home data, plus the one change formula.
+// overview-data.ts builds the items. The KPI cards, the team highlights, and ChangeLine read the type.
 
 /** One KPI figure of the home. The page maps its id to a message key. */
 export type KpiItem = {

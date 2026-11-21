@@ -31,8 +31,8 @@ import {
 import { useState } from "react";
 import { useStopwatch } from "react-timer-hook";
 
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
+import { useBillingModal, usePurchasesEnabled } from "@/features/billing";
+import { useOutOfCredits } from "@/features/credits";
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -184,6 +184,7 @@ function PageBuildCard({
 }) {
 	const { projectId } = useWorkspace();
 	const queryClient = useQueryClient();
+	const { starterPassRequired } = useOutOfCredits();
 	// A Retry/Resume replaces the transcript's dead handle for the rest of
 	// this mount: with the new run's handle when the server minted one, or
 	// with null (drop the old handle entirely) when it did not — the old
@@ -322,6 +323,7 @@ function PageBuildCard({
 				onDismiss={dismiss}
 				onRetry={retry}
 				retrying={retryMutation.isPending}
+				starterPassRequired={starterPassRequired}
 			/>
 		);
 	}
@@ -729,6 +731,7 @@ export function FailedBuildCard({
 	onDismiss,
 	onRetry,
 	retrying = false,
+	starterPassRequired,
 }: {
 	/** Each action owns its pending label — a dismiss must never read "Retrying…". */
 	dismissing?: boolean;
@@ -736,10 +739,22 @@ export function FailedBuildCard({
 	onDismiss: (() => void) | undefined;
 	onRetry: (() => void) | undefined;
 	retrying?: boolean;
+	/** True when the active workspace pool must buy the Starter pass, from useOutOfCredits. */
+	starterPassRequired: boolean;
 }) {
-	const { openPlanPicker } = useBillingModal();
+	const { t } = useTranslation();
+	const { openTopup } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
-	const copy = buildFailureCopy(failureCode);
+	// The server refuses a pool with no Starter pass with the same insufficient_credits code.
+	const isStarterPass =
+		starterPassRequired && failureCode === "insufficient_credits";
+	const copy = isStarterPass
+		? {
+				kicker: buildFailureCopy(failureCode).kicker,
+				title: t("workspace.chat.pageBuild.starterPass.title"),
+				message: t("workspace.chat.pageBuild.starterPass.message"),
+			}
+		: buildFailureCopy(failureCode);
 	// While all purchases are paused (beta), the top-up CTA is a dead end —
 	// fall through to Retry, which works once an admin grants credits.
 	const outOfCredits =
@@ -774,9 +789,11 @@ export function FailedBuildCard({
 							size="sm"
 							className="h-8 flex-1 text-[13px]"
 							disabled={busy}
-							onClick={() => openPlanPicker("generate_page")}
+							onClick={() => openTopup("generate_page")}
 						>
-							Top up wallet
+							{isStarterPass
+								? t("workspace.chat.pageBuild.starterPass.cta")
+								: "Top up wallet"}
 						</Button>
 					) : retryable && onRetry ? (
 						<Button

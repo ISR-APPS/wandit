@@ -243,6 +243,31 @@ export type CreateAuthOptions = {
 	onMcpConsentChange?: OnMcpConsentChange;
 };
 
+/**
+ * Cookie prefix of one auth instance. A local dev API adds its port, for example
+ * "better-auth-3980". Browsers share localhost cookies across ports. Without the
+ * port, another worktree API with another database deletes the session cookie.
+ * Hosted APIs keep the base name, so no deployed session changes.
+ */
+export function authCookiePrefix(input: {
+	/** Prefix outside local dev: "better-auth" (web) or "wandit-admin". */
+	base: string;
+	/** BETTER_AUTH_URL of the API process. */
+	authUrl: string;
+	/** NODE_ENV of the API process. */
+	nodeEnv: string;
+}): string {
+	const port = new URL(input.authUrl).port;
+	if (
+		input.nodeEnv !== "development" ||
+		!isLocalhostUrl(input.authUrl) ||
+		port === ""
+	) {
+		return input.base;
+	}
+	return `${input.base}-${port}`;
+}
+
 function createBaseAuthOptions() {
 	// See TRUSTED_PROXY_CIDRS in @wandit/env: without these, a request whose
 	// X-Forwarded-For has more than one hop resolves to NO client IP, and
@@ -276,6 +301,13 @@ function createBaseAuthOptions() {
 
 	return {
 		advanced: {
+			// The name must start with "better-auth": the Expo client finds
+			// session cookies by that prefix.
+			cookiePrefix: authCookiePrefix({
+				authUrl: env.BETTER_AUTH_URL,
+				base: "better-auth",
+				nodeEnv: env.NODE_ENV,
+			}),
 			...(httpsCookies
 				? {
 						defaultCookieAttributes: {
@@ -1112,7 +1144,11 @@ export function createAdminAuth() {
 			...baseAuthOptions.advanced,
 			// Do not set explicit names in advanced.cookies: doing so bypasses
 			// cookiePrefix and would let this instance collide with web auth.
-			cookiePrefix: "wandit-admin",
+			cookiePrefix: authCookiePrefix({
+				authUrl: env.BETTER_AUTH_URL,
+				base: "wandit-admin",
+				nodeEnv: env.NODE_ENV,
+			}),
 		},
 		// Shared database table keys strip basePath and collide across instances.
 		// Admin traffic is tiny, so memory-store restart amnesia is acceptable.

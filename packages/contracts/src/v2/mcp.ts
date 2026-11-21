@@ -7,7 +7,10 @@ import { z } from "zod";
 
 import { projectPromptMaxLength } from "../v1/projects";
 import { isoDateTimeSchema, uuidSchema } from "../v1/shared/primitives";
+import { targetPlatformSchema } from "../v1/shared/target-platform";
 import { CODE_FILE_MAX_BYTES } from "./code";
+import { appLanguageSchema } from "./projects";
+import { builderMessageMaxLength } from "./turns";
 import { commitShaSchema } from "./versions";
 
 /**
@@ -17,7 +20,8 @@ import { commitShaSchema } from "./versions";
 export const mcpScopes = [
 	// Read workspaces, projects, files, versions, and turns.
 	"projects:read",
-	// Edit project files directly and wake the sandbox.
+	// Create V2 projects, edit project files directly, and wake the sandbox.
+	// `create_project` also needs "builder:run": it starts the first builder turn.
 	"projects:write",
 	// Send prompts to the Wandit builder and cancel its turns. Spends credits.
 	"builder:run",
@@ -313,6 +317,26 @@ export const mcpSendPromptInputSchema = mcpProjectInputSchema.extend({
 	// The `approvalId` of an open approval card to deny. An agent can never approve a card.
 	denyApprovalId: z.string().min(1).max(200).optional(),
 });
+
+/**
+ * Input of `create_project`. No attachments, composer, model, mode, or desktop engine in this version.
+ * The server derives the project id and the chat id from `requestKey`, the client, and the user.
+ */
+export const mcpCreateProjectInputSchema = z.object({
+	// Absent or "personal": the own personal workspace. Else a workspace id from `list_workspaces`. "shared" is refused.
+	workspaceId: z.string().min(1).max(128).optional(),
+	// A new uuid for each new project. A retry with the same key returns the same project.
+	requestKey: uuidSchema,
+	// The first prompt of the builder. The same cap as the prompt of `POST /v2/projects`.
+	prompt: z.string().trim().min(1).max(builderMessageMaxLength),
+	// The device family of the app. It never changes after the create.
+	targetPlatform: targetPlatformSchema.default("web"),
+	// 1 to 3 UI languages of the app (D7). The builder reads them as a hint.
+	languages: z.array(appLanguageSchema).min(1).max(3).default(["en"]),
+});
+
+/** The parsed `create_project` input, with the defaults applied. `McpTools.createProject` takes it. */
+export type McpCreateProjectInput = z.infer<typeof mcpCreateProjectInputSchema>;
 
 /** Input of `publish_app`. */
 export const mcpPublishAppInputSchema = mcpProjectInputSchema.extend({

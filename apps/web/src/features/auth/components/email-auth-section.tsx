@@ -4,8 +4,10 @@
  * Each send carries a Turnstile token in the x-captcha-response header when the app has a site key.
  * A token works one time, so each send uses it and resets the widget.
  * The code check has no captcha on purpose: the send step already proved a human.
+ * The magic link carries the invite code of the user referral program when this browser holds one.
  */
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
+import { USER_REFERRAL_INVITE_PARAM } from "@wandit/contracts";
 import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -13,7 +15,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Loader2, Mail } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { buildAuthCallbackUrls } from "@/lib/auth-navigation";
+import { buildAuthCallbackUrls, isOAuthPagePath } from "@/lib/auth-navigation";
 import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
 import {
@@ -31,13 +33,31 @@ type SendErrorShape = {
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN_SECONDS = 30;
 
+/**
+ * Adds the invite code to a path of this app, for example "/dashboard" gives "/dashboard?invite=abcd1234".
+ * The query and the hash of the path stay.
+ * @param path Path that `sanitizeAuthRedirectPath` accepted.
+ */
+function addInviteParam(path: string, inviteCode: string): string {
+	// The API signs the query of an OAuth page. One more parameter breaks the signature.
+	if (isOAuthPagePath(path)) return path;
+	// The origin only lets URL parse the path. The result is a path again.
+	const url = new URL(path, window.location.origin);
+	url.searchParams.set(USER_REFERRAL_INVITE_PARAM, inviteCode);
+	return `${url.pathname}${url.search}${url.hash}`;
+}
+
+/** The email form of the sign-in dialog. After a send, it shows the "check your mail" view with the code fallback. */
 export function EmailAuthSection({
 	nextPath,
+	inviteCode,
 	onError,
 	onClearError,
 	onMagicLinkPendingChange,
 }: {
 	nextPath: string | undefined;
+	/** The invite code of the user referral program that this browser holds, from auth-modal.tsx. Null when the visitor has none. */
+	inviteCode: string | null;
 	onError: (message: string) => void;
 	onClearError: () => void;
 	/** true from the moment a magic link send starts (so a dismiss mid-request
@@ -128,7 +148,10 @@ export function EmailAuthSection({
 		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
 		const { callbackURL, errorCallbackURL } = buildAuthCallbackUrls(
 			window.location.origin,
-			destination,
+			// A mail link can open in a different browser, which has no stored code. The address takes the code there.
+			inviteCode === null
+				? destination
+				: addInviteParam(destination, inviteCode),
 		);
 
 		try {

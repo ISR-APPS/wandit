@@ -2,8 +2,8 @@
  * Backend gate of the Cloud panels (WANDIT-188). Reads cloudBackendQuery and
  * shows one block per backend status; only an `active` backend shows the
  * panel it wraps. Rendered by cloud-panel-content.tsx around every panel except
- * Secrets. Calls useEnableBackend and useRestoreBackend, and links to /billing
- * when the plan has no free backend. Also exports CloudLoadFailed, the
+ * Secrets. Calls useEnableBackend and useRestoreBackend, and links to the wallet
+ * at /billing when a free owner has no backend. Also exports CloudLoadFailed, the
  * failed-load block of the panels. Draws each block with PanelMessage of
  * more/panel-shell.tsx.
  */
@@ -18,7 +18,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	type BackendLimitDetails,
-	type BillingPlanId,
 	backendLimitDetailsSchema,
 	type CloudBackendResponse,
 } from "@wandit/contracts";
@@ -38,8 +37,8 @@ import {
 } from "../more/panel-shell";
 import { RowsGridSkeleton } from "./rows-grid";
 
-/** The ember pill of a backend block: the one action that moves the backend forward. */
-const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5");
+/** The main action of a backend block: the one action that moves the backend forward. The kit Button gives the 36 px height. */
+const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "px-5");
 
 /** Props of BackendState. `children` is a panel that reads the database of the app. */
 export type BackendStateProps = {
@@ -84,13 +83,6 @@ const FAILURE_REASONS = new Map<string, TranslationKey>([
 		"workspace.cloud.backend.error.reasons.restoreFailed",
 	],
 ]);
-
-/** The plan names of the billing dictionary, so the limit text names the plan as the plan picker does. */
-const PLAN_NAMES = {
-	starter: "billing.planPicker.starterName",
-	pro: "billing.planPicker.proName",
-	business: "billing.planPicker.businessName",
-} as const satisfies Record<BillingPlanId, TranslationKey>;
 
 /**
  * Shows `children` only while the backend is `active`. Every other status,
@@ -288,37 +280,36 @@ function BackendFailed({
 }
 
 /**
- * The plan limit of a 403 `BACKEND_LIMIT_REACHED` and a link to the billing
- * page, where the owner picks a plan with more backends.
+ * The limit of a 403 `BACKEND_LIMIT_REACHED`. A free owner (limit 0) gets a link to the wallet:
+ * the first top-up makes the owner paid. A paid owner at the limit has nothing to buy, so no link.
  */
 function BackendLimitReached({
 	details,
 }: {
-	/** Plan and limit from the 403 body; null when the body did not parse. */
+	/** Limit from the 403 body; null when the body did not parse. The text ignores the legacy plan field. */
 	details: BackendLimitDetails | null;
 }) {
 	const { t } = useTranslation();
 	let text = t("workspace.cloud.backend.limit.generic");
 	if (details !== null) {
-		// A limit of 0 gets its own sentence with no plan name: the server
-		// sends `starter` also for an owner without a subscription.
 		text =
 			details.limit === 0
 				? t("workspace.cloud.backend.limit.notIncluded")
-				: t("workspace.cloud.backend.limit.inUse", {
-						plan: t(PLAN_NAMES[details.plan]),
-						count: details.limit,
-					});
+				: t("workspace.cloud.backend.limit.inUse", { count: details.limit });
 	}
+	// Pricing-v8 section 6: a free owner gets backends after a first top-up. A paid owner cannot buy more.
+	const canTopUpForBackend = details === null || details.limit === 0;
 
 	return (
 		<div className="flex max-w-sm flex-col items-center gap-2.5 rounded-[16px] bg-spark/[0.12] px-4 py-3 dark:bg-spark/10">
 			<p className="font-sans text-[14px] text-night/75 leading-relaxed dark:text-foreground/75">
 				{text}
 			</p>
-			<Button asChild className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-9 px-4")}>
-				<Link to="/billing">{t("workspace.cloud.backend.limit.seePlans")}</Link>
-			</Button>
+			{canTopUpForBackend ? (
+				<Button asChild className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-8 px-4")}>
+					<Link to="/billing">{t("workspace.cloud.backend.limit.topup")}</Link>
+				</Button>
+			) : null}
 		</div>
 	);
 }

@@ -68,6 +68,7 @@ export type BuilderStepKind =
 	| "explore"
 	| "run"
 	| "web"
+	| "clone"
 	| "image"
 	| "database"
 	| "databaseCheck"
@@ -102,6 +103,20 @@ export type BuilderDiffLine = {
 	text: string;
 };
 
+/** One web page that a `web_search` call of a reply found. lib/turn-parts.ts makes it from the tool output. */
+export type BuilderSource = {
+	/** Page URL as the search sent it. One source per URL. */
+	url: string;
+	/** `url` when its protocol is http: or https:, else null: the row then renders no link. */
+	href: string | null;
+	/** Page title; the hostname when the page has no title. */
+	title: string;
+	/** Host of `url` without a leading "www.", for example "react.dev". The inline chips match links on it. */
+	hostname: string;
+	/** Site icon URL, always https:; null when the search sent none or another scheme. */
+	favicon: string | null;
+};
+
 /**
  * Custom data parts of an assistant message, made by lib/turn-parts.ts.
  * `thought`, `step`, and `note` are the activity of the turn: the details
@@ -115,6 +130,8 @@ export type BuilderDiffLine = {
  * ends a `security_scan` turn: the counts of its findings. `targets` sits in
  * a user message: the elements it picked in the preview. `starter-template`
  * is the note of a project that started from a starter template.
+ * `sources` lists the pages of the `web_search` calls; the reply footer
+ * shows them. `follow-ups` holds the next ideas of `suggest_follow_ups`.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -214,6 +231,10 @@ export type BuilderDataParts = {
 	targets: TurnTargetsData;
 	/** The `data-starter-template` payload: the catalog id, and `applied` or `failed`. The apply step stores it; no turn sends it. */
 	"starter-template": StarterTemplateNoteData;
+	/** Pages of every `web_search` call of the reply, first seen first. Present only with at least one page. */
+	sources: { sources: BuilderSource[] };
+	/** Prompts of the last `suggest_follow_ups` call of the reply, 2 or 3. A click sends one as the next message. */
+	"follow-ups": { followUps: string[] };
 };
 
 /** One chat message in the AI SDK shape, as lib/turn-parts.ts maps it from a `TurnMessage`. */

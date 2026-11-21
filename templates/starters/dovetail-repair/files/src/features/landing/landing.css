@@ -1,0 +1,131 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.dovetail {
+	background: var(--background);
+	color: var(--foreground);
+	font: 1rem / 1.45 var(--font-sans);
+	padding-inline: 5vw;
+}
+.dovetail header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 1rem;
+	padding-block: 1.1rem;
+	border-block-end: 1px solid currentcolor;
+}
+.dovetail header > a {
+	font: 700 1.6rem / 1 var(--font-display);
+	letter-spacing: -0.045em;
+}
+.dovetail header span {
+	font:
+		0.72rem / 1.4 ui-monospace,
+		monospace;
+}
+.dovetail nav {
+	display: flex;
+	gap: 1.2rem;
+	font-size: 0.86rem;
+}
+.dovetail-hero {
+	display: grid;
+	grid-template-columns: 2fr 1fr;
+	align-items: end;
+	gap: 2.5rem;
+	padding-block: 4rem 2.5rem;
+}
+.dovetail h1,
+.dovetail h2 {
+	font-family: var(--font-display);
+	font-weight: 650;
+	line-height: 0.96;
+	letter-spacing: -0.065em;
+}
+.dovetail h1 {
+	font-size: clamp(3.5rem, 9.2vw, 9rem);
+}
+.dovetail h2 {
+	font-size: clamp(2.4rem, 4.3vw, 4.5rem);
+}
+.dovetail-hero p,
+.dovetail-visit p {
+	max-width: 31ch;
+	margin-block-end: 1rem;
+}
+.dovetail a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.25em;
+}
+.dovetail-layout {
+	display: grid;
+	grid-template-columns: 6fr 5fr;
+	min-width: 0;
+	border: 1px solid currentcolor;
+}
+.dovetail figure {
+	background: var(--foreground);
+	color: var(--background);
+}
+.dovetail figure img {
+	width: 100%;
+	min-height: 24rem;
+	height: calc(100% - 2.2rem);
+	object-fit: cover;
+}
+.dovetail figcaption {
+	padding: 0.5rem 1rem;
+	font:
+		0.75rem / 1.5 ui-monospace,
+		monospace;
+}
+.dovetail-layout section {
+	padding: 1.5rem;
+	min-width: 0;
+}
+.dovetail-filters {
+	display: flex;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+	margin-block: 1rem;
+}
+.dovetail-filters button {
+	padding: 0.3rem 0.65rem;
+	border: 1px solid currentcolor;
+	cursor: pointer;
+}
+.dovetail-filters button[aria-pressed="true"] {
+	background: var(--foreground);
+	color: var(--background);
+}
+.dovetail li {
+	border-block-start: 1px solid var(--border);
+	padding-block: 0.65rem;
+}
+.dovetail li h3 {
+	font-weight: 700;
+}
+.dovetail li p {
+	font-size: 0.86rem;
+	color: var(--muted-foreground);
+}
+.dovetail-visit {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2rem;
+	padding-block: 4rem;
+}
+@media (max-width: 700px) {
+	.dovetail-hero,
+	.dovetail-layout,
+	.dovetail-visit {
+		grid-template-columns: 1fr;
+		gap: 1rem;
+	}
+	.dovetail figure img {
+		height: 17rem;
+		min-height: 0;
+	}
+}

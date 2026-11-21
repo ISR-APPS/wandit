@@ -3,6 +3,7 @@
  * The offline receipt pages render them. They use the helpers in lib/receipt.ts.
  */
 import {
+	type BillingInterval,
 	type BillingPlanId,
 	dzdPriceFor,
 	tryPriceUsdFor,
@@ -28,6 +29,7 @@ import {
 	getFrenchPaymentMethodLabel,
 	getReceiptCustomerName,
 	groupPaymentTotalsByCurrency,
+	type PlanManualRequest,
 	RECEIPT_PLAN_FEATURES,
 } from "@/features/offline-billing/lib/receipt";
 import { WEB_APP_ORIGIN } from "@/lib/web-origin";
@@ -47,7 +49,8 @@ type OfflineReceiptProps = {
 };
 
 type OfflineRequestReceiptProps = {
-	request: AdminManualRequest;
+	/** Only a request from before pricing v8 has a plan to quote. */
+	request: PlanManualRequest;
 	generatedAt: Date;
 	dzdPerUsdRate: number;
 };
@@ -321,7 +324,7 @@ function SettlementSection({
 	paymentMethod,
 }: {
 	priceDzd: number;
-	interval: AdminManualRequest["interval"];
+	interval: BillingInterval;
 	paymentMethod: AdminManualRequest["preferredPaymentMethod"];
 }) {
 	const priceSuffix = interval === "month" ? "/ mois" : "/ an";

@@ -71,6 +71,7 @@ function setup(input: {
 				settledPlan: 0,
 				settledPromo: 0,
 				settledTopup: 0,
+				starterPassRequired: false,
 				topup: 0,
 				...balances[key],
 			} satisfies SettledCreditBalance;
@@ -125,6 +126,7 @@ describe("CreditsController.getBalance", () => {
 			settledPlan: 10.3,
 			settledPromo: 2.2,
 			settledTopup: 0.34,
+			starterPassRequired: false,
 			topup: 0.34,
 		});
 		expect(creditsService.getSettledBalance).toHaveBeenCalledWith(

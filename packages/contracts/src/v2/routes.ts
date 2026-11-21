@@ -65,6 +65,12 @@ export const appBuilderRoutes = {
 	appAiBase: "/api/v2/ai/v1",
 	// POST OpenAI chat completions of a V2 app, behind its gateway key.
 	appAiChatCompletions: "/api/v2/ai/v1/chat/completions",
+	// POST video webhook of the Vercel AI Gateway, with `?token=<billing token>`.
+	appAiVideoCallback: "/api/v2/ai/v1/videos/callback",
+	// GET the state of a video job, with `?id=<job id>`.
+	appAiVideoStatus: "/api/v2/ai/v1/videos/status",
+	// GET the bytes of a finished video job, with `?id=<job id>`.
+	appAiVideoContent: "/api/v2/ai/v1/videos/content",
 	// GET the AI gateway state and the month usage of a project.
 	appAi: (projectId: string) => `/api/v2/projects/${projectId}/ai`,
 	// PUT turns the gateway on (keeps a live key); DELETE turns it off.
@@ -76,6 +82,9 @@ export const appBuilderRoutes = {
 	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
 	// GET one file of the running sandbox; the caller adds `?path=<path>`.
 	codeFile: (projectId: string) => `/api/v2/projects/${projectId}/code/file`,
+	// GET the committed `main` code as one tar.gz file, for the Download button.
+	codeArchive: (projectId: string) =>
+		`/api/v2/projects/${projectId}/code/archive`,
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
@@ -104,4 +113,7 @@ export const appBuilderRoutes = {
 	// POST merges the GitHub commits into the project as one "github" commit.
 	githubPull: (projectId: string) =>
 		`/api/v2/projects/${projectId}/github/pull`,
+	// POST reads the GitHub head now (Re-check) and answers the new status. At most once per 10 s per project.
+	githubCheck: (projectId: string) =>
+		`/api/v2/projects/${projectId}/github/check`,
 } as const;

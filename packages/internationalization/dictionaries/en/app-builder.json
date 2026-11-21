@@ -63,7 +63,7 @@
 	},
 	"devicePreview": {
 		"start": "Turn on",
-		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
+		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes, which come with the first top-up.",
 		"starting": "Starting the device…",
 		"timeLeft": "{time} left",
 		"idleWarning": "The device stops in {seconds} s without activity.",
@@ -194,7 +194,12 @@
 		"tooLargeTitle": "File too large",
 		"missingTitle": "File not found",
 		"loadFailedHint": "Wait a moment, then try again.",
-		"reloadHint": "Reload the page to try again."
+		"reloadHint": "Reload the page to try again.",
+		"download": {
+			"title": "Download code",
+			"hint": "A .tar.gz file of the latest saved version. It opens on macOS, Windows 11, and Linux.",
+			"button": "Download"
+		}
 	},
 	"moreNavAriaLabel": "App sections",
 	"soon": "Soon",
@@ -293,6 +298,13 @@
 		"models": "Models",
 		"modelsHint": "The agent picks one of these models for each AI feature.",
 		"defaultModel": "Default",
+		"modelGroups": {
+			"chat": "Chat",
+			"image": "Images",
+			"video": "Video",
+			"speech": "Voice",
+			"transcription": "Transcription"
+		},
 		"actions": {
 			"enable": "Turn on",
 			"rotate": "Rotate key",
@@ -412,12 +424,38 @@
 		"private": "Private repository",
 		"privateHelp": "Only you and the people you add on GitHub can see it.",
 		"create": "Create repository",
-		"lastSynced": "Last sync: {sha}",
-		"neverSynced": "Not synced yet.",
 		"unlink": "Unlink repository",
 		"unlinkConfirmTitle": "Unlink {repo}?",
 		"unlinkConfirmBody": "Wandit stops the sync. The repository and its commits stay on GitHub.",
 		"cancel": "Cancel",
+		"connection": {
+			"title": "Repository connection",
+			"repository": "Repository",
+			"branch": "Branch",
+			"branchInfo": "Wandit syncs the main branch only.",
+			"connected": "Connected",
+			"syncError": "Sync error",
+			"openOnGithub": "Open on GitHub"
+		},
+		"sync": {
+			"recheck": "Re-check",
+			"inSyncTitle": "In sync with GitHub",
+			"inSyncText": "Wandit and GitHub are on the same commit.",
+			"pushPendingTitle": "Sending changes to GitHub",
+			"pushPendingText": "Wandit has new changes. They reach GitHub in a moment.",
+			"firstSyncTitle": "First sync in progress",
+			"firstSyncText": "Wandit sends the code of this project to the repository.",
+			"updateTitle": "GitHub has new commits",
+			"updateText": "This project does not have these commits yet.",
+			"lastSynced": "Last synced {time}",
+			"checked": "Checked {time}"
+		},
+		"clone": {
+			"title": "Clone repository",
+			"command": "Clone command",
+			"copy": "Copy the command",
+			"copied": "Copied"
+		},
 		"notes": {
 			"mainOnly": "Only the main branch syncs, in both directions.",
 			"githubWins": "When both sides change the same lines, the GitHub version wins.",
@@ -510,6 +548,11 @@
 				"fetch": "Opened",
 				"running": "Browsing the web"
 			},
+			"clone": {
+				"running": "Matching the original site",
+				"capture": "Captured",
+				"compare": "Compared with the original"
+			},
 			"image": {
 				"done": "Generated an image",
 				"running": "Generating an image"
@@ -553,6 +596,29 @@
 		"showMore": "Show more",
 		"showLess": "Show less",
 		"showImage": "Show image {number} in full",
+		"sources": {
+			"one": "{count} source",
+			"other": "{count} sources"
+		},
+		"followUps": "Follow-ups",
+		"openLink": {
+			"title": "Open this link?",
+			"body": "The page opens in a new tab. Check the address first.",
+			"confirm": "Open link",
+			"cancel": "Cancel"
+		},
+		"clone": {
+			"toggle": {
+				"label": "Clone",
+				"hint": "Copy a public web page into this project."
+			},
+			"urlLabel": "Page address",
+			"urlPlaceholder": "https://example.com",
+			"urlInvalid": "Enter a public web address.",
+			"confirm": "Use this page",
+			"notice": "Clone only pages that you own or have permission to copy.",
+			"message": "Clone this website: {url}"
+		},
 		"placeholder": "Ask Wandit…",
 		"attach": "Attach a file",
 		"estimate": {
@@ -644,6 +710,7 @@
 			"explore": "Looking at your project",
 			"run": "Checking your app",
 			"web": "Searching the web",
+			"clone": "Copying the website",
 			"image": "Creating an image",
 			"database": "Updating the database",
 			"databaseCheck": "Checking the database",
@@ -721,22 +788,85 @@
 		"errors": {
 			"noCredits": "You have no credits left for this turn.",
 			"projectCap": "This project reached its credit cap.",
+			"turnTimeout": "This build ran for 55 minutes, so it stopped. Your changes are saved. Send Continue to go on.",
 			"dailyCap": "You reached today's AI limit. It resets at 00:00 UTC.",
 			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "This model is not available. Choose another model.",
 			"modelUnpriced": "This model has no price yet. Try again later.",
+			"modelLocked": "This conversation keeps the model of its first message. Start a new conversation to use another model.",
+			"modelRetired": "The model of this conversation is no longer available. Start a new conversation.",
 			"sendFailed": "We could not send your message. Send it again.",
-			"connectionLost": "The chat lost its connection to the server."
+			"connectionLost": "The chat lost its connection to the server.",
+			"starterPassRequired": "Get the Starter pass to start building. Your credits unlock after it.",
+			"providerFallback": "The AI provider"
 		},
 		"building": "Building",
 		"planning": "Planning",
 		"model": {
-			"title": "Choose a model",
-			"chip": "Model: {model}",
-			"default": "Default model",
-			"price": "{input} in · {output} out per 1M tokens",
-			"fast": "Fast mode"
+			"chip": "Model: {tier}",
+			"chipFast": "Model: {tier}, Fast mode",
+			"fast": "Fast mode",
+			"fastUnavailable": "Fast mode is not available on {tier}.",
+			"fastWarning": "Fast mode answers sooner but uses your limits about 2x faster.",
+			"nuclearDialog": {
+				"title": "Nuclear mode",
+				"charging": "Charging",
+				"ready": "Ready",
+				"body": "Nuclear runs our most powerful model. It uses your limits much faster than Standard, so save it for your most ambitious projects.",
+				"fastBody": "Fast mode is on too: Nuclear will use your limits about 2x faster again.",
+				"power": "Power",
+				"limits": "Limit use",
+				"confirm": "Launch Nuclear",
+				"cancel": "Not now"
+			},
+			"reset": "Back to {tier}",
+			"tiers": {
+				"standard": {
+					"name": "Standard",
+					"hint": "Handles about 90% of what you build. Your everyday pick, and the lightest on your limits."
+				},
+				"high": {
+					"name": "High",
+					"hint": "Thinks a bit longer before it builds. Good when a change touches many screens."
+				},
+				"max": {
+					"name": "Max",
+					"hint": "Takes its time to get big ideas right. Try it when High gets stuck."
+				},
+				"nuclear": {
+					"name": "Nuclear",
+					"hint": "Our most powerful model, for your boldest ideas."
+				}
+			},
+			"costRatio": "≈ ×{ratio}",
+			"costRatioCaption": "Cost of a typical message, compared with {tier}.",
+			"lock": {
+				"chip": "Model: {tier}, locked for this conversation",
+				"chipFast": "Model: {tier}, Fast mode, locked for this conversation",
+				"unknown": "Locked model",
+				"body": "This conversation keeps the same tier to the end. Fast mode and the thinking level can change.",
+				"newChat": "New conversation with another model",
+				"fastSwitchHint": "A switch makes the next message read the whole conversation again, so that message costs more.",
+				"fastAfterCard": "Answer the open card first. Then you can change Fast mode."
+			},
+			"thinking": {
+				"label": "Thinking",
+				"light": {
+					"name": "Light",
+					"hint": "Answers faster with less thinking."
+				},
+				"balanced": {
+					"name": "Balanced",
+					"hint": "The default. Good for most messages."
+				},
+				"deep": {
+					"name": "Deep",
+					"hint": "Thinks longer before it answers. Uses more credits."
+				},
+				"unavailable": "The thinking level does not change on {tier}.",
+				"chipLabel": "{label}, thinking: {level}"
+			}
 		},
 		"cost": {
 			"line": "Chat cost: {usd} · {credits} · {turns}",
@@ -754,7 +884,8 @@
 				"one": "{count} request",
 				"other": "{count} requests"
 			}
-		}
+		},
+		"payerStarterPassRequired": "The workspace of this project needs the Starter pass. Ask its owner to buy it."
 	},
 	"publish": {
 		"cta": "Publish",

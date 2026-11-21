@@ -18,16 +18,35 @@ function apiError(statusCode: number, code: string): ApiClientError {
 	});
 }
 
-describe("precheckCreateBalance", () => {
-	it("blocks a zero or negative balance (opens the insufficient dialog)", () => {
-		expect(precheckCreateBalance(0)).toBe("insufficient");
-		expect(precheckCreateBalance(-3.5)).toBe("insufficient");
-	});
+function balanceOf(settledBalance: number, starterPassRequired?: boolean) {
+	return {
+		plan: 0,
+		promo: settledBalance,
+		topup: 0,
+		balance: settledBalance,
+		settledBalance,
+		settledPlan: 0,
+		settledPromo: settledBalance,
+		settledTopup: 0,
+		starterPassRequired,
+	};
+}
 
-	it("allows any positive balance, however small", () => {
-		expect(precheckCreateBalance(0.01)).toBe("ok");
-		expect(precheckCreateBalance(1)).toBe("ok");
-		expect(precheckCreateBalance(250)).toBe("ok");
+describe("precheckCreateBalance", () => {
+	// "insufficient" opens the dialog. A pool with no Starter pass is blocked whatever its balance.
+	it.each([
+		{ settled: 0, starterPassRequired: undefined, result: "insufficient" },
+		{ settled: -3.5, starterPassRequired: undefined, result: "insufficient" },
+		{ settled: 50, starterPassRequired: true, result: "insufficient" },
+		{ settled: 0.01, starterPassRequired: false, result: "ok" },
+	])("answers $result for $settled credits, starterPassRequired $starterPassRequired", ({
+		settled,
+		starterPassRequired,
+		result,
+	}) => {
+		expect(precheckCreateBalance(balanceOf(settled, starterPassRequired))).toBe(
+			result,
+		);
 	});
 
 	it("reports an unloaded balance instead of guessing", () => {

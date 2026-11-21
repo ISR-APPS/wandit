@@ -1,17 +1,17 @@
-// Reads of stock items: the list with stock levels, one item with its context and level history, and its picks per day.
-// The routes of /app/items prefetch them in their loaders. The home and the supplier panel read the list too.
+// Reads of stock items: the list with stock levels, the four figures of the list page, and one item with its history.
+// The routes of /app/items prefetch them in their loaders. The home reads the list too.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {
 	addLocalDays,
-	buildDailyPicks,
+	changeRatio,
 	dayKeyOf,
 	getSampleTables,
 	type ItemRow,
 	isOpenOrderStatus,
 	lateDaysOf,
 	type MovementReason,
-	type PeriodDays,
+	onHandAt,
 	type PurchaseOrderStatus,
 	type SampleTables,
 	STOCK_STATUSES,
@@ -24,12 +24,12 @@ import {
 
 // The usage rate looks at the last 30 days: long enough to smooth a week, short enough to follow a trend.
 const USAGE_DAYS = 30;
-// The item page lists the newest receipts, counts, and damage. Five rows end the main column near the rail end.
-const ITEM_MOVEMENT_COUNT = 5;
 // The level chart of the item page shows about three order cycles.
 const LEVEL_DAYS = 90;
-// The item page lists the newest orders of the item.
-const ITEM_ORDER_COUNT = 6;
+// The figures of the list page compare now with the same day of the month before.
+const SUMMARY_DAYS = 30;
+// The item page lists this many other items of the same supplier.
+const SAME_SUPPLIER_COUNT = 5;
 
 /** One stock item with its level and the numbers that the lists show. */
 export type StockItem = {
@@ -101,16 +101,36 @@ export type ItemLevelPoint = {
 	onHand: number;
 };
 
-/** Everything that the item page shows, except the picks chart. */
+/** Everything that the item page shows. */
 export type ItemDetail = {
 	item: StockItem;
 	supplier: SupplierRow;
-	/** The newest receipts, counts, and damage, newest first. Picks are not in the list. */
+	/** Every movement of the item, picks included, newest first. */
 	movements: ItemMovement[];
-	/** Newest first. */
+	/** Every order line of the item, newest order first. */
 	orders: ItemOrder[];
 	/** The stock at the end of each of the last 90 full days, oldest first. */
 	levels: ItemLevelPoint[];
+	/** Up to 5 other items of the same supplier, the most urgent first. */
+	sameSupplier: StockItem[];
+};
+
+/** A figure of the item list page now, and its change against 30 days ago. */
+export type ItemsFigure = {
+	value: number;
+	/** Ratio against the value 30 days ago: 0.12 is +12 %. null when that value was 0. */
+	change: number | null;
+};
+
+/** The four figures over the item list. */
+export type ItemsSummary = {
+	/** In the stock currency. */
+	stockValue: ItemsFigure;
+	/** Units of every item on the shelves, all units together. */
+	unitsOnHand: ItemsFigure;
+	/** Items under their reorder point, out of stock included. The home counts them the same way. */
+	lowStock: ItemsFigure;
+	outOfStock: ItemsFigure;
 };
 
 // The rows of every item, with their levels. One pass over the movements and the orders.
@@ -232,15 +252,14 @@ export function itemsQueryOptions() {
 	});
 }
 
-/** One item with its supplier, newest movements, and newest orders. null when the id does not exist. */
+/** One item with its supplier, movements, orders, level history, and sibling items. null when the id does not exist. */
 export function itemQueryOptions(itemId: string) {
 	return queryOptions({
 		queryKey: ["items", "detail", itemId],
 		queryFn: async (): Promise<ItemDetail | null> => {
 			const tables = getSampleTables();
-			const item = toStockItems(tables).find(
-				(candidate) => candidate.id === itemId,
-			);
+			const items = toStockItems(tables);
+			const item = items.find((candidate) => candidate.id === itemId);
 			const supplier = tables.suppliers.find(
 				(candidate) => candidate.id === item?.supplierId,
 			);
@@ -250,61 +269,81 @@ export function itemQueryOptions(itemId: string) {
 			const itemMovements = tables.movements.filter(
 				(movement) => movement.itemId === item.id,
 			);
-			// Picks are left out: the picks chart above the list already shows them per day.
-			const movements = itemMovements
-				.filter((movement) => movement.reason !== "pick")
-				.slice(0, ITEM_MOVEMENT_COUNT)
-				.map((movement) => ({
-					id: movement.id,
-					reason: movement.reason,
-					quantity: movement.quantity,
-					balanceAfter: movement.balanceAfter,
-					reference: movement.reference,
-					purchaseOrderId: movement.purchaseOrderId,
-					occurredAt: movement.occurredAt,
-				}));
-			const orders: ItemOrder[] = [];
-			for (const order of tables.purchaseOrders) {
+			const movements = itemMovements.map((movement) => ({
+				id: movement.id,
+				reason: movement.reason,
+				quantity: movement.quantity,
+				balanceAfter: movement.balanceAfter,
+				reference: movement.reference,
+				purchaseOrderId: movement.purchaseOrderId,
+				occurredAt: movement.occurredAt,
+			}));
+			const orders: ItemOrder[] = tables.purchaseOrders.flatMap((order) => {
 				const line = order.lines.find(
 					(candidate) => candidate.itemId === item.id,
 				);
-				if (!line) {
-					continue;
-				}
-				orders.push({
-					orderId: order.id,
-					number: order.number,
-					status: order.status,
-					lateDays: lateDaysOf(order, tables.todayStart),
-					expectedOn: order.expectedOn,
-					quantityOrdered: line.quantityOrdered,
-					quantityReceived: line.quantityReceived,
-					lastReceivedAt: order.receipts.at(-1)?.receivedAt ?? null,
-				});
-				if (orders.length === ITEM_ORDER_COUNT) {
-					break;
-				}
-			}
+				return line
+					? [
+							{
+								orderId: order.id,
+								number: order.number,
+								status: order.status,
+								lateDays: lateDaysOf(order, tables.todayStart),
+								expectedOn: order.expectedOn,
+								quantityOrdered: line.quantityOrdered,
+								quantityReceived: line.quantityReceived,
+								lastReceivedAt: order.receipts.at(-1)?.receivedAt ?? null,
+							},
+						]
+					: [];
+			});
 			const levels = buildLevels(item.onHand, itemMovements, tables.todayStart);
-			return { item, supplier, movements, orders, levels };
+			const sameSupplier = items
+				.filter(
+					(candidate) =>
+						candidate.supplierId === item.supplierId &&
+						candidate.id !== item.id,
+				)
+				.sort(compareUrgency)
+				.slice(0, SAME_SUPPLIER_COUNT);
+			return { item, supplier, movements, orders, levels, sameSupplier };
 		},
 	});
 }
 
-/** The period of the first load of the item chart. The route loader prefetches it. */
-export const ITEM_DEFAULT_DAYS: PeriodDays = 30;
-
-/** Units of one item picked per day over `days` full days, with the period before. Feeds the item chart. */
-export function itemDailyPicksQueryOptions(itemId: string, days: PeriodDays) {
+/** The four figures of the item list page, now and against 30 days ago. */
+export function itemsSummaryQueryOptions() {
 	return queryOptions({
-		queryKey: ["items", "daily-picks", itemId, days],
-		queryFn: async () => {
+		queryKey: ["items", "summary"],
+		queryFn: async (): Promise<ItemsSummary> => {
 			const tables = getSampleTables();
-			return buildDailyPicks(
-				tables.movements.filter((movement) => movement.itemId === itemId),
-				tables.todayStart,
-				days,
+			const then = onHandAt(
+				tables,
+				addLocalDays(tables.todayStart, -SUMMARY_DAYS),
 			);
+			const figure = (
+				measure: (onHand: number, item: ItemRow) => number,
+			): ItemsFigure => {
+				const now = tables.items.reduce(
+					(sum, item) => sum + measure(item.onHand, item),
+					0,
+				);
+				const before = tables.items.reduce(
+					(sum, item) => sum + measure(then.get(item.id) ?? 0, item),
+					0,
+				);
+				return { value: now, change: changeRatio(now, before) };
+			};
+			return {
+				stockValue: figure((onHand, item) => onHand * item.unitCost),
+				unitsOnHand: figure((onHand) => onHand),
+				lowStock: figure((onHand, item) =>
+					stockStatusOf(onHand, item.minimum) !== "ok" ? 1 : 0,
+				),
+				outOfStock: figure((onHand, item) =>
+					stockStatusOf(onHand, item.minimum) === "out" ? 1 : 0,
+				),
+			};
 		},
 	});
 }

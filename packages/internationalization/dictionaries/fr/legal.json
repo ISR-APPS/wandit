@@ -52,7 +52,7 @@
 				"bullets": [
 					"Données de compte : votre nom, votre adresse e-mail, votre photo de profil, les identifiants de connexion de la méthode que vous utilisez, la langue et le thème que vous choisissez, et les espaces de travail auxquels vous appartenez.",
 					"Contenu que vous créez : les instructions que vous écrivez, les fichiers et images que vous téléversez, les pages, images et supports marketing que vous générez, les réglages de vos projets, et les domaines sur lesquels vous publiez.",
-					"Données de facturation : les packs de crédits et les formules que vous achetez, vos factures, votre solde de crédits et votre historique de transactions. Les numéros de carte vont directement à Stripe. Nous ne les voyons jamais et nous ne les conservons jamais.",
+					"Données de facturation : les recharges de crédits que vous achetez et toute formule que vous aviez avant, vos factures, votre solde de crédits et votre historique de transactions. Les numéros de carte vont directement à Stripe. Nous ne les voyons jamais et nous ne les conservons jamais.",
 					"Données d'usage et d'appareil : les écrans que vous ouvrez dans le tableau de bord, les actions que vous effectuez, les crédits que vous dépensez, votre navigateur et votre type d'appareil, votre système d'exploitation, une localisation approximative déduite de votre adresse IP, et les rapports de plantage ou d'erreur. PostHog peut aussi enregistrer une relecture de votre session dans le tableau de bord, afin que nous voyions où le produit échoue. Le texte que vous saisissez est masqué dans ces enregistrements.",
 					"Données de journal : adresse IP, heure de la requête, adresse demandée et statut de la réponse, conservées pour la sécurité et le dépannage.",
 					"Communications : les messages que vous envoyez à notre équipe d'assistance et vos réponses à nos e-mails.",
@@ -72,7 +72,7 @@
 				],
 				"bullets": [
 					"Pour faire fonctionner le service : créer votre compte, vous connecter, générer et publier vos pages, stocker vos fichiers, vous transmettre vos prospects et garder vos espaces de travail synchronisés.",
-					"Pour gérer les paiements : vendre des packs de crédits et des formules, appliquer votre solde, émettre des factures et prévenir la fraude au paiement.",
+					"Pour gérer les paiements : vendre des recharges de crédits, appliquer votre solde, émettre des factures et prévenir la fraude au paiement.",
 					"Pour vous assister : répondre à vos messages et examiner les problèmes que vous signalez.",
 					"Pour garder le service sûr : détecter les abus, le spam, l'extraction automatisée et la fraude, faire respecter nos conditions d'utilisation, et protéger nos utilisateurs et notre infrastructure.",
 					"Pour améliorer le produit : comprendre quelles fonctionnalités sont utilisées, mesurer les performances et corriger les erreurs. Nous utilisons pour cela des données agrégées ou pseudonymisées chaque fois que cela suffit.",
@@ -143,7 +143,7 @@
 				],
 				"bullets": [
 					"Google : la connexion avec votre compte Google, ainsi que les API Google Sheets et Drive lorsque vous les connectez. Google traite ces données selon sa propre politique de confidentialité, et la feuille de calcul se trouve dans votre propre Drive.",
-					"Stripe : paiements, abonnements et factures. Les données de carte vont directement à Stripe et n'atteignent jamais nos serveurs.",
+					"Stripe : paiements et factures. Les données de carte vont directement à Stripe et n'atteignent jamais nos serveurs.",
 					"Resend : les e-mails transactionnels tels que les liens de connexion, les reçus et les alertes.",
 					"PostHog : l'analyse d'usage du produit, hébergée dans l'Union européenne.",
 					"Sentry : la surveillance des erreurs et des plantages.",
@@ -294,7 +294,7 @@
 				"id": "acceptance",
 				"title": "1. Acceptation de ces conditions",
 				"paragraphs": [
-					"Vous acceptez ces conditions lorsque vous créez un compte, lorsque vous achetez des crédits ou une formule, ou lorsque vous utilisez une partie quelconque de Wandit.",
+					"Vous acceptez ces conditions lorsque vous créez un compte, lorsque vous achetez des crédits, ou lorsque vous utilisez une partie quelconque de Wandit.",
 					"Si vous acceptez au nom d'une société, vous confirmez que vous pouvez l'engager. Le mot « vous » désigne alors cette société."
 				],
 				"bullets": [],
@@ -343,10 +343,10 @@
 					"Wandit fonctionne avec des crédits. Chaque action qui nous coûte de l'argent, comme générer une page, une image ou un support marketing, ou synchroniser et découvrir des prospects, consomme des crédits sur le solde de votre espace de travail."
 				],
 				"bullets": [
-					"Un nouveau compte reçoit un solde initial de crédits gratuits. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
+					"Un nouveau compte reçoit un solde initial de crédits gratuits. Nous pouvons demander à un nouveau compte un premier petit paiement, le Pass Démarrage, avant qu'il puisse utiliser des crédits, crédits gratuits compris. Seul un paiement par carte ou par SlickPay achète le Pass Démarrage. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
 					"Le prix d'une action est affiché avant que vous ne la lanciez. Votre solde est affiché dans le tableau de bord et se met à jour après chaque action.",
-					"Vous achetez les packs de crédits et les formules via Stripe. Le prix est affiché avant le paiement, et vous autorisez le débit lorsque vous confirmez le paiement.",
-					"Une formule se renouvelle automatiquement pour la période choisie jusqu'à ce que vous l'annuliez. Vous pouvez annuler à tout moment depuis le portail de facturation que nous ouvrons pour vous dans l'application, et l'annulation prend effet à la fin de la période déjà payée.",
+					"Vous achetez des crédits par une recharge unique : par carte via Stripe, via SlickPay, ou par un paiement hors ligne que nous enregistrons. Le prix est affiché avant le paiement, et vous autorisez le débit lorsque vous confirmez le paiement.",
+					"Il n'y a ni abonnement ni prélèvement automatique. Nous vous débitons uniquement lorsque vous confirmez une recharge. Les crédits que vous achetez n'expirent pas.",
 					"Les prix ne comprennent pas les taxes sauf mention contraire. Vous payez toute taxe, tout droit ou tout frais bancaire qui vous est applicable.",
 					"Les crédits sont consommés au lancement de l'action. Les crédits ne sont pas remboursables, et les crédits inutilisés ne peuvent pas être échangés contre de l'argent, sauf lorsque la loi impose un remboursement.",
 					"Si une action échoue à cause d'une erreur de notre côté, écrivez à {email} et nous vous restituerons les crédits consommés.",
@@ -354,7 +354,7 @@
 					"Si vous rejoignez Wandit par un lien partenaire, nous pouvons indiquer à ce partenaire qu'une inscription ou un achat a eu lieu. Nous ne lui communiquons pas vos données personnelles."
 				],
 				"after": [
-					"Nous pouvons modifier nos prix. Un nouveau prix de formule s'applique à partir de votre prochain renouvellement, et nous vous en informerons avant son entrée en vigueur."
+					"Nous pouvons modifier nos prix. Un nouveau prix s'applique uniquement aux recharges que vous achetez après le changement. Il ne modifie pas les crédits que vous avez déjà."
 				]
 			},
 			{

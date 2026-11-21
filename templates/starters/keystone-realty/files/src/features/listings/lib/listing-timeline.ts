@@ -106,3 +106,18 @@ export function buildListingTimeline(
 		(first, second) => Date.parse(second.at) - Date.parse(first.at),
 	);
 }
+
+/** The steps of a sale in order. The sale progress card counts how many of them a listing reached. */
+export const SALE_STEPS = [
+	"listed",
+	"first_enquiry",
+	"first_viewing",
+	"offer_accepted",
+	"sold",
+] as const satisfies readonly TimelineKind[];
+
+/** The count of SALE_STEPS in `steps`. A listing that is not on the market yet has 0. */
+export function saleStepsDone(steps: TimelineStep[]): number {
+	return SALE_STEPS.filter((kind) => steps.some((step) => step.kind === kind))
+		.length;
+}

@@ -4,15 +4,16 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type {
-	InsertManualSubscriptionInput,
-	SubscriptionRow,
-} from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import {
-	type DevPlanCredits,
-	type DevPlanSubscriptions,
+	type DevSeedCredits,
+	type DevSeedStarterPasses,
 	DevUserSeedService,
 } from "./dev-user-seed.service";
+
+// The pass write is a no-op here: these cases check the user and the top-up.
+const noStarterPasses: DevSeedStarterPasses = {
+	grantIfAbsent: async () => null,
+};
 
 // A real Better Auth instance on an in-memory store, with the same
 // emailAndPassword options that createAuth uses in local development.
@@ -35,84 +36,43 @@ function createMemoryAuth() {
 	});
 }
 
-/** A full `subscriptions` row from the insert input, with the defaults of the table. */
-function subscriptionRow(
-	input: InsertManualSubscriptionInput,
-): SubscriptionRow {
-	return {
-		...input,
-		createdAt: new Date(),
-		id: crypto.randomUUID(),
-		pendingAppliedBy: null,
-		pendingInterval: null,
-		pendingPlan: null,
-		pendingTierCredits: null,
-		provider: "manual",
-		renewalReminderPeriodEnd: null,
-		updatedAt: new Date(),
-	};
-}
-
-/**
- * An in-memory `subscriptions` table with the two calls of the seed.
- * `inserted` records every insert of the seed.
- */
-function memorySubscriptions(rows: SubscriptionRow[] = []) {
-	const inserted: InsertManualSubscriptionInput[] = [];
-	const subscriptions: DevPlanSubscriptions = {
-		findActiveByOwner: async (owner) =>
-			rows.find(
-				(row) =>
-					owner.type === "user" &&
-					row.userId === owner.userId &&
-					row.organizationId === null &&
-					row.status === "active",
-			) ?? null,
-		insertManual: async (input) => {
-			inserted.push(input);
-			const row = subscriptionRow(input);
-			rows.push(row);
-			return row;
-		},
-	};
-	return { inserted, subscriptions };
-}
-
-/** One grant the seed asked for: the amount in centi-credits and the options. */
-type Grant = {
+/** One top-up the seed asked for: the owner, the amount in centi-credits, and the options. */
+type Topup = {
+	userId: string | null;
 	amount: number;
-	options: Parameters<DevPlanCredits["grant"]>[2];
+	options: Parameters<DevSeedCredits["topup"]>[2];
 };
 
 /**
- * An in-memory ledger with the grant call of the seed. Like CreditsService,
- * a second grant with a known idempotency key writes nothing.
+ * An in-memory ledger with the top-up call of the seed. Like CreditsService,
+ * a second top-up with a known idempotency key writes nothing.
  */
 function memoryCredits() {
-	const granted: Grant[] = [];
-	const credits: DevPlanCredits = {
-		grant: async (owner, amount, options) => {
+	const toppedUp: Topup[] = [];
+	const credits: DevSeedCredits = {
+		topup: async (owner, amount, options) => {
+			const userId = owner.type === "user" ? owner.userId : null;
 			if (
-				!granted.some(
-					(grant) => grant.options.idempotencyKey === options.idempotencyKey,
+				!toppedUp.some(
+					(topup) => topup.options?.idempotencyKey === options?.idempotencyKey,
 				)
 			) {
-				granted.push({ amount, options });
+				toppedUp.push({ amount, options, userId });
 			}
 			return {
-				bucket: options.bucket,
+				bucket: "topup",
 				createdAt: new Date(),
 				delta: amount,
 				id: crypto.randomUUID(),
-				idempotencyKey: options.idempotencyKey ?? null,
-				kind: "grant",
-				meta: options.meta ?? null,
+				idempotencyKey: options?.idempotencyKey ?? null,
+				kind: "topup",
+				meta: options?.meta ?? null,
 				organizationId: null,
-				userId: owner.type === "user" ? owner.userId : null,
+				userId,
 			};
 		},
 	};
-	return { credits, granted };
+	return { credits, toppedUp };
 }
 
 async function findDevUser(auth: ReturnType<typeof createMemoryAuth>) {
@@ -140,8 +100,8 @@ describe("DevUserSeedService", () => {
 
 		await new DevUserSeedService(
 			auth,
-			memorySubscriptions().subscriptions,
 			memoryCredits().credits,
+			noStarterPasses,
 		).onModuleInit();
 
 		const signIn = await signInAsDevUser(auth);
@@ -153,126 +113,30 @@ describe("DevUserSeedService", () => {
 		expect(signIn.user.onboardingCompletedAt).toBeInstanceOf(Date);
 	});
 
-	it("gives the dev user an active yearly Business plan and its 250 credits", async () => {
+	it("tops up 250 credits one time, with the same key on each boot", async () => {
 		vi.stubEnv("NODE_ENV", "development");
 		const auth = createMemoryAuth();
-		const { inserted, subscriptions } = memorySubscriptions();
-		const { credits, granted } = memoryCredits();
-
-		await new DevUserSeedService(auth, subscriptions, credits).onModuleInit();
-
-		const devUser = await findDevUser(auth);
-		expect(inserted).toEqual([
-			expect.objectContaining({
-				interval: "year",
-				organizationId: null,
-				plan: "business",
-				priceLookupKey: "business_250_year",
-				status: "active",
-				userId: devUser?.user.id,
-			}),
-		]);
-		// 250 whole credits are 25 000 centi-credits in the ledger.
-		expect(granted).toEqual([
-			{
-				amount: 25_000,
-				options: expect.objectContaining({
-					bucket: "plan",
-					idempotencyKey: expect.stringMatching(/^dev-seed:.+:plan$/),
-				}),
-			},
-		]);
-	});
-
-	it("writes nothing on a second boot", async () => {
-		vi.stubEnv("NODE_ENV", "development");
-		const auth = createMemoryAuth();
-		const { inserted, subscriptions } = memorySubscriptions();
-		const { credits, granted } = memoryCredits();
-		const service = new DevUserSeedService(auth, subscriptions, credits);
+		const { credits, toppedUp } = memoryCredits();
+		const service = new DevUserSeedService(auth, credits, noStarterPasses);
 
 		await service.onModuleInit();
 		await service.onModuleInit();
 
 		const { internalAdapter } = await auth.$context;
 		expect(await internalAdapter.listUsers()).toHaveLength(1);
-		expect((await findDevUser(auth))?.accounts).toHaveLength(1);
-		expect(inserted).toHaveLength(1);
-		expect(granted).toHaveLength(1);
-	});
-
-	it("grants the credits of a seed plan row that an older boot wrote without them", async () => {
-		vi.stubEnv("NODE_ENV", "development");
-		const auth = createMemoryAuth();
-		const { internalAdapter } = await auth.$context;
-		const devUser = await internalAdapter.createUser(
+		const devUser = await findDevUser(auth);
+		expect(devUser?.accounts).toHaveLength(1);
+		// 250 whole credits are 25 000 centi-credits in the ledger.
+		expect(toppedUp).toEqual([
 			{
-				email: DEV_USER.email,
-				name: DEV_USER.name,
-			},
-			{ method: "email-password" },
-		);
-		const seedPlan = subscriptionRow({
-			cancelAtPeriodEnd: false,
-			currentPeriodEnd: new Date("2027-10-03T00:00:00.000Z"),
-			currentPeriodStart: new Date("2026-10-03T00:00:00.000Z"),
-			interval: "year",
-			organizationId: null,
-			plan: "business",
-			priceLookupKey: "business_250_year",
-			providerSubscriptionId: "manual_dev-seed_older-boot",
-			status: "active",
-			tierCredits: 250,
-			userId: devUser.id,
-		});
-		const { inserted, subscriptions } = memorySubscriptions([seedPlan]);
-		const { credits, granted } = memoryCredits();
-
-		await new DevUserSeedService(auth, subscriptions, credits).onModuleInit();
-
-		expect(inserted).toEqual([]);
-		expect(granted).toEqual([
-			expect.objectContaining({
 				amount: 25_000,
-				options: expect.objectContaining({
-					idempotencyKey: `dev-seed:${seedPlan.id}:plan`,
-				}),
-			}),
-		]);
-	});
-
-	it("keeps an active plan that a developer gave the dev user", async () => {
-		vi.stubEnv("NODE_ENV", "development");
-		vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
-		const auth = createMemoryAuth();
-		const { internalAdapter } = await auth.$context;
-		const devUser = await internalAdapter.createUser(
-			{
-				email: DEV_USER.email,
-				name: DEV_USER.name,
+				options: {
+					idempotencyKey: `dev-seed:topup:${devUser?.user.id}`,
+					meta: { reason: "dev_user_seed" },
+				},
+				userId: devUser?.user.id,
 			},
-			{ method: "email-password" },
-		);
-		const proPlan = subscriptionRow({
-			cancelAtPeriodEnd: false,
-			currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
-			currentPeriodStart: new Date("2026-01-01T00:00:00.000Z"),
-			interval: "month",
-			organizationId: null,
-			plan: "pro",
-			priceLookupKey: "pro_250_month",
-			providerSubscriptionId: "sub_test_1",
-			status: "active",
-			tierCredits: 250,
-			userId: devUser.id,
-		});
-		const { inserted, subscriptions } = memorySubscriptions([proPlan]);
-		const { credits, granted } = memoryCredits();
-
-		await new DevUserSeedService(auth, subscriptions, credits).onModuleInit();
-
-		expect(inserted).toEqual([]);
-		expect(granted).toEqual([]);
+		]);
 	});
 
 	it("links a password account to a dev user row that has none", async () => {
@@ -289,8 +153,8 @@ describe("DevUserSeedService", () => {
 
 		await new DevUserSeedService(
 			auth,
-			memorySubscriptions().subscriptions,
 			memoryCredits().credits,
+			noStarterPasses,
 		).onModuleInit();
 
 		expect(await internalAdapter.listUsers()).toHaveLength(1);
@@ -307,14 +171,12 @@ describe("DevUserSeedService", () => {
 		vi.stubEnv("NODE_ENV", nodeEnv);
 		vi.stubEnv("BETTER_AUTH_URL", authUrl);
 		const auth = createMemoryAuth();
-		const { inserted, subscriptions } = memorySubscriptions();
-		const { credits, granted } = memoryCredits();
+		const { credits, toppedUp } = memoryCredits();
 
-		await new DevUserSeedService(auth, subscriptions, credits).onModuleInit();
+		await new DevUserSeedService(auth, credits, noStarterPasses).onModuleInit();
 
 		expect(await findDevUser(auth)).toBeNull();
-		expect(inserted).toEqual([]);
-		expect(granted).toEqual([]);
+		expect(toppedUp).toEqual([]);
 	});
 
 	it("logs the failure and lets the API boot", async () => {
@@ -327,8 +189,8 @@ describe("DevUserSeedService", () => {
 		await expect(
 			new DevUserSeedService(
 				{ $context: Promise.reject(failure) },
-				memorySubscriptions().subscriptions,
 				memoryCredits().credits,
+				noStarterPasses,
 			).onModuleInit(),
 		).resolves.toBeUndefined();
 

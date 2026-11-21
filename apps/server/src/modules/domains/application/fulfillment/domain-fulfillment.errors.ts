@@ -1,3 +1,8 @@
+/**
+ * Errors of the domain fulfillment pipeline and the rules that classify them.
+ * The purchase orchestrator, the terminal failure step, and the finalizer call it.
+ * `domainFailureSummary` keeps only safe codes for the message stored on the row.
+ */
 export class TerminalDomainFulfillmentError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -24,6 +29,7 @@ export class OrderFulfillmentStoppedError extends Error {
 }
 
 const SAFE_DOMAIN_ERROR_CODES = new Set([
+	"CUSTOM_DOMAINS_PRODUCTION_ONLY",
 	"DOMAIN_ALREADY_EXISTS",
 	"DOMAIN_BLOCKED",
 	"DOMAIN_NOT_AVAILABLE",

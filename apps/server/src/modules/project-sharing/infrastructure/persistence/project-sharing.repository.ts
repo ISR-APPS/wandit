@@ -5,7 +5,6 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import {
-	type BillingPlanId,
 	liveAppBuildStatuses,
 	liveDesktopBuildStatuses,
 	liveMobileBuildStatuses,
@@ -71,7 +70,7 @@ const MEMBER_COLUMNS = {
 	userId: projectMembers.userId,
 };
 
-/** Backend statuses that serve no app and hold no plan slot (schema comment of `app_backend_status`). */
+/** Backend statuses that serve no app and hold no backend slot (schema comment of `app_backend_status`). */
 const RELEASED_BACKEND_STATUSES = ["deleting", "error"] as const;
 
 /** Reads and writes through Drizzle only. The move also writes the owner columns of four child tables. */
@@ -261,8 +260,8 @@ export class ProjectSharingRepository {
 		/** The owner columns the caller saw. The move answers `changed` when they differ. */
 		source: ProjectOwnerColumns;
 		destination: ProjectOwnerColumns;
-		/** The destination payer's plan: it decides the backend slots. */
-		destinationPlan: BillingPlanId;
+		/** Backends the destination payer may hold, from `backendLimitFor`. */
+		destinationBackendLimit: number;
 		/** True keeps direct grants and pending invitations. The new owner's grant goes away either way. */
 		keepCollaborators: boolean;
 	}): Promise<MoveResult> {
@@ -273,7 +272,7 @@ export class ProjectSharingRepository {
 		);
 
 		return this.db.transaction(async (tx) => {
-			// The same lock as the backend insert: it guards the plan slot count.
+			// The same lock as the backend insert: it guards the backend slot count of the payer.
 			await tx.execute(
 				sql`select pg_advisory_xact_lock(hashtext(${`app-backends:${creditOwnerLockValue(destinationPayer)}`}))`,
 			);
@@ -316,7 +315,7 @@ export class ProjectSharingRepository {
 						.limit(1),
 				),
 				destinationHasBackendSlot: assertBackendEntitlement(
-					input.destinationPlan,
+					input.destinationBackendLimit,
 					await this.backends.countActiveForOwner(destinationPayer, tx),
 				).allowed,
 				deviceSessionActive: await has(

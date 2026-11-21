@@ -1,12 +1,24 @@
-import type { PatchProductSettingsBody } from "@wandit/contracts";
+/**
+ * Admin settings card for the product switches and their amounts.
+ * The amounts are the signup grant and the user referral rewards.
+ * It also holds the list of V2 builder models that ops turn off during a provider incident.
+ * The settings page renders it. It calls the product-settings mutation.
+ */
+import {
+	type PatchProductSettingsBody,
+	USER_REFERRAL_ACTIVATION_MIN_CREDITS,
+	USER_REFERRAL_ACTIVATION_WINDOW_DAYS,
+	USER_REFERRAL_PAID_HOLD_DAYS,
+} from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
-	CalendarClockIcon,
+	BanIcon,
 	GiftIcon,
 	Loader2Icon,
 	RefreshCwIcon,
 	SaveIcon,
 	ShieldCheckIcon,
+	UserPlusIcon,
 } from "lucide-react";
 import {
 	type FormEvent,
@@ -55,13 +67,14 @@ const SETTINGS_CONFLICT_MESSAGE = "settings changed elsewhere — reload";
 
 const BOOLEAN_SETTING_KEYS = [
 	"signupGrantEnabled",
-	"paidSubscriptionsEnabled",
 	"manualPaymentsEnabled",
 	"topupsEnabled",
 	"organizationsEnabled",
 	"emailAuthEnabled",
 	"lifecycleEmailsEnabled",
 	"v2BuilderEnabled",
+	"userReferralsEnabled",
+	"starterPassRequired",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -71,7 +84,31 @@ type PendingToggle = {
 	nextValue: boolean;
 };
 
-type NumericSettingKey = "signupGrantCredits" | "manualGraceDays";
+// Same upper limit as the settings contract and the `product_settings` checks, in whole credits.
+const USER_REFERRAL_CREDITS_MAX = 10_000;
+
+// The three reward amounts of the user referral program. Each one gets one form row.
+const USER_REFERRAL_CREDIT_FIELDS = [
+	{
+		key: "userReferralFriendCredits",
+		title: "Referral friend bonus",
+		description: "Promo credits the invited friend gets right after signup.",
+	},
+	{
+		key: "userReferralActivationCredits",
+		title: "Referral activation reward",
+		description: `Promo credits the referrer gets when the friend uses ${USER_REFERRAL_ACTIVATION_MIN_CREDITS} credits within ${USER_REFERRAL_ACTIVATION_WINDOW_DAYS} days of joining.`,
+	},
+	{
+		key: "userReferralPaidCredits",
+		title: "Referral paid reward",
+		description: `Promo credits the referrer gets ${USER_REFERRAL_PAID_HOLD_DAYS} days after the friend's first payment, if the payment is not refunded.`,
+	},
+] as const;
+
+type UserReferralCreditField = (typeof USER_REFERRAL_CREDIT_FIELDS)[number];
+
+type NumericSettingKey = "signupGrantCredits" | UserReferralCreditField["key"];
 
 type ToggleDetails = {
 	description: string;
@@ -89,40 +126,32 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant unless you run the signup grant backfill.`
 				: "Future signups will stop receiving promo credits. Credits already granted to existing accounts will remain available.",
 	},
-	paidSubscriptionsEnabled: {
-		label: "Paid subscriptions",
-		description:
-			"Control admission to new paid checkouts, plan changes, and subscription resumes.",
-		consequence: (nextValue) =>
-			nextValue
-				? "Signed-in users will be able to start, change, or resume paid subscriptions. Existing paid fulfillment already continues regardless of this switch."
-				: "New paid checkouts, plan changes, and subscription resumes will be blocked. Payments already made will still be fulfilled.",
-	},
 	manualPaymentsEnabled: {
 		label: "Offline payments",
 		description:
-			"Control whether users can request subscriptions paid by cash or transfer.",
+			"Control whether users can request a wallet top-up paid by cash or transfer.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will see Cash / transfer and can submit offline subscription requests. Administrators must still collect payment and grant each subscription."
-				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests and offline subscriptions remain available for administrators to grant, renew, or end.",
+				? "Users will see Cash / transfer and can submit offline top-up requests. Administrators must still collect the money and record each top-up."
+				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests stay available for administrators to record or close.",
 	},
 	topupsEnabled: {
-		label: "Credit top-ups",
-		description: "Control admission to new one-time credit pack purchases.",
+		label: "Card top-ups",
+		description:
+			"Control admission to new wallet top-ups paid by card (Stripe). SlickPay and offline payments have their own switches.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will be able to purchase new credit top-ups. Previously paid top-ups are fulfilled either way."
-				: "New credit top-up purchases will be blocked. Top-ups that were already paid will still be fulfilled.",
+				? "Users will be able to top up their wallet by card. Previously paid top-ups are fulfilled either way."
+				: "New card top-ups will be blocked. Top-ups that were already paid will still be fulfilled.",
 	},
 	organizationsEnabled: {
 		label: "Team workspaces",
 		description:
-			"Control whether users can create team workspaces and see the Business plan.",
+			"Control whether users can create team workspaces. The team owner tops up the team wallet.",
 		consequence: (nextValue) =>
 			nextValue
-				? "Users will see the workspace switcher, can create team workspaces, and can buy the Business plan."
-				: "New team creation and new Business checkouts will be blocked. Existing teams keep working — members, invitations, projects, and paid renewals are unaffected.",
+				? "Users will see the workspace switcher and can create team workspaces."
+				: "New team creation will be blocked. Existing teams keep working — members, invitations, projects, and team wallets are unaffected.",
 	},
 	emailAuthEnabled: {
 		label: "Email sign-in",
@@ -151,6 +180,24 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 				? "Users whose PostHog flag v2-builder is on will reach the V2 app builder routes. Everyone else still gets the V1 page builder."
 				: "The V2 app builder routes will deny every user regardless of the PostHog flag. Existing V2 projects keep their data but their turns stop.",
 	},
+	userReferralsEnabled: {
+		label: "User referrals",
+		description:
+			"Give each user an invite link. The invited friend and the referrer both get promo credits.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Each user will get an invite link in the app. The invited friend and the referrer will both receive promo credits at the referral amounts set below."
+				: "No invite link will show and no reward will be paid while this is off. Credits already paid remain available.",
+	},
+	starterPassRequired: {
+		label: "Starter pass",
+		description:
+			"Fraud gate. An account that never paid must pay $1 by card or 250 DA by CIB/Edahabia before it can spend credits.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Accounts that never paid cannot spend credits until they pay $1 by card or 250 DA by CIB/Edahabia. Turning it on grants a pass to every account that already paid. Card top-ups must be on for non-Algerian users."
+				: "Every account can spend its credits again without a Starter pass. Passes already granted stay on their accounts.",
+	},
 };
 
 type ProductControlsCardProps = {
@@ -158,6 +205,11 @@ type ProductControlsCardProps = {
 	reloadSettings: () => Promise<void>;
 };
 
+/**
+ * The "Admission controls" card of the settings page.
+ * A switch asks for a confirmation first. Each amount has its own form and its own save.
+ * A 409 from the server locks the card until the admin reloads the settings.
+ */
 export function ProductControlsCard({
 	settings,
 	reloadSettings,
@@ -169,10 +221,9 @@ export function ProductControlsCard({
 		String(settings.signupGrantCredits),
 	);
 	const [grantSubmitted, setGrantSubmitted] = useState(false);
-	const [graceDays, setGraceDays] = useState(String(settings.manualGraceDays));
-	const [graceSubmitted, setGraceSubmitted] = useState(false);
 	const [pendingNumericSetting, setPendingNumericSetting] =
 		useState<NumericSettingKey | null>(null);
+	const [isSavingDisabledModels, setIsSavingDisabledModels] = useState(false);
 	const [conflict, setConflict] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isReloading, setIsReloading] = useState(false);
@@ -185,24 +236,11 @@ export function ProductControlsCard({
 		setGrantSubmitted(false);
 	}, [settings.signupGrantCredits]);
 
-	useEffect(() => {
-		setGraceDays(String(settings.manualGraceDays));
-		setGraceSubmitted(false);
-	}, [settings.manualGraceDays]);
-
 	const parsedGrantCredits = Number(grantCredits);
 	const grantCreditsAreValid =
 		Number.isSafeInteger(parsedGrantCredits) && parsedGrantCredits > 0;
 	const grantCreditsChanged =
 		grantCreditsAreValid && parsedGrantCredits !== settings.signupGrantCredits;
-	const parsedGraceDays = Number(graceDays);
-	const graceDaysAreValid =
-		graceDays.trim().length > 0 &&
-		Number.isSafeInteger(parsedGraceDays) &&
-		parsedGraceDays >= 0 &&
-		parsedGraceDays <= 30;
-	const graceDaysChanged =
-		graceDaysAreValid && parsedGraceDays !== settings.manualGraceDays;
 
 	function requestToggle(key: BooleanSettingKey, nextValue: boolean) {
 		if (!canManage || nextValue === settings[key] || conflict) {
@@ -283,27 +321,46 @@ export function ProductControlsCard({
 		}
 	}
 
-	async function saveGraceDays(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		setGraceSubmitted(true);
+	async function saveUserReferralCredits(
+		field: UserReferralCreditField,
+		credits: number,
+	) {
 		setErrorMessage(null);
+		setPendingNumericSetting(field.key);
+		const input: PatchProductSettingsBody = { version: settings.version };
+		input[field.key] = credits;
 
-		if (!canManage || !graceDaysAreValid || !graceDaysChanged || conflict) {
-			return;
-		}
-
-		setPendingNumericSetting("manualGraceDays");
 		try {
-			await mutation.mutateAsync({
-				manualGraceDays: parsedGraceDays,
-				version: settings.version,
-			});
-			toast.success("Offline grace period updated.");
-			setGraceSubmitted(false);
+			await mutation.mutateAsync(input);
+			toast.success(`${field.title} updated.`);
 		} catch (error) {
 			handleMutationError(error, () => setConflict(true));
 		} finally {
 			setPendingNumericSetting(null);
+		}
+	}
+
+	async function saveDisabledModels(modelIds: string[]) {
+		setErrorMessage(null);
+		setIsSavingDisabledModels(true);
+
+		try {
+			await mutation.mutateAsync({
+				v2DisabledModels: modelIds,
+				version: settings.version,
+			});
+			toast.success("Disabled V2 models updated.");
+		} catch (error) {
+			// The server answers 400 for an id with no price row. Its body only says "Validation failed".
+			if (isApiClientError(error) && error.status === 400) {
+				setErrorMessage(
+					"One model id has no price row. Copy the ids from the builder model list, for example google/gemini-4-neon.",
+				);
+				return;
+			}
+			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setIsSavingDisabledModels(false);
 		}
 	}
 
@@ -512,77 +569,23 @@ export function ProductControlsCard({
 					</FieldGroup>
 				</form>
 
-				<form
-					onSubmit={saveGraceDays}
-					noValidate
-					className="border-t bg-muted/20 px-5 py-5"
-				>
-					<FieldGroup>
-						<Field
-							data-invalid={graceSubmitted && !graceDaysAreValid}
-							className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
-						>
-							<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
-								<div className="flex items-center gap-2 font-medium text-sm">
-									<CalendarClockIcon aria-hidden="true" />
-									Offline grace days
-								</div>
-								<FieldDescription id="offline-grace-days-description">
-									Days of access after an offline period ends before the cron
-									cancels it. 0 = strict.
-								</FieldDescription>
-							</div>
-							<div className="flex flex-col gap-2">
-								<FieldLabel htmlFor="offline-grace-days">Days</FieldLabel>
-								<Input
-									id="offline-grace-days"
-									type="number"
-									inputMode="numeric"
-									min={0}
-									max={30}
-									step={1}
-									value={graceDays}
-									onChange={(event) => setGraceDays(event.target.value)}
-									disabled={mutation.isPending || conflict || !canManage}
-									aria-invalid={graceSubmitted && !graceDaysAreValid}
-									aria-describedby="offline-grace-days-description offline-grace-days-error"
-								/>
-							</div>
-							<Button
-								type="submit"
-								disabled={
-									mutation.isPending ||
-									conflict ||
-									!canManage ||
-									(graceDaysAreValid && !graceDaysChanged)
-								}
-							>
-								{mutation.isPending &&
-								pendingNumericSetting === "manualGraceDays" ? (
-									<Loader2Icon
-										data-icon="inline-start"
-										className="animate-spin"
-										aria-hidden="true"
-									/>
-								) : (
-									<SaveIcon data-icon="inline-start" aria-hidden="true" />
-								)}
-								{mutation.isPending &&
-								pendingNumericSetting === "manualGraceDays"
-									? "Saving…"
-									: "Save days"}
-							</Button>
-							<FieldError
-								id="offline-grace-days-error"
-								className="sm:col-span-2 sm:col-start-2"
-							>
-								{graceSubmitted && !graceDaysAreValid
-									? "Enter a whole number from 0 to 30."
-									: null}
-							</FieldError>
-						</Field>
-					</FieldGroup>
-				</form>
+				<DisabledModelsForm
+					savedModelIds={settings.v2DisabledModels}
+					isLocked={mutation.isPending || conflict || !canManage}
+					isSaving={isSavingDisabledModels}
+					onSave={(modelIds) => void saveDisabledModels(modelIds)}
+				/>
+
+				{USER_REFERRAL_CREDIT_FIELDS.map((field) => (
+					<UserReferralCreditsForm
+						key={field.key}
+						field={field}
+						savedCredits={settings[field.key]}
+						isLocked={mutation.isPending || conflict || !canManage}
+						isSaving={mutation.isPending && pendingNumericSetting === field.key}
+						onSave={(credits) => void saveUserReferralCredits(field, credits)}
+					/>
+				))}
 			</CardContent>
 
 			<AlertDialog
@@ -645,5 +648,214 @@ export function ProductControlsCard({
 				</AlertDialogContent>
 			</AlertDialog>
 		</Card>
+	);
+}
+
+type UserReferralCreditsFormProps = {
+	/** The settings key that this form saves, with the title and the help text of the row. */
+	field: UserReferralCreditField;
+	/** Amount in the settings row now, in whole credits. */
+	savedCredits: number;
+	/** True while a settings save runs, a version conflict shows, or the admin cannot manage settings. */
+	isLocked: boolean;
+	/** True while the save of this field runs. The button then shows a spinner. */
+	isSaving: boolean;
+	/** Gets a valid, changed amount in whole credits. The card sends it and shows a failure. */
+	onSave: (credits: number) => void;
+};
+
+/** One amount row of the user referral program. It has the layout of the signup grant form. */
+function UserReferralCreditsForm({
+	field,
+	savedCredits,
+	isLocked,
+	isSaving,
+	onSave,
+}: UserReferralCreditsFormProps) {
+	const [draftCredits, setDraftCredits] = useState(String(savedCredits));
+	const [submitted, setSubmitted] = useState(false);
+
+	// A save or a reload changes the saved amount. The draft and the error then start again.
+	useEffect(() => {
+		setDraftCredits(String(savedCredits));
+		setSubmitted(false);
+	}, [savedCredits]);
+
+	const parsedCredits = Number(draftCredits);
+	// Zero is not a legal amount: the credit grant rejects it.
+	const creditsAreValid =
+		Number.isSafeInteger(parsedCredits) &&
+		parsedCredits >= 1 &&
+		parsedCredits <= USER_REFERRAL_CREDITS_MAX;
+	const creditsChanged = creditsAreValid && parsedCredits !== savedCredits;
+	const showError = submitted && !creditsAreValid;
+	const descriptionId = `${field.key}-description`;
+	const errorId = `${field.key}-error`;
+
+	function handleSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSubmitted(true);
+
+		if (isLocked || !creditsChanged) {
+			return;
+		}
+
+		onSave(parsedCredits);
+	}
+
+	return (
+		<form
+			onSubmit={handleSubmit}
+			noValidate
+			className="border-t bg-muted/20 px-5 py-5"
+		>
+			<FieldGroup>
+				<Field
+					data-invalid={showError}
+					className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+				>
+					<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+						<div className="flex items-center gap-2 font-medium text-sm">
+							<UserPlusIcon aria-hidden="true" />
+							{field.title}
+						</div>
+						<FieldDescription id={descriptionId}>
+							{field.description} A new amount applies to friends who join after
+							the change.
+						</FieldDescription>
+					</div>
+					<div className="flex flex-col gap-2">
+						<FieldLabel htmlFor={field.key}>Credits</FieldLabel>
+						<Input
+							id={field.key}
+							type="number"
+							inputMode="numeric"
+							min={1}
+							max={USER_REFERRAL_CREDITS_MAX}
+							step={1}
+							value={draftCredits}
+							onChange={(event) => setDraftCredits(event.target.value)}
+							disabled={isLocked}
+							aria-invalid={showError}
+							aria-describedby={`${descriptionId} ${errorId}`}
+						/>
+					</div>
+					<Button
+						type="submit"
+						disabled={isLocked || (creditsAreValid && !creditsChanged)}
+					>
+						{isSaving ? (
+							<Loader2Icon
+								data-icon="inline-start"
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<SaveIcon data-icon="inline-start" aria-hidden="true" />
+						)}
+						{isSaving ? "Saving…" : "Save amount"}
+					</Button>
+					<FieldError id={errorId} className="sm:col-span-2 sm:col-start-2">
+						{showError
+							? `Enter a whole number of credits from 1 to ${USER_REFERRAL_CREDITS_MAX.toLocaleString()}.`
+							: null}
+					</FieldError>
+				</Field>
+			</FieldGroup>
+		</form>
+	);
+}
+
+type DisabledModelsFormProps = {
+	/** `v2DisabledModels` in the settings row now: gateway model ids such as `google/gemini-4-neon`. */
+	savedModelIds: readonly string[];
+	/** True while a settings save runs, a version conflict shows, or the admin cannot manage settings. */
+	isLocked: boolean;
+	/** True while the save of this list runs. The button then shows a spinner. */
+	isSaving: boolean;
+	/** Gets the full new list, without duplicates. An empty list turns every model on again. */
+	onSave: (modelIds: string[]) => void;
+};
+
+/**
+ * The list of V2 builder models that ops turn off, as one text field.
+ * The builder hides a turned-off tier, and the API refuses a turn on it.
+ */
+function DisabledModelsForm({
+	savedModelIds,
+	isLocked,
+	isSaving,
+	onSave,
+}: DisabledModelsFormProps) {
+	const savedText = savedModelIds.join(", ");
+	const [draftText, setDraftText] = useState(savedText);
+
+	// A save or a reload changes the saved list. The draft then starts again.
+	useEffect(() => {
+		setDraftText(savedText);
+	}, [savedText]);
+
+	// Commas, spaces, and line breaks all separate the ids.
+	const draftModelIds = [
+		...new Set(draftText.split(/[\s,]+/).filter((modelId) => modelId !== "")),
+	];
+	const isChanged = draftModelIds.join(", ") !== savedText;
+
+	function handleSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+
+		if (isLocked || !isChanged) {
+			return;
+		}
+
+		onSave(draftModelIds);
+	}
+
+	return (
+		<form
+			onSubmit={handleSubmit}
+			noValidate
+			className="border-t bg-muted/20 px-5 py-5"
+		>
+			<FieldGroup>
+				<Field className="sm:grid sm:grid-cols-[minmax(0,1fr)_20rem_auto] sm:items-end">
+					<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+						<div className="flex items-center gap-2 font-medium text-sm">
+							<BanIcon aria-hidden="true" />
+							Disabled V2 models
+						</div>
+						<FieldDescription id="v2-disabled-models-description">
+							Model ids to turn off during a provider incident, separated by
+							commas. New turns on them fail within 30 seconds. The builder
+							hides their tier at the next page load. Leave empty to turn every
+							model on.
+						</FieldDescription>
+					</div>
+					<div className="flex flex-col gap-2">
+						<FieldLabel htmlFor="v2-disabled-models">Model ids</FieldLabel>
+						<Input
+							id="v2-disabled-models"
+							placeholder="google/gemini-4-neon"
+							value={draftText}
+							onChange={(event) => setDraftText(event.target.value)}
+							disabled={isLocked}
+							aria-describedby="v2-disabled-models-description"
+						/>
+					</div>
+					<Button type="submit" disabled={isLocked || !isChanged}>
+						{isSaving ? (
+							<Loader2Icon
+								data-icon="inline-start"
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<SaveIcon data-icon="inline-start" aria-hidden="true" />
+						)}
+						{isSaving ? "Saving…" : "Save list"}
+					</Button>
+				</Field>
+			</FieldGroup>
+		</form>
 	);
 }

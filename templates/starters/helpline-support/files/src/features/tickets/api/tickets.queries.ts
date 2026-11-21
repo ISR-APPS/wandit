@@ -1,4 +1,4 @@
-// Reads of tickets: the list with its joins, and one ticket with its conversation, customer, and related rows.
+// Reads of tickets: the list with its joins, and one ticket with its conversation and help article.
 // The list, detail, and home routes prefetch them in their loaders. The pages read them with useSuspenseQuery.
 // Each queryFn reads the sample tables of the helpdesk feature. A later turn replaces it with a Supabase call.
 import { queryOptions } from "@tanstack/react-query";
@@ -6,12 +6,9 @@ import {
 	type ArticleCollection,
 	type CustomerPlan,
 	getSampleTables,
-	isOpenStatus,
-	PLAN_SEAT_PRICE,
 	type SampleTables,
 	slaDueAt,
 	type TicketEventRow,
-	type TicketRating,
 	type TicketRow,
 } from "~/features/helpdesk";
 
@@ -22,9 +19,9 @@ export type TicketListItem = Omit<
 > & {
 	/** The next SLA deadline (slaDueAt), or null when no clock runs: pending, solved, or closed. */
 	dueAt: string | null;
-	/** The time of the last message. The list meta line and the Next up "Last update" show it. */
+	/** The time of the last message. The list pane of the ticket page shows it. */
 	lastActivityAt: string;
-	/** The last message of the customer, for the Next up panel. */
+	/** The last message of the customer, for the preview lines of the list pane. */
 	preview: string;
 	customer: { id: string; name: string; plan: CustomerPlan };
 	requester: { name: string; email: string };
@@ -50,33 +47,12 @@ export type ConversationEntry =
 			at: string;
 	  };
 
-/** Another ticket of the same customer, for the "Same customer" panel. */
-export type RelatedTicket = Pick<
-	TicketListItem,
-	"id" | "subject" | "status" | "createdAt"
->;
-
 /** One ticket with everything that its page shows. */
 export type TicketDetail = TicketListItem & {
-	requester: { name: string; email: string; title: string };
-	customer: {
-		id: string;
-		name: string;
-		plan: CustomerPlan;
-		city: string;
-		seats: number;
-		/** Monthly revenue in whole units of CURRENCY: seats times the seat price of the plan. */
-		mrr: number;
-		/** Open tickets of this customer, this one included. */
-		openTickets: number;
-	};
-	rating: TicketRating | null;
 	/** Messages and changes, oldest first. */
 	conversation: ConversationEntry[];
 	/** The help article that the first reply links. */
 	article: { id: string; title: string; collection: ArticleCollection } | null;
-	/** The 5 newest other tickets of the customer. */
-	relatedTickets: RelatedTicket[];
 };
 
 // The joins of one ticket row: the same work as a select with embedded rows.
@@ -123,7 +99,7 @@ function lastMessagesOf(
 	return result;
 }
 
-/** Every ticket, newest first. The list page, the queue, and the home read it. */
+/** Every ticket, newest first. The list page, the list pane of the ticket page, and the home read it. */
 export function ticketsQueryOptions() {
 	return queryOptions({
 		queryKey: ["tickets", "list"],
@@ -147,13 +123,7 @@ export function ticketQueryOptions(ticketId: string) {
 		queryFn: async (): Promise<TicketDetail | null> => {
 			const tables = getSampleTables();
 			const ticket = tables.tickets.find((item) => item.id === ticketId);
-			const customer = tables.customers.find(
-				(item) => item.id === ticket?.customerId,
-			);
-			const requester = tables.contacts.find(
-				(item) => item.id === ticket?.requesterId,
-			);
-			if (!ticket || !customer || !requester) {
+			if (!ticket) {
 				return null;
 			}
 			const item = toListItem(ticket, tables, lastMessagesOf(tables));
@@ -179,30 +149,11 @@ export function ticketQueryOptions(ticketId: string) {
 						at: event.occurredAt,
 					})),
 			].sort((first, second) => Date.parse(first.at) - Date.parse(second.at));
-			const customerTickets = tables.tickets.filter(
-				(row) => row.customerId === customer.id,
-			);
 			const article = tables.articles.find(
 				(row) => row.id === ticket.articleId,
 			);
 			return {
 				...item,
-				requester: {
-					name: requester.name,
-					email: requester.email,
-					title: requester.title,
-				},
-				customer: {
-					id: customer.id,
-					name: customer.name,
-					plan: customer.plan,
-					city: customer.city,
-					seats: customer.seats,
-					mrr: customer.seats * PLAN_SEAT_PRICE[customer.plan],
-					openTickets: customerTickets.filter((row) => isOpenStatus(row.status))
-						.length,
-				},
-				rating: ticket.rating,
 				conversation,
 				article: article
 					? {
@@ -211,19 +162,6 @@ export function ticketQueryOptions(ticketId: string) {
 							collection: article.collection,
 						}
 					: null,
-				relatedTickets: customerTickets
-					.filter((row) => row.id !== ticketId)
-					.sort(
-						(first, second) =>
-							Date.parse(second.createdAt) - Date.parse(first.createdAt),
-					)
-					.slice(0, 5)
-					.map((row) => ({
-						id: row.id,
-						subject: row.subject,
-						status: row.status,
-						createdAt: row.createdAt,
-					})),
 			};
 		},
 	});

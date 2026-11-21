@@ -40,12 +40,17 @@ export function domainLiveUrl(domain: Pick<Domain, "name" | "source">) {
 	return `https://${hostname}`;
 }
 
+/**
+ * Cleans a pasted domain: no scheme, no path, and no leading "www.".
+ * "www." stays when only one label follows it, so "www.com" stays as typed. The contracts parser uses the same rule.
+ */
 export function normalizeDomainInput(value: string) {
 	return value
 		.trim()
 		.toLowerCase()
 		.replace(/^https?:\/\//, "")
-		.replace(/\/.*$/, "");
+		.replace(/\/.*$/, "")
+		.replace(/^www\.(?=[^.]+\.)/, "");
 }
 
 export function isAvailableSearchResult(result: SearchDomainsResult) {

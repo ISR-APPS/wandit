@@ -6,27 +6,31 @@
 	"recentActivity": "Recent activity",
 	"emptyActivity": "No activity yet.",
 	"activityLoadError": "Credit activity could not load.",
-	"topUpChip": "Top up credits",
-	"manageBilling": "View billing",
-	"topUpDialog": "See plans and top-ups",
+	"topUpChip": "Top up",
+	"manageBilling": "Open wallet",
+	"topUpDialog": "Top up credits",
 	"insufficientTitle": "Not enough credits",
 	"insufficientBody": "This action costs more credits than you currently have.",
+	"starterPassTitle": "Get the Starter pass",
+	"starterPassBody": "Your account cannot spend credits before the Starter pass. One small payment keeps Wandit free of abuse.",
+	"starterPassCta": "Get the Starter pass",
 	"outOfCredits": {
 		"title": "You're out of credits",
-		"body": "Upgrade your plan to keep building.",
-		"memberBody": "This workspace is out of credits. Ask a workspace owner to upgrade.",
-		"cta": "Upgrade plan",
-		"pausedBody": "Credit purchases are paused during the beta."
+		"body": "Top up your wallet to keep building.",
+		"memberBody": "This workspace is out of credits. Ask a workspace owner to top up.",
+		"cta": "Top up",
+		"pausedBody": "Credit purchases are paused for now.",
+		"starterPass": {
+			"title": "Your account needs the Starter pass",
+			"body": "One small payment unlocks your credits and keeps Wandit free of abuse.",
+			"memberBody": "Ask the team owner to buy the Starter pass.",
+			"cta": "Get the Starter pass — {price}"
+		}
 	},
 	"elsewhere": {
 		"chipHint": "Your credits are in {name}",
 		"dialogHint": "You have {balance} credits in {name}",
 		"switch": "Switch"
-	},
-	"buckets": {
-		"plan": "Plan",
-		"promo": "Promotional",
-		"topup": "Top-up"
 	},
 	"ledgerKinds": {
 		"grant": "Credits granted",
@@ -34,6 +38,10 @@
 		"topup": "Credits purchased",
 		"expire": "Credits expired",
 		"revoke": "Credits reversed"
+	},
+	"ledgerReasons": {
+		"user_referral_friend_bonus": "Invite bonus",
+		"user_referral_reward": "Referral reward"
 	},
 	"activityOperations": {
 		"chat": "AI message",
@@ -51,11 +59,50 @@
 		"app_ai_gateway": "App AI call",
 		"desktop_build": "Desktop app build",
 		"theme_design": "Theme design",
+		"web_search": "Web search",
+		"web_fetch": "Web page read",
+		"site_capture": "Website capture",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {
 		"inProgress": "In progress",
 		"refunded": "Refunded"
+	},
+	"spendBadges": {
+		"title": "Badges",
+		"description": "Earn badges as you spend credits from your personal wallet. A badge gives no credits.",
+		"spent": "{credits} spent",
+		"next": "{credits} more to {badge}",
+		"allEarned": "You earned every badge.",
+		"earned": "Earned",
+		"locked": "Locked",
+		"loadError": "Your badges could not load.",
+		"items": {
+			"spark": {
+				"name": "Spark",
+				"description": "Your first steps with AI."
+			},
+			"apprentice": {
+				"name": "Apprentice",
+				"description": "You use AI often."
+			},
+			"builder": {
+				"name": "Builder",
+				"description": "Building with AI is a habit."
+			},
+			"artisan": {
+				"name": "Artisan",
+				"description": "You make many projects with care."
+			},
+			"master": {
+				"name": "Master",
+				"description": "You know every tool well."
+			},
+			"legend": {
+				"name": "Legend",
+				"description": "Very few builders get here."
+			}
+		}
 	},
 	"creditUnit": {
 		"zero": "{count} credits",

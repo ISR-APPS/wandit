@@ -1,0 +1,126 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.strata {
+	--ink: var(--background);
+	--ivory: var(--foreground);
+	--gold: var(--primary);
+	background: var(--ink);
+	color: var(--ivory);
+	font: 1rem / 1.5 var(--font-sans);
+}
+.strata header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 1rem;
+	padding: 1.1rem 5vw;
+	border-block-end: 1px solid var(--border);
+}
+.strata header > a {
+	font: bold 1.16rem / 1 monospace;
+	letter-spacing: 0.22em;
+}
+.strata nav {
+	display: flex;
+	gap: 1.5rem;
+	font-size: 0.84rem;
+}
+.strata-hero {
+	position: relative;
+	isolation: isolate;
+	min-height: clamp(35rem, 77vh, 56rem);
+	display: grid;
+	align-items: center;
+	padding: 4.5rem 8vw;
+	overflow: hidden;
+}
+.strata-hero img {
+	position: absolute;
+	inset: 0 0 0 auto;
+	width: 78%;
+	height: 100%;
+	object-fit: cover;
+	z-index: -2;
+}
+.strata-hero::before {
+	content: "";
+	z-index: -1;
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		90deg,
+		var(--ink) 12%,
+		color-mix(in oklch, var(--background) 30%, transparent) 64%,
+		transparent
+	);
+}
+.strata-hero :where(div) > p,
+.strata-caption {
+	font:
+		0.73rem / 1.4 ui-monospace,
+		monospace;
+	letter-spacing: 0.11em;
+	color: var(--gold);
+}
+.strata h1,
+.strata h2 {
+	font-family: var(--font-display);
+	font-weight: 400;
+	line-height: 0.86;
+	letter-spacing: -0.065em;
+}
+.strata h1 {
+	font-size: clamp(4rem, 11vw, 10rem);
+	padding-block: 0.15em 0.23em;
+}
+.strata h2 {
+	font-size: clamp(3rem, 7vw, 6rem);
+	margin-block-end: 0.2em;
+}
+.strata a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.35em;
+}
+.strata-caption {
+	position: absolute;
+	inset: auto 5vw 1.15rem auto;
+}
+.strata-index,
+.strata-visit {
+	border-block-start: 1px solid var(--border);
+	padding: 3.5rem 8vw;
+}
+.strata-index > p,
+.strata-visit p {
+	margin-block: 1rem 2rem;
+}
+.strata-index details {
+	border-block-end: 1px solid var(--border);
+	padding-block: 1rem;
+}
+.strata-index summary {
+	cursor: pointer;
+	font-size: 1.3rem;
+}
+.strata-index summary span {
+	display: inline-block;
+	min-width: 4em;
+	padding-inline-start: 0.8rem;
+	color: var(--gold);
+	font:
+		0.78rem ui-monospace,
+		monospace;
+}
+.strata-index details p {
+	padding: 1rem 2rem 0;
+}
+@media (max-width: 640px) {
+	.strata-hero img {
+		width: 100%;
+	}
+	.strata-hero::before {
+		background: color-mix(in oklch, var(--background) 65%, transparent);
+	}
+}

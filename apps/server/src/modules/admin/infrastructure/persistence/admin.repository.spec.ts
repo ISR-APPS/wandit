@@ -444,8 +444,10 @@ describe("AdminRepository user-list queries", () => {
 		]);
 	});
 
-	const freePlanPredicate =
-		'not exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" in ($?, $?))';
+	// A top-up of 10 USD or more alone makes a user paid, so "free credits" excludes it too.
+	// The 1 USD Starter pass top-up does not make a user paid.
+	const neverPaidPredicate =
+		'not (exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" not in (\'incomplete\', \'incomplete_expired\')) or exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."bucket" = \'topup\' and "credit_ledger"."kind" = \'topup\' and "credit_ledger"."delta" >= $?))';
 	const signupFreeCreditsGrantPredicate =
 		'exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'grant\' and "credit_ledger"."bucket" = \'promo\' and "credit_ledger"."idempotency_key" = \'signup:\' || "user"."id")';
 	const personalCreditsBalanceExpression =
@@ -454,7 +456,7 @@ describe("AdminRepository user-list queries", () => {
 	it.each([
 		["consumed", "<= 0"],
 		["available", "> 0"],
-	] as const)("filters standalone for free users with a signup grant whose credits are %s", (state, balanceComparison) => {
+	] as const)("filters standalone for never-paid users with a signup grant whose credits are %s", (state, balanceComparison) => {
 		const repository = new AdminRepository(db as Database);
 		const query = {
 			page: 1,
@@ -471,15 +473,16 @@ describe("AdminRepository user-list queries", () => {
 		expect(outerUserWhere(listQuery.toSQL().sql)).toBe(
 			outerUserWhere(count.sql),
 		);
-		expect(countSql).toContain(freePlanPredicate);
+		expect(countSql).toContain(neverPaidPredicate);
 		expect(countSql).toContain(signupFreeCreditsGrantPredicate);
 		expect(countSql).toContain(
 			`${personalCreditsBalanceExpression} ${balanceComparison}`,
 		);
-		expect(count.params).toEqual(["active", "trialing"]);
+		// 10 000 centi-credits: the credits of a 10 USD top-up.
+		expect(count.params).toEqual([10_000]);
 	});
 
-	it("ORs consumed and available balances while retaining free-plan and signup-grant requirements", () => {
+	it("ORs consumed and available balances while retaining never-paid and signup-grant requirements", () => {
 		const repository = new AdminRepository(db as Database);
 		const query = {
 			page: 1,
@@ -492,12 +495,13 @@ describe("AdminRepository user-list queries", () => {
 		const count = countQuery.toSQL();
 		const countSql = normalizeSqlParams(count.sql);
 
-		expect(countSql).toContain(freePlanPredicate);
+		expect(countSql).toContain(neverPaidPredicate);
 		expect(countSql).toContain(signupFreeCreditsGrantPredicate);
 		expect(countSql).toContain(
 			`(${personalCreditsBalanceExpression} <= 0 or ${personalCreditsBalanceExpression} > 0)`,
 		);
-		expect(count.params).toEqual(["active", "trialing"]);
+		// 10 000 centi-credits: the credits of a 10 USD top-up.
+		expect(count.params).toEqual([10_000]);
 	});
 
 	it("treats all values selected in each dimension as no filter", () => {

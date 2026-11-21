@@ -88,7 +88,7 @@ describe("CreditsRepository.netConsumedCentiCredits", () => {
 		const { params, statement } = render(executed[0]);
 
 		expect(statement).toContain(
-			'select coalesce(-sum("credit_ledger"."delta"), 0)::int as total',
+			'select coalesce(-sum("credit_ledger"."delta"), 0)::bigint as total',
 		);
 		expect(statement).toContain('"credit_ledger"."user_id" = $1');
 		expect(statement).toContain('"credit_ledger"."organization_id" is null');
@@ -112,6 +112,29 @@ describe("CreditsRepository.netConsumedCentiCredits", () => {
 		await expect(
 			repository.netConsumedCentiCredits("user-1", client),
 		).resolves.toBe(0);
+	});
+});
+
+describe("CreditsRepository settled net consumption by user", () => {
+	// Money rule of the user referral sweep: an open hold is not consumption, and an org row is not personal.
+	it("leaves out each user with an in-flight hold on the personal pool", () => {
+		// SAFETY: `db` is the Drizzle client of `@wandit/db`. The case compiles SQL and sends no query.
+		const repository = new CreditsRepository(db as Database);
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const query = repository["buildSettledNetConsumedQuery"]([
+			"user-1",
+			"user-2",
+		]).toSQL();
+		const statement = normalizeSql(query.sql);
+
+		expect(statement).toContain('"credit_ledger"."user_id" in ($1, $2)');
+		expect(statement).toContain('"credit_ledger"."organization_id" is null');
+		// The hold filter reads the user of each ledger row, not a fixed parameter.
+		expect(statement).toContain(
+			'not exists ( select 1 from "ai_usage_events" where ("ai_usage_events"."status" = \'reserved\' or ("ai_usage_events"."status" = \'reconcile_failed\' and "ai_usage_events"."final_credits" is null)) and ("ai_usage_events"."organization_id" is null and (("ai_usage_events"."user_id" = "credit_ledger"."user_id" and "ai_usage_events"."payer_user_id" is null) or "ai_usage_events"."payer_user_id" = "credit_ledger"."user_id")) )',
+		);
+		expect(statement).toContain('group by "credit_ledger"."user_id"');
+		expect(query.params).toEqual(["user-1", "user-2"]);
 	});
 });
 
@@ -143,6 +166,7 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 1000,
 			settledPromo: 100,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 		expect(snapshot.settledBalance).toBe(
@@ -189,6 +213,7 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 963,
 			settledPromo: 100,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 	});
@@ -207,8 +232,50 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
+	});
+
+	it.each([
+		{
+			owner: userOwner("user-1"),
+			pool: '(("starter_passes"."user_id" = $4 and "starter_passes"."organization_id" is null) and',
+		},
+		{
+			owner: orgOwner("org-1"),
+			pool: '("starter_passes"."organization_id" = $3 and',
+		},
+	])("reads the Starter pass gate of the $owner.type pool in the same statement", async ({
+		owner,
+		pool,
+	}) => {
+		const repository = new CreditsRepository(db as Database);
+		const { client, executed } = fakeClient({
+			hold_plan: 0,
+			hold_promo: 0,
+			hold_topup: 0,
+			plan: 0,
+			promo: 2000,
+			starter_pass_required: true,
+			topup: 0,
+		});
+
+		await expect(
+			repository.getSettledBalanceSnapshot(owner, client),
+		).resolves.toMatchObject({
+			settledBalance: 2000,
+			starterPassRequired: true,
+		});
+
+		const { statement } = render(executed[0]);
+		// The switch AND no live pass of this pool. A revoked pass does not count.
+		expect(statement).toContain(
+			'coalesce(( select "product_settings"."starter_pass_required" from "product_settings" where "product_settings"."id" = 1 ),',
+		);
+		expect(statement).toContain(
+			`), false) and not exists ( select 1 from "starter_passes" where ${pool} "starter_passes"."revoked_at" is null) ) as starter_pass_required`,
+		);
 	});
 });
 

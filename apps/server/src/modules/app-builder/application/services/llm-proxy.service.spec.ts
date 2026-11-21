@@ -87,6 +87,34 @@ function jsonOk(body: string) {
 	};
 }
 
+// A fetch stub that answers each call with the next scripted response and
+// records the headers and body of each call.
+function scriptedFetch(responses: (() => Response)[]): {
+	upstreamFetch: typeof fetch;
+	sent: { headers: Headers; body: string }[];
+} {
+	const sent: { headers: Headers; body: string }[] = [];
+	const upstreamFetch: typeof fetch = (_url, init) => {
+		sent.push({
+			headers: new Headers(init?.headers),
+			body: String(init?.body ?? ""),
+		});
+		const next = responses[sent.length - 1];
+		if (next === undefined) {
+			throw new Error(`No scripted response for call ${sent.length}`);
+		}
+		return Promise.resolve(next());
+	};
+	return { upstreamFetch, sent };
+}
+
+function sseResponse(stream: string): Response {
+	return new Response(stream, {
+		status: 200,
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
 class FakeReply implements LlmProxyReply {
 	statusCode: number | undefined;
 	headers: Record<string, string> = {};
@@ -133,8 +161,15 @@ function makeEnv(baseUrl: string): LlmProxyEnv {
 	};
 }
 
-function makeService(env: LlmProxyEnv, upstreamFetch: typeof fetch = fetch) {
-	const counters = new FakeLlmSpendCounters();
+// `now` is the clock of the fake counters, in epoch ms. A TTL spec moves it.
+// `v2DisabledModels` is the admin list of models that ops turned off.
+function makeService(
+	env: LlmProxyEnv,
+	upstreamFetch: typeof fetch = fetch,
+	now: () => number = Date.now,
+	v2DisabledModels: string[] = [],
+) {
+	const counters = new FakeLlmSpendCounters(now);
 	const inserted: NewLlmProxyRequest[] = [];
 	const requests = {
 		insert: async (row: NewLlmProxyRequest) => {
@@ -144,11 +179,18 @@ function makeService(env: LlmProxyEnv, upstreamFetch: typeof fetch = fetch) {
 	};
 	// Each Langfuse generation the service sends; content collection is on.
 	const generations: LlmGeneration[] = [];
-	const service = new LlmProxyService(env, counters, requests, upstreamFetch, {
-		send: (generation) => {
-			generations.push(generation);
+	const service = new LlmProxyService(
+		env,
+		counters,
+		requests,
+		upstreamFetch,
+		{
+			send: (generation) => {
+				generations.push(generation);
+			},
 		},
-	});
+		{ get: async () => ({ v2DisabledModels }) },
+	);
 	return { counters, generations, inserted, service };
 }
 
@@ -222,6 +264,127 @@ describe("LlmProxyService", () => {
 			expect(inserted).toHaveLength(1);
 			expect(inserted[0]?.status).toBe("ok");
 			expect(inserted[0]?.upstreamRequestId).toBe("req_42");
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it.each([
+		{
+			case: "a light Messages call",
+			thinking: "light" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "medium",
+		},
+		{
+			case: "a balanced Messages call",
+			thinking: "balanced" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep Messages call on Gemini",
+			thinking: "deep" as const,
+			model: "google/gemini-4-argon",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "xhigh",
+		},
+		{
+			case: "a deep Messages call on Claude",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "max",
+		},
+		{
+			case: "a deep call with thinking disabled",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "disabled",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep call whose body sends no effort",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: null,
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep count_tokens call",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "count_tokens" as const,
+			sentEffort: null,
+		},
+	])("sends effort $sentEffort for $case", async ({
+		thinking,
+		model,
+		bodyThinking,
+		bodyEffort,
+		endpoint,
+		sentEffort,
+	}) => {
+		const upstream = await startUpstream(
+			jsonOk(JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } })),
+		);
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service } = makeService(env);
+			const { input } = inbound(env, {
+				authorization: token(env, { thinking }),
+				endpoint,
+				body: Buffer.from(
+					JSON.stringify({
+						model,
+						max_tokens: 64,
+						messages: [{ role: "user", content: "hi" }],
+						thinking: { type: bodyThinking },
+						// The harness sends no effort for a model that takes none.
+						...(bodyEffort === null
+							? {}
+							: {
+									output_config: {
+										effort: bodyEffort,
+										format: { type: "json" },
+									},
+								}),
+					}),
+					"utf8",
+				),
+			});
+
+			await service.proxyAnthropic(input, new FakeReply());
+
+			const sent = upstream.requests[0]?.body ?? Buffer.alloc(0);
+			if (sentEffort === null) {
+				// No rewrite: the raw bytes go out, so the prompt cache still hits.
+				expect(sent.equals(input.body)).toBe(true);
+			} else {
+				expect(JSON.parse(sent.toString("utf8"))).toEqual({
+					model,
+					max_tokens: 64,
+					messages: [{ role: "user", content: "hi" }],
+					thinking: { type: bodyThinking },
+					output_config: { effort: sentEffort, format: { type: "json" } },
+				});
+			}
 		} finally {
 			await upstream.close();
 		}
@@ -355,25 +518,39 @@ describe("LlmProxyService", () => {
 
 	it.each([
 		{
-			// No turn pick: the starter list holds no opus, so it is denied.
-			tokenModel: undefined,
-			status: 403,
-			code: "V2_MODEL_DENIED",
-			rowStatus: "model_denied",
-			reason: "anthropic/claude-opus-5",
-			upstreamCalls: 0,
-		},
-		{
-			// The turn picked opus, so its token allows it on any plan.
-			tokenModel: "anthropic/claude-opus-5",
+			// Pricing v8 D10: a priced model is open to every user. The old
+			// plan list denied opus to a starter token with no turn pick.
+			plan: "starter",
+			requestedModel: "anthropic/claude-opus-5",
 			status: 200,
 			code: undefined,
 			rowStatus: "ok",
 			reason: null,
 			upstreamCalls: 1,
 		},
-	] as const)("answers $status for opus on starter when the token model is $tokenModel", async ({
-		tokenModel,
+		{
+			// A new minter can drop the claim; the proxy never reads it.
+			plan: undefined,
+			requestedModel: "anthropic/claude-opus-5",
+			status: 200,
+			code: undefined,
+			rowStatus: "ok",
+			reason: null,
+			upstreamCalls: 1,
+		},
+		{
+			// A named model with no price row is denied before the provider.
+			plan: "starter",
+			requestedModel: "x/unpriced",
+			status: 403,
+			code: "V2_MODEL_DENIED",
+			rowStatus: "model_denied",
+			reason: "x/unpriced",
+			upstreamCalls: 0,
+		},
+	] as const)("answers $status for $requestedModel with plan claim $plan", async ({
+		plan,
+		requestedModel,
 		status,
 		code,
 		rowStatus,
@@ -386,9 +563,9 @@ describe("LlmProxyService", () => {
 			const { service, inserted } = makeService(env);
 			const reply = new FakeReply();
 			const { input } = inbound(env, {
-				authorization: token(env, { plan: "starter", model: tokenModel }),
+				authorization: token(env, { plan }),
 				body: Buffer.from(
-					JSON.stringify({ model: "anthropic/claude-opus-5", messages: [] }),
+					JSON.stringify({ model: requestedModel, messages: [] }),
 					"utf8",
 				),
 			});
@@ -401,6 +578,36 @@ describe("LlmProxyService", () => {
 			expect(upstream.requests).toHaveLength(upstreamCalls);
 			expect(inserted[0]?.status).toBe(rowStatus);
 			expect(inserted[0]?.reason).toBe(reason);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it("answers 403 V2_MODEL_DISABLED without a retry for a turn model that ops turned off", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, inserted } = makeService(env, fetch, Date.now, [
+				"anthropic/claude-opus-5",
+			]);
+			const reply = new FakeReply();
+			// The token allows opus, so only the disabled list refuses it.
+			const { input } = inbound(env, {
+				authorization: token(env, { model: "anthropic/claude-opus-5" }),
+				body: Buffer.from(
+					JSON.stringify({ model: "anthropic/claude-opus-5", messages: [] }),
+					"utf8",
+				),
+			});
+
+			await service.proxyAnthropic(input, reply);
+
+			expect(reply.statusCode).toBe(403);
+			expect(reply.headers["x-should-retry"]).toBe("false");
+			const body: { code?: string } = JSON.parse(reply.bodyText);
+			expect(body.code).toBe("V2_MODEL_DISABLED");
+			expect(upstream.requests).toHaveLength(0);
+			expect(inserted[0]?.status).toBe("model_denied");
 		} finally {
 			await upstream.close();
 		}
@@ -572,6 +779,118 @@ describe("LlmProxyService", () => {
 		expect(generations[0]?.forwardedBody.toString("utf8")).toBe(sent[0]?.body);
 	});
 
+	it("sends the Claude Code session id to the gateway as x-session-id", async () => {
+		const { upstreamFetch, sent } = scriptedFetch([
+			() => sseResponse(SSE_STREAM),
+		]);
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+		};
+		const { service } = makeService(env, upstreamFetch);
+		const { input } = inbound(env, {
+			claudeSessionId: "b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		// The gateway pins the session to the credential that holds its cache.
+		expect(sent[0]?.headers.get("x-session-id")).toBe(
+			"b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+		);
+	});
+
+	const toolResult = {
+		type: "tool_result",
+		tool_use_id: "tu_1",
+		content: "ok",
+	};
+	it.each([
+		{ name: "only a tool_result", toolLoopContent: [toolResult] },
+		// Claude Code adds system reminders as text blocks next to the tool_result.
+		{
+			name: "a tool_result and a text block",
+			toolLoopContent: [
+				toolResult,
+				{ type: "text", text: "<system-reminder>x</system-reminder>" },
+			],
+		},
+	])("retries a Claude 400 for a foreign thinking signature once, without the thinking of earlier turns ($name)", async ({
+		toolLoopContent,
+	}) => {
+		// The gateway answer of a live probe: Gemini history, then Opus.
+		const signatureError = JSON.stringify({
+			error: {
+				message:
+					"messages.1.content.0: Invalid `signature` in `thinking` block",
+				type: "AI_APICallError",
+			},
+		});
+		const { upstreamFetch, sent } = scriptedFetch([
+			() =>
+				new Response(signatureError, {
+					status: 400,
+					headers: { "content-type": "application/json" },
+				}),
+			() => sseResponse(SSE_STREAM),
+		]);
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			V2_DEFAULT_MODEL: "anthropic/claude-opus-5.5",
+		};
+		const { inserted, service } = makeService(env, upstreamFetch);
+		const toolUse = { type: "tool_use", id: "tu_1", name: "Read", input: {} };
+		const opusTurn = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "o", signature: "opus-sig" },
+				toolUse,
+			],
+		};
+		const { input } = inbound(env, {
+			body: Buffer.from(
+				JSON.stringify({
+					model: "anthropic/claude-opus-5.5",
+					messages: [
+						{ role: "user", content: "Build it" },
+						// An earlier turn on Gemini, before the slider moved to Opus.
+						{
+							role: "assistant",
+							content: [
+								{ type: "thinking", thinking: "g", signature: "gemini-sig" },
+								{ type: "text", text: "Done" },
+							],
+						},
+						{ role: "user", content: [{ type: "text", text: "Add a page" }] },
+						opusTurn,
+						{ role: "user", content: toolLoopContent },
+					],
+				}),
+				"utf8",
+			),
+		});
+		const reply = new FakeReply();
+
+		await service.proxyAnthropic(input, reply);
+
+		expect(sent).toHaveLength(2);
+		const retried: { messages: { content: unknown }[] } = JSON.parse(
+			sent[1]?.body ?? "{}",
+		);
+		expect(retried.messages[1]?.content).toEqual([
+			{ type: "text", text: "Done" },
+		]);
+		// The current tool loop keeps the thinking that Opus signed.
+		expect(retried.messages[3]).toEqual(opusTurn);
+		// The client sees only the answer of the retry.
+		expect(reply.statusCode).toBe(200);
+		expect(reply.bodyText).not.toContain("signature");
+		expect(inserted).toHaveLength(1);
+		expect(inserted[0]?.status).toBe("ok");
+		expect(inserted[0]?.inputTokens).toBe(120);
+	});
+
 	// Claude Code sends the Claude 1M beta for every `[1m]` model id. Paper
 	// answered 400 to other betas that it does not know.
 	const claudeCodeBetas =
@@ -630,6 +949,144 @@ describe("LlmProxyService", () => {
 		expect(sent[0]?.get("anthropic-beta")).toBe(sentBeta);
 	});
 
+	const wanditIdentityLine =
+		"You are the Wandit builder, an AI assistant that builds apps for Wandit users.";
+
+	it("swaps the Claude Code identity for the Wandit persona in system and user text", async () => {
+		const sentBodies: string[] = [];
+		const upstreamFetch: typeof fetch = (_input, init) => {
+			sentBodies.push(String(init?.body ?? ""));
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const env = makeEnv("https://api.anthropic.com");
+		const { service } = makeService(env, upstreamFetch);
+		const cacheControl = { type: "ephemeral", ttl: "1h" };
+		const billingHeader = {
+			type: "text",
+			text: "x-anthropic-billing-header: cc_version=2.1.281; cc_entrypoint=sdk-ts;",
+		};
+		const userText = { type: "text", text: "Build a todo app." };
+		const { input } = inbound(env, {
+			body: Buffer.from(
+				JSON.stringify({
+					model: "claude-sonnet-5",
+					system: [
+						billingHeader,
+						{
+							type: "text",
+							text: "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+							cache_control: cacheControl,
+						},
+						{
+							type: "text",
+							text: "# Doing tasks\n - Read code before you change it.\n - If the user asks for help or wants to give feedback inform them of the following:\n  - /help: Get help with using Claude Code\n  - To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues\n\n# Environment\n - Primary working directory: /vercel/sandbox\n - The most recent Claude models are the Claude 5 family. Model IDs are claude-opus-5.\n - Claude Code is available as a CLI in the terminal, a desktop app, and a web app.\n - Fast mode for Claude Code uses the same model with faster output.\n",
+							cache_control: cacheControl,
+						},
+					],
+					messages: [
+						{
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: "<system-reminder>\nYou are powered by the model named Opus 4.8. The exact model ID is claude-opus-4-8[1m]. Assistant knowledge cutoff is January 2026.\n</system-reminder>",
+								},
+								userText,
+							],
+						},
+					],
+				}),
+				"utf8",
+			),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(JSON.parse(sentBodies[0] ?? "{}")).toEqual({
+			model: "claude-sonnet-5",
+			system: [
+				billingHeader,
+				{ type: "text", text: wanditIdentityLine, cache_control: cacheControl },
+				{
+					type: "text",
+					text: "# Doing tasks\n - Read code before you change it.\n\n# Environment\n - Primary working directory: /vercel/sandbox\n",
+					cache_control: cacheControl,
+				},
+			],
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "<system-reminder>\n\n</system-reminder>" },
+						userText,
+					],
+				},
+			],
+		});
+	});
+
+	// A gateway model has no marketing name, so its sentence names only the id.
+	const gatewayModelSentence =
+		"You are powered by the model deepseek/deepseek-v4.1-flash-1017.";
+	it.each([
+		{
+			where: "a string system",
+			body: {
+				system: `You are Claude Code, Anthropic's official CLI for Claude.\n${gatewayModelSentence} Assistant knowledge cutoff is May 2025.\nBuild apps.`,
+				messages: [],
+			},
+			sent: { system: `${wanditIdentityLine}\n\nBuild apps.`, messages: [] },
+		},
+		{
+			where: "a string user content, not the assistant",
+			body: {
+				messages: [
+					{ role: "user", content: `${gatewayModelSentence}\nHi` },
+					{ role: "assistant", content: gatewayModelSentence },
+				],
+			},
+			sent: {
+				messages: [
+					{ role: "user", content: "\nHi" },
+					{ role: "assistant", content: gatewayModelSentence },
+				],
+			},
+		},
+	])("removes the gateway model sentence from $where", async ({
+		body,
+		sent,
+	}) => {
+		const sentBodies: string[] = [];
+		const upstreamFetch: typeof fetch = (_input, init) => {
+			sentBodies.push(String(init?.body ?? ""));
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+			);
+		};
+		const model = "deepseek/deepseek-v4.1-flash-1017";
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			V2_DEFAULT_MODEL: model,
+		};
+		const { service } = makeService(env, upstreamFetch);
+		const { input } = inbound(env, {
+			body: Buffer.from(JSON.stringify({ model, ...body }), "utf8"),
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		expect(JSON.parse(sentBodies[0] ?? "{}")).toEqual({ model, ...sent });
+	});
+
 	it("streams SSE chunks as they arrive and writes the usage row", async () => {
 		const upstream = await startUpstream((_req, res) => {
 			res.writeHead(200, { "content-type": "text/event-stream" });
@@ -673,6 +1130,33 @@ describe("LlmProxyService", () => {
 		} finally {
 			await upstream.close();
 		}
+	});
+
+	const [messageStartFrame] = SSE_STREAM.split("\n\n");
+	it.each([
+		{
+			stream: `${messageStartFrame}\n\nevent: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n`,
+			reason: "stream_error:overloaded_error",
+		},
+		{
+			// The stream ends cleanly before `message_stop`.
+			stream: SSE_STREAM.split("event: message_stop")[0] ?? "",
+			reason: "stream_truncated",
+		},
+	])("keeps an ok, billed row with reason $reason", async ({
+		stream,
+		reason,
+	}) => {
+		const { upstreamFetch } = scriptedFetch([() => sseResponse(stream)]);
+		const env = makeEnv("https://api.anthropic.com");
+		const { inserted, service } = makeService(env, upstreamFetch);
+
+		await service.proxyAnthropic(inbound(env).input, new FakeReply());
+
+		// The settle bills only ok rows; the tokens before the problem count.
+		expect(inserted[0]?.status).toBe("ok");
+		expect(inserted[0]?.reason).toBe(reason);
+		expect(inserted[0]?.inputTokens).toBe(120);
 	});
 
 	it("answers 401 on a bad, expired, or wrongly-signed token", async () => {
@@ -771,6 +1255,98 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("accepts an expired token of a chat with a live binding and bills the bound turn", async () => {
+		const upstream = await startUpstream(
+			jsonOk(
+				JSON.stringify({ usage: { input_tokens: 100, output_tokens: 10 } }),
+			),
+		);
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			let counterNowMs = Date.now();
+			const { service, counters, inserted } = makeService(
+				env,
+				fetch,
+				() => counterNowMs,
+			);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			const nowTurnId = "11111111-1111-4111-8111-111111111111";
+			await counters.bindChat(
+				chatId,
+				{ ...claimsInput, runId: "run_now", turnId: nowTurnId },
+				3600,
+			);
+			// A kept process still sends the token of a turn 3 h ago. It expired
+			// 115 min ago, so its own `exp` gives the spend counter a 60 s TTL.
+			const pastSeconds = Math.floor(Date.now() / 1000) - 3 * 60 * 60;
+			const expiredToken = mintLlmProxyToken(
+				{ ...claimsInput, chatId },
+				env,
+				pastSeconds,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: `Bearer ${expiredToken}` }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(200);
+			expect(upstream.requests).toHaveLength(1);
+			expect(inserted[0]?.runId).toBe("run_now");
+			expect(inserted[0]?.turnId).toBe(nowTurnId);
+			// The run cap of the bound turn still counts the spend 2 min later.
+			// Sonnet price: 100*$2 + 10*$10 per MTok = 300 micros.
+			counterNowMs += 2 * 60_000;
+			expect(await counters.readRunSpend("run_now")).toBe(300);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it.each([
+		{ name: "no live binding", bind: false, signingKey: undefined },
+		{ name: "a bad signature", bind: true, signingKey: "other-key" },
+	])("answers 401 to an expired chat token with $name", async ({
+		bind,
+		signingKey,
+	}) => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, counters, inserted } = makeService(env);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			if (bind) {
+				await counters.bindChat(
+					chatId,
+					{ ...claimsInput, runId: "run_now" },
+					3600,
+				);
+			}
+			const pastSeconds = Math.floor(Date.now() / 1000) - 70 * 60;
+			const expiredToken = mintLlmProxyToken(
+				{ ...claimsInput, chatId },
+				signingKey === undefined ? env : { LLM_PROXY_SIGNING_KEY: signingKey },
+				pastSeconds,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: `Bearer ${expiredToken}` }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(401);
+			expect(upstream.requests).toHaveLength(0);
+			expect(inserted).toHaveLength(0);
+			// A refused request must not hold the settle wait of any turn.
+			expect(await counters.readInFlight("run_test")).toBe(0);
+			expect(await counters.readInFlight("run_now")).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("answers 401 when the bound turn's run was revoked", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
@@ -816,6 +1392,7 @@ describe("LlmProxyService", () => {
 				},
 				fetch,
 				null,
+				{ get: async () => ({ v2DisabledModels: [] }) },
 			);
 
 			await service.proxyAnthropic(inbound(env).input, new FakeReply());

@@ -1,5 +1,5 @@
 // Reads of tasks and team members, with the names that the lists show.
-// The route loaders prefetch them. The overview, the project board, My tasks, and the Team page read them from the cache.
+// The route loaders prefetch them. The overview, the Projects, Tasks, and Team pages read them from the cache.
 // Each queryFn reads the sample tables. A later turn replaces its body with a Supabase call that returns the same type.
 import { queryOptions } from "@tanstack/react-query";
 import {

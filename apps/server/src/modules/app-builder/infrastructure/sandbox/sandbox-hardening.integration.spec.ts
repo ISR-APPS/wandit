@@ -229,6 +229,7 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 						engine: "v2_app",
 						framework: "web-app",
 						id: projectId,
+						name: "My app",
 						organizationId: null,
 						templateVersion: "web-app@1.0.0",
 						userId: "integration-user",
@@ -236,6 +237,7 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 				},
 				{ findRunning: async () => handle },
 				{
+					downloadArchive: noStore,
 					listFilePaths: noStore,
 					readArchiveFiles: noStore,
 					readFile: noStore,

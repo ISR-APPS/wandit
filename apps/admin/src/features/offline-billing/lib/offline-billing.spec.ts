@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	amountToMinorUnits,
-	computeDefaultPeriod,
-	computeDefaultRenewalEnd,
 	formatManualPaymentAmount,
-	mapManualPaymentFormDto,
 	mapManualRequestNoteFormDto,
+	mapRecordTopupFormDto,
+	type RecordTopupFormInput,
+	suggestedTopupCredits,
 } from "./offline-billing";
 
 describe("amountToMinorUnits", () => {
@@ -24,77 +24,82 @@ describe("amountToMinorUnits", () => {
 	});
 });
 
-describe("period defaults", () => {
-	it("uses the shared month-end-clamping UTC calendar math", () => {
-		const period = computeDefaultPeriod(
-			new Date("2028-01-31T10:15:00.000Z"),
-			"month",
-		);
-
-		expect(period.periodEnd.toISOString()).toBe("2028-02-29T10:15:00.000Z");
-	});
-
-	it("anchors a live renewal at the current end", () => {
-		const result = computeDefaultRenewalEnd(
-			"2028-04-15T10:00:00.000Z",
-			"month",
-			new Date("2028-04-01T10:00:00.000Z"),
-		);
-
-		expect(result.toISOString()).toBe("2028-05-15T10:00:00.000Z");
-	});
-
-	it("anchors an ended renewal at now", () => {
-		const result = computeDefaultRenewalEnd(
-			"2028-03-01T10:00:00.000Z",
-			"year",
-			new Date("2028-04-01T10:00:00.000Z"),
-		);
-
-		expect(result.toISOString()).toBe("2029-04-01T10:00:00.000Z");
-	});
-
-	it("anchors an early-ended renewal at now even when its old end is future", () => {
-		const result = computeDefaultRenewalEnd(
-			"2028-06-01T10:00:00.000Z",
-			"month",
-			new Date("2028-04-01T10:00:00.000Z"),
-			false,
-		);
-
-		expect(result.toISOString()).toBe("2028-05-01T10:00:00.000Z");
+describe("suggestedTopupCredits", () => {
+	it.each([
+		[
+			"a v8 request of 25 USD",
+			{ amountUsd: 25, plan: null, tierCredits: null, interval: null },
+			250,
+		],
+		[
+			"an old Pro 250 monthly request (25 USD)",
+			{ amountUsd: null, plan: "pro", tierCredits: 250, interval: "month" },
+			250,
+		],
+		[
+			"an old Starter 60 monthly request (9 USD)",
+			{ amountUsd: null, plan: "starter", tierCredits: 60, interval: "month" },
+			90,
+		],
+		[
+			"an old request on a retired tier",
+			{ amountUsd: null, plan: "pro", tierCredits: 123, interval: "month" },
+			null,
+		],
+		[
+			"a request with no amount and no plan",
+			{ amountUsd: null, plan: null, tierCredits: null, interval: null },
+			null,
+		],
+		[
+			"a fractional USD amount",
+			{ amountUsd: 12.5, plan: null, tierCredits: null, interval: null },
+			null,
+		],
+	] as const)("%s -> %s credits", (_label, request, expected) => {
+		expect(suggestedTopupCredits(request)).toBe(expected);
 	});
 });
 
-describe("mapManualPaymentFormDto", () => {
-	it("maps the form to the contract and omits blank optional fields", () => {
-		expect(
-			mapManualPaymentFormDto({
-				method: "bank_transfer",
-				majorAmount: " 25.50 ",
-				currency: "dzd",
-				reference: "  WIRE-42  ",
-				note: "   ",
-			}),
-		).toEqual({
-			method: "bank_transfer",
-			amountMinor: 2_550,
-			currency: "DZD",
-			reference: "WIRE-42",
+describe("mapRecordTopupFormDto", () => {
+	const form: RecordTopupFormInput = {
+		method: "ccp",
+		majorAmount: "2700",
+		currency: "DZD",
+		credits: "",
+		reference: " CCP-42 ",
+		note: "",
+	};
+	const owner = { userId: "user-1", organizationId: null };
+
+	it("sends a lower-case currency and leaves empty credits to the API", () => {
+		expect(mapRecordTopupFormDto(form, owner)).toEqual({
+			userId: "user-1",
+			organizationId: null,
+			amountMinor: 270_000,
+			currency: "dzd",
+			method: "ccp",
+			reference: "CCP-42",
+			credits: undefined,
 			note: undefined,
+			requestId: undefined,
 		});
 	});
 
-	it("returns null when the payment does not satisfy the DTO", () => {
+	it.each([
+		["a zero amount", { majorAmount: "0" }],
+		["empty credits in a currency the API cannot price", { currency: "EUR" }],
+	] as const)("returns null for %s", (_label, change) => {
+		expect(mapRecordTopupFormDto({ ...form, ...change }, owner)).toBeNull();
+	});
+
+	it("accepts typed credits in a currency the API cannot price", () => {
 		expect(
-			mapManualPaymentFormDto({
-				method: "cash_on_delivery",
-				majorAmount: "10",
-				currency: "DZ",
-				reference: "",
-				note: "",
-			}),
-		).toBeNull();
+			mapRecordTopupFormDto(
+				{ ...form, currency: "EUR", credits: "120.5" },
+				owner,
+			)?.credits,
+		).toBe(120.5);
 	});
 });
 

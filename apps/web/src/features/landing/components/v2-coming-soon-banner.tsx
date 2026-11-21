@@ -1,8 +1,8 @@
 /**
  * The night strip that announces V2 at the top of the page. SiteNav renders
  * it above the landing and pricing bar. The dashboard page gets it through
- * the landing barrel. Its link goes to the pricing page, because subscribers
- * get V2 first. The pricing page shows no link.
+ * the landing barrel. Its link goes to the pricing page, because customers
+ * who top up get V2 first. The pricing page shows no link.
  */
 
 import { Link, useLocation } from "@tanstack/react-router";
@@ -23,7 +23,7 @@ export function V2ComingSoonBanner({ className }: { className?: string }) {
 				<Spark className="me-1.5 inline-block size-3.5 align-[-2px] text-spark" />
 				<span className="font-semibold">{t("landing.v2Banner.title")}</span>{" "}
 				<span className="text-paper/75">{t("landing.v2Banner.body")}</span>{" "}
-				{/* On the pricing page the plans are already below, so the link would go nowhere. */}
+				{/* On the pricing page the prices are already below, so the link would go nowhere. */}
 				{pathname === "/pricing" ? null : (
 					<Link
 						to="/pricing"

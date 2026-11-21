@@ -29,11 +29,19 @@ const REQUIRED_WORKFLOW_IDS = [
 	"site-builder-image-child",
 	"standalone-image",
 	"builder-host-tool-image",
+	"builder-host-tool-web-search",
+	"builder-host-tool-web-fetch",
+	"builder-host-tool-site-capture",
 	"marketing",
 	"connector-inline",
 	"connector-background",
 	"lead-scrape",
 	"transcription",
+	"app-ai-media-image",
+	"app-ai-media-google-image",
+	"app-ai-media-speech",
+	"app-ai-media-transcription",
+	"app-ai-video",
 	"legacy-worker-chat",
 	"theme-design",
 	"project-title-helper",
@@ -48,6 +56,10 @@ const PROVIDER_CALL_PATTERNS = [
 	{ name: "doGenerate", pattern: /\.doGenerate\s*\(/gu },
 	{ name: "embed", pattern: /\bembed\s*\(/gu },
 	{ name: "embedMany", pattern: /\bembedMany\s*\(/gu },
+	{
+		name: "experimental_startVideo",
+		pattern: /\bexperimental_startVideo\s*\(/gu,
+	},
 	{ name: "generateImage", pattern: /\bgenerateImage\s*\(/gu },
 	{ name: "generateObject", pattern: /\bgenerateObject\s*\(/gu },
 	{ name: "generateText", pattern: /\bgenerateText\s*\(/gu },
@@ -94,6 +106,34 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateImage",
 		source:
 			"apps/server/src/modules/image-generations/application/services/image-generator.ts",
+	},
+	{
+		// Image, speech, and transcription of the app AI gateway, billed as
+		// app_ai_gateway. The two doGenerate calls are speech and transcription.
+		count: 1,
+		name: "generateImage",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		count: 2,
+		name: "doGenerate",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		// The Google image models of the app AI gateway (language models).
+		count: 1,
+		name: "generateText",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-media.service.ts",
+	},
+	{
+		// The video job start of the app AI gateway, billed as app_ai_gateway.
+		count: 1,
+		name: "experimental_startVideo",
+		source:
+			"apps/server/src/modules/app-builder/application/services/app-ai-video.service.ts",
 	},
 	{
 		count: 1,
@@ -240,7 +280,14 @@ describe("operation registry", () => {
 
 	it("prices agent sessions as a token operation with a reserve ceiling", () => {
 		expect(OPERATION_REGISTRY.agent_session).toMatchObject({
-			allowedChildOperations: ["image", "connector", "sandbox"],
+			allowedChildOperations: [
+				"image",
+				"connector",
+				"sandbox",
+				"web_search",
+				"web_fetch",
+				"site_capture",
+			],
 			allowedParentOperations: [],
 			mode: "token",
 			reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
@@ -249,6 +296,11 @@ describe("operation registry", () => {
 		expect(AGENT_SESSION_RESERVE_FLOOR_CREDITS).toBe(500);
 		expect(AGENT_SESSION_RESERVE_CEILING_CREDITS).toBe(250_000);
 		expect(canNestOperation("agent_session", "image")).toBe(true);
+		// The web_search tool reserves its child under the turn hold; a broken nest refuses every search.
+		expect(canNestOperation("agent_session", "web_search")).toBe(true);
+		// The same rule holds for the web_fetch and capture_site tools.
+		expect(canNestOperation("agent_session", "web_fetch")).toBe(true);
+		expect(canNestOperation("agent_session", "site_capture")).toBe(true);
 		expect(maxFinalCreditsCeiling("agent_session", 500)).toBe(250_000);
 	});
 

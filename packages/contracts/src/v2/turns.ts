@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { askUserKindSchema, worldCardSchema } from "../v1/ai-chat";
+import { aiErrorKindSchema } from "../v1/ai-errors";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
@@ -60,6 +61,18 @@ export const builderTurnModeSchema = z.enum(builderTurnModes);
 
 /** `plan`, `build`, or `security_scan`; see `builderTurnModes`. */
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
+
+/**
+ * How long the model thinks on one turn. The LLM proxy maps it to
+ * `output_config.effort` of each Messages call. `light` sets "medium".
+ * `balanced` keeps the value Claude Code sends ("high"). `deep` sets "xhigh",
+ * or "max" on an Anthropic model. A turn can change it, and so can Fast
+ * mode; the tier of a chat stays locked.
+ */
+export const builderThinkingSchema = z.enum(["light", "balanced", "deep"]);
+
+/** `light`, `balanced`, or `deep`; see `builderThinkingSchema`. */
+export type BuilderThinking = z.infer<typeof builderThinkingSchema>;
 
 /**
  * Max length of a V2 user message or typed answer, in UTF-16 chars. About
@@ -117,10 +130,14 @@ export const createTurnRequestSchema = z
 		composer: composerMetadataSchema.optional(),
 		// The model the user picked; absent means the deploy default. Any
 		// model with a price row is legal (`GET /api/v2/models` lists them).
-		// Another id answers 400 `V2_MODEL_DENIED`.
+		// Another id answers 400 `V2_MODEL_DENIED`. After the first turn of a
+		// chat, the chat keeps its model: absent runs on it, another id answers
+		// 409 `V2_MODEL_LOCKED`.
 		model: z.string().min(1).optional(),
 		// The Plan toggle of the composer; absent means `build`.
 		mode: builderTurnModeSchema.optional(),
+		// The thinking control of the composer; absent means `balanced`.
+		thinking: builderThinkingSchema.optional(),
 		// The answer to a `data-approval` card.
 		approval: turnApprovalAnswerSchema.optional(),
 		// The answers to the open `data-question` cards. Without them, the
@@ -186,6 +203,8 @@ export const turnEstimateResponseSchema = z.object({
 			isActor: z.boolean(),
 			// True when the payer pool has no credits for a new turn.
 			outOfCredits: z.boolean(),
+			// True when the payer pool must buy the Starter pass before a turn. Optional: older servers omit it.
+			starterPassRequired: z.boolean().optional(),
 		})
 		.optional(),
 });
@@ -356,8 +375,13 @@ export const turnErrorDataSchema = z.object({
 	retryable: z.boolean(),
 	// The mode of the failed turn. The stored reply has no other place for it,
 	// and Retry sends a failed `security_scan` turn as a scan again.
-	// Absent on rows stored before it and on errors the relay makes.
+	// Absent on rows stored before it and when the turn spec has no valid mode.
 	mode: builderTurnModeSchema.optional(),
+	// The classified AI error kind. The web shows the `errors.ai.<kind>` sentence in the user's language.
+	// Absent on a stop, on rows stored before it, and on errors the relay makes.
+	kind: aiErrorKindSchema.optional(),
+	// Display name of the provider, for example "Anthropic". Fills `{provider}` in the sentence.
+	providerLabel: z.string().nullable().optional(),
 });
 
 /** Inferred from `turnErrorDataSchema`; `retryable` tells the UI whether a resend can help. */

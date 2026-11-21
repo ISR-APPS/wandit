@@ -1,3 +1,7 @@
+/**
+ * Drizzle reads and writes of the admin story links: the links, their signups, and their conversion.
+ * StoryLinkAdminService calls it. A user is paid after a subscription payment or a top-up receipt.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import type { CreateStoryLinkInput } from "@wandit/contracts";
 import { eq, type SQL, sql } from "@wandit/db";
@@ -219,14 +223,32 @@ export class StoryLinkAdminRepository {
 					end
 					where s.created_at < b.snapshot_end
 				),
+				-- A top-up receipt of any provider makes the user paid. A team receipt
+				-- goes to the attribution user, the same as a team subscription.
+				attributed_receipts as (
+					select c.user_id
+					from billing_topup_receipts t
+					cross join bounds b
+					left join organization_billing_customers obc
+						on obc.organization_id = t.organization_id
+					inner join paged_cohort c on c.user_id = case
+						when t.organization_id is null then t.user_id
+						else obc.attribution_user_id
+					end
+					where t.paid_at < b.snapshot_end
+						and t.amount_cents > 0
+				),
 				paid_users as (
-					select distinct s.user_id
+					select s.user_id
 					from attributed_subscriptions s
 					cross join bounds b
 					where ${positiveSubscriptionPaymentPredicate(
 						sql`s.subscription_id`,
 						sql`b.snapshot_end`,
 					)}
+					union
+					select r.user_id
+					from attributed_receipts r
 				)
 				select
 					c.user_id,
@@ -604,14 +626,32 @@ export class StoryLinkAdminRepository {
 				end
 				where s.created_at < b.snapshot_end
 			),
+			-- A top-up receipt of any provider makes the user paid. A team receipt
+			-- goes to the attribution user, the same as a team subscription.
+			attributed_receipts as (
+				select c.user_id, t.provider, t.amount_cents, t.currency
+				from billing_topup_receipts t
+				cross join bounds b
+				left join organization_billing_customers obc
+					on obc.organization_id = t.organization_id
+				inner join all_time_cohort c on c.user_id = case
+					when t.organization_id is null then t.user_id
+					else obc.attribution_user_id
+				end
+				where t.paid_at < b.snapshot_end
+					and t.amount_cents > 0
+			),
 			paid_users as (
-				select distinct s.user_id
+				select s.user_id
 				from attributed_subscriptions s
 				cross join bounds b
 				where ${positiveSubscriptionPaymentPredicate(
 					sql`s.subscription_id`,
 					sql`b.snapshot_end`,
 				)}
+				union
+				select r.user_id
+				from attributed_receipts r
 			),
 			live_subscription_users as (
 				select distinct s.user_id
@@ -637,6 +677,12 @@ export class StoryLinkAdminRepository {
 				where m.amount_minor > 0
 					and m.created_at < b.snapshot_end
 					and lower(m.currency) = 'usd'
+				union all
+				-- Stripe top-ups only: SlickPay and offline rows are not USD card cash.
+				select r.amount_cents::bigint as amount_minor
+				from attributed_receipts r
+				where r.provider = 'stripe'
+					and lower(r.currency) = 'usd'
 			)
 			select
 				(select count(*) from activated_users)::bigint as activated_users,

@@ -14,16 +14,21 @@
  * The details panel of a reply covers the main card (a sheet on a phone).
  * Raw agent thinking never shows in production; local dev has a switch.
  * The page owns the elements picked in the web preview: the composer shows
- * them as chips. It also owns the model pick of the project, which every
- * send carries, and reads the chat cost for the line under the composer.
+ * them as chips. It also owns the model pick and the thinking pick of the
+ * project, which every send carries, and reads the chat cost for the line
+ * under the composer. A locked chat sends its tier model, or that tier's
+ * Fast row while the lock chip has Fast mode on. While a card waits, it
+ * sends the model of the paused turn.
  * Every edit control reads `project.access.role`, never the workspace header
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
  * It reads the GitHub status and owns the pull: the chat shows an Update
- * strip, and a pull reloads the preview. It sends the scan and fix turns of
+ * strip, the Integrations panel shares the same pull, and a pull reloads the preview. It sends the scan and fix turns of
  * the Security panel, and the scan card of the chat opens that panel.
  * While the host applies a starter template, the preview shows the starter
  * note and no send starts. The chat loads again when that step ends.
+ * The page imports studio.css and sets `data-studio` on <html> while it is
+ * mounted. That scope gives the workspace its own surfaces, type, and shadows.
  */
 
 import {
@@ -43,7 +48,7 @@ import { Sheet, SheetContent, SheetTitle } from "@wandit/ui/components/sheet";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { hasProjectRole } from "@/features/project-sharing";
@@ -65,6 +70,7 @@ import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
+import type { ModelLock } from "../components/chat/model-lock-chip";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
@@ -76,11 +82,13 @@ import {
 	CHAT_PANEL_MIN_WIDTH,
 } from "../lib/constants";
 import {
+	lockedTurnModelOf,
 	openChatOf,
 	readChatLayout,
 	readChatOpen,
 	readDeveloperView,
 	resolvePanel,
+	sentThinkingOf,
 	writeChatLayout,
 	writeChatOpen,
 	writeDeveloperView,
@@ -90,19 +98,20 @@ import { useBuilderModelPick } from "../lib/use-builder-model-pick";
 import { useBuilderThread } from "../lib/use-builder-thread";
 import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
 import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
+import "../studio.css";
 
-// The desk: warm sand with a soft spark glow over the project controls. The
-// glow sits at the start side, so it moves to the right in RTL. In dark mode
-// the glow is ember on the warm near-black page color. The variables keep one
-// gradient for every theme and direction.
+// The desk: cool paper with one faint spark glow over the project controls.
+// The glow sits at the start side, so it moves to the right in RTL. In dark
+// mode the glow is ember. The variables keep one gradient for every theme
+// and direction.
 const DESK_CLASS =
-	"[--desk-bottom:#f3eee6] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.2)] [--desk-top:#f8f2e8] bg-[radial-gradient(900px_380px_at_var(--desk-glow-x)_-14%,var(--desk-glow),transparent_70%),linear-gradient(180deg,var(--desk-top),var(--desk-bottom))] rtl:[--desk-glow-x:92%] dark:[--desk-bottom:var(--background)] dark:[--desk-glow:rgb(209_96_34/0.14)] dark:[--desk-top:var(--background)]";
+	"bg-background bg-[radial-gradient(720px_300px_at_var(--desk-glow-x)_-12%,var(--desk-glow),transparent_70%)] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.14)] rtl:[--desk-glow-x:92%] dark:[--desk-glow:rgb(209_96_34/0.14)]";
 
-// The stage is a white sheet with a navy hairline on the desk. Three navy
-// shadows lift it: a contact line, a near shade, and a wide soft drop. In
-// dark mode it is one step lighter than the desk.
+// The stage is a white sheet with a navy hairline on the desk. Two short navy
+// shadows lift it: a contact line and one soft drop. In dark mode it is one
+// step lighter than the desk and has no shadow.
 const STAGE_CARD_CLASS =
-	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_1px_rgb(11_16_51/0.04),0_3px_8px_-3px_rgb(11_16_51/0.07),0_28px_56px_-30px_rgb(11_16_51/0.42)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
+	"rounded-[1.5rem] border border-night/[0.07] bg-white shadow-[0_1px_2px_rgb(11_16_51/0.04),0_16px_40px_-24px_rgb(11_16_51/0.22)] dark:border-white/[0.08] dark:bg-sand dark:shadow-none";
 
 export type AppBuilderPageProps = {
 	projectId: string;
@@ -117,6 +126,15 @@ export default function AppBuilderPage({
 }: AppBuilderPageProps) {
 	const { t } = useTranslation();
 	const navigate = useNavigate({ from: "/app/$projectId" });
+	// studio.css reads this attribute. It sits on <html> because Radix portals menus and dialogs to <body>.
+	// A layout effect sets it before the first paint, so the app look never shows for a frame.
+	useLayoutEffect(() => {
+		const root = document.documentElement;
+		root.dataset.studio = "";
+		return () => {
+			delete root.dataset.studio;
+		};
+	}, []);
 	// The route loader filled the project query, so it does not suspend on first paint.
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	// The hold of the next turn. A failed read hides the estimate; it never blocks a send.
@@ -133,7 +151,44 @@ export default function AppBuilderPage({
 	const chats = chatList?.chats ?? [];
 	const openChat = openChatOf(chats, search.chat);
 	const openChatId = openChat?.id;
-	const thread = useBuilderThread(projectId, openChat, modelPick.modelId);
+	// The Fast switch of the lock chip, for one conversation. No storage: after a
+	// send the chat list loads again, and its model holds the new Fast state.
+	const [lockedFastSwitch, setLockedFastSwitch] = useState<{
+		chatId: string;
+		isFast: boolean;
+	} | null>(null);
+	// Product rule: after its first turn, a conversation keeps its model tier. Fast mode can change.
+	const lockedSwitchModelId =
+		openChat === null || openChat.lockedModelId === null
+			? null
+			: lockedTurnModelOf(
+					modelPick.models,
+					openChat.lockedModelId,
+					lockedFastSwitch?.chatId === openChat.id
+						? lockedFastSwitch.isFast
+						: undefined,
+				);
+	const turnModelId = lockedSwitchModelId ?? modelPick.modelId;
+	const thread = useBuilderThread(
+		projectId,
+		openChat,
+		turnModelId,
+		sentThinkingOf(modelPick.models, turnModelId, modelPick.thinking),
+	);
+	// While a card waits, the thread sends the stored model, so the chip shows it and blocks the Fast row.
+	const modelLock: ModelLock | null =
+		openChat === null ||
+		openChat.lockedModelId === null ||
+		lockedSwitchModelId === null
+			? null
+			: {
+					modelId: thread.isCardWaiting
+						? openChat.lockedModelId
+						: lockedSwitchModelId,
+					isFastBlocked: thread.isCardWaiting,
+					onFastChange: (isFast) =>
+						setLockedFastSwitch({ chatId: openChat.id, isFast }),
+				};
 	const createChat = useCreateProjectChat(projectId);
 	// A link without `?chat=` opens the conversation with the newest activity.
 	// The URL then gets its id. Without it, a list refresh with a new order
@@ -276,6 +331,13 @@ export default function AppBuilderPage({
 		nextTurnEstimate === undefined
 			? false
 			: nextTurnEstimate.payer?.outOfCredits;
+	// Same rule. A payer of an API without the Starter pass field needs no pass.
+	const payerStarterPassRequired =
+		nextTurnEstimate === undefined
+			? false
+			: nextTurnEstimate.payer === undefined
+				? undefined
+				: nextTurnEstimate.payer.starterPassRequired === true;
 	// The project's workspace pool pays for its turns (workspaces-sharing.md 4).
 	const isPayerActiveWorkspace =
 		project.access === undefined ||
@@ -393,6 +455,7 @@ export default function AppBuilderPage({
 			targets={targets}
 			isReadOnly={!canEdit}
 			payerOutOfCredits={payerOutOfCredits}
+			payerStarterPassRequired={payerStarterPassRequired}
 			isPayerActiveWorkspace={isPayerActiveWorkspace}
 			onRemoveTarget={(index) =>
 				setPicked({
@@ -439,6 +502,9 @@ export default function AppBuilderPage({
 			isPlanMode={thread.isPlanMode}
 			onPlanModeChange={thread.setPlanMode}
 			modelPick={modelPick}
+			modelLock={modelLock}
+			// Product rule: only a web project can copy a web page.
+			canCloneSite={project.kind === "web"}
 			chatCost={chatCost}
 			contextUsage={thread.contextUsage}
 			onCancel={() =>
@@ -548,6 +614,10 @@ export default function AppBuilderPage({
 					}
 					// An explicit build: with the Plan toggle on, a fix must not become a plan.
 					onAskSecurityFix={(text) => sendSecurityTurn(text, "build")}
+					githubUpdate={{
+						isUpdating: githubPull.isPending,
+						onUpdate: (expectedHeadSha) => githubPull.mutate(expectedHeadSha),
+					}}
 				/>
 			</div>
 			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}

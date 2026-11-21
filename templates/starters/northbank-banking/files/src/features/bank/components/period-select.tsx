@@ -1,5 +1,6 @@
-// The period control of a trend: 7, 30, or 90 days, as a compact Select.
-// The balance strip of the home and the spend chart of a card render it. The parent holds the period.
+// The period control of a page header: the last 7, 30, or 90 days, as a Select with a calendar icon.
+// The home and the transactions page render it beside their export button. The page holds the period.
+import { CalendarBlankIcon } from "@phosphor-icons/react";
 import { useT } from "~/shared/i18n";
 import {
 	Select,
@@ -8,6 +9,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "~/shared/ui/select";
+import { fillMessage } from "../lib/format";
 import { PERIOD_DAYS, type PeriodDays } from "../lib/series";
 
 type PeriodSelectProps = {
@@ -17,7 +19,7 @@ type PeriodSelectProps = {
 	onDaysChange: (days: PeriodDays) => void;
 };
 
-/** The choices read "7 days", "30 days", "90 days" in the app language. */
+/** The choices read "Last 7 days", "Last 30 days", "Last 90 days" in the app language. */
 export function PeriodSelect({ days, onDaysChange }: PeriodSelectProps) {
 	const { t, locale } = useT();
 	const dayCount = new Intl.NumberFormat(locale, {
@@ -34,16 +36,16 @@ export function PeriodSelect({ days, onDaysChange }: PeriodSelectProps) {
 				)
 			}
 		>
-			<SelectTrigger
-				aria-label={t("chart.period")}
-				className="h-8 w-32 max-md:h-11"
-			>
+			<SelectTrigger aria-label={t("period.label")} className="w-44">
+				<CalendarBlankIcon className="text-muted-foreground" />
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent align="end">
 				{PERIOD_DAYS.map((option) => (
 					<SelectItem key={option} value={String(option)}>
-						{dayCount.format(option)}
+						{fillMessage(t("period.last"), {
+							period: dayCount.format(option),
+						})}
 					</SelectItem>
 				))}
 			</SelectContent>

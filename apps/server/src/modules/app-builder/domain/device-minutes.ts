@@ -1,10 +1,12 @@
 /**
  * Rules of the Appetize device minutes (WANDIT-196): the session limits,
- * the minutes per plan, the Appetize device of each platform, and the
+ * the minutes of a paid owner, the Appetize device of each platform, and the
  * minute math. `DeviceSessionsService` and the `device-minutes` runtime
  * read it. Pure constants and math; no I/O.
  */
-import type { BillingPlanId, DevicePlatform } from "@wandit/contracts";
+import type { DevicePlatform } from "@wandit/contracts";
+
+import type { CreditOwner } from "../../credits/domain/credit-owner";
 
 /**
  * Longest device session in seconds: 15 minutes, the life of a preview
@@ -27,14 +29,23 @@ export const DEVICE_SESSION_LOCK_TTL_MS =
 	DEVICE_SESSION_TIME_LIMIT_SECONDS * 1000 + DEVICE_SESSION_GRACE_MS;
 
 /**
- * Device minutes per plan in one UTC calendar month. `starter` is also the
- * plan of a user with no subscription, so a free user gets none.
+ * Device minutes of a paid owner in one UTC calendar month, by pool kind
+ * (spec section 6). A free owner gets none.
+ * LIMIT: one top-up unlocks a recurring Appetize cost, up to $10.80 a month for
+ * a team. Upgrade: price device minutes before V2 opens (WANDIT-153).
  */
-export const DEVICE_MINUTES_PER_PLAN = Object.freeze({
-	starter: 0,
-	pro: 60,
-	business: 180,
-} satisfies Record<BillingPlanId, number>);
+export const DEVICE_MINUTES_PER_PAID_OWNER = Object.freeze({
+	user: 60,
+	org: 180,
+} satisfies Record<CreditOwner["type"], number>);
+
+/** Monthly device minutes of the pool of `owner`; `isPaidOwner` comes from `PaidOwnerRepository`. */
+export function deviceMinutesPerMonth(
+	isPaidOwner: boolean,
+	owner: CreditOwner,
+): number {
+	return isPaidOwner ? DEVICE_MINUTES_PER_PAID_OWNER[owner.type] : 0;
+}
 
 /**
  * Appetize price of one minute above the 500 plan minutes: $0.06. ESTIMATE
@@ -63,10 +74,10 @@ export function billableMinutes(startTime: Date, closeTime: Date): number {
 	return elapsedMs <= 0 ? 0 : Math.ceil(elapsedMs / 60_000);
 }
 
-/** Minutes the payer can still use this month; never below 0. */
+/** Minutes the payer can still use this month; never below 0. `monthlyMinutes` comes from `deviceMinutesPerMonth`. */
 export function deviceMinutesLeft(
-	plan: BillingPlanId,
+	monthlyMinutes: number,
 	usedMinutes: number,
 ): number {
-	return Math.max(DEVICE_MINUTES_PER_PLAN[plan] - usedMinutes, 0);
+	return Math.max(monthlyMinutes - usedMinutes, 0);
 }

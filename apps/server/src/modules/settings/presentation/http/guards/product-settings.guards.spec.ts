@@ -4,10 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ProductSettingsService } from "../../../application/services/product-settings.service";
 import { MANUAL_PAYMENTS_DISABLED_ERROR_CODE } from "../../../domain/errors/manual-payments-disabled.error";
-import { SUBSCRIPTIONS_DISABLED_ERROR_CODE } from "../../../domain/errors/subscriptions-disabled.error";
 import { TOPUPS_DISABLED_ERROR_CODE } from "../../../domain/errors/topups-disabled.error";
 import { ManualPaymentsEnabledGuard } from "./manual-payments-enabled.guard";
-import { SubscriptionsEnabledGuard } from "./subscriptions-enabled.guard";
 import { TopupsEnabledGuard } from "./topups-enabled.guard";
 
 function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
@@ -22,10 +20,16 @@ function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 20,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: false,
 		updatedAt: "2026-08-01T10:00:00.000Z",
 		updatedByUserId: null,
+		userReferralActivationCredits: 1000,
+		userReferralFriendCredits: 1000,
+		userReferralPaidCredits: 10_000,
+		userReferralsEnabled: false,
 		v2BuilderEnabled: false,
+		v2DisabledModels: [],
 		version: 1,
 		...overrides,
 	};
@@ -57,29 +61,6 @@ describe("product settings admission guards", () => {
 			expect((error as ConflictException).getStatus()).toBe(409);
 			expect((error as ConflictException).getResponse()).toMatchObject({
 				code: MANUAL_PAYMENTS_DISABLED_ERROR_CODE,
-			});
-		}
-	});
-
-	it("allows subscription admissions when paid subscriptions are enabled", async () => {
-		const guard = new SubscriptionsEnabledGuard(
-			serviceFor(settings({ paidSubscriptionsEnabled: true })),
-		);
-
-		await expect(guard.canActivate()).resolves.toBe(true);
-	});
-
-	it("rejects subscription admissions with a typed 403", async () => {
-		const guard = new SubscriptionsEnabledGuard(serviceFor(settings()));
-
-		expect.assertions(3);
-		try {
-			await guard.canActivate();
-		} catch (error) {
-			expect(error).toBeInstanceOf(ForbiddenException);
-			expect((error as ForbiddenException).getStatus()).toBe(403);
-			expect((error as ForbiddenException).getResponse()).toMatchObject({
-				code: SUBSCRIPTIONS_DISABLED_ERROR_CODE,
 			});
 		}
 	});

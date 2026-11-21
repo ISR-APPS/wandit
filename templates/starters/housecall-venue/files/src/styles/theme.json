@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Housecall",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#f8f3f2",
+			"foreground": "#34282b",
+			"primary": "#9a3d56"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "figtree",
+		"displayFont": "outfit",
+		"scale": "md",
+		"radius": "xl",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "floating",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "tint",
+		"activeItem": "pill",
+		"header": "blur",
+		"userMenu": "header",
+		"frame": "outlined",
+		"icons": "duotone",
+		"navIcon": "plain"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f8f3f2",
+			"foreground": "#34282b",
+			"card": "#fdfafa",
+			"cardForeground": "#34282b",
+			"popover": "#fdfafa",
+			"popoverForeground": "#34282b",
+			"primary": "#9a3d56",
+			"primaryForeground": "#ffffff",
+			"secondary": "#e9e3e2",
+			"secondaryForeground": "#34282b",
+			"muted": "#eee9e8",
+			"mutedForeground": "#6e6364",
+			"accent": "#ffe0e5",
+			"accentForeground": "#34282b",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#ded8d7",
+			"input": "#cdc6c5",
+			"ring": "#9a3d56",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#f0ebea",
+			"shadowColor": "#291e21"
+		},
+		"dark": {
+			"background": "#161312",
+			"foreground": "#f9eff1",
+			"card": "#1d1a19",
+			"cardForeground": "#f9eff1",
+			"popover": "#221e1e",
+			"popoverForeground": "#f9eff1",
+			"primary": "#a1435c",
+			"primaryForeground": "#ffffff",
+			"secondary": "#292524",
+			"secondaryForeground": "#f9eff1",
+			"muted": "#231f1e",
+			"mutedForeground": "#ada5a6",
+			"accent": "#361a21",
+			"accentForeground": "#f9eff1",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#302c2b",
+			"input": "#3c3837",
+			"ring": "#a1435c",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#100c0c",
+			"shadowColor": "#020101"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Figtree",
+				"href": "https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Outfit",
+				"href": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

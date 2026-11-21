@@ -1,61 +1,61 @@
-// TanStack Query mutations for billing. Checkout-session mutations hand the
-// browser to the validated provider URL; subscription writes refresh the
-// canonical subscription cache with the server response.
+// TanStack Query mutations for billing. A checkout mutation returns the
+// provider URL; the caller records the product event, then opens the URL.
 
-import {
-	type QueryClient,
-	useMutation,
-	useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { creditsKeys } from "@/features/credits/api/credits.queries";
+import { creditsKeys } from "@/features/credits";
+import { isApiClientError } from "@/lib/api-client";
 import type {
-	BillingCancelRequest,
-	BillingSubscriptionViewResponse,
-	ChangeBillingSubscriptionBody,
-	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
 	CreateManualSubscriptionRequestBody,
-	PreviewBillingSubscriptionChangeBody,
 	StartSlickpayCheckoutBody,
 } from "./billing.dto";
 import { billingKeys } from "./billing.queries";
 import {
-	cancelBillingSubscription,
 	cancelManualSubscriptionRequest,
-	changeBillingSubscription,
-	createBillingCheckout,
 	createBillingPortal,
 	createBillingTopupCheckout,
 	createManualSubscriptionRequest,
-	previewBillingSubscriptionChange,
-	resumeBillingSubscription,
 	startSlickpayCheckout,
-	syncBillingSubscription,
 } from "./billing.services";
 
-export function useCreateBillingCheckout() {
-	return useMutation({
-		mutationFn: (body: CreateBillingCheckoutBody) =>
-			createBillingCheckout(body),
-	});
+/**
+ * Reloads the wallet and the balance after a 409 STARTER_PASS_NOT_AVAILABLE.
+ * The pool already has its pass, or the switch is off. The fresh wallet moves the dialog out of the Starter pass mode.
+ */
+function useReloadWalletOnStarterPassRefusal() {
+	const queryClient = useQueryClient();
+
+	return (error: Error) => {
+		if (
+			isApiClientError(error) &&
+			error.code === "STARTER_PASS_NOT_AVAILABLE"
+		) {
+			void queryClient.invalidateQueries({ queryKey: billingKeys.wallet() });
+			void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+		}
+	};
 }
 
-/** Creates the SlickPay invoice. The caller records the product event, then opens the returned URL. */
+/** Creates the SlickPay invoice of a top-up or of the Starter pass. The caller records the product event, then opens the URL. */
 export function useStartSlickpayCheckout() {
+	const onError = useReloadWalletOnStarterPassRefusal();
+
 	return useMutation({
 		mutationFn: (body: StartSlickpayCheckoutBody) =>
 			startSlickpayCheckout(body),
+		onError,
 	});
 }
 
+/** Opens a Stripe session for a top-up or for the Starter pass. The caller emits `upgrade_clicked`, then navigates. */
 export function useCreateBillingTopupCheckout() {
+	const onError = useReloadWalletOnStarterPassRefusal();
+
 	return useMutation({
 		mutationFn: (body: CreateBillingTopupBody) =>
 			createBillingTopupCheckout(body),
-		onSuccess: ({ url }) => {
-			window.location.assign(url);
-		},
+		onError,
 	});
 }
 
@@ -91,77 +91,4 @@ export function useCancelManualSubscriptionRequest() {
 			queryClient.setQueryData(context.queryKey, view);
 		},
 	});
-}
-
-export function usePreviewBillingSubscriptionChange() {
-	return useMutation({
-		mutationFn: (body: PreviewBillingSubscriptionChangeBody) =>
-			previewBillingSubscriptionChange(body),
-	});
-}
-
-export function useChangeBillingSubscription() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (body: ChangeBillingSubscriptionBody) =>
-			changeBillingSubscription(body),
-		onSuccess: ({ balance, subscription }) => {
-			const subscriptionView = {
-				balance,
-				subscription,
-			};
-			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
-			refreshCreditCaches(queryClient, subscriptionView, true);
-		},
-	});
-}
-
-export function useCancelBillingSubscription() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (body: BillingCancelRequest) => cancelBillingSubscription(body),
-		onSuccess: (subscriptionView) => {
-			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
-			refreshCreditCaches(queryClient, subscriptionView, false);
-		},
-	});
-}
-
-export function useResumeBillingSubscription() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: resumeBillingSubscription,
-		onSuccess: (subscriptionView) => {
-			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
-			refreshCreditCaches(queryClient, subscriptionView, false);
-		},
-	});
-}
-
-export function useSyncBillingSubscription() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: syncBillingSubscription,
-		onSuccess: (subscriptionView) => {
-			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
-			refreshCreditCaches(queryClient, subscriptionView, true);
-		},
-	});
-}
-
-function refreshCreditCaches(
-	queryClient: QueryClient,
-	view: BillingSubscriptionViewResponse,
-	invalidateLedger: boolean,
-) {
-	queryClient.setQueryData(creditsKeys.balance(), view.balance);
-	void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-
-	if (invalidateLedger) {
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
-	}
 }

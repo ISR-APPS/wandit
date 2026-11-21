@@ -10,6 +10,7 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { describe, expect, it, vi } from "vitest";
+import type { StarterPassesRepository } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import { mapAdminUserDetail } from "../../infrastructure/mappers/admin-user.mapper";
 import type {
@@ -72,6 +73,8 @@ function setup(row: AdminUserPageRow) {
 		{} as AdminOrganizationsRepository,
 		{} as CreditsService,
 		{} as AdminViewGrantsRepository,
+		// SAFETY: these cases never read or write a Starter pass.
+		{} as StarterPassesRepository,
 	);
 
 	return { adminRepository, service };
@@ -92,6 +95,8 @@ function setupProjects() {
 		{} as AdminOrganizationsRepository,
 		{} as CreditsService,
 		{} as AdminViewGrantsRepository,
+		// SAFETY: these cases never read or write a Starter pass.
+		{} as StarterPassesRepository,
 	);
 
 	return { adminRepository, service };
@@ -266,6 +271,8 @@ describe("AdminUsersService.getUserDetail", () => {
 			adminOrganizationsRepository as unknown as AdminOrganizationsRepository,
 			{} as CreditsService,
 			adminViewGrantsRepository as unknown as AdminViewGrantsRepository,
+			// SAFETY: these cases never read or write a Starter pass.
+			{} as StarterPassesRepository,
 		);
 
 		return {
@@ -293,6 +300,8 @@ describe("AdminUsersService.getUserDetail", () => {
 			emailVerified: true,
 			id: USER_ID,
 			image: null,
+			isPaidOwner: false,
+			starterPass: null,
 			lastSeenAt: null,
 			name: "Zack",
 			phone: null,
@@ -341,6 +350,8 @@ describe("AdminUsersService.getUserDetail", () => {
 				emailVerified: true,
 				id: USER_ID,
 				image: null,
+				isPaidOwner: false,
+				starterPass: null,
 				lastSeenAt: null,
 				name: "Support",
 				phone: null,
@@ -393,6 +404,8 @@ function setupRoleMutation(targetRole = "user") {
 		{} as AdminOrganizationsRepository,
 		{} as CreditsService,
 		adminViewGrantsRepository as unknown as AdminViewGrantsRepository,
+		// SAFETY: these cases never read or write a Starter pass.
+		{} as StarterPassesRepository,
 	);
 	vi.spyOn(service, "getUserDetail").mockResolvedValue({
 		id: "target-1",
@@ -556,6 +569,8 @@ describe("AdminUsersService.grantCredits", () => {
 			emailVerified: true,
 			id: TARGET_ID,
 			image: null,
+			isPaidOwner: false,
+			starterPass: null,
 			lastSeenAt: null,
 			name: "Target",
 			phone: null,
@@ -588,8 +603,17 @@ describe("AdminUsersService.grantCredits", () => {
 			findUserAccess,
 		};
 		const creditsService: Pick<CreditsService, "grant"> = { grant };
+		const grantIfAbsent = vi.fn<StarterPassesRepository["grantIfAbsent"]>();
+		const starterPasses: Pick<
+			StarterPassesRepository,
+			"findLive" | "grantIfAbsent" | "revokeLive"
+		> = {
+			findLive: vi.fn<StarterPassesRepository["findLive"]>(),
+			grantIfAbsent,
+			revokeLive: vi.fn<StarterPassesRepository["revokeLive"]>(),
+		};
 		const service = new GrantOnlyAdminUsersService(
-			// SAFETY: grantCredits reads only findUserAccess on this repository.
+			// SAFETY: grantCredits and a rejected grantStarterPass read only findUserAccess here.
 			adminRepository as AdminRepository,
 			// SAFETY: grantCredits never reads organizations.
 			{} as AdminOrganizationsRepository,
@@ -597,9 +621,10 @@ describe("AdminUsersService.grantCredits", () => {
 			creditsService as CreditsService,
 			// SAFETY: grantCredits never reads view grants.
 			{} as AdminViewGrantsRepository,
+			starterPasses,
 		);
 
-		return { grant, service };
+		return { grant, grantIfAbsent, service };
 	}
 
 	it.each([
@@ -615,6 +640,20 @@ describe("AdminUsersService.grantCredits", () => {
 			}),
 		).rejects.toBeInstanceOf(BadRequestException);
 		expect(grant).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"support",
+		"user,support",
+	])("rejects a Starter pass self-grant by a %s account before the pass write", async (role) => {
+		const { grantIfAbsent, service } = setupGrant(TARGET_ID);
+
+		await expect(
+			service.grantStarterPass({ id: TARGET_ID, role }, TARGET_ID, {
+				note: "My own pass",
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(grantIfAbsent).not.toHaveBeenCalled();
 	});
 
 	it("lets support grant to another user and records the granter", async () => {
@@ -675,6 +714,8 @@ describe("AdminUsersService.setBanned", () => {
 			{} as AdminOrganizationsRepository,
 			{} as CreditsService,
 			{} as AdminViewGrantsRepository,
+			// SAFETY: these cases never read or write a Starter pass.
+			{} as StarterPassesRepository,
 		);
 
 		await expect(
@@ -720,6 +761,8 @@ describe("AdminUsersService.setBanned", () => {
 			{} as CreditsService,
 			// SAFETY: only the skipped detail read uses view grants.
 			{} as AdminViewGrantsRepository,
+			// SAFETY: these cases never read or write a Starter pass.
+			{} as StarterPassesRepository,
 		);
 
 		await service.setBanned("admin-1", "target-1", { banned });

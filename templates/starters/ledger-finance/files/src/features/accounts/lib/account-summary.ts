@@ -20,7 +20,7 @@ export type AccountSummary = Account & {
 	moneyInCents: number;
 	/** Money that left the account in the last 30 days, in cents and positive. Transfers count. */
 	moneyOutCents: number;
-	/** The balance at the end of each day, oldest first: the day before the history, then its 90 days. */
+	/** The balance at the end of each day, oldest first: the day before the history, then every day of the history. */
 	balances: DailyBalance[];
 	/** Count of the entries that the bank did not confirm yet. */
 	pendingCount: number;

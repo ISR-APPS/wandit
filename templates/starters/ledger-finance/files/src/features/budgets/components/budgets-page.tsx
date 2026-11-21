@@ -1,4 +1,4 @@
-// The budgets page behind login: the month tabs, the summary strip, the list of budgets, the spend curve,
+// The budgets page behind login: the month tabs, the KPI tiles, the list of budgets with progress, the spend curve,
 // and the largest expenses. The /app/budgets route renders it after its loader.
 // The route also uses the skeleton and the error below. The month lives in the URL.
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -19,9 +19,9 @@ import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { budgetReportQueryOptions } from "../api/budgets.queries";
 import type { BudgetMonth } from "../lib/budget-report";
+import { BudgetKpis } from "./budget-kpis";
 import { BudgetLineSheet } from "./budget-line-sheet";
 import { BudgetLinesCard } from "./budget-lines-card";
-import { BudgetSummaryStrip } from "./budget-summary-strip";
 import { BurnChartCard } from "./burn-chart-card";
 import { LargestExpensesCard } from "./largest-expenses-card";
 
@@ -77,7 +77,7 @@ export function BudgetsPage({ month, openCategory }: BudgetsPageProps) {
 	}
 
 	return (
-		<div className="grid grid-cols-1 gap-6">
+		<div className="grid grid-cols-1 gap-4">
 			<PageHeader
 				title={t("budgets.title")}
 				description={t("budgets.description")}
@@ -108,9 +108,9 @@ export function BudgetsPage({ month, openCategory }: BudgetsPageProps) {
 					</Tabs>
 				}
 			/>
-			<BudgetSummaryStrip report={report} />
-			<div className="grid @5xl/main:grid-cols-3 grid-cols-1 items-start gap-6">
-				<div className="@5xl/main:col-span-2 grid grid-cols-1 gap-6">
+			<BudgetKpis report={report} />
+			<div className="grid @5xl/main:grid-cols-3 grid-cols-1 items-start gap-4">
+				<div className="@5xl/main:col-span-2 grid grid-cols-1 gap-4">
 					<BudgetLinesCard
 						lines={report.lines}
 						monthShare={monthShare}
@@ -126,7 +126,7 @@ export function BudgetsPage({ month, openCategory }: BudgetsPageProps) {
 						</p>
 					) : null}
 				</div>
-				<div className="grid grid-cols-1 gap-6">
+				<div className="grid grid-cols-1 gap-4">
 					<BurnChartCard points={report.burn} />
 					<LargestExpensesCard rows={report.largest} />
 				</div>
@@ -148,7 +148,7 @@ const SKELETON_ROWS = ["1", "2", "3", "4", "5", "6"];
 /** Placeholder while the budgets loader runs. The route sets it as pendingComponent. */
 export function BudgetsPageSkeleton() {
 	return (
-		<div className="grid grid-cols-1 gap-6">
+		<div className="grid grid-cols-1 gap-4">
 			<div className="flex flex-wrap items-end justify-between gap-3">
 				<div className="grid gap-2">
 					<Skeleton className="h-8 w-40" />
@@ -156,8 +156,8 @@ export function BudgetsPageSkeleton() {
 				</div>
 				<Skeleton className="h-9 w-64 max-w-full" />
 			</div>
-			<Skeleton className="h-28 w-full" />
-			<div className="grid @5xl/main:grid-cols-3 grid-cols-1 items-start gap-6">
+			<Skeleton className="h-32 w-full" />
+			<div className="grid @5xl/main:grid-cols-3 grid-cols-1 items-start gap-4">
 				<Card className="@5xl/main:col-span-2">
 					<div className="grid gap-4 px-6">
 						{SKELETON_ROWS.map((key) => (
@@ -165,7 +165,7 @@ export function BudgetsPageSkeleton() {
 						))}
 					</div>
 				</Card>
-				<div className="grid gap-6">
+				<div className="grid gap-4">
 					<Skeleton className="h-72" />
 					<Skeleton className="h-64" />
 				</div>

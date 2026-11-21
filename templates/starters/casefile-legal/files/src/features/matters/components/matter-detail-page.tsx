@@ -1,33 +1,35 @@
-// The file of one matter: the header, the stage path, the facts, the time entries, and a rail with
-// the fees, the deadlines, the team, and the invoices.
-// The /app/matters/$matterId route renders it after its loader. The route also uses the skeleton below.
+// The file of one matter, built on the kit profile page: a back link, the header, and three tabs.
+// Overview: the profile, fee, and team cards in 1/3, the activity timeline, recent entries, and deadlines in 2/3.
+// The other tabs list every time entry and every invoice. The /app/matters/$matterId route renders it.
 // An unknown id shows a not-found block with a link back to the list.
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PageHeader } from "~/features/app-shell";
-import { MatterStageBadge } from "~/features/practice";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import { CaretLeftIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 import { matterQueryOptions } from "../api/matters.queries";
-import { DeadlinesCard } from "./deadlines-card";
-import { MatterFactsCard } from "./matter-facts-card";
+import { MatterActivityCard } from "./matter-activity-card";
+import { MatterDeadlinesCard } from "./matter-deadlines-card";
 import { MatterFeesCard } from "./matter-fees-card";
-import { MatterInvoicesCard } from "./matter-invoices-card";
-import { StagePath } from "./stage-path";
+import { MatterInvoicesTable } from "./matter-invoices-table";
+import { MatterProfileCard } from "./matter-profile-card";
+import { RecentEntriesCard } from "./recent-entries-card";
 import { TeamCard } from "./team-card";
-import { TimeEntriesCard } from "./time-entries-card";
+import { TimeEntriesTable } from "./time-entries-table";
 
 type MatterDetailPageProps = {
 	/** The `$matterId` param of the URL. An id with no matter shows the not-found block. */
 	matterId: string;
 };
 
-/** A 2/3 main column and a 1/3 rail from the 4xl container width (56rem). */
+/** A 1/3 column and a 2/3 column from the 4xl container width (56rem), as the kit profile page. */
 export function MatterDetailPage({ matterId }: MatterDetailPageProps) {
 	const { t } = useT();
 	const { data: file } = useSuspenseQuery(matterQueryOptions(matterId));
+	const now = Date.now();
 
 	const backLink = (
 		<Button
@@ -54,60 +56,66 @@ export function MatterDetailPage({ matterId }: MatterDetailPageProps) {
 	const lead = file.team.find((member) => member.isLead);
 
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			{backLink}
 			<PageHeader
 				title={matter.name}
 				description={
-					<span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-						<MatterStageBadge stage={matter.stage} />
-						<span className="font-numeric tabular-nums">{matter.number}</span>
-						<span aria-hidden="true">·</span>
-						<span>{t(`areas.${matter.area}`)}</span>
-						<span aria-hidden="true">·</span>
-						<span dir="auto">{client.name}</span>
-					</span>
+					matter.stage === "declined" ? t("matters.declinedNote") : undefined
 				}
 				actions={
-					<Button asChild variant="outline">
+					<Button asChild>
 						<Link to="/app/clients" search={{ client: client.id }}>
 							{t("matters.viewClient")}
 						</Link>
 					</Button>
 				}
 			/>
-			<StagePath stage={matter.stage} changes={file.stageChanges} />
-			{matter.stage === "declined" ? (
-				<p className="rounded-surface border border-dashed px-4 py-3 text-muted-foreground text-sm">
-					{t("matters.declinedNote")}
-				</p>
-			) : null}
-			{/* One column: facts, rail, time entries, so the fees and deadlines come before the long table. */}
-			{/* From 4xl: facts and time entries in two thirds, and the rail beside both in the last third. */}
-			{/* The 1fr row takes the extra height of a tall rail, so no gap opens under the facts. */}
-			<div className="grid @4xl/main:grid-cols-3 @4xl/main:grid-rows-[auto_1fr] items-start gap-6">
-				<div className="@4xl/main:col-span-2 min-w-0">
-					<MatterFactsCard
-						matter={matter}
-						client={client}
-						leadRole={lead ? t(`roles.${lead.role}`) : ""}
-					/>
-				</div>
-				<div className="@4xl/main:col-start-3 @4xl/main:row-span-2 @4xl/main:row-start-1 grid min-w-0 gap-6">
-					<MatterFeesCard matter={matter} />
-					{matter.closedAt === null ? (
-						<DeadlinesCard deadlines={file.deadlines} />
-					) : null}
-					<TeamCard team={file.team} />
-					<MatterInvoicesCard invoices={file.invoices} />
-				</div>
-				<div className="@4xl/main:col-span-2 min-w-0">
-					<TimeEntriesCard
+			<Tabs defaultValue="overview" className="gap-4">
+				<TabsList>
+					<TabsTrigger value="overview">
+						{t("matters.tabs.overview")}
+					</TabsTrigger>
+					<TabsTrigger value="time">{t("matters.tabs.time")}</TabsTrigger>
+					<TabsTrigger value="invoices">
+						{t("matters.tabs.invoices")}
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview">
+					<div className="grid @4xl/main:grid-cols-3 items-start gap-4">
+						<div className="grid min-w-0 gap-4">
+							<MatterProfileCard
+								matter={matter}
+								client={client}
+								leadRole={lead ? t(`roles.${lead.role}`) : ""}
+								deadlineCount={file.deadlines.length}
+							/>
+							<MatterFeesCard matter={matter} />
+							<TeamCard team={file.team} />
+						</div>
+						<div className="@4xl/main:col-span-2 grid min-w-0 gap-4">
+							<MatterActivityCard
+								stageChanges={file.stageChanges}
+								invoices={file.invoices}
+								payments={file.payments}
+							/>
+							<div className="grid @2xl/main:grid-cols-2 items-start gap-4">
+								<RecentEntriesCard entries={file.entries} />
+								<MatterDeadlinesCard deadlines={file.deadlines} now={now} />
+							</div>
+						</div>
+					</div>
+				</TabsContent>
+				<TabsContent value="time">
+					<TimeEntriesTable
 						entries={file.entries}
-						totalHours={matter.ledger.hours}
+						matterNumber={matter.number}
 					/>
-				</div>
-			</div>
+				</TabsContent>
+				<TabsContent value="invoices">
+					<MatterInvoicesTable invoices={file.invoices} />
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }
@@ -115,21 +123,18 @@ export function MatterDetailPage({ matterId }: MatterDetailPageProps) {
 /** Placeholder while the detail loader runs. The route sets it as pendingComponent. */
 export function MatterDetailPageSkeleton() {
 	return (
-		<div className="grid gap-6">
+		<div className="grid gap-4">
 			<Skeleton className="h-8 w-28" />
-			<div className="grid gap-2">
-				<Skeleton className="h-8 w-80 max-w-full" />
-				<Skeleton className="h-5 w-64 max-w-full" />
-			</div>
-			<Skeleton className="h-20" />
-			<div className="grid @4xl/main:grid-cols-3 items-start gap-6">
-				<div className="@4xl/main:col-span-2 grid gap-6">
-					<Skeleton className="h-64" />
-					<Skeleton className="h-96" />
-				</div>
-				<div className="grid gap-6">
-					<Skeleton className="h-56" />
+			<Skeleton className="h-8 w-80 max-w-full" />
+			<Skeleton className="h-9 w-72 max-w-full" />
+			<div className="grid @4xl/main:grid-cols-3 items-start gap-4">
+				<div className="grid gap-4">
+					<Skeleton className="h-112" />
 					<Skeleton className="h-48" />
+				</div>
+				<div className="@4xl/main:col-span-2 grid gap-4">
+					<Skeleton className="h-96" />
+					<Skeleton className="h-72" />
 				</div>
 			</div>
 		</div>

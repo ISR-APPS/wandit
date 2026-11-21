@@ -1,3 +1,7 @@
+/**
+ * Contract of the product settings: the admin switches and amounts in the one `product_settings` row.
+ * The server settings module, the admin settings page, and the web public settings query read it.
+ */
 import { z } from "zod";
 import { isoDateTimeSchema } from "./shared/primitives";
 
@@ -7,6 +11,14 @@ export const dzdPerUsdRateSchema = z
 	.max(10_000)
 	.multipleOf(0.01);
 
+// Whole credits at the admin API, 1 to 10000. Zero is not a legal amount: the
+// credit grant rejects it. The server stores the value x100 as centi-credits.
+const userReferralSettingCreditsSchema = z.int().min(1).max(10_000);
+
+/**
+ * The settings as the ADMIN API sends them: whole credits and decimal DZD.
+ * Inside the server, the same type holds centi-credits and hundredths of a DZD.
+ */
 export const productSettingsSchema = z.object({
 	id: z.literal(1),
 	signupGrantEnabled: z.boolean(),
@@ -26,11 +38,25 @@ export const productSettingsSchema = z.object({
 	// Collection window in days after currentPeriodEnd for manual subscriptions;
 	// 0 = strict.
 	manualGraceDays: z.int().min(0).max(30),
-	// Admin-only DZD charged per 1 USD of catalog price for offline receipts.
+	// Decimal DZD per 1 USD (250 = 250.00, the default). SlickPay invoices, DZD prices, and offline receipts use it.
 	dzdPerUsdRate: dzdPerUsdRateSchema,
+	// Fraud gate. On: a pool with no live Starter pass cannot spend credits. Off by default.
+	// The server grants a pass to every pool that already paid when it goes from off to on.
+	starterPassRequired: z.boolean(),
 	// Opens the V2 app builder to users who also carry the PostHog flag
 	// `v2-builder`.
 	v2BuilderEnabled: z.boolean(),
+	// Model ids of the server price table that ops turn off during a provider incident.
+	// `GET /api/v2/models` hides them. A turn create and the LLM proxy refuse them.
+	v2DisabledModels: z.array(z.string().min(1)),
+	// User referral program switch. Off: no claim, no summary, and no reward.
+	userReferralsEnabled: z.boolean(),
+	// Whole credits. The bonus of the invited friend at claim time.
+	userReferralFriendCredits: userReferralSettingCreditsSchema,
+	// Whole credits. The reward of the referrer when the friend builds.
+	userReferralActivationCredits: userReferralSettingCreditsSchema,
+	// Whole credits. The reward of the referrer when the friend pays.
+	userReferralPaidCredits: userReferralSettingCreditsSchema,
 	version: z.int().positive(),
 	updatedByUserId: z.string().nullable(),
 	updatedAt: isoDateTimeSchema,
@@ -38,8 +64,11 @@ export const productSettingsSchema = z.object({
 
 export type ProductSettings = z.infer<typeof productSettingsSchema>;
 
+/** The settings that the web reads before sign-in. The route is public: put no secret here. */
 export const publicSettingsSchema = productSettingsSchema
 	.pick({
+		// Always false since pricing v8 (no plans). Kept because cached web and
+		// native bundles parse it.
 		paidSubscriptionsEnabled: true,
 		topupsEnabled: true,
 		signupGrantEnabled: true,
@@ -50,48 +79,76 @@ export const publicSettingsSchema = productSettingsSchema
 		emailAuthEnabled: true,
 		// Public: the web shows/hides the "cash / transfer" tab in the plan picker.
 		manualPaymentsEnabled: true,
-		// Public: the web computes the effective access-end date for manual plans.
+		// No reader since pricing v8. Kept because cached web bundles parse it.
 		manualGraceDays: true,
 		// Public: the web resolves the V2 builder switch together with the
 		// PostHog flag `v2-builder`.
 		v2BuilderEnabled: true,
+		// Public: the web shows the referral card, the page, and the claim only when this is on.
+		userReferralsEnabled: true,
+		// Public: the web shows the three amounts in the referral texts.
+		userReferralFriendCredits: true,
+		userReferralActivationCredits: true,
+		userReferralPaidCredits: true,
 	})
 	.extend({
 		// The public value mirrors storage after exact centi-credit conversion, so
 		// legacy or manually edited rows may expose a fractional or zero grant.
 		signupGrantCredits: z.number().nonnegative(),
+		// Decimal credits, for the same reason: a row edited by hand can hold a fraction.
+		userReferralFriendCredits: z.number().nonnegative(),
+		userReferralActivationCredits: z.number().nonnegative(),
+		userReferralPaidCredits: z.number().nonnegative(),
+		// Public: the pricing page shows the Starter pass strip instead of "Start free" when this is on.
+		// Optional, so a new web bundle still parses the answer of an old API.
+		starterPassRequired: z.boolean().optional(),
 	});
 
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
+/**
+ * Body of the admin PATCH. `version` is the optimistic lock: a stale value gets a 409.
+ * A new field must also be in the `.refine` list, or a body with only that field gets a 400.
+ * Pricing v8 removes paidSubscriptionsEnabled and manualGraceDays. Their columns stay.
+ * An old admin bundle that sends them gets the keys stripped, so such a patch fails the refine.
+ */
 export const patchProductSettingsBodySchema = z
 	.object({
 		signupGrantEnabled: z.boolean().optional(),
 		signupGrantCredits: z.int().positive().optional(),
-		paidSubscriptionsEnabled: z.boolean().optional(),
 		topupsEnabled: z.boolean().optional(),
 		organizationsEnabled: z.boolean().optional(),
 		emailAuthEnabled: z.boolean().optional(),
 		lifecycleEmailsEnabled: z.boolean().optional(),
 		manualPaymentsEnabled: z.boolean().optional(),
-		manualGraceDays: z.int().min(0).max(30).optional(),
 		dzdPerUsdRate: dzdPerUsdRateSchema.optional(),
 		v2BuilderEnabled: z.boolean().optional(),
+		// The full new list, not a diff. The admin route also refuses an id with no price row.
+		v2DisabledModels: z.array(z.string().min(1)).optional(),
+		userReferralsEnabled: z.boolean().optional(),
+		userReferralFriendCredits: userReferralSettingCreditsSchema.optional(),
+		userReferralActivationCredits: userReferralSettingCreditsSchema.optional(),
+		userReferralPaidCredits: userReferralSettingCreditsSchema.optional(),
+		starterPassRequired: z.boolean().optional(),
 		version: z.int().positive(),
 	})
 	.refine(
 		(settings) =>
 			settings.signupGrantEnabled !== undefined ||
 			settings.signupGrantCredits !== undefined ||
-			settings.paidSubscriptionsEnabled !== undefined ||
 			settings.topupsEnabled !== undefined ||
 			settings.organizationsEnabled !== undefined ||
 			settings.emailAuthEnabled !== undefined ||
 			settings.lifecycleEmailsEnabled !== undefined ||
 			settings.manualPaymentsEnabled !== undefined ||
-			settings.manualGraceDays !== undefined ||
 			settings.dzdPerUsdRate !== undefined ||
-			settings.v2BuilderEnabled !== undefined,
+			settings.v2BuilderEnabled !== undefined ||
+			settings.v2DisabledModels !== undefined ||
+			settings.userReferralsEnabled !== undefined ||
+			settings.userReferralFriendCredits !== undefined ||
+			settings.userReferralActivationCredits !== undefined ||
+			settings.userReferralPaidCredits !== undefined ||
+			settings.starterPassRequired !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

@@ -107,6 +107,11 @@ export type ArticleRow = ArticleText & {
 	/** "Was this helpful?" answers in the last 30 days. */
 	helpfulYes: number;
 	helpfulNo: number;
+	/** Page views of the 30 days before those 30 days. The articles page compares the two periods. */
+	viewsBefore30d: number;
+	/** "Was this helpful?" answers of the 30 days before. */
+	helpfulYesBefore: number;
+	helpfulNoBefore: number;
 };
 
 /** Every sample table. Each list is in creation order; the query files sort and join them. */
@@ -934,6 +939,13 @@ function buildSampleTables(now: number): SampleTables {
 		// About 1 reader in 12 answers "Was this helpful?". Most answers are yes.
 		const votes = Math.round(views / 12);
 		const helpfulYes = Math.round(votes * (0.62 + random() * 0.34));
+		// The earlier period comes from the index, not from the generator, so the ticket rows stay the same.
+		// It gives 78 % to 110 % of the current views, so the help center grows a little.
+		const viewsBefore = Math.round(views * (0.78 + (index % 5) * 0.08));
+		const votesBefore = Math.round(viewsBefore / 12);
+		const helpfulYesBefore = Math.round(
+			votesBefore * (0.6 + (index % 7) * 0.05),
+		);
 		return {
 			...article,
 			authorId: cycle(AGENTS, index * 5 + 1).id,
@@ -943,6 +955,9 @@ function buildSampleTables(now: number): SampleTables {
 			views30d: views,
 			helpfulYes,
 			helpfulNo: votes - helpfulYes,
+			viewsBefore30d: viewsBefore,
+			helpfulYesBefore,
+			helpfulNoBefore: votesBefore - helpfulYesBefore,
 		};
 	});
 

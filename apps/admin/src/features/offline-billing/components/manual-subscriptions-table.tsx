@@ -1,11 +1,14 @@
+/**
+ * Read-only history of manual subscriptions from before pricing v8 (pay as you go).
+ * Shown in the "Past subscriptions" tab of the offline billing page.
+ * Opens the detail sheet and the printed receipt that old payments use.
+ */
 import { Link } from "@tanstack/react-router";
 import {
-	CalendarPlusIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
 	EllipsisIcon,
 	EyeIcon,
-	OctagonXIcon,
 	PrinterIcon,
 	RefreshCwIcon,
 	SearchIcon,
@@ -48,7 +51,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type {
 	AdminManualSubscription,
 	AdminManualSubscriptionStatusFilter,
@@ -61,13 +63,11 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 
-import { EndManualSubscriptionDialog } from "./end-manual-subscription-dialog";
 import { ManualSubscriptionDetailSheet } from "./manual-subscription-detail-sheet";
 import {
 	ManualSubscriptionGraceBadge,
 	ManualSubscriptionStatusBadge,
 } from "./offline-billing-badges";
-import { RenewManualSubscriptionDialog } from "./renew-manual-subscription-dialog";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE = 25;
@@ -80,8 +80,9 @@ const STATUS_LABELS: Record<AdminManualSubscriptionStatusFilter, string> = {
 
 export function ManualSubscriptionsTable() {
 	const [page, setPage] = useState(1);
+	// Pricing v8 ends every subscription, so the history view starts with all rows.
 	const [status, setStatus] =
-		useState<AdminManualSubscriptionStatusFilter>("active");
+		useState<AdminManualSubscriptionStatusFilter>("all");
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
 	const [detailSubscriptionId, setDetailSubscriptionId] = useState<
@@ -155,7 +156,7 @@ export function ManualSubscriptionsTable() {
 				<Empty className="min-h-[420px] border bg-background">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
-							<CalendarPlusIcon aria-hidden="true" />
+							<PrinterIcon aria-hidden="true" />
 						</EmptyMedia>
 						<EmptyTitle>Offline subscriptions could not be loaded</EmptyTitle>
 						<EmptyDescription>
@@ -416,8 +417,6 @@ function DaysLeft({ subscription }: { subscription: AdminManualSubscription }) {
 	);
 }
 
-type SubscriptionActionDialog = "renew" | "end" | null;
-
 function ManualSubscriptionActions({
 	subscription,
 	onDetails,
@@ -425,91 +424,42 @@ function ManualSubscriptionActions({
 	subscription: AdminManualSubscription;
 	onDetails: () => void;
 }) {
-	const [activeDialog, setActiveDialog] =
-		useState<SubscriptionActionDialog>(null);
-	const canManage = useAdminPermission({ billing: ["manage"] });
 	const ownerLabel = subscription.organization?.name ?? subscription.user.name;
 
 	return (
-		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						title="Subscription actions"
-					>
-						<EllipsisIcon aria-hidden="true" />
-						<span className="sr-only">Actions for {ownerLabel}</span>
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-52">
-					<DropdownMenuLabel className="truncate">
-						{ownerLabel}
-					</DropdownMenuLabel>
-					<DropdownMenuSeparator />
-					<DropdownMenuGroup>
-						<DropdownMenuItem onSelect={onDetails}>
-							<EyeIcon />
-							Details & payments
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild>
-							<Link
-								to="/offline-billing/$subscriptionId/receipt"
-								params={{ subscriptionId: subscription.id }}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<PrinterIcon />
-								Print receipt
-							</Link>
-						</DropdownMenuItem>
-						{canManage ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
-								<CalendarPlusIcon />
-								Renew
-							</DropdownMenuItem>
-						) : null}
-					</DropdownMenuGroup>
-					{canManage && subscription.entitled ? (
-						<>
-							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								variant="destructive"
-								onSelect={() => setActiveDialog("end")}
-							>
-								<OctagonXIcon />
-								End now
-							</DropdownMenuItem>
-						</>
-					) : null}
-				</DropdownMenuContent>
-			</DropdownMenu>
-
-			{canManage ? (
-				<>
-					<RenewManualSubscriptionDialog
-						subscription={{
-							id: subscription.id,
-							plan: subscription.plan,
-							interval: subscription.interval,
-							tierCredits: subscription.tierCredits,
-							currentPeriodEnd: subscription.currentPeriodEnd,
-							entitled: subscription.entitled,
-							ownerLabel,
-						}}
-						open={activeDialog === "renew"}
-						onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
-					/>
-					<EndManualSubscriptionDialog
-						subscriptionId={subscription.id}
-						ownerLabel={ownerLabel}
-						open={activeDialog === "end"}
-						onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
-					/>
-				</>
-			) : null}
-		</>
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					title="Subscription actions"
+				>
+					<EllipsisIcon aria-hidden="true" />
+					<span className="sr-only">Actions for {ownerLabel}</span>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-52">
+				<DropdownMenuLabel className="truncate">{ownerLabel}</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuGroup>
+					<DropdownMenuItem onSelect={onDetails}>
+						<EyeIcon />
+						Details & payments
+					</DropdownMenuItem>
+					<DropdownMenuItem asChild>
+						<Link
+							to="/offline-billing/$subscriptionId/receipt"
+							params={{ subscriptionId: subscription.id }}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<PrinterIcon />
+							Print receipt
+						</Link>
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

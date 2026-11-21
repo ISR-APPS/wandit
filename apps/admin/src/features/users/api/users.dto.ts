@@ -10,6 +10,8 @@ import type {
 	AdminSetAdminViewsInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
+	AdminStarterPass,
+	AdminStarterPassBody,
 	AdminUserDetail,
 	AdminUserPage,
 	AdminUserPagesResponse,
@@ -26,6 +28,7 @@ import type {
 	AdminUserSummary,
 	CreditBalanceResponse,
 	CreditBucket,
+	StarterPassSource,
 } from "@wandit/contracts";
 
 export type {
@@ -36,6 +39,7 @@ export type {
 	AdminSetAdminViewsInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
+	AdminStarterPass,
 	AdminUserDetail,
 	AdminUserPage,
 	AdminUserPagesResponse,
@@ -51,6 +55,7 @@ export type {
 	AdminUserSummary,
 	CreditBalanceResponse,
 	CreditBucket,
+	StarterPassSource,
 };
 
 export type AdminListUsersSort = AdminListUsersQuery["sort"];
@@ -141,4 +146,13 @@ export type SetUserBannedInput = AdminSetBannedInput & {
 /** Refunds the last Stripe plan payment of `userId`. The invoice id comes from the refund preview. */
 export type RefundUserInput = AdminUserRefundInput & {
 	userId: string;
+};
+
+/** Grant gives the pool a Starter pass. Revoke ends its live pass. */
+export type StarterPassAction = "grant" | "revoke";
+
+/** Staff change of the Starter pass of the personal pool of `userId`. The note goes to the audit log. */
+export type ChangeUserStarterPassInput = AdminStarterPassBody & {
+	userId: string;
+	action: StarterPassAction;
 };

@@ -1,8 +1,4 @@
-import {
-	BadRequestException,
-	ConflictException,
-	NotFoundException,
-} from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type {
 	CreateManualSubscriptionRequestBody,
@@ -23,7 +19,6 @@ import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import type { EmailService } from "../../../email/application/services/email.service";
 import type { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
-import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import {
 	ManualRequestPendingError,
 	NoActiveManualRequestError,
@@ -33,10 +28,6 @@ import type {
 	ManualSubscriptionRequestsRepository,
 } from "../../infrastructure/persistence/manual-subscription-requests.repository";
 import type { SubscriptionCreditsRepository } from "../../infrastructure/persistence/subscription-credits.repository";
-import type {
-	SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../infrastructure/persistence/subscriptions.repository";
 import { ManualSubscriptionRequestsService } from "./manual-subscription-requests.service";
 
 const NOW = new Date("2026-08-21T10:30:00.000Z");
@@ -45,16 +36,14 @@ const user = { id: "user_1" } as AuthUser;
 const personalWorkspace = { kind: "personal" } satisfies WorkspaceContext;
 
 const body: CreateManualSubscriptionRequestBody = {
+	amountUsd: 25,
 	city: "Algiers",
 	company: "Example SARL",
 	country: "DZ",
 	fullName: "Amina Example",
-	interval: "month",
 	notes: "Call after 4 PM",
 	phone: "+213 661 22 33 44",
-	plan: "pro",
 	preferredPaymentMethod: "ccp",
-	tierCredits: 350,
 };
 
 function requestRow(
@@ -62,6 +51,7 @@ function requestRow(
 ): ManualSubscriptionRequestRow {
 	return {
 		adminNotes: null,
+		amountUsdCents: body.amountUsd * 100,
 		city: body.city ?? null,
 		company: body.company ?? null,
 		country: body.country,
@@ -70,43 +60,18 @@ function requestRow(
 		handledAt: null,
 		handledByUserId: null,
 		id: REQUEST_ID,
-		interval: body.interval,
+		interval: null,
 		notes: body.notes ?? null,
 		organizationId: null,
 		phone: body.phone,
-		plan: body.plan,
+		plan: null,
 		preferredPaymentMethod: body.preferredPaymentMethod ?? null,
 		status: "pending",
 		subscriptionId: null,
-		tierCredits: body.tierCredits,
+		tierCredits: null,
 		updatedAt: NOW,
 		userId: user.id,
 		...overrides,
-	};
-}
-
-function subscriptionRow(provider: "manual" | "stripe"): SubscriptionRow {
-	return {
-		cancelAtPeriodEnd: false,
-		createdAt: NOW,
-		currentPeriodEnd: new Date("2026-09-21T10:30:00.000Z"),
-		currentPeriodStart: NOW,
-		id: "22222222-2222-4222-8222-222222222222",
-		interval: "month",
-		organizationId: null,
-		pendingAppliedBy: null,
-		pendingPlan: null,
-		pendingInterval: null,
-		pendingTierCredits: null,
-		plan: "pro",
-		priceLookupKey: "pro_350_month",
-		provider,
-		providerSubscriptionId: `${provider}_subscription_1`,
-		renewalReminderPeriodEnd: null,
-		status: "active",
-		tierCredits: 350,
-		updatedAt: NOW,
-		userId: user.id,
 	};
 }
 
@@ -124,10 +89,16 @@ function productSettings(
 		paidSubscriptionsEnabled: true,
 		signupGrantCredits: 700,
 		signupGrantEnabled: true,
+		starterPassRequired: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
+		userReferralActivationCredits: 1000,
+		userReferralFriendCredits: 1000,
+		userReferralPaidCredits: 10_000,
+		userReferralsEnabled: false,
 		v2BuilderEnabled: false,
+		v2DisabledModels: [],
 		version: 1,
 		...overrides,
 	};
@@ -137,7 +108,6 @@ function setup(
 	options: {
 		openRequest?: ManualSubscriptionRequestRow | null;
 		settings?: ProductSettings;
-		subscription?: SubscriptionRow | null;
 	} = {},
 ) {
 	let openRequest = options.openRequest ?? null;
@@ -157,9 +127,6 @@ function setup(
 			return openRequest;
 		}),
 	};
-	const subscriptions = {
-		findActiveByOwner: vi.fn(async () => options.subscription ?? null),
-	};
 	const ownerLock = {
 		withOwnerLock: vi.fn(
 			async <T>(
@@ -178,7 +145,6 @@ function setup(
 	const analytics = { capture: vi.fn() };
 	const service = new ManualSubscriptionRequestsService(
 		requests as unknown as ManualSubscriptionRequestsRepository,
-		subscriptions as unknown as SubscriptionsRepository,
 		ownerLock as unknown as SubscriptionCreditsRepository,
 		settings as unknown as ProductSettingsService,
 		email as unknown as EmailService,
@@ -192,7 +158,6 @@ function setup(
 		requests,
 		service,
 		settings,
-		subscriptions,
 		transaction,
 	};
 }
@@ -216,83 +181,6 @@ describe("ManualSubscriptionRequestsService", () => {
 			status: 409,
 		});
 		expect(ownerLock.withOwnerLock).not.toHaveBeenCalled();
-	});
-
-	it("enforces the plan pairing for personal and organization scopes", async () => {
-		const { service } = setup();
-
-		await expect(
-			service.create(user, { ...body, plan: "business" }, personalWorkspace),
-		).rejects.toMatchObject({
-			response: { code: "WORKSPACE_NOT_SUPPORTED" },
-			status: 400,
-		});
-
-		await expect(
-			service.create(user, body, {
-				kind: "org",
-				organizationId: "org_1",
-				role: "owner",
-				roles: ["owner"],
-			}),
-		).rejects.toMatchObject({
-			response: { code: "WORKSPACE_NOT_SUPPORTED" },
-			status: 400,
-		});
-
-		await expect(
-			service.create(
-				user,
-				{ ...body, plan: "starter", tierCredits: 50 },
-				{
-					kind: "org",
-					organizationId: "org_1",
-					role: "owner",
-					roles: ["owner"],
-				},
-			),
-		).rejects.toMatchObject({
-			response: { code: "WORKSPACE_NOT_SUPPORTED" },
-			status: 400,
-		});
-	});
-
-	it("rejects Starter because it is only a cancel-time offer", async () => {
-		const { requests, service } = setup();
-
-		await expect(
-			service.create(
-				user,
-				{ ...body, plan: "starter", tierCredits: 60 },
-				personalWorkspace,
-			),
-		).rejects.toBeInstanceOf(BadRequestException);
-		expect(requests.insert).not.toHaveBeenCalled();
-	});
-
-	it("blocks a request when the owner has a Stripe subscription", async () => {
-		const { requests, service } = setup({
-			subscription: subscriptionRow("stripe"),
-		});
-
-		await expect(
-			service.create(user, body, personalWorkspace),
-		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
-		expect(requests.findOpenByOwner).not.toHaveBeenCalled();
-		expect(requests.insert).not.toHaveBeenCalled();
-	});
-
-	it("allows a request when the live subscription is managed manually", async () => {
-		const { requests, service } = setup({
-			subscription: subscriptionRow("manual"),
-		});
-
-		await expect(
-			service.create(user, body, personalWorkspace),
-		).resolves.toMatchObject({
-			request: { id: REQUEST_ID, status: "pending" },
-		});
-		expect(requests.insert).toHaveBeenCalledTimes(1);
 	});
 
 	it("returns a typed conflict for an existing open request", async () => {
@@ -327,6 +215,7 @@ describe("ManualSubscriptionRequestsService", () => {
 			service.create(user, body, personalWorkspace),
 		).resolves.toEqual({
 			request: {
+				amountUsd: 25,
 				city: "Algiers",
 				company: "Example SARL",
 				country: "DZ",
@@ -334,33 +223,31 @@ describe("ManualSubscriptionRequestsService", () => {
 				fullName: "Amina Example",
 				handledAt: null,
 				id: REQUEST_ID,
-				interval: "month",
+				interval: null,
 				notes: "Call after 4 PM",
 				organizationId: null,
 				phone: "+213 661 22 33 44",
-				plan: "pro",
+				plan: null,
 				preferredPaymentMethod: "ccp",
 				status: "pending",
 				subscriptionId: null,
-				tierCredits: 350,
+				tierCredits: null,
 				updatedAt: NOW.toISOString(),
 			},
 		});
 
 		expect(requests.insert).toHaveBeenCalledWith(
 			{
+				amountUsdCents: 2500,
 				city: "Algiers",
 				company: "Example SARL",
 				country: "DZ",
 				fullName: "Amina Example",
-				interval: "month",
 				notes: "Call after 4 PM",
 				organizationId: null,
 				phone: "+213 661 22 33 44",
-				plan: "pro",
 				preferredPaymentMethod: "ccp",
 				status: "pending",
-				tierCredits: 350,
 				userId: "user_1",
 			},
 			transaction,
@@ -369,21 +256,17 @@ describe("ManualSubscriptionRequestsService", () => {
 			"user_1",
 			"manual_subscription_requested",
 			{
+				amountUsd: 25,
 				country: "DZ",
-				interval: "month",
-				plan: "pro",
-				tierCredits: 350,
 			},
 		);
 		expect(email.sendManualRequestEmail).toHaveBeenCalledWith(
 			["first-admin@example.com", "second-admin@example.com"],
 			{
 				adminUrl: "https://admin.example.com/offline-billing",
+				amountUsd: 25,
 				fullName: "Amina Example",
-				interval: "month",
 				phone: "+213 661 22 33 44",
-				plan: "pro",
-				tierCredits: 350,
 			},
 		);
 	});
@@ -462,17 +345,13 @@ describe("ManualSubscriptionRequestsService", () => {
 		});
 
 		await expect(
-			disabled.service.create(user, { ...body, plan: "business" }, workspace),
+			disabled.service.create(user, body, workspace),
 		).rejects.toMatchObject({
 			response: { code: "ORGANIZATIONS_DISABLED" },
 		});
 
 		const enabled = setup();
-		await enabled.service.create(
-			user,
-			{ ...body, plan: "business" },
-			workspace,
-		);
+		await enabled.service.create(user, body, workspace);
 		expect(enabled.ownerLock.withOwnerLock).toHaveBeenCalledWith(
 			{ organizationId: "org_1", type: "org" },
 			expect.any(Function),
@@ -480,24 +359,9 @@ describe("ManualSubscriptionRequestsService", () => {
 		expect(enabled.requests.insert).toHaveBeenCalledWith(
 			expect.objectContaining({
 				organizationId: "org_1",
-				plan: "business",
 				userId: "user_1",
 			}),
 			expect.anything(),
 		);
-	});
-
-	it("uses 409 conflicts for duplicate and disabled errors", async () => {
-		const duplicate = setup({ openRequest: requestRow() });
-		const disabled = setup({
-			settings: productSettings({ manualPaymentsEnabled: false }),
-		});
-
-		await expect(
-			duplicate.service.create(user, body, personalWorkspace),
-		).rejects.toBeInstanceOf(ConflictException);
-		await expect(
-			disabled.service.create(user, body, personalWorkspace),
-		).rejects.toBeInstanceOf(ConflictException);
 	});
 });

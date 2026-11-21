@@ -1,5 +1,5 @@
 // The cells of a figure strip: one cell per figure, split by 1 px rules. It is the KPI form "strip" of the app-dashboard skill.
-// The deliveries panel of the home and the fleet page render it inside a clipped box.
+// The driver panel renders it inside a clipped box.
 // The caller formats each value with Intl and gives the column classes.
 import { cn } from "~/shared/lib/utils";
 import { ChangeLine } from "./change-line";

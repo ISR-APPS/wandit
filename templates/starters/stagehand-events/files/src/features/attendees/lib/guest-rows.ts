@@ -1,5 +1,5 @@
-// The rows of the guest list: one row per order, with the door status at the time of the load.
-// attendees.queries.ts builds them. The table, the tabs, the summary, and the side panel read them.
+// The rows of the attendees page: one row per order of every event, with its event and its door status.
+// attendees.queries.ts builds them. The table, its filters, and the order panel read them.
 import {
 	type AttendanceStatus,
 	attendanceOf,
@@ -8,40 +8,34 @@ import {
 	type Order,
 } from "~/features/organiser";
 
-/** One order of the guest list, with its door status. */
-export type GuestRow = Order & { status: AttendanceStatus };
+/** One order of the guest list, with its event and its door status at the time of the load. */
+export type GuestRow = Order & {
+	status: AttendanceStatus;
+	event: EventSummary;
+};
 
-/** The guest list of one event, the newest order first. */
-export function buildGuestRows(
-	box: BoxOffice,
-	event: EventSummary,
-): GuestRow[] {
-	return box.orders
-		.filter((order) => order.eventId === event.id)
-		.map((order) => ({ ...order, status: attendanceOf(order, event, box.now) }))
-		.reverse();
-}
-
-/**
- * The events that have a guest list, in the order of the event picker:
- * the live events, then the events to come (the soonest first), then the past events (the newest first).
- */
-export function guestListEvents(box: BoxOffice): EventSummary[] {
-	const withOrders = box.events.filter((event) => event.status !== "announced");
-	const live = withOrders.filter((event) => event.status === "live");
-	const ahead = withOrders.filter(
-		(event) => event.status !== "live" && event.endsAt > box.now,
+// The time of the last door or refund change of an order, or of the order itself.
+function lastActivityOf(order: Order): number {
+	return Math.max(
+		order.placedAt,
+		order.checkedInAt ?? 0,
+		order.refundedAt ?? 0,
 	);
-	const past = withOrders.filter((event) => event.endsAt <= box.now).reverse();
-	return [...live, ...ahead, ...past];
 }
 
-/** The event of the guest list: the id of the URL when it has a guest list, else the first event of the picker. */
-export function resolveGuestListEventId(
-	requestedId: string | undefined,
-	events: EventSummary[],
-): string | undefined {
-	return events.some((event) => event.id === requestedId)
-		? requestedId
-		: events[0]?.id;
+/** Every order of every event, the latest activity first: a scan or a refund moves an order up. */
+export function buildGuestRows(box: BoxOffice): GuestRow[] {
+	const events = new Map(box.events.map((event) => [event.id, event]));
+	const rows: GuestRow[] = [];
+	for (const order of box.orders) {
+		const event = events.get(order.eventId);
+		// Every order belongs to an event of the same load. A missing event means a broken sample, so skip the row.
+		if (!event) {
+			continue;
+		}
+		rows.push({ ...order, status: attendanceOf(order, event, box.now), event });
+	}
+	return rows.sort(
+		(first, second) => lastActivityOf(second) - lastActivityOf(first),
+	);
 }
