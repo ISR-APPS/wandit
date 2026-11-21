@@ -142,9 +142,8 @@ const BRIDGE_STARTUP_TIMEOUT_MS = 30_000;
  * 30 min. The bridge fork keeps one Claude Code process while its start env
  * stays the same. The env names this epoch, so each epoch starts a new
  * process, and no kept-alive connection holds a proxy token (65 min) too long.
+ * A token that expires mid-turn still works: the proxy accepts it while the chat has a live binding.
  */
-// LIMIT: a turn longer than 35 min on a process from an earlier turn can
-// reach the token end. Upgrade: a proxy renewal for a bound chat.
 const TOKEN_EPOCH_MS = 30 * 60_000;
 
 /** 20 min, the window of the `sandbox-idle-sweep` task: a kept session goes after it. */
@@ -344,6 +343,8 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	private readonly sessions = new Map<string, LiveSession>();
 	/** chatId → the session kept attached since the last turn (keep-alive). */
 	private readonly kept = new Map<string, KeptSession>();
+	/** True after `closeKeptSessions`: the host drains, so no new session is kept. */
+	private isClosing = false;
 
 	constructor(deps: ClaudeCodeHarnessDeps = {}) {
 		this.agentFactory =
@@ -463,6 +464,18 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			if (this.now() - kept.idleSince >= KEPT_SESSION_IDLE_MS) {
 				await this.dropKept(chatId);
 			}
+		}
+	}
+
+	/**
+	 * Closes all kept sessions and keeps no new one. The harness host calls it
+	 * at the start of its drain. A kept socket that reconnects sends "resume"
+	 * and takes the bridge event stream from the turn of the new instance.
+	 */
+	async closeKeptSessions(): Promise<void> {
+		this.isClosing = true;
+		for (const chatId of [...this.kept.keys()]) {
+			await this.dropKept(chatId);
 		}
 	}
 
@@ -648,6 +661,11 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			if (otherChatId === chatId || other.sandboxId === entry.sandboxId) {
 				await this.dropKept(otherChatId);
 			}
+		}
+		// The check comes after the awaits above, so a drain that starts during
+		// them still stops this keep. The stored state serves the next turn.
+		if (this.isClosing) {
+			return;
 		}
 		const live = entry.agent
 			.createSession({
@@ -1062,6 +1080,13 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// LIMIT: one Bash call runs at most 3.5 min.
 					// Upgrade: reset the stall timer on CLI tool_progress heartbeats, then raise this cap.
 					BASH_MAX_TIMEOUT_MS: "210000",
+					// Claude Code 2.1.281 retries a 429, 529, or 5xx in silence, 10 times
+					// by default. Its backoff is 0.5 s doubled up to 32 s, plus up to 25 %.
+					// 6 retries take about 32 to 40 s, far below TURN_STALL_MS (4 min), so the
+					// CLI writes its "API Error: <status>" result before the stall watchdog fires.
+					// LIMIT: a Retry-After above about 35 s on each attempt can still reach the stall.
+					// Upgrade: reset the stall timer on CLI api_retry messages.
+					CLAUDE_CODE_MAX_RETRIES: "6",
 					// A `[1m]` model without this window compacts only after the API
 					// refuses a too-long prompt, near 1M tokens (Claude Code 2.1.281).
 					CLAUDE_CODE_AUTO_COMPACT_WINDOW: AUTO_COMPACT_WINDOW_TOKENS,
@@ -1073,6 +1098,11 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
 					CLAUDE_CODE_DISABLE_CRON: "1",
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+					// After a cut stream, Claude Code 2.1.281 sends the request again
+					// without streaming. That call sends no part until its end, is billed
+					// in full, and can outlast the stall watchdog. With the flag, the
+					// cut stream is an error, and the turn gets a classified failure fast.
+					CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: "1",
 					// Deny-by-default egress: the agent-browser version check fetches
 					// a Google blog host and fails. The Bash calls of the agent inherit this env.
 					AGENT_BROWSER_NO_VERSION_CHECK: "1",

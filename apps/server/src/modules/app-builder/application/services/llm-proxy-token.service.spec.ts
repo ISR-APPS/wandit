@@ -31,8 +31,8 @@ describe("mintLlmProxyToken and verifyLlmProxyToken", () => {
 		const verified = verifyLlmProxyToken(token, env, NOW_SECONDS);
 
 		expect(verified).toEqual({
-			...claims,
-			exp: NOW_SECONDS + LLM_PROXY_TOKEN_TTL_SECONDS,
+			claims: { ...claims, exp: NOW_SECONDS + LLM_PROXY_TOKEN_TTL_SECONDS },
+			isExpired: false,
 		});
 	});
 
@@ -47,18 +47,16 @@ describe("mintLlmProxyToken and verifyLlmProxyToken", () => {
 
 		expect(
 			verifyLlmProxyToken(`${encoded}.${signature}`, env, NOW_SECONDS),
-		).toEqual(payload);
+		).toEqual({ claims: payload, isExpired: false });
 	});
 
-	it("rejects an expired token", () => {
+	it("marks a token expired from its exp second on", () => {
 		const token = mintLlmProxyToken(claims, env, NOW_SECONDS);
-		expect(() =>
-			verifyLlmProxyToken(
-				token,
-				env,
-				NOW_SECONDS + LLM_PROXY_TOKEN_TTL_SECONDS + 1,
-			),
-		).toThrow(LlmProxyTokenError);
+		const expSeconds = NOW_SECONDS + LLM_PROXY_TOKEN_TTL_SECONDS;
+		expect(verifyLlmProxyToken(token, env, expSeconds - 1).isExpired).toBe(
+			false,
+		);
+		expect(verifyLlmProxyToken(token, env, expSeconds).isExpired).toBe(true);
 	});
 
 	it("rejects a token signed with an unknown key", () => {

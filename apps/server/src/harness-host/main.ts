@@ -175,7 +175,11 @@ const drainMs = (env.RAILWAY_DEPLOYMENT_DRAINING_SECONDS ?? 0) * 1000;
 const shutdown = async () => {
 	// The API sends the next turns to the new instance or to Trigger.dev.
 	server.close();
+	// The deadline starts before the close, so the close time counts inside the drain window.
 	const deadline = Date.now() + Math.max(0, drainMs - DRAIN_MARGIN_MS);
+	// The new instance attaches to the same bridges. A kept socket here would
+	// take their event stream back on its reconnect.
+	await harness.closeKeptSessions();
 	logger.info("harness-host.draining", {
 		drainMs,
 		liveTurns: runner.liveTurnIds().size,

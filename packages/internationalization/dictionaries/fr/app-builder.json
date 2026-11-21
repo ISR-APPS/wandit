@@ -788,13 +788,15 @@
 		"errors": {
 			"noCredits": "Vous n'avez plus de crédits pour cette opération.",
 			"projectCap": "Ce projet a atteint son plafond de crédits.",
+			"turnTimeout": "Ce build a duré 55 minutes, il s'est donc arrêté. Vos modifications sont enregistrées. Envoyez Continuer pour reprendre.",
 			"dailyCap": "Vous avez atteint la limite d'IA du jour. Elle se réinitialise à 00:00 UTC.",
 			"tooManyTurns": "Trop d'opérations s'exécutent en même temps. Attendez que l'une d'elles se termine.",
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
 			"modelDenied": "Ce modèle n'est pas disponible. Choisis un autre modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
-			"connectionLost": "Le chat a perdu la connexion au serveur."
+			"connectionLost": "Le chat a perdu la connexion au serveur.",
+			"providerFallback": "Le fournisseur d’IA"
 		},
 		"building": "En création",
 		"planning": "En planification",

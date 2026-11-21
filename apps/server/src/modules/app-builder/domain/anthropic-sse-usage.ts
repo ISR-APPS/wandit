@@ -1,6 +1,7 @@
 /**
- * Reads token usage out of Anthropic Messages API traffic. When the caller
- * asks, it also rebuilds the assistant answer for Langfuse.
+ * Reads token usage out of Anthropic Messages API traffic. The SSE parser
+ * also records an in-stream error and the end of the stream. When the
+ * caller asks, it also rebuilds the assistant answer for Langfuse.
  * `LlmProxyService` feeds the streamed copy of an upstream response into
  * the SSE parser, or passes a JSON response body to `usageFromAnthropicJson`
  * and `messageFromAnthropicJson`. The counts feed `llm_proxy_requests` rows
@@ -14,8 +15,13 @@ export type LlmTokenUsage = {
 	outputTokens: number;
 	// Cache-read input tokens; billed at the lower cache-read rate.
 	cacheReadTokens: number;
-	// Cache-creation input tokens; billed at the 1-hour cache-write rate.
+	// Cache-creation input tokens of every TTL; billed at the 1-hour
+	// cache-write rate, except the 5-minute part below.
 	cacheWriteTokens: number;
+	// The part of `cacheWriteTokens` with a 5-minute TTL, from
+	// `usage.cache_creation.ephemeral_5m_input_tokens`. Absent or 0 when the
+	// upstream sends no TTL split: all writes then bill at the 1-hour rate.
+	cacheWrite5mTokens?: number;
 };
 
 // `usage` as Anthropic reports it: `message_start` carries input and cache
@@ -25,6 +31,12 @@ const anthropicUsageFieldsSchema = z.object({
 	output_tokens: z.int().nonnegative().optional(),
 	cache_creation_input_tokens: z.int().nonnegative().optional(),
 	cache_read_input_tokens: z.int().nonnegative().optional(),
+	// The TTL split of the cache writes. `.catch` keeps an odd split from
+	// failing the whole usage parse, which would bill zero tokens.
+	cache_creation: z
+		.object({ ephemeral_5m_input_tokens: z.int().nonnegative().optional() })
+		.optional()
+		.catch(undefined),
 });
 
 // The JSON inside one SSE `data:` line; other event types are ignored.
@@ -40,6 +52,9 @@ const anthropicSseEventSchema = z.object({
 			anthropic: z.object({ usage: anthropicUsageFieldsSchema }).optional(),
 		})
 		.optional(),
+	// Only on an `error` event. `.catch` keeps an odd field on another
+	// event from failing its usage parse.
+	error: z.object({ type: z.string() }).optional().catch(undefined),
 });
 
 // A JSON (non-streamed) Messages response, or a `count_tokens` answer that
@@ -59,6 +74,7 @@ function usageFromFields(
 		outputTokens: fields?.output_tokens ?? 0,
 		cacheReadTokens: fields?.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: fields?.cache_creation_input_tokens ?? 0,
+		cacheWrite5mTokens: fields?.cache_creation?.ephemeral_5m_input_tokens ?? 0,
 	};
 }
 
@@ -250,16 +266,29 @@ function createMessageAssembler(): {
 }
 
 /**
+ * How an SSE stream ended, as far as the parser saw. The proxy row stays
+ * `ok` and names the problem in its `reason`.
+ */
+export type AnthropicStreamEnd = {
+	/** `error.type` of the last in-stream `error` event, e.g. `overloaded_error`; null when none came. */
+	errorType: string | null;
+	/** True when a `message_stop` event arrived. False means the answer stopped early. */
+	sawMessageStop: boolean;
+};
+
+/**
  * Incremental parser for an Anthropic `text/event-stream` response. Feed
  * decoded text chunks; `usage()` returns the counts seen so far, so a
- * client abort still leaves a partial row. With `collectContent`, it also
- * rebuilds the answer for Langfuse.
+ * client abort still leaves a partial row. `streamEnd()` works also
+ * without `collectContent`. With `collectContent`, it also rebuilds the
+ * answer for Langfuse.
  */
 export function createAnthropicSseUsageParser(
 	options: { collectContent: boolean } = { collectContent: false },
 ): {
 	feed: (chunk: string) => void;
 	usage: () => LlmTokenUsage;
+	streamEnd: () => AnthropicStreamEnd;
 	/** The answer so far; null when `collectContent` is false. A tool input that does not parse stays raw text. */
 	message: () => AnthropicAssistantMessage | null;
 } {
@@ -269,6 +298,11 @@ export function createAnthropicSseUsageParser(
 		outputTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
+		cacheWrite5mTokens: 0,
+	};
+	const streamEnd: AnthropicStreamEnd = {
+		errorType: null,
+		sawMessageStop: false,
 	};
 	// Null without `collectContent`: the relay then does no content work.
 	const content = options.collectContent ? createMessageAssembler() : null;
@@ -292,6 +326,12 @@ export function createAnthropicSseUsageParser(
 	}
 
 	function applyUsage(parsed: z.infer<typeof anthropicSseEventSchema>): void {
+		if (parsed.type === "error" && parsed.error !== undefined) {
+			streamEnd.errorType = parsed.error.type;
+		}
+		if (parsed.type === "message_stop") {
+			streamEnd.sawMessageStop = true;
+		}
 		if (parsed.type === "message_start" && parsed.message !== undefined) {
 			const start = usageFromFields(parsed.message.usage);
 			usage = {
@@ -299,6 +339,7 @@ export function createAnthropicSseUsageParser(
 				inputTokens: start.inputTokens,
 				cacheReadTokens: start.cacheReadTokens,
 				cacheWriteTokens: start.cacheWriteTokens,
+				cacheWrite5mTokens: start.cacheWrite5mTokens,
 			};
 		}
 		if (parsed.type === "message_delta" && parsed.usage !== undefined) {
@@ -317,6 +358,10 @@ export function createAnthropicSseUsageParser(
 					cache?.cache_creation_input_tokens ??
 					parsed.usage.cache_creation_input_tokens ??
 					usage.cacheWriteTokens,
+				cacheWrite5mTokens:
+					cache?.cache_creation?.ephemeral_5m_input_tokens ??
+					parsed.usage.cache_creation?.ephemeral_5m_input_tokens ??
+					usage.cacheWrite5mTokens,
 			};
 		}
 	}
@@ -340,6 +385,9 @@ export function createAnthropicSseUsageParser(
 		},
 		usage(): LlmTokenUsage {
 			return usage;
+		},
+		streamEnd(): AnthropicStreamEnd {
+			return { ...streamEnd };
 		},
 		message(): AnthropicAssistantMessage | null {
 			return content?.message() ?? null;
@@ -382,6 +430,7 @@ export function usageFromAnthropicJson(body: unknown): LlmTokenUsage {
 			outputTokens: 0,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
+			cacheWrite5mTokens: 0,
 		};
 	}
 	const usage = usageFromFields(parsed.data.usage);

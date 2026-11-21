@@ -1,0 +1,1 @@
+ALTER TABLE "product_settings" ADD COLUMN "v2_disabled_models" text[] DEFAULT '{}'::text[] NOT NULL;
