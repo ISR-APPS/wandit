@@ -87,6 +87,34 @@ function jsonOk(body: string) {
 	};
 }
 
+// A fetch stub that answers each call with the next scripted response and
+// records the headers and body of each call.
+function scriptedFetch(responses: (() => Response)[]): {
+	upstreamFetch: typeof fetch;
+	sent: { headers: Headers; body: string }[];
+} {
+	const sent: { headers: Headers; body: string }[] = [];
+	const upstreamFetch: typeof fetch = (_url, init) => {
+		sent.push({
+			headers: new Headers(init?.headers),
+			body: String(init?.body ?? ""),
+		});
+		const next = responses[sent.length - 1];
+		if (next === undefined) {
+			throw new Error(`No scripted response for call ${sent.length}`);
+		}
+		return Promise.resolve(next());
+	};
+	return { upstreamFetch, sent };
+}
+
+function sseResponse(stream: string): Response {
+	return new Response(stream, {
+		status: 200,
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
 class FakeReply implements LlmProxyReply {
 	statusCode: number | undefined;
 	headers: Record<string, string> = {};
@@ -133,8 +161,15 @@ function makeEnv(baseUrl: string): LlmProxyEnv {
 	};
 }
 
-function makeService(env: LlmProxyEnv, upstreamFetch: typeof fetch = fetch) {
-	const counters = new FakeLlmSpendCounters();
+// `now` is the clock of the fake counters, in epoch ms. A TTL spec moves it.
+// `v2DisabledModels` is the admin list of models that ops turned off.
+function makeService(
+	env: LlmProxyEnv,
+	upstreamFetch: typeof fetch = fetch,
+	now: () => number = Date.now,
+	v2DisabledModels: string[] = [],
+) {
+	const counters = new FakeLlmSpendCounters(now);
 	const inserted: NewLlmProxyRequest[] = [];
 	const requests = {
 		insert: async (row: NewLlmProxyRequest) => {
@@ -144,11 +179,18 @@ function makeService(env: LlmProxyEnv, upstreamFetch: typeof fetch = fetch) {
 	};
 	// Each Langfuse generation the service sends; content collection is on.
 	const generations: LlmGeneration[] = [];
-	const service = new LlmProxyService(env, counters, requests, upstreamFetch, {
-		send: (generation) => {
-			generations.push(generation);
+	const service = new LlmProxyService(
+		env,
+		counters,
+		requests,
+		upstreamFetch,
+		{
+			send: (generation) => {
+				generations.push(generation);
+			},
 		},
-	});
+		{ get: async () => ({ v2DisabledModels }) },
+	);
 	return { counters, generations, inserted, service };
 }
 
@@ -420,6 +462,36 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("answers 403 V2_MODEL_DISABLED without a retry for a turn model that ops turned off", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, inserted } = makeService(env, fetch, Date.now, [
+				"anthropic/claude-opus-5",
+			]);
+			const reply = new FakeReply();
+			// The token allows opus, so only the disabled list refuses it.
+			const { input } = inbound(env, {
+				authorization: token(env, { model: "anthropic/claude-opus-5" }),
+				body: Buffer.from(
+					JSON.stringify({ model: "anthropic/claude-opus-5", messages: [] }),
+					"utf8",
+				),
+			});
+
+			await service.proxyAnthropic(input, reply);
+
+			expect(reply.statusCode).toBe(403);
+			expect(reply.headers["x-should-retry"]).toBe("false");
+			const body: { code?: string } = JSON.parse(reply.bodyText);
+			expect(body.code).toBe("V2_MODEL_DISABLED");
+			expect(upstream.requests).toHaveLength(0);
+			expect(inserted[0]?.status).toBe("model_denied");
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("normalizes a dated bare model id and forwards it verbatim to api.anthropic.com", async () => {
 		// Claude Code resolves its aliases to ids like claude-haiku-4-5-20251001.
 		// No socket here: the fetch stub captures the request the service would
@@ -584,6 +656,118 @@ describe("LlmProxyService", () => {
 		});
 		// Langfuse gets the rewrite the model read, not the inbound body.
 		expect(generations[0]?.forwardedBody.toString("utf8")).toBe(sent[0]?.body);
+	});
+
+	it("sends the Claude Code session id to the gateway as x-session-id", async () => {
+		const { upstreamFetch, sent } = scriptedFetch([
+			() => sseResponse(SSE_STREAM),
+		]);
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+		};
+		const { service } = makeService(env, upstreamFetch);
+		const { input } = inbound(env, {
+			claudeSessionId: "b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+		});
+
+		await service.proxyAnthropic(input, new FakeReply());
+
+		// The gateway pins the session to the credential that holds its cache.
+		expect(sent[0]?.headers.get("x-session-id")).toBe(
+			"b54cbec0-8e68-43dd-9fda-0f9c38be69ae",
+		);
+	});
+
+	const toolResult = {
+		type: "tool_result",
+		tool_use_id: "tu_1",
+		content: "ok",
+	};
+	it.each([
+		{ name: "only a tool_result", toolLoopContent: [toolResult] },
+		// Claude Code adds system reminders as text blocks next to the tool_result.
+		{
+			name: "a tool_result and a text block",
+			toolLoopContent: [
+				toolResult,
+				{ type: "text", text: "<system-reminder>x</system-reminder>" },
+			],
+		},
+	])("retries a Claude 400 for a foreign thinking signature once, without the thinking of earlier turns ($name)", async ({
+		toolLoopContent,
+	}) => {
+		// The gateway answer of a live probe: Gemini history, then Opus.
+		const signatureError = JSON.stringify({
+			error: {
+				message:
+					"messages.1.content.0: Invalid `signature` in `thinking` block",
+				type: "AI_APICallError",
+			},
+		});
+		const { upstreamFetch, sent } = scriptedFetch([
+			() =>
+				new Response(signatureError, {
+					status: 400,
+					headers: { "content-type": "application/json" },
+				}),
+			() => sseResponse(SSE_STREAM),
+		]);
+		const env: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+			V2_DEFAULT_MODEL: "anthropic/claude-opus-5.5",
+		};
+		const { inserted, service } = makeService(env, upstreamFetch);
+		const toolUse = { type: "tool_use", id: "tu_1", name: "Read", input: {} };
+		const opusTurn = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "o", signature: "opus-sig" },
+				toolUse,
+			],
+		};
+		const { input } = inbound(env, {
+			body: Buffer.from(
+				JSON.stringify({
+					model: "anthropic/claude-opus-5.5",
+					messages: [
+						{ role: "user", content: "Build it" },
+						// An earlier turn on Gemini, before the slider moved to Opus.
+						{
+							role: "assistant",
+							content: [
+								{ type: "thinking", thinking: "g", signature: "gemini-sig" },
+								{ type: "text", text: "Done" },
+							],
+						},
+						{ role: "user", content: [{ type: "text", text: "Add a page" }] },
+						opusTurn,
+						{ role: "user", content: toolLoopContent },
+					],
+				}),
+				"utf8",
+			),
+		});
+		const reply = new FakeReply();
+
+		await service.proxyAnthropic(input, reply);
+
+		expect(sent).toHaveLength(2);
+		const retried: { messages: { content: unknown }[] } = JSON.parse(
+			sent[1]?.body ?? "{}",
+		);
+		expect(retried.messages[1]?.content).toEqual([
+			{ type: "text", text: "Done" },
+		]);
+		// The current tool loop keeps the thinking that Opus signed.
+		expect(retried.messages[3]).toEqual(opusTurn);
+		// The client sees only the answer of the retry.
+		expect(reply.statusCode).toBe(200);
+		expect(reply.bodyText).not.toContain("signature");
+		expect(inserted).toHaveLength(1);
+		expect(inserted[0]?.status).toBe("ok");
+		expect(inserted[0]?.inputTokens).toBe(120);
 	});
 
 	// Claude Code sends the Claude 1M beta for every `[1m]` model id. Paper
@@ -827,6 +1011,33 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	const [messageStartFrame] = SSE_STREAM.split("\n\n");
+	it.each([
+		{
+			stream: `${messageStartFrame}\n\nevent: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n`,
+			reason: "stream_error:overloaded_error",
+		},
+		{
+			// The stream ends cleanly before `message_stop`.
+			stream: SSE_STREAM.split("event: message_stop")[0] ?? "",
+			reason: "stream_truncated",
+		},
+	])("keeps an ok, billed row with reason $reason", async ({
+		stream,
+		reason,
+	}) => {
+		const { upstreamFetch } = scriptedFetch([() => sseResponse(stream)]);
+		const env = makeEnv("https://api.anthropic.com");
+		const { inserted, service } = makeService(env, upstreamFetch);
+
+		await service.proxyAnthropic(inbound(env).input, new FakeReply());
+
+		// The settle bills only ok rows; the tokens before the problem count.
+		expect(inserted[0]?.status).toBe("ok");
+		expect(inserted[0]?.reason).toBe(reason);
+		expect(inserted[0]?.inputTokens).toBe(120);
+	});
+
 	it("answers 401 on a bad, expired, or wrongly-signed token", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
@@ -923,6 +1134,98 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("accepts an expired token of a chat with a live binding and bills the bound turn", async () => {
+		const upstream = await startUpstream(
+			jsonOk(
+				JSON.stringify({ usage: { input_tokens: 100, output_tokens: 10 } }),
+			),
+		);
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			let counterNowMs = Date.now();
+			const { service, counters, inserted } = makeService(
+				env,
+				fetch,
+				() => counterNowMs,
+			);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			const nowTurnId = "11111111-1111-4111-8111-111111111111";
+			await counters.bindChat(
+				chatId,
+				{ ...claimsInput, runId: "run_now", turnId: nowTurnId },
+				3600,
+			);
+			// A kept process still sends the token of a turn 3 h ago. It expired
+			// 115 min ago, so its own `exp` gives the spend counter a 60 s TTL.
+			const pastSeconds = Math.floor(Date.now() / 1000) - 3 * 60 * 60;
+			const expiredToken = mintLlmProxyToken(
+				{ ...claimsInput, chatId },
+				env,
+				pastSeconds,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: `Bearer ${expiredToken}` }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(200);
+			expect(upstream.requests).toHaveLength(1);
+			expect(inserted[0]?.runId).toBe("run_now");
+			expect(inserted[0]?.turnId).toBe(nowTurnId);
+			// The run cap of the bound turn still counts the spend 2 min later.
+			// Sonnet price: 100*$2 + 10*$10 per MTok = 300 micros.
+			counterNowMs += 2 * 60_000;
+			expect(await counters.readRunSpend("run_now")).toBe(300);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it.each([
+		{ name: "no live binding", bind: false, signingKey: undefined },
+		{ name: "a bad signature", bind: true, signingKey: "other-key" },
+	])("answers 401 to an expired chat token with $name", async ({
+		bind,
+		signingKey,
+	}) => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, counters, inserted } = makeService(env);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			if (bind) {
+				await counters.bindChat(
+					chatId,
+					{ ...claimsInput, runId: "run_now" },
+					3600,
+				);
+			}
+			const pastSeconds = Math.floor(Date.now() / 1000) - 70 * 60;
+			const expiredToken = mintLlmProxyToken(
+				{ ...claimsInput, chatId },
+				signingKey === undefined ? env : { LLM_PROXY_SIGNING_KEY: signingKey },
+				pastSeconds,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: `Bearer ${expiredToken}` }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(401);
+			expect(upstream.requests).toHaveLength(0);
+			expect(inserted).toHaveLength(0);
+			// A refused request must not hold the settle wait of any turn.
+			expect(await counters.readInFlight("run_test")).toBe(0);
+			expect(await counters.readInFlight("run_now")).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("answers 401 when the bound turn's run was revoked", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
@@ -968,6 +1271,7 @@ describe("LlmProxyService", () => {
 				},
 				fetch,
 				null,
+				{ get: async () => ({ v2DisabledModels: [] }) },
 			);
 
 			await service.proxyAnthropic(inbound(env).input, new FakeReply());

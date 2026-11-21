@@ -31,20 +31,23 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 17,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
-	it("reads the gateway counts from message_delta and provider_metadata", () => {
+	it("reads the gateway counts and the cache TTL split from message_delta and provider_metadata", () => {
 		// Vercel AI Gateway: zero input in message_start, real counts later.
+		// The split shape is from a live gateway probe (2026-11-19).
 		const parser = createAnthropicSseUsageParser();
 		parser.feed(
 			`event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":0,"output_tokens":0}}}\n\n` +
-				`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"output_tokens":5},"provider_metadata":{"anthropic":{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":7}}}}\n\n`,
+				`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"output_tokens":5},"provider_metadata":{"anthropic":{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}}}\n\n`,
 		);
 
 		expect(parser.usage()).toEqual({
 			cacheReadTokens: 7,
 			cacheWriteTokens: 3,
+			cacheWrite5mTokens: 2,
 			inputTokens: 10,
 			outputTokens: 5,
 		});
@@ -61,6 +64,7 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 17,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -74,6 +78,7 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 0,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -217,6 +222,7 @@ describe("usageFromAnthropicJson", () => {
 			outputTokens: 5,
 			cacheReadTokens: 3,
 			cacheWriteTokens: 2,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -238,6 +244,7 @@ describe("usageFromAnthropicJson", () => {
 			outputTokens: 0,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
+			cacheWrite5mTokens: 0,
 		});
 	});
 });
@@ -351,6 +358,7 @@ describe("gateway cost", () => {
 			outputTokens: 20,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
+			cacheWrite5mTokens: 0,
 		});
 	});
 

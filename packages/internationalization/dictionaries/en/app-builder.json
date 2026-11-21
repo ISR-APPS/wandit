@@ -788,13 +788,15 @@
 		"errors": {
 			"noCredits": "You have no credits left for this turn.",
 			"projectCap": "This project reached its credit cap.",
+			"turnTimeout": "This build ran for 55 minutes, so it stopped. Your changes are saved. Send Continue to go on.",
 			"dailyCap": "You reached today's AI limit. It resets at 00:00 UTC.",
 			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "This model is not available. Choose another model.",
 			"modelUnpriced": "This model has no price yet. Try again later.",
 			"sendFailed": "We could not send your message. Send it again.",
-			"connectionLost": "The chat lost its connection to the server."
+			"connectionLost": "The chat lost its connection to the server.",
+			"providerFallback": "The AI provider"
 		},
 		"building": "Building",
 		"planning": "Planning",

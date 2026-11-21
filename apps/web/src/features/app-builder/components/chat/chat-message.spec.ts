@@ -310,6 +310,32 @@ describe("ChatMessageView", () => {
 		expect(onRetry).toHaveBeenCalledOnce();
 	});
 
+	// Fails on the old code: the card showed the English server sentence in every locale.
+	it("renders the localized sentence of the error kind instead of the server text", () => {
+		renderMessage({
+			id: "a9",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-error",
+					id: "e2",
+					data: {
+						code: "harness_error",
+						kind: "invalid_request",
+						message: "Server sentence in English.",
+						providerLabel: "Anthropic",
+						retryable: false,
+					},
+				},
+			],
+		});
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toContain(
+			"Anthropic did not accept this request.",
+		);
+		expect(alert.textContent).not.toContain("Server sentence in English.");
+	});
+
 	it("renders the receipt line with credits, tokens, and the cache, but no model name", () => {
 		renderMessage({
 			id: "a9",

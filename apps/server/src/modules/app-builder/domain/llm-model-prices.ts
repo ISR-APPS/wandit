@@ -16,7 +16,8 @@ const TOKENS_PER_MTOK = 1_000_000n;
 
 /**
  * One price row per allow-listed model. `cacheWriteUsdPerMTok` is the
- * 1-hour cache-write rate. Rows marked ESTIMATE wait on WANDIT-151's
+ * 1-hour cache-write rate. `priceUsdMicros` bills a 5-minute write on an
+ * `anthropic` row at 1.25x input instead. Rows marked ESTIMATE wait on WANDIT-151's
  * measurements; add a row for `V2_DEFAULT_MODEL` when it is picked. When you
  * change a row, bump `HARNESS_PRICE_TABLE_VERSION` in
  * modules/metering/domain/harness-price-table.ts.
@@ -277,6 +278,7 @@ export function llmModelPrice(modelId: string): LlmModelPrice | undefined {
  * Cost of one request in USD micros, integer math throughout. Rounds the
  * total up so a partial million-token unit never underbills. A prompt above
  * `longContext.aboveTokens` bills every token at the long-context rates.
+ * On an `anthropic` row, `usage.cacheWrite5mTokens` bill at 1.25x input.
  * Returns null when the model has no price row — the caller still writes the usage row.
  */
 export function priceUsdMicros(
@@ -295,11 +297,25 @@ export function priceUsdMicros(
 		promptTokens > price.longContext.aboveTokens
 			? price.longContext
 			: price;
+	// Anthropic bills a 5-minute cache write at 1.25x input and a 1-hour write
+	// at 2x input (the row rate). Claude Code sends 5-minute TTLs by default.
+	// Other rows have one cache-write rate. The upstream sends the split, so
+	// min() stops a split above the total from billing extra tokens.
+	const fiveMinuteWrites =
+		price.provider === "anthropic"
+			? Math.min(usage.cacheWrite5mTokens ?? 0, usage.cacheWriteTokens)
+			: 0;
+	const oneHourWrites = usage.cacheWriteTokens - fiveMinuteWrites;
+	// All terms carry a factor of 4, so the 1.25x rate (5/4) stays exact.
 	const numerator =
-		BigInt(usage.inputTokens) * microsPerMTok(rates.inputUsdPerMTok) +
-		BigInt(usage.outputTokens) * microsPerMTok(rates.outputUsdPerMTok) +
-		BigInt(usage.cacheReadTokens) * microsPerMTok(rates.cacheReadUsdPerMTok) +
-		BigInt(usage.cacheWriteTokens) * microsPerMTok(rates.cacheWriteUsdPerMTok);
+		4n *
+			(BigInt(usage.inputTokens) * microsPerMTok(rates.inputUsdPerMTok) +
+				BigInt(usage.outputTokens) * microsPerMTok(rates.outputUsdPerMTok) +
+				BigInt(usage.cacheReadTokens) *
+					microsPerMTok(rates.cacheReadUsdPerMTok) +
+				BigInt(oneHourWrites) * microsPerMTok(rates.cacheWriteUsdPerMTok)) +
+		5n * BigInt(fiveMinuteWrites) * microsPerMTok(rates.inputUsdPerMTok);
+	const denominator = 4n * TOKENS_PER_MTOK;
 	// Ceiling division: any token fraction rounds up to a whole micro.
-	return Number((numerator + TOKENS_PER_MTOK - 1n) / TOKENS_PER_MTOK);
+	return Number((numerator + denominator - 1n) / denominator);
 }

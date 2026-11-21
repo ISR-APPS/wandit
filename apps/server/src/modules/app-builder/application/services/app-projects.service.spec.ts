@@ -206,6 +206,7 @@ function setup() {
 		chats,
 		proxyRequests,
 		starterTemplateTasks,
+		{ get: async () => ({ v2DisabledModels: [] }) },
 		starterTemplates,
 	);
 

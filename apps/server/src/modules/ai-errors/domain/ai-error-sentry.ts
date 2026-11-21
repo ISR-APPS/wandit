@@ -22,6 +22,7 @@ const ISSUE_KINDS = new Set([
 	"model_not_found",
 ]);
 
+/** What the caller knows about the failed AI call. Fills the Sentry tags and the fingerprint. */
 export interface AiErrorSentryContext {
 	surface: AiErrorSurface;
 	route: AiErrorContext["route"];
@@ -36,8 +37,11 @@ export interface AiErrorSentryContext {
 	turnId?: string;
 	sandboxId?: string;
 	harness?: string;
+	/** The `failure_code` of the builder turn row, for example `harness_error`. Splits one kind into causes. */
+	failureCode?: string;
 }
 
+/** Fields of the `ai.call.failed` warn log, for kinds that open no Sentry issue. */
 export interface AiCallFailedAttributes {
 	kind: string;
 	source: string;
@@ -63,6 +67,8 @@ export interface AiCallFailedAttributes {
 	turnId?: string;
 	sandboxId?: string;
 	harness?: string;
+	/** The `failure_code` of the builder turn row, for example `harness_error`. */
+	failureCode?: string;
 }
 
 export interface AiCallFinishedAttributes {
@@ -93,6 +99,10 @@ export function sentryRouteForSource(
 		: "none";
 }
 
+/**
+ * Builds the Sentry tags, fingerprint, and redacted context of one AI error.
+ * The fingerprint replaces the default grouping, so it holds every field that splits two causes.
+ */
 export function toSentryCapture(
 	normalized: NormalizedAiError,
 	context: AiErrorSentryContext,
@@ -110,17 +120,23 @@ export function toSentryCapture(
 				responseBody: redactResponseBody(normalized.raw.responseBody),
 			},
 		},
+		// Without surface, harness, and failure code, every internal error of every
+		// feature goes into one issue, and a new cause sends no alert.
 		fingerprint: [
 			"ai-error",
 			normalized.kind,
 			normalized.source,
 			normalized.provider ?? "-",
+			context.surface,
+			context.harness ?? "-",
+			context.failureCode ?? "-",
 		],
 		level: ISSUE_KINDS.has(normalized.kind) ? "error" : "warning",
 		tags: compactAttributes({
 			chatId: context.chatId,
 			errorKind: normalized.kind,
 			errorSource: normalized.source,
+			failureCode: context.failureCode,
 			functionId: context.functionId,
 			gatewayGenerationId: normalized.gatewayGenerationId,
 			generationId: context.generationId,
@@ -140,6 +156,10 @@ export function toSentryCapture(
 	};
 }
 
+/**
+ * Opens a Sentry issue for an issue kind and returns its event id.
+ * Other kinds write the `ai.call.failed` log and return null.
+ */
 export function captureAiError(
 	error: unknown,
 	normalized: NormalizedAiError,
@@ -156,6 +176,7 @@ export function captureAiError(
 		chatId: context.chatId,
 		errorKind: normalized.kind,
 		errorSource: normalized.source,
+		failureCode: context.failureCode,
 		functionId: context.functionId,
 		gatewayGenerationId: normalized.gatewayGenerationId,
 		generationId: context.generationId,

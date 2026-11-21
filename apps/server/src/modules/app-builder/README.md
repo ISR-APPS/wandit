@@ -277,7 +277,8 @@ service checks the scope:
   over the default model). The optional `model` body field can name any
   model with a row in `LLM_MODEL_PRICES`; the plan does not limit it
   (staging and local only, see `docs/v2/runbook.md`). Another id answers
-  400 `V2_MODEL_DENIED` (`assertPickableModel`). A default model with no
+  400 `V2_MODEL_DENIED` (`resolvePickableModel`). So does a model in the
+  admin setting `v2DisabledModels`. A default model with no
   price row answers 503 `V2_MODEL_UNPRICED` (a deploy error).
   Two create-time stops refuse early: a project at its monthly cap
   answers 403 `PROJECT_CREDIT_CAP_REACHED` with `cap: "monthly"`, and a
@@ -1261,7 +1262,7 @@ One run does this, in order:
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
     the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
-    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@6"`
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@7"`
     (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
     `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
     zero-spend turn with no checkpoints refunds in full instead.
@@ -1270,8 +1271,10 @@ One run does this, in order:
     `inputTokens`, `outputTokens`, `cacheReadTokens`,
     `cacheWriteTokens`, and the payer's settled `balanceCredits` after
     the settle.
-    Failure and cancel still refund — the refund pays back the reserve
-    and every `checkpoint:<id>:<n>` debit. Before their last stream
+    Failure still refunds — the refund pays back the reserve and every
+    `checkpoint:<id>:<n>` debit. A user Stop (cancel) keeps the file work,
+    so it settles at the proxy-row sum like a stop (D39). A Stop with no
+    spend and no checkpoints refunds in full. Before their last stream
     events, failure and cancel also store the assistant message with
     null metadata: the partial parts plus the `data-turn-error` part
     (failure) or the canceled `data-turn-done` part (cancel). A reload

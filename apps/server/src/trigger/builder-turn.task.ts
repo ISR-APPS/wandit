@@ -29,6 +29,9 @@ export const builderTurnTask = schemaTask({
 	// A retried run must not start a second turn: the row CAS and the task
 	// idempotency key already dedupe, so one attempt is the whole contract.
 	retry: { maxAttempts: 1 },
+	// 25 min: shorter than the 30 min TURN_LOCK_TTL_MS, so a late start never
+	// runs without the lock. `reconcile-builder-turns` ends the expired row.
+	ttl: "25m",
 	schema: z.object({
 		actorUserId: z.string().min(1),
 		// Absent on a run queued before the field existed.

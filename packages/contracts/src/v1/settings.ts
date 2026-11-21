@@ -43,6 +43,9 @@ export const productSettingsSchema = z.object({
 	// Opens the V2 app builder to users who also carry the PostHog flag
 	// `v2-builder`.
 	v2BuilderEnabled: z.boolean(),
+	// Model ids of the server price table that ops turn off during a provider incident.
+	// `GET /api/v2/models` hides them. A turn create and the LLM proxy refuse them.
+	v2DisabledModels: z.array(z.string().min(1)),
 	// User referral program switch. Off: no claim, no summary, and no reward.
 	userReferralsEnabled: z.boolean(),
 	// Whole credits. The bonus of the invited friend at claim time.
@@ -114,6 +117,8 @@ export const patchProductSettingsBodySchema = z
 		manualPaymentsEnabled: z.boolean().optional(),
 		dzdPerUsdRate: dzdPerUsdRateSchema.optional(),
 		v2BuilderEnabled: z.boolean().optional(),
+		// The full new list, not a diff. The admin route also refuses an id with no price row.
+		v2DisabledModels: z.array(z.string().min(1)).optional(),
 		userReferralsEnabled: z.boolean().optional(),
 		userReferralFriendCredits: userReferralSettingCreditsSchema.optional(),
 		userReferralActivationCredits: userReferralSettingCreditsSchema.optional(),
@@ -131,6 +136,7 @@ export const patchProductSettingsBodySchema = z
 			settings.manualPaymentsEnabled !== undefined ||
 			settings.dzdPerUsdRate !== undefined ||
 			settings.v2BuilderEnabled !== undefined ||
+			settings.v2DisabledModels !== undefined ||
 			settings.userReferralsEnabled !== undefined ||
 			settings.userReferralFriendCredits !== undefined ||
 			settings.userReferralActivationCredits !== undefined ||

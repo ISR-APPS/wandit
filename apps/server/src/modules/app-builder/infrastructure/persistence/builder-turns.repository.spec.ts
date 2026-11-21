@@ -325,6 +325,45 @@ describe("BuilderTurnsRepository active-status reads", () => {
 		);
 	});
 
+	it("findProjectsWithStrandedWaiting skips a row parked behind an open card (X1)", async () => {
+		const captured: { orderBy?: unknown; where?: unknown } = {};
+		const limit = vi.fn(async () => []);
+		const orderBy = vi.fn((o: unknown) => {
+			captured.orderBy = o;
+			return { limit };
+		});
+		const groupBy = vi.fn(() => ({ orderBy }));
+		const where = vi.fn((w: unknown) => {
+			captured.where = w;
+			return { groupBy };
+		});
+		const outer = { from: vi.fn(() => ({ where })) };
+		// The outer query selects `projectId`; the subqueries stay real builders.
+		const select = vi.fn((fields: Parameters<Database["select"]>[0]) =>
+			fields !== undefined && "projectId" in fields
+				? outer
+				: realDb.select(fields),
+		);
+		const repository = new BuilderTurnsRepository(
+			// SAFETY: `Object.create` yields `any`; the fake captures the outer
+			// drizzle fragments and nothing executes.
+			Object.assign(Object.create(null), { select }) as Database,
+		);
+
+		await repository.findProjectsWithStrandedWaiting(new Date(0));
+
+		const { sql } = compile(captured.where);
+		expect(sql).toContain(
+			'not exists ((select "id" from "builder_turns" "paused"',
+		);
+		expect(sql).toContain(
+			'("paused"."completed_at" is null or "paused"."completed_at" >= "builder_turns"."created_at")',
+		);
+		expect(compile(captured.orderBy).sql).toContain(
+			'min("builder_turns"."created_at")',
+		);
+	});
+
 	it("findWaitingForUser picks the oldest paused row of the project", async () => {
 		const captured: { orderBy?: unknown; where?: unknown } = {};
 		const limit = vi.fn(async () => []);

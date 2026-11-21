@@ -65,8 +65,8 @@ function fakeRequest(userId = "user-1") {
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 	// SAFETY: the relay reads only `id`, `status`, `outputCommitSha`,
-	// `runner`, and `triggerRunId` off the row; the other columns are never
-	// touched.
+	// `runner`, `triggerRunId`, and the failure columns off the row; the
+	// failure columns are null-safe when absent.
 	return {
 		id: "turn-1",
 		outputCommitSha: null,
@@ -447,6 +447,55 @@ describe("TurnStreamRelayService.relay", () => {
 			"[DONE]",
 		]);
 		expect(onDone).toHaveBeenCalledWith(done);
+	});
+
+	// Fails on the old code: the row end wrote only `data-turn-done`, so the
+	// web showed no error card and no Retry.
+	it("writes the error frames before `data-turn-done` when the read ends on a failed row", async () => {
+		const reader: TurnEventReader = {
+			read: () =>
+				(async function* () {
+					yield ev("0", {
+						data: { phase: "running" },
+						type: "status",
+					});
+				})(),
+		};
+		const turns = fakeTurns(() =>
+			turnRow({
+				error: "Something went wrong on our side.",
+				failureCode: "harness_error",
+				failureKind: "internal",
+				spec: { mode: "security_scan" },
+				status: "failed",
+			}),
+		);
+		const { relay } = setup(reader, turns);
+		const { chunks, reply } = fakeReply();
+
+		await relay.relay({
+			canReadPayerBalance: false,
+			reply,
+			request: fakeRequest(),
+			triggerRunId: "run-1",
+			turnId: "turn-1",
+		});
+
+		expect(parsedFrames(chunks).slice(1)).toEqual([
+			{
+				data: {
+					code: "harness_error",
+					message: "Something went wrong on our side.",
+					mode: "security_scan",
+					retryable: true,
+				},
+				id: "turn-error",
+				type: "data-turn-error",
+			},
+			{ errorText: "Something went wrong on our side.", type: "error" },
+			{ data: { status: "failed" }, id: "turn-done", type: "data-turn-done" },
+			"[DONE]",
+		]);
 	});
 
 	it("ends with error frames and [DONE] when the row vanishes after a quiet read", async () => {
