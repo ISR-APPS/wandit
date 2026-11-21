@@ -7,6 +7,7 @@
  * `pullFromGithub` (the GitHub Update) merges the code.storage branch
  * `github/main` the same way and writes a `github.pull` audit row. It first
  * checks the project access of the linker through `ProjectAccessService`.
+ * The pull keeps the agent files (`isAgentFilePath`) of the project head.
  * Every method first proves the project is a scoped `v2_app` row.
  */
 import { randomUUID } from "node:crypto";
@@ -41,6 +42,7 @@ import {
 } from "../../../../infrastructure/storage/r2";
 import { ProjectAccessService } from "../../../projects";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { isAgentFilePath } from "../../domain/code-tree";
 import { isGithubUpdateAvailable } from "../../domain/github-sync";
 import {
 	GIT_STORE,
@@ -343,8 +345,8 @@ export class VersionsService {
 	/**
 	 * GitHub Update: merges the code.storage branch `github/main`
 	 * into the project as one "github" merge commit; GitHub wins on conflicting lines and
-	 * paths. It holds the lock and runs the 409 checks of `restore`, and saves uncommitted
-	 * files as a "Before GitHub update" wip version first. 404 GITHUB_NOT_LINKED, 409
+	 * paths, except the agent files of `isAgentFilePath`. It holds the lock and runs the
+	 * 409 checks of `restore`, and saves uncommitted files as a "Before GitHub update" wip version first. 404 GITHUB_NOT_LINKED, 409
 	 * GITHUB_LINK_OWNER_LEFT, GITHUB_NOTHING_TO_UPDATE, or GITHUB_UPDATE_CHANGED, 500 GITHUB_MERGE_FAILED.
 	 * `commit` is null when the project already holds the GitHub head. `ip` goes to the audit row.
 	 */
@@ -482,6 +484,7 @@ export class VersionsService {
 
 	// Fetches `github/main` into the sandbox and commits the merge of
 	// `targetSha` through `commitTurn`. Null when HEAD already holds it.
+	// The agent files keep their state from before the merge.
 	// A failed merge resets the sandbox to the head before the merge.
 	// A failed commit resets it to code.storage main.
 	private async mergeGithubHead(
@@ -537,6 +540,7 @@ export class VersionsService {
 
 		try {
 			await mergeTheirs(sandbox, targetSha);
+			await keepAgentFiles(sandbox, preMergeHead);
 		} catch (error) {
 			// The reset ends the open merge. The caller gets the merge error, so a failed reset only logs.
 			await mustRunGit(sandbox, ["reset", "--hard", preMergeHead], Error).catch(
@@ -710,19 +714,65 @@ async function mergeTheirs(
 		mergeHead.stdout.trim() !== targetSha ||
 		(await unmergedPaths(sandbox)).length > 0
 	) {
-		throw new InternalServerErrorException(
-			{
-				code: "GITHUB_MERGE_FAILED",
-				message: "The GitHub changes could not be merged",
-			},
-			// Sentry reads the cause, so the git reason reaches it. The merge argv holds no secret.
-			{
-				cause: new Error(
-					`git merge exited ${merge.exitCode}, MERGE_HEAD "${mergeHead.stdout.trim()}": ${merge.stderr}`,
-				),
-			},
+		// The merge argv holds no secret.
+		throw githubMergeFailed(
+			new Error(
+				`git merge exited ${merge.exitCode}, MERGE_HEAD "${mergeHead.stdout.trim()}": ${merge.stderr}`,
+			),
 		);
 	}
+}
+
+// Security: a GitHub edit of an agent file is a prompt injection. The next turn loads
+// CLAUDE.md, AGENTS.md, and `.claude/` as binding rules, and runs `.claude` hooks.
+// So each agent path that the merge changed goes back to `preMergeHead`, or goes away when new.
+// A failure throws 500 GITHUB_MERGE_FAILED, so the caller resets and commits nothing.
+async function keepAgentFiles(
+	sandbox: SandboxHandle,
+	preMergeHead: string,
+): Promise<void> {
+	try {
+		// `--no-renames`: a rename of CLAUDE.md lists the old path too. `-z` keeps names unquoted.
+		const changed = await mustRunGit(
+			sandbox,
+			["diff", "--cached", "--name-only", "--no-renames", "-z", preMergeHead],
+			Error,
+		);
+		const agentPaths = changed.stdout
+			.split("\0")
+			.filter((path) => path !== "" && isAgentFilePath(path));
+		if (agentPaths.length === 0) {
+			return;
+		}
+		// `--no-overlay` removes a path that `preMergeHead` does not have.
+		// LIMIT: one argv holds every agent path, at most about 2 MB on Linux. A larger set fails
+		// the update. Upgrade: pass the paths in batches.
+		await mustRunGit(
+			sandbox,
+			[
+				"--literal-pathspecs",
+				"checkout",
+				"--no-overlay",
+				preMergeHead,
+				"--",
+				...agentPaths,
+			],
+			Error,
+		);
+	} catch (error) {
+		throw githubMergeFailed(error);
+	}
+}
+
+// 500 GITHUB_MERGE_FAILED. Sentry reads `cause`, so the git reason reaches it.
+function githubMergeFailed(cause: unknown): InternalServerErrorException {
+	return new InternalServerErrorException(
+		{
+			code: "GITHUB_MERGE_FAILED",
+			message: "The GitHub changes could not be merged",
+		},
+		{ cause },
+	);
 }
 
 // Paths with an unmerged index entry. `-z` keeps unusual file names unquoted.

@@ -320,6 +320,7 @@ export async function createBuilderTurnDeps(
 				(await credits.getSettledBalance(subjectPayer(subject))).settledBalance,
 			// `ProductSettingsService.get` caches 30 s; the tick reads it.
 			readV2Enabled: async () => (await settings.get()).v2BuilderEnabled,
+			readDisabledModels: async () => (await settings.get()).v2DisabledModels,
 			// Any URL under R2_PUBLIC_BASE_URL gives a key. TurnsService.create
 			// checks the upload owner first.
 			readUpload: async (url) => {

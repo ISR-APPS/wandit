@@ -25,6 +25,8 @@ function defaultRow(
 		...DEFAULT_PRODUCT_SETTINGS,
 		// Legacy DB column: still on the row, no longer a product setting.
 		earlyAccessRequired: false,
+		// Column default; DEFAULT_PRODUCT_SETTINGS leaves it to the database.
+		v2DisabledModels: [],
 		updatedAt: INITIAL_DATE,
 		updatedByUserId: null,
 		...overrides,

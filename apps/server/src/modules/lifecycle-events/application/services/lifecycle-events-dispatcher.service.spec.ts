@@ -319,6 +319,7 @@ function productSettings(
 		userReferralPaidCredits: 10_000,
 		userReferralsEnabled: false,
 		v2BuilderEnabled: false,
+		v2DisabledModels: [],
 		version: 1,
 	};
 }

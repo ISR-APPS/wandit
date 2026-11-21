@@ -122,8 +122,9 @@ export type LlmModelPrice = z.infer<typeof llmModelPriceSchema>;
 
 /**
  * Answer of `GET /api/v2/models`: the models the builder dropdown offers.
- * Every row of the server price table is pickable; a turn or project
- * create refuses any other id with 400 `V2_MODEL_DENIED`.
+ * Every row of the server price table is pickable, except the ids in the
+ * admin setting `v2DisabledModels`, which the list leaves out. A turn or
+ * project create refuses any other id with 400 `V2_MODEL_DENIED`.
  */
 export const builderModelsResponseSchema = z.object({
 	// `V2_DEFAULT_MODEL` of the deploy: a turn without a `model` runs on it.

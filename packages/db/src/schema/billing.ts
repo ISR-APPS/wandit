@@ -179,6 +179,12 @@ export const productSettings = pgTable(
 		// V2 app builder kill switch. The V2 guard reads it together with the
 		// PostHog flag per user.
 		v2BuilderEnabled: boolean("v2_builder_enabled").notNull().default(false),
+		// Model ids of `LLM_MODEL_PRICES` that ops turn off during a provider incident.
+		// The models list hides them, and a turn and the LLM proxy refuse them.
+		v2DisabledModels: text("v2_disabled_models")
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
 		// User referral program kill switch. Off: no claim, no summary, and the sweep pays nothing.
 		userReferralsEnabled: boolean("user_referrals_enabled")
 			.notNull()

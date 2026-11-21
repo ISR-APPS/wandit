@@ -51,6 +51,7 @@ describe("workstream 5 contract round-trips", () => {
 			userReferralPaidCredits: 100,
 			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
+			v2DisabledModels: [],
 			version: 4,
 		};
 
@@ -129,6 +130,7 @@ describe("workstream 5 contract round-trips", () => {
 			userReferralPaidCredits: 100,
 			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
+			v2DisabledModels: [],
 			version: 1,
 		};
 

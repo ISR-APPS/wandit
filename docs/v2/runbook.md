@@ -36,6 +36,21 @@ These limits are still lifted. Restore them before V2 goes to production.
   month, about $3.60 and $10.80 of Appetize cost, with no recurring payment.
 - Team limit: a paid team can hold 1000 backends after one top-up. Set a
   real team limit before V2 opens.
+- Set `V2_DEFAULT_MODEL=deepseek/deepseek-v4.1-flash-1017` (Standard) on the
+  API, the Trigger worker, and harness-host. A send with no model runs this
+  default. Today it is Opus 5.5, about 13 times the cost of Standard.
+
+## Turn off one model (provider incident)
+
+Use this when one tier fails for many users, for example a Google outage.
+
+1. In the admin app, open Product controls. In "Disabled models", type the
+   model id, for example `google/gemini-4-hydrogen`. Save.
+2. In about 1 minute, the web model menu hides that tier. A user who picked
+   it moves to the first tier that stays visible.
+3. A new turn on that model gets 400 `V2_MODEL_DENIED`. A running turn gets
+   403 `V2_MODEL_DISABLED` from the LLM proxy on its next model call.
+4. When the provider is healthy again, remove the id and save.
 
 ## Harness host deploys (audit P0-05)
 

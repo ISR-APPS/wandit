@@ -54,6 +54,46 @@ describe("priceUsdMicros", () => {
 		).toBe(4_200_000);
 	});
 
+	// Anthropic bills a 5-minute write at 1.25x input, a 1-hour write at 2x.
+	it.each([
+		// Opus 5.5: 600,000 x $5 + 400,000 x $8.
+		{
+			modelId: "anthropic/claude-opus-5.5",
+			cacheWriteTokens: 1_000_000,
+			cacheWrite5mTokens: 600_000,
+			expected: 6_200_000,
+		},
+		// A split above the total bills only the total, at the 5-minute rate.
+		{
+			modelId: "anthropic/claude-opus-5.5",
+			cacheWriteTokens: 1_000,
+			cacheWrite5mTokens: 5_000,
+			expected: 5_000,
+		},
+		// Gemini has one cache-write rate ($1.50), whatever the TTL.
+		{
+			modelId: "google/gemini-4-hydrogen",
+			cacheWriteTokens: 1_000_000,
+			cacheWrite5mTokens: 1_000_000,
+			expected: 1_500_000,
+		},
+	])("prices $cacheWrite5mTokens of $cacheWriteTokens cache writes as 5-minute on $modelId", ({
+		modelId,
+		cacheWriteTokens,
+		cacheWrite5mTokens,
+		expected,
+	}) => {
+		expect(
+			priceUsdMicros(modelId, {
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens,
+				cacheWrite5mTokens,
+			}),
+		).toBe(expected);
+	});
+
 	// Terra bills every token of a prompt above 272,000 tokens at the long rates.
 	// The prompt counts cached tokens too. $1/MTok is 1 micro per token.
 	it.each([

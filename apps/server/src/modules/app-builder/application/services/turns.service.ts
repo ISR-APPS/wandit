@@ -4,7 +4,7 @@
  * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * model price check, the monthly cap, and the per-actor turn limit, then
+ * model check (price row, disabled list), the monthly cap, the per-actor turn limit, then
  * the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
@@ -34,6 +34,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
+	type ProductSettings,
 	type TurnEstimateResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -59,6 +60,7 @@ import {
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { ProductSettingsService } from "../../../settings";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BuilderOtherChatBusyError } from "../../domain/errors/builder-other-chat-busy.error";
@@ -153,19 +155,35 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 };
 
 /**
- * Refuses a picked model with no row in `LLM_MODEL_PRICES`: 400
- * `V2_MODEL_DENIED`. `create` and the V2 create-project route call it
- * before any write.
+ * The model a new turn runs on: the pick, else the deploy default (null when unset).
+ * Throws 400 `V2_MODEL_DENIED` for a pick with no row in `LLM_MODEL_PRICES`,
+ * and for a pick or default in `product_settings.v2DisabledModels`.
+ * `create` and the V2 create-project route call it before any write.
  */
-export function assertPickableModel(modelId: string): void {
+export function resolvePickableModel(
+	pickedModel: string | undefined,
+	defaultModel: string | null,
+	disabledModels: readonly string[],
+): string | null {
 	// Product rule (pricing v8 D10): every priced model runs for every user.
 	// Credits bill the real provider cost, so a pick cannot under-bill.
-	if (llmModelPrice(modelId) === undefined) {
-		throw new BadRequestException({
-			code: "V2_MODEL_DENIED",
-			message: "This model is not available",
-		});
+	if (pickedModel !== undefined && llmModelPrice(pickedModel) === undefined) {
+		throw modelDeniedError();
 	}
+	const model = pickedModel ?? defaultModel;
+	// Product rule: ops turn a model off in the admin app during a provider incident.
+	// The default is checked too, so a turn on a disabled default refuses before the hold.
+	if (model !== null && disabledModels.includes(model)) {
+		throw modelDeniedError();
+	}
+	return model;
+}
+
+function modelDeniedError(): BadRequestException {
+	return new BadRequestException({
+		code: "V2_MODEL_DENIED",
+		message: "This model is not available",
+	});
 }
 
 @Injectable()
@@ -207,6 +225,11 @@ export class TurnsService {
 		/** The `main` head of the poll answer. */
 		@Inject(AppCommitsRepository)
 		private readonly commits: Pick<AppCommitsRepository, "findBranch">,
+		/** `v2DisabledModels` of the create check. `get` caches the row 30 s. */
+		@Inject(ProductSettingsService)
+		private readonly settings: {
+			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
+		},
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -301,10 +324,11 @@ export class TurnsService {
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
 
-		if (body.model !== undefined) {
-			assertPickableModel(body.model);
-		}
-		const model = body.model ?? defaultModel;
+		const model = resolvePickableModel(
+			body.model,
+			defaultModel,
+			(await this.settings.get()).v2DisabledModels,
+		);
 
 		// The monthly cap refuses before the hold: the pool could pay, the
 		// cap could not — buying credits is not the fix.

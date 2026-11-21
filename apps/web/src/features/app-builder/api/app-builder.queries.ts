@@ -103,8 +103,8 @@ export const builderModelsQuery = () =>
 	queryOptions({
 		queryKey: appBuilderKeys.models(),
 		queryFn: getBuilderModels,
-		// The price table changes only with a server deploy, so one read per page load is enough.
-		staleTime: Number.POSITIVE_INFINITY,
+		// Ops can turn a model off in the admin app (v2DisabledModels). The server caches it 30 s, so 60 s is enough.
+		staleTime: 60_000,
 	});
 
 /**
