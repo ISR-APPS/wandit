@@ -4,7 +4,8 @@
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
  * A pool with no Starter pass opens the insufficient credits dialog before any call.
- * Stores the model pick for the new project, so its composer shows it.
+ * Stores the model pick and the thinking pick for the new project, so its
+ * composer shows them.
  * Starts the audio of the turn end sound at the create gesture (turn-end-sound.ts).
  * The Vercel production build gets a flow that never creates.
  */
@@ -12,6 +13,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type {
+	BuilderThinking,
 	BuilderTurnMode,
 	ComposerMetadata,
 	UploadAttachmentResponse,
@@ -26,7 +28,7 @@ import type { AppTypeChoice } from "@/lib/app-type-choice";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateAppProject } from "../api/app-builder.mutations";
 import { toCreateAppProjectBody } from "./create-app-project-body";
-import { writeBuilderModel } from "./helpers";
+import { writeBuilderModel, writeBuilderThinking } from "./helpers";
 import { unlockTurnEndSound } from "./turn-end-sound";
 
 /** What the dashboard reads: the same four fields as the V1 hook result. */
@@ -50,12 +52,14 @@ export type UseCreateAppProjectWithPromptResult = {
  * `mobile` when it has no mobile template. Both come back as errors here,
  * so the only precheck is the Starter pass state of the cached balance.
  * `model` is the pick of the model menu for the first turn. Undefined sends none, as from the landing hero: the
- * server default runs.
+ * server default runs. `thinking` is the thinking level of the first turn,
+ * from sentThinkingOf. Undefined sends none: the first turn runs "balanced".
  */
 function useAppProjectCreateFlow(
 	appType: AppTypeChoice,
 	mode: BuilderTurnMode,
 	model?: string,
+	thinking?: BuilderThinking,
 ): UseCreateAppProjectWithPromptResult {
 	const { locale } = useTranslation();
 	const createAppProject = useCreateAppProject();
@@ -93,6 +97,7 @@ function useAppProjectCreateFlow(
 						appType,
 						mode,
 						model,
+						thinking,
 					}),
 				);
 			} catch (error) {
@@ -110,6 +115,8 @@ function useAppProjectCreateFlow(
 			void queryClient.invalidateQueries({ queryKey: creditsKeys.scope() });
 			// The first turn runs on this model, so the project composer opens on it.
 			if (model !== undefined) writeBuilderModel(created.projectId, model);
+			if (thinking !== undefined)
+				writeBuilderThinking(created.projectId, thinking);
 			try {
 				await navigate({
 					to: "/app/$projectId",
@@ -127,6 +134,7 @@ function useAppProjectCreateFlow(
 			locale,
 			mode,
 			model,
+			thinking,
 			navigate,
 			queryClient,
 			starterPassRequired,

@@ -2,9 +2,9 @@
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks, the files, and the long pastes, the textarea,
  * then the add menu (a file or an image), the Plan chip, the Clone chip of a
- * web project, the model menu, the credit estimate, the context ring,
- * dictation, and send. While the tray shows, send becomes the answer button
- * of the tray.
+ * web project, the model menu with the thinking row inside (after the
+ * first turn, a lock chip with a Fast mode row too), the credit estimate, the context ring, dictation, and
+ * send. While the tray shows, send becomes the answer button of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
  * the pasted texts, and the uploaded files; a send that the API refuses puts
  * them back. Uploads and pastes go through the projects feature.
@@ -68,6 +68,7 @@ import { CloneSiteChip } from "../clone-site-chip";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
 import { ContextRing } from "./context-ring";
+import { type ModelLock, ModelLockChip } from "./model-lock-chip";
 import { TargetChip } from "./target-chip";
 
 /**
@@ -111,6 +112,8 @@ export type ComposerProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick on the page. The menu locks and hides like the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** The locked model of the open conversation, from the page through the chat pane. Null before the first turn. Set, the lock chip shows in place of the menu. */
+	modelLock: ModelLock | null;
 	/** True for a web project, from the page through the chat pane. Shows the Clone chip, which locks and hides like the Plan chip. */
 	canCloneSite: boolean;
 	/** How full the model context is, from contextUsageOf through the chat pane. Null renders no ring: no turn wrote a count yet. The ring hides while the tray shows. */
@@ -177,6 +180,7 @@ export function Composer({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	modelLock,
 	canCloneSite,
 	contextUsage,
 	onCreateChat,
@@ -514,7 +518,16 @@ export function Composer({
 									labelClassName="@max-[380px]:sr-only"
 								/>
 							) : null}
-							<BuilderModelPicker pick={modelPick} disabled={isSending} />
+							{/* Product rule: after its first turn, a conversation keeps its model tier. */}
+							{modelLock === null ? (
+								<BuilderModelPicker pick={modelPick} disabled={isSending} />
+							) : (
+								<ModelLockChip
+									pick={modelPick}
+									lock={modelLock}
+									onCreateChat={onCreateChat}
+								/>
+							)}
 						</>
 					)}
 					{/* The auto margin pushes the estimate, the ring, dictation, and send to the end of the row. */}
@@ -525,7 +538,7 @@ export function Composer({
 									"items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50",
 									// A row under 420 px cannot hold the estimate and the ring, so the ring shows alone.
 									// A 420 px row is a chat column of about 498 px. The default 400 px column shows no estimate with the ring.
-									// LIMIT: the row fits from a chat column of about 345 px (380 px with the Fast toggle). Upgrade: a larger CHAT_PANEL_MIN_WIDTH.
+									// LIMIT: the row fits from a chat column of about 345 px (380 px with the Fast mark), and about 18 px more with the brain mark. Upgrade: a larger CHAT_PANEL_MIN_WIDTH.
 									showsContextRing ? "@min-[420px]:flex hidden" : "flex",
 								)}
 							>

@@ -563,7 +563,7 @@ Names: the UI says "Starter pass" (fr "Pass Démarrage", ar "تذكرة البد
 The gate applies only while the switch is on. A pool with no live pass then keeps its credits, but
 it cannot start new spend. This includes the signup grant, the referral credits, and promo credits.
 
-### Data (`packages/db`, migration `0104_starter-pass`)
+### Data (`packages/db`, migration `0105_starter-pass`)
 
 - Enum `starter_pass_source`: `stripe`, `slickpay`, `offline`, `grandfathered`, `admin`.
 - Table `starter_passes`: `user_id` or `organization_id` (CHECK: exactly one), `source`,
@@ -690,12 +690,12 @@ Out of scope:
 
 ### Rollout runbook
 
-Precondition: section 9 is complete, and the branch with migration 0104 is on `main`.
+Precondition: section 9 is complete, and the branch with migration 0105 is on `main`.
 
 1. In the SlickPay sandbox, create one invoice of 250 DZD, one of 2500 DZD, and one of 250000 DZD.
 2. In SlickPay production, create the same three invoices.
 3. If an invoice fails, change the SlickPay limits before you continue. The 250 DZD invoice is the pass.
-4. Run `pnpm db:migrate` against production. It applies `0104_starter-pass`.
+4. Run `pnpm db:migrate` against production. It applies `0105_starter-pass`.
 5. Deploy the API and the harness host.
 6. Deploy the Trigger.dev worker. Make sure that the Trigger dashboard shows the new version as current.
 7. Deploy web and admin.

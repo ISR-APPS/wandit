@@ -81,11 +81,22 @@ export const llmProxyRequests = pgTable(
 		// has no price-table row or no usage was seen.
 		// LIMIT: integer fits $2,147 per request. Upgrade: bigint.
 		usdMicros: integer("usd_micros"),
+		// UNIT: micros of USD, rounded up. The real cost from the Vercel AI
+		// Gateway `provider_metadata.gateway`: `marketCost` for a BYOK host,
+		// else `cost`. Billing reads `usd_micros`, not this column. Null when
+		// the answer has no valid gateway cost above 0. Examples: count_tokens,
+		// a rejection, an abort or an upstream error before the final event.
+		// Also null for an upstream outside the gateway (Paper, a direct key).
+		gatewayUsdMicros: integer("gateway_usd_micros"),
+		// Host that answered (`routing.finalProvider`), for example `baseten`
+		// or `vertex`. Null when `gateway_usd_micros` is null.
+		gatewayProvider: text("gateway_provider"),
 		status: llmProxyRequestStatus("status").notNull(),
 		// Short machine-readable detail for rejected or failed rows, for
 		// example `run_cap` or `daily_cap`. Null on `ok`.
 		reason: text("reason"),
-		// `request-id` header of the upstream response, when sent.
+		// `request-id` header of the upstream response, else its
+		// `x-request-id` header. Null when it sends neither.
 		upstreamRequestId: text("upstream_request_id"),
 		// `x-claude-code-session-id` the sandbox sent; ties rows to one Claude
 		// Code session for debugging.

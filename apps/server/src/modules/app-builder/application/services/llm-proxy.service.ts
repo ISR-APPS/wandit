@@ -6,6 +6,8 @@
  * forwards the body to the provider and streams the answer back. A Paper body loses the blocks that Paper refuses.
  * Every body loses the Claude Code identity: the persona line, the model
  * bullets, and the model sentences. The Wandit persona line takes their place.
+ * The thinking level of the token sets the Messages effort: `light` lowers it,
+ * `deep` raises it, and `balanced` keeps the effort of Claude Code.
  * A Claude 400 for a foreign thinking signature gets one retry without the
  * thinking of earlier turns.
  * It writes one `llm_proxy_requests` row per request. With the Langfuse
@@ -20,6 +22,7 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	type BuilderThinking,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
 	type ProductSettings,
@@ -32,6 +35,8 @@ import { ProductSettingsService } from "../../../settings";
 import {
 	type AnthropicAssistantMessage,
 	createAnthropicSseUsageParser,
+	gatewayCostFromAnthropicJson,
+	type LlmGatewayCost,
 	type LlmTokenUsage,
 	messageFromAnthropicJson,
 	usageFromAnthropicJson,
@@ -185,6 +190,13 @@ const anthropicSystemSchema = z.union([
 	z.string(),
 	z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
 ]);
+
+// The effort fields of a request, for the thinking rewrite. It has its own
+// parse: a failure in `anthropicRequestBodySchema` would drop the model routing.
+const anthropicEffortSchema = z.object({
+	output_config: z.looseObject({ effort: z.string() }),
+	thinking: z.looseObject({ type: z.string() }).optional(),
+});
 
 // The system prompt of Claude Code 2.1.281 opens with one of these lines.
 // The SDK with an appended prompt sends the second line.
@@ -564,6 +576,11 @@ export class LlmProxyService {
 				? null
 				: (wanditUserMessages(paperMessages ?? bodyJson.messages) ??
 					paperMessages);
+		// The thinking control of the turn. A count_tokens call has no effort to change.
+		const outputConfig =
+			bodyJson === undefined || input.endpoint === "count_tokens"
+				? null
+				: thinkingOutputConfig(bodyJson, claims.thinking, upstream.provider);
 		// A body that keeps its model id and needs no rewrite keeps its raw
 		// bytes. The rewrite gives the same bytes for the same input, so the
 		// prompt cache still hits.
@@ -571,7 +588,8 @@ export class LlmProxyService {
 			bodyJson === undefined ||
 			(bodyJson.model === upstream.upstreamModelId &&
 				system === null &&
-				messages === null)
+				messages === null &&
+				outputConfig === null)
 				? input.body
 				: Buffer.from(
 						JSON.stringify({
@@ -579,6 +597,7 @@ export class LlmProxyService {
 							model: upstream.upstreamModelId,
 							...(messages === null ? {} : { messages }),
 							...(system === null ? {} : { system }),
+							...(outputConfig === null ? {} : { output_config: outputConfig }),
 						}),
 						"utf8",
 					);
@@ -818,6 +837,7 @@ export class LlmProxyService {
 				// Without Langfuse, the proxy does no content work.
 				this.langfuse === null ? null : messageFromAnthropicJson(json),
 				upstreamRequestId,
+				gatewayCostFromAnthropicJson(json),
 			);
 			return;
 		}
@@ -835,6 +855,7 @@ export class LlmProxyService {
 			// Without Langfuse, the proxy does no content work.
 			message: this.langfuse === null ? null : messageFromAnthropicJson(json),
 			upstreamErrorBody: null,
+			gatewayCost: gatewayCostFromAnthropicJson(json),
 		});
 	}
 
@@ -941,6 +962,7 @@ export class LlmProxyService {
 			forwardedBody: options.forwardedBody,
 			message: parser.message(),
 			upstreamErrorBody: null,
+			gatewayCost: parser.gatewayCost(),
 		});
 	}
 
@@ -960,6 +982,8 @@ export class LlmProxyService {
 		forwardedBody: Buffer,
 		message: AnthropicAssistantMessage | null,
 		upstreamRequestId?: string,
+		// Gateway cost of a buffered body that arrived before the abort.
+		gatewayCost?: LlmGatewayCost | null,
 	): Promise<void> {
 		reply.end();
 		await this.finish(input, claims, upstream, modelId, {
@@ -971,6 +995,7 @@ export class LlmProxyService {
 			forwardedBody,
 			message,
 			upstreamErrorBody: null,
+			gatewayCost,
 		});
 	}
 
@@ -1128,6 +1153,9 @@ export class LlmProxyService {
 			message: AnthropicAssistantMessage | null;
 			// The upstream body of a non-2xx answer; null on every other path.
 			upstreamErrorBody: string | null;
+			// Real cost from `provider_metadata.gateway`. Only a 2xx answer has
+			// it; absent or null writes null. Billing never reads it.
+			gatewayCost?: LlmGatewayCost | null | undefined;
 		},
 	): Promise<void> {
 		// Anthropic's count_tokens endpoint is free: the row keeps the token
@@ -1174,6 +1202,8 @@ export class LlmProxyService {
 				cacheReadTokens: result.usage.cacheReadTokens,
 				cacheWriteTokens: result.usage.cacheWriteTokens,
 				usdMicros,
+				gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+				gatewayProvider: result.gatewayCost?.provider ?? null,
 				status: result.status,
 				reason: result.reason,
 				upstreamRequestId: result.upstreamRequestId ?? null,
@@ -1214,6 +1244,8 @@ export class LlmProxyService {
 			cacheReadTokens: result.usage.cacheReadTokens,
 			cacheWriteTokens: result.usage.cacheWriteTokens,
 			usdMicros,
+			gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+			gatewayProvider: result.gatewayCost?.provider ?? null,
 			status: result.status,
 			latencyMs: result.latencyMs,
 		});
@@ -1399,6 +1431,44 @@ function wanditUserMessages(
 	return rewritten.some((message, index) => message !== original[index])
 		? rewritten
 		: null;
+}
+
+/**
+ * The `output_config` for the thinking level of the turn, with the same fields.
+ * `light` sends effort "medium". `deep` sends "xhigh", or "max" on an Anthropic model.
+ * Returns null for `balanced` or no level, when the body sends no effort (the
+ * harness knows the model takes none), when the effort already matches, or when thinking is off.
+ */
+function thinkingOutputConfig(
+	body: z.infer<typeof anthropicRequestBodySchema>,
+	/** Level from the run token; absent on a token minted before the field. */
+	level: BuilderThinking | undefined,
+	/** `upstream.provider`: `upstreamFor` resolves it for every request, also `anthropic` for a bare `claude-` id. */
+	provider: string,
+): z.infer<typeof anthropicEffortSchema>["output_config"] | null {
+	// Live test, 2026-11: on Opus 5.5 only "max" changes the thinking, "xhigh" does not.
+	// On Gemini, "xhigh" already raises the thinking a lot.
+	const target =
+		level === "light"
+			? "medium"
+			: level === "deep"
+				? provider === "anthropic"
+					? "max"
+					: "xhigh"
+				: null;
+	if (target === null) {
+		return null;
+	}
+	const parsed = anthropicEffortSchema.safeParse(body);
+	if (!parsed.success) {
+		return null;
+	}
+	const { output_config: original, thinking } = parsed.data;
+	// Claude Code holds the effort down when thinking is off: some models then refuse a higher effort.
+	if (original.effort === target || thinking?.type === "disabled") {
+		return null;
+	}
+	return { ...original, effort: target };
 }
 
 // Removes "You are powered by the model ..." and the cutoff sentence.

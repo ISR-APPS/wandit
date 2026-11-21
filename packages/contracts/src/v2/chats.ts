@@ -15,6 +15,11 @@ export const projectChatSchema = z.object({
 	createdAt: isoDateTimeSchema,
 	// Date of the newest message. Null while the conversation has no message.
 	lastMessageAt: isoDateTimeSchema.nullable(),
+	// The locked model: the price-table id of the newest turn that has a
+	// model, for example `anthropic/claude-opus-5`. A turn with another model
+	// answers 409 `V2_MODEL_LOCKED`. Null before the first turn. The web maps
+	// it to a tier name and never shows the id.
+	model: z.string().min(1).nullable(),
 });
 
 /** One conversation row. The web shows "New conversation" for a null `title`. */

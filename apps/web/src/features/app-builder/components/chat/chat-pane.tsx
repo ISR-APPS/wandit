@@ -73,6 +73,7 @@ import { ChatSwitcher } from "./chat-switcher";
 import { Composer } from "./composer";
 import { GithubUpdateBanner } from "./github-update-banner";
 import { CARD_SECONDARY_BUTTON_CLASS } from "./message-card";
+import type { ModelLock } from "./model-lock-chip";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { WorkingRow } from "./working-row";
@@ -150,6 +151,8 @@ export type ChatPaneProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** The model menu state of the project, from useBuilderModelPick. The composer shows the menu next to the Plan chip. */
 	modelPick: BuilderModelPick;
+	/** The locked model of the open conversation, made by the page. Null before its first turn. Set, the composer shows a lock chip, not the menu. */
+	modelLock: ModelLock | null;
 	/** True for a web project, from `project.kind` in the page. The composer then shows the Clone chip. */
 	canCloneSite: boolean;
 	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
@@ -221,6 +224,7 @@ export function ChatPane({
 	isPlanMode,
 	onPlanModeChange,
 	modelPick,
+	modelLock,
 	canCloneSite,
 	chatCost,
 	contextUsage,
@@ -601,6 +605,7 @@ export function ChatPane({
 						isPlanMode={isPlanMode}
 						onPlanModeChange={onPlanModeChange}
 						modelPick={modelPick}
+						modelLock={modelLock}
 						canCloneSite={canCloneSite}
 						contextUsage={contextUsage}
 						onCreateChat={onCreateChat}

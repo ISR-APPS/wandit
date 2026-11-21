@@ -269,6 +269,127 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it.each([
+		{
+			case: "a light Messages call",
+			thinking: "light" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "medium",
+		},
+		{
+			case: "a balanced Messages call",
+			thinking: "balanced" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep Messages call on Gemini",
+			thinking: "deep" as const,
+			model: "google/gemini-4-argon",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "xhigh",
+		},
+		{
+			case: "a deep Messages call on Claude",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: "max",
+		},
+		{
+			case: "a deep call with thinking disabled",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "disabled",
+			bodyEffort: "high",
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep call whose body sends no effort",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: null,
+			endpoint: "messages" as const,
+			sentEffort: null,
+		},
+		{
+			case: "a deep count_tokens call",
+			thinking: "deep" as const,
+			model: "anthropic/claude-sonnet-5",
+			bodyThinking: "adaptive",
+			bodyEffort: "high",
+			endpoint: "count_tokens" as const,
+			sentEffort: null,
+		},
+	])("sends effort $sentEffort for $case", async ({
+		thinking,
+		model,
+		bodyThinking,
+		bodyEffort,
+		endpoint,
+		sentEffort,
+	}) => {
+		const upstream = await startUpstream(
+			jsonOk(JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } })),
+		);
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service } = makeService(env);
+			const { input } = inbound(env, {
+				authorization: token(env, { thinking }),
+				endpoint,
+				body: Buffer.from(
+					JSON.stringify({
+						model,
+						max_tokens: 64,
+						messages: [{ role: "user", content: "hi" }],
+						thinking: { type: bodyThinking },
+						// The harness sends no effort for a model that takes none.
+						...(bodyEffort === null
+							? {}
+							: {
+									output_config: {
+										effort: bodyEffort,
+										format: { type: "json" },
+									},
+								}),
+					}),
+					"utf8",
+				),
+			});
+
+			await service.proxyAnthropic(input, new FakeReply());
+
+			const sent = upstream.requests[0]?.body ?? Buffer.alloc(0);
+			if (sentEffort === null) {
+				// No rewrite: the raw bytes go out, so the prompt cache still hits.
+				expect(sent.equals(input.body)).toBe(true);
+			} else {
+				expect(JSON.parse(sent.toString("utf8"))).toEqual({
+					model,
+					max_tokens: 64,
+					messages: [{ role: "user", content: "hi" }],
+					thinking: { type: bodyThinking },
+					output_config: { effort: sentEffort, format: { type: "json" } },
+				});
+			}
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("sends the plan default model when the request names none", async () => {
 		const upstream = await startUpstream(
 			jsonOk(JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } })),

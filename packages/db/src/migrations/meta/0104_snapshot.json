@@ -1,5 +1,5 @@
 {
-  "id": "1a934bff-91e3-4eed-a6ca-5213a999a778",
+  "id": "0ba3ce4b-3aba-4b2c-8d76-623d14f541ea",
   "prevId": "8319cacf-5ce7-4dea-b223-cf1a2657816e",
   "version": "7",
   "dialect": "postgresql",
@@ -6123,14 +6123,7 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 25000
-        },
-        "starter_pass_required": {
-          "name": "starter_pass_required",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
+          "default": 27000
         },
         "version": {
           "name": "version",
@@ -6533,207 +6526,6 @@
         "slickpay_payments_plan_or_topup_ck": {
           "name": "slickpay_payments_plan_or_topup_ck",
           "value": "(\"slickpay_payments\".\"plan\" IS NOT NULL AND \"slickpay_payments\".\"tier_credits\" IS NOT NULL AND \"slickpay_payments\".\"interval\" IS NOT NULL) OR \"slickpay_payments\".\"credits\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.starter_passes": {
-      "name": "starter_passes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "starter_pass_source",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "receipt_id": {
-          "name": "receipt_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "granted_by_user_id": {
-          "name": "granted_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_by_user_id": {
-          "name": "revoked_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_reason": {
-          "name": "revoked_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "starter_passes_live_user_uq": {
-          "name": "starter_passes_live_user_uq",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"starter_passes\".\"organization_id\" IS NULL AND \"starter_passes\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "starter_passes_live_organization_uq": {
-          "name": "starter_passes_live_organization_uq",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"starter_passes\".\"organization_id\" IS NOT NULL AND \"starter_passes\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "starter_passes_receiptId_idx": {
-          "name": "starter_passes_receiptId_idx",
-          "columns": [
-            {
-              "expression": "receipt_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "starter_passes_user_id_user_id_fk": {
-          "name": "starter_passes_user_id_user_id_fk",
-          "tableFrom": "starter_passes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "starter_passes_organization_id_organization_id_fk": {
-          "name": "starter_passes_organization_id_organization_id_fk",
-          "tableFrom": "starter_passes",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "starter_passes_receipt_id_billing_topup_receipts_id_fk": {
-          "name": "starter_passes_receipt_id_billing_topup_receipts_id_fk",
-          "tableFrom": "starter_passes",
-          "tableTo": "billing_topup_receipts",
-          "columnsFrom": [
-            "receipt_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "starter_passes_granted_by_user_id_user_id_fk": {
-          "name": "starter_passes_granted_by_user_id_user_id_fk",
-          "tableFrom": "starter_passes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "granted_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "starter_passes_revoked_by_user_id_user_id_fk": {
-          "name": "starter_passes_revoked_by_user_id_user_id_fk",
-          "tableFrom": "starter_passes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "revoked_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "starter_passes_one_owner_ck": {
-          "name": "starter_passes_one_owner_ck",
-          "value": "num_nonnulls(\"starter_passes\".\"user_id\", \"starter_passes\".\"organization_id\") = 1"
         }
       },
       "isRLSEnabled": false
@@ -13562,6 +13354,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "gateway_usd_micros": {
+          "name": "gateway_usd_micros",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gateway_provider": {
+          "name": "gateway_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "llm_proxy_request_status",
@@ -19558,17 +19362,6 @@
         "fulfilled",
         "failed",
         "expired"
-      ]
-    },
-    "public.starter_pass_source": {
-      "name": "starter_pass_source",
-      "schema": "public",
-      "values": [
-        "stripe",
-        "slickpay",
-        "offline",
-        "grandfathered",
-        "admin"
       ]
     },
     "public.subscription_refill_slot_status": {
