@@ -12,6 +12,7 @@ export type {
 	GrantUserCreditsInput,
 	ListUsersParams,
 	SetUserBannedInput,
+	StarterPassAction,
 	UserDetail,
 	UserPlan,
 	UserProject,
@@ -32,4 +33,5 @@ export {
 	useUserQuery,
 	useUsersQuery,
 } from "./api/users.queries";
+export { StarterPassCard } from "./components/detail/starter-pass-card";
 export { formatAdminDateTime, formatWholeNumber } from "./lib/formatters";

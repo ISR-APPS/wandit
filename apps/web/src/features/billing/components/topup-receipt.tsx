@@ -30,7 +30,7 @@ type TopupReceiptProps = {
 	tone: TopupTone;
 	/** "full" on /pricing. "compact" in the dialog and on the wallet card. */
 	size: "full" | "compact";
-	/** Price of the amount in DZD for a visitor in Algeria, from formatLocalPrice. Undefined for all other visitors. */
+	/** Price of the amount in DZD, from formatLocalPrice with the rate of useDzdPerUsdRate. Undefined when the rate is not known. */
 	localPriceLabel?: string;
 	/** Called by the nudge button with the first amount of the next bonus tier, in whole USD. */
 	onAmountUsdChange: (amountUsd: number) => void;

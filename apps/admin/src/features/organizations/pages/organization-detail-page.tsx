@@ -1,5 +1,5 @@
 /**
- * The organization detail page: balance, members, ledger, and staff grant actions.
+ * The organization detail page: balance, Starter pass, members, ledger, and staff grant actions.
  * The route /organizations/$organizationId renders it. It reads useOrganizationQuery.
  * A personal workspace hides the org grants, because the owner's personal pool pays for it.
  */
@@ -39,9 +39,11 @@ import {
 import { useSession } from "@/features/auth/lib/session";
 import { RecordTopupDialog } from "@/features/offline-billing";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
+import { useChangeOrganizationStarterPassMutation } from "@/features/organizations/api/organizations.mutations";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
 import { GrantOrgCreditsDialog } from "@/features/organizations/components/grant-org-credits-dialog";
 import { OrgMembersCard } from "@/features/organizations/components/org-members-card";
+import { StarterPassCard } from "@/features/users";
 import { UserCreditLedger } from "@/features/users/components/detail/user-credit-ledger";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
 import {
@@ -68,6 +70,7 @@ export function OrganizationDetailPage({
 	const { data: session } = useSession();
 	const hasGrantPermission = useAdminPermission({ credits: ["grant"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+	const starterPassMutation = useChangeOrganizationStarterPassMutation();
 
 	if (organizationQuery.isLoading) {
 		return (
@@ -163,6 +166,30 @@ export function OrganizationDetailPage({
 			/>
 			<BalanceMetrics detail={detail} isPersonal={isPersonal} />
 
+			{/* A personal workspace shows the pass of the owner's personal pool. Staff change it on the user page. */}
+			<StarterPassCard
+				starterPass={detail.starterPass}
+				poolLabel={
+					isPersonal
+						? "the owner's personal wallet"
+						: `the team wallet of ${detail.name}`
+				}
+				canChange={canGrantCredits}
+				readOnlyHint={
+					isPersonal
+						? "Grant or revoke this pass on the owner's user page."
+						: undefined
+				}
+				isPending={starterPassMutation.isPending}
+				onChange={async (action, note) => {
+					await starterPassMutation.mutateAsync({
+						organizationId: detail.id,
+						action,
+						note,
+					});
+				}}
+			/>
+
 			<div className="grid gap-6 xl:grid-cols-2">
 				{detail.subscription ? (
 					<UserSubscriptionCard subscription={detail.subscription} />
@@ -197,6 +224,7 @@ export function OrganizationDetailPage({
 					prefill={{
 						user: offlineBillingUser,
 						organization: { id: detail.id, name: detail.name },
+						starterPass: detail.starterPass,
 					}}
 				/>
 			) : null}

@@ -360,7 +360,9 @@ function ReverseTopupDialog({
 							? "The API removes the credits of this receipt"
 							: `The API removes ${formatCreditAmount(receipt.credits)} credits`}{" "}
 						from the wallet of {ownerLabel}. The balance can go below zero when
-						the credits are already spent. You cannot undo this action.
+						the credits are already spent. If this receipt gave the Starter
+						pass, the pass moves to another live receipt or is revoked. You
+						cannot undo this action.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>

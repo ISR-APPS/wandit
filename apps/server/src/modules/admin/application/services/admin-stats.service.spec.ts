@@ -124,6 +124,7 @@ const OVERVIEW_SNAPSHOT = {
 		signupsChangePercent: 16.7,
 		activeUsers: 42,
 		activationPercent: 42,
+		starterPassesInRange: 3,
 	},
 	generation: {
 		attempts: 10,

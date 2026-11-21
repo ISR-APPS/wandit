@@ -1,7 +1,7 @@
 /**
- * The wallet page at /billing: the balance and its runway, the top-up meter, the trophies, and the history.
- * The /billing route renders it inside the dashboard frame (sidebar and top bar).
- * Calls the billing and credits queries. WalletTopupCard opens the top-up dialog through useBillingModal.
+ * The wallet page at /billing: the Starter pass card, the balance and its runway, the top-up meter, the trophies, and the history.
+ * The /billing route renders it inside the dashboard frame (sidebar and top bar). `?starterPass=1` opens the top-up dialog.
+ * Calls the billing and credits queries. WalletTopupCard and StarterPassCard open the top-up dialog through useBillingModal.
  */
 import type { Icon } from "@phosphor-icons/react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -26,7 +26,7 @@ import {
 	TabsTrigger,
 } from "@wandit/ui/components/tabs";
 import { cn } from "@wandit/ui/lib/utils";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
 	useCancelManualSubscriptionRequest,
@@ -36,8 +36,10 @@ import {
 	useBillingWalletQuery,
 	useManualSubscriptionRequestQuery,
 } from "@/features/billing/api/billing.queries";
+import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { ManualRequestCancelDialog } from "@/features/billing/components/manual-payment-request-panel";
 import { PaymentHistoryCard } from "@/features/billing/components/payment-history-card";
+import { StarterPassCard } from "@/features/billing/components/starter-pass-card";
 import { WalletTopupCard } from "@/features/billing/components/wallet-topup-card";
 import { usePurchaseSummary } from "@/features/billing/lib/purchase-summary";
 import { walletRunwayDays } from "@/features/billing/lib/wallet-runway";
@@ -72,23 +74,42 @@ const LABEL_CLASS =
 const RUNWAY_WEEKS_FROM_DAYS = 14;
 const RUNWAY_LONGER_THAN_DAYS = 180;
 
+type BillingPageProps = {
+	/** True when the URL has `?starterPass=1` (native app links). The page opens the top-up dialog once. */
+	openTopupOnLoad: boolean;
+	/** Removes `?starterPass=1` from the URL, so a reload does not open the dialog again. */
+	onTopupOpened: () => void;
+};
+
 /** The /billing route renders this page: the wallet of the active workspace. */
-export default function BillingPage() {
+export default function BillingPage(props: BillingPageProps) {
 	return (
 		<DashboardShell titleKey="billing.page.title">
 			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
-				<BillingContent />
+				<BillingContent {...props} />
 			</div>
 		</DashboardShell>
 	);
 }
 
-function BillingContent() {
+function BillingContent({ openTopupOnLoad, onTopupOpened }: BillingPageProps) {
 	const { t } = useTranslation();
 	const { activeWorkspace, actorCanManageBilling, isPersonal } = useWorkspace();
 	const copy = useDictionary().billing;
+	const { openTopup } = useBillingModal();
 	const [ledgerPage, setLedgerPage] = useState(1);
 	const walletQuery = useBillingWalletQuery();
+	const hasOpenedTopup = useRef(false);
+
+	// The dialog picks the Starter pass mode from the wallet, so it opens after the wallet loads. The ref stops a second open.
+	useEffect(() => {
+		if (!openTopupOnLoad || !walletQuery.isSuccess || hasOpenedTopup.current) {
+			return;
+		}
+		hasOpenedTopup.current = true;
+		openTopup("billing_page");
+		onTopupOpened();
+	}, [openTopupOnLoad, walletQuery.isSuccess, openTopup, onTopupOpened]);
 	// Only a billing manager sees the ledger below. The API refuses the activity of
 	// another user's personal pool to a member who is not an admin.
 	const activityQuery = useCreditActivityQuery(
@@ -135,6 +156,11 @@ function BillingContent() {
 					<p className="mt-2 max-w-sm text-night/60 text-sm dark:text-foreground/60">
 						{t("workspaces.billing.ownerOnlyBody")}
 					</p>
+					{walletQuery.data?.starterPassRequired ? (
+						<p className="mt-2 max-w-sm font-semibold text-night text-sm dark:text-foreground">
+							{copy.starterPass.askOwner}
+						</p>
+					) : null}
 				</div>
 				<TrophySummaryCard className={cn(CARD_CLASS, "mt-4")} />
 			</>
@@ -199,6 +225,14 @@ function BillingContent() {
 											toast.error(getApiErrorMessage(error));
 										});
 								}}
+							/>
+						) : null}
+
+						{walletQuery.data.starterPassRequired ? (
+							<StarterPassCard
+								promoCredits={walletQuery.data.balance.settledPromo}
+								onGetPass={() => openTopup("billing_page")}
+								className={CARD_CLASS}
 							/>
 						) : null}
 

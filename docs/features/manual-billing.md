@@ -3,6 +3,8 @@
 > **Pricing v8 (2026-11-12):** an offline payment is a wallet top-up of an amount. It buys no plan.
 > The section "Current flow (pricing v8)" is true. The sections after "History (before pricing v8)"
 > describe the old manual subscriptions. See [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md) section 5.
+> **Starter pass (2026-11-20):** cash on delivery never sells the 1 USD Starter pass. An offline top-up
+> of 10 USD or more that an admin records gives the pass. See the section "Cash rule" below.
 
 ## Current flow (pricing v8)
 
@@ -27,6 +29,19 @@ Three switches are independent:
 4. A request from before pricing v8 keeps its plan columns and has no amount. The "Record top-up"
    dialog shows the plan and suggests credits for it (10 credits for 1 USD).
 
+### Cash rule (Starter pass)
+
+The founder rule: cash on delivery is only for top-ups. It never buys the 1 USD Starter pass.
+
+- The request body keeps `topupAmountUsdSchema`, so the minimum is 10 USD. No offline body has a
+  `starterPass` field.
+- While the wallet says `starterPassRequired`, the top-up dialog is in Starter pass mode. It shows only
+  the Card and "CIB / Edahabia" tabs. It has no Cash / transfer tab.
+- The API does not refuse an offline request from a pool with no pass. A customer can still ask for a
+  cash top-up of 10 USD or more, for example from an old web bundle.
+- "Record top-up" gives the pool its Starter pass (see step 5 below). Cash of 10 USD or more is real
+  money, so it unlocks the pool like a card top-up.
+
 ### Admin action "Record top-up"
 
 `POST /api/v1/admin/topup-receipts` (`billing: manage`). It can run with or without a request.
@@ -40,7 +55,9 @@ Three switches are independent:
    fund this owner.
 5. In one transaction: one `billing_topup_receipts` row (provider `offline`), `CreditsService.topup`
    (bucket `topup`, key `offline-topup:{idempotencyKey}`), and the request set to `approved`.
-   The lifecycle event `payment_completed` gets `interval: "topup"`.
+   The lifecycle event `payment_completed` gets `interval: "topup"`. The same transaction gives the
+   credit pool a Starter pass (source `offline`, `receipt_id` of the new receipt), if the pool has no
+   live pass. A replay of step 3 writes no pass.
 
 Default credits: the admin can type the credits. Else the API uses the amount. A USD amount gives
 10 credits for each whole USD. A DZD amount is first converted with the admin setting
@@ -60,6 +77,9 @@ Offline and SlickPay payments have no refund event. To give money back:
    Under the owner lock, the API revokes all credits of the receipt (bucket `topup`, key
    `topup-reverse:{receiptId}`) and sets `reversed_at`, in one transaction. A second click
    changes nothing. The balance can go below zero, the same rule as a Stripe refund.
+   In the same transaction, a Starter pass that this receipt gave moves to the newest other live
+   receipt of the pool (any provider). If no such receipt exists, the API revokes the pass with the
+   reason `receipt_reversed:{receiptId}`. Then the pool cannot start new spend while the switch is on.
 
 The API refuses "Reverse top-up" on a Stripe receipt. Refund a card top-up in the Stripe Dashboard:
 the `charge.refunded` webhook revokes the credits in proportion.

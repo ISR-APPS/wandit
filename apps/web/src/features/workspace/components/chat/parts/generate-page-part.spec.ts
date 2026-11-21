@@ -305,6 +305,7 @@ describe("FailedBuildCard (design card 12)", () => {
 				failureCode,
 				onDismiss: () => undefined,
 				onRetry: () => undefined,
+				starterPassRequired: false,
 			}),
 		);
 	}

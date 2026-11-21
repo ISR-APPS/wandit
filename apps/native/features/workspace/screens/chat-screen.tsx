@@ -1,3 +1,7 @@
+/**
+ * The project chat screen: header, live thread, request tray, and composer with the credits strip.
+ * The project route renders it. It calls useAiChat, useOutOfCredits, and the chat thread components.
+ */
 import { useTranslation } from "@wandit/internationalization/react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,7 +17,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RadialGlow } from "@/components/radial-glow";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
+import {
+	isStarterPassIntent,
+	OutOfCreditsBanner,
+	useOutOfCredits,
+} from "@/features/credits";
 import {
 	CHAT_PROMPT_MAX_LENGTH,
 	PromptBox,
@@ -96,11 +104,14 @@ export function ChatScreen() {
 	// lock would trap the user, since billingIntent only clears on send. The
 	// same signal expires a stale insufficient-credits banner once the balance
 	// recovers; a member-limit refusal is not balance-shaped, so its banner
-	// stays until the next send clears the intent.
-	const { outOfCredits } = useOutOfCredits();
+	// stays until the next send clears the intent. A Starter pass refusal
+	// shows at once too: the balance refetch then keeps the lock.
+	const { outOfCredits, starterPassRequired } = useOutOfCredits();
 	const bannerIntent =
 		billingIntent &&
-		(billingIntent.code === "MEMBER_CREDIT_LIMIT_REACHED" || outOfCredits)
+		(billingIntent.code === "MEMBER_CREDIT_LIMIT_REACHED" ||
+			outOfCredits ||
+			isStarterPassIntent(billingIntent))
 			? billingIntent
 			: null;
 
@@ -345,7 +356,11 @@ export function ChatScreen() {
 			<KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
 				<View className="gap-2.5" style={{ paddingBottom: insets.bottom + 10 }}>
 					<View className="px-4">
-						<OutOfCreditsBanner active={outOfCredits} intent={bannerIntent}>
+						<OutOfCreditsBanner
+							active={outOfCredits}
+							intent={bannerIntent}
+							starterPassRequired={starterPassRequired}
+						>
 							<PromptBox
 								key={composerPrefill.revision}
 								variant="compact"

@@ -24,4 +24,8 @@ export {
 	formatCreditBalance,
 	formatCreditDelta,
 } from "./lib/format-credits";
-export { useOutOfCredits } from "./lib/out-of-credits";
+export {
+	isOutOfCredits,
+	isStarterPassRequiredError,
+	useOutOfCredits,
+} from "./lib/out-of-credits";

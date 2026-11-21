@@ -22,7 +22,8 @@ Only report to me in ASD-STE100 Simplified Technical English
 ## Dev sign-in
 
 - A local API (`NODE_ENV=development`, `BETTER_AUTH_URL` on localhost) accepts email and password sign-in. Sign-up stays off.
-- The API seeds one account at boot: `dev@wandit.test`, password `wandit-dev-password`. The account is verified and onboarded. It gets the signup credit grant only when `product_settings.signup_grant_enabled` is true. The seed also tops up its personal wallet one time with 250 credits (key `dev-seed:topup:{userId}`). The top-up makes it a paid owner, so it can hold one V2 backend.
+- The API seeds one account at boot: `dev@wandit.test`, password `wandit-dev-password`. The account is verified and onboarded. It gets the signup credit grant only when `product_settings.signup_grant_enabled` is true. The seed also tops up its personal wallet one time with 250 credits (key `dev-seed:topup:{userId}`). The top-up makes it a paid owner, so it can hold one V2 backend. The seed creates no plan and no subscription.
+- The seed also gives the personal pool a Starter pass (source `admin`, note "dev seed"). The dev account can then spend credits when the admin toggle "Starter pass" (`product_settings.starter_pass_required`) is on. A later boot writes no second pass.
 - For more than one V2 backend, add the line `BACKEND_LIMIT_OFF=true` to `apps/server/.env`. Worktrees share one database and the dev account, so add the line in each worktree. Production forces the switch off.
 - When you test the web app in a browser, open the auth modal and click "Dev sign-in". The form already holds these values. Do not use Google sign-in.
 

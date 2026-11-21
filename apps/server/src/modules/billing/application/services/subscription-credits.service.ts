@@ -39,6 +39,7 @@ import { BillingCustomersRepository } from "../../infrastructure/persistence/bil
 import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import { FinancialReconciliationOutboxRepository } from "../../infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
+import { StarterPassesRepository } from "../../infrastructure/persistence/starter-passes.repository";
 import {
 	type InvoiceApplicationRow,
 	type SubscriptionCreditRow,
@@ -121,8 +122,14 @@ export class SubscriptionCreditsService {
 		private readonly topupReceiptsRepository: BillingTopupReceiptsRepository,
 		@Inject(LifecycleEventsService)
 		private readonly lifecycleEvents: LifecycleEventsService,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"grantIfAbsent"
+		>,
 	) {}
 
+	/** Grants a paid card top-up, the Starter pass included: credits, one receipt, and the pass of the pool. */
 	async grantTopup(session: Stripe.Checkout.Session): Promise<void> {
 		if (session.payment_status !== "paid") {
 			throw new Error(`Stripe checkout session ${session.id} is not paid`);
@@ -297,7 +304,7 @@ export class SubscriptionCreditsService {
 					tx,
 				);
 
-				await this.topupReceiptsRepository.insertIfAbsent(
+				const receipt = await this.topupReceiptsRepository.insertIfAbsent(
 					{
 						amountCents: session.amount_total ?? grant.amountUsdCents,
 						amountUsdCents: grant.amountUsdCents,
@@ -314,6 +321,16 @@ export class SubscriptionCreditsService {
 					},
 					tx,
 				);
+
+				// Any paid card top-up proves a real payer. A replay finds the receipt and writes no pass,
+				// so a pass that a dispute revoked does not come back.
+				if (receipt) {
+					await this.starterPasses.grantIfAbsent(
+						owner,
+						{ receiptId: receipt.id, source: "stripe" },
+						tx,
+					);
+				}
 
 				await this.lifecycleEvents.enqueue(
 					{

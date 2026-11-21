@@ -1064,6 +1064,7 @@ function setup(
 		credits as unknown as CreditsService,
 		orderRefundHandler,
 		stripe as unknown as StripeProvider,
+		{ revokeOrMoveForStripePayment: vi.fn(async () => null) },
 	);
 	const reconciliationOutbox = {
 		enqueue: vi.fn(async () => null),
@@ -1089,6 +1090,7 @@ function setup(
 		reconciliationOutbox as never,
 		{ insertIfAbsent: vi.fn(async () => null) } as never,
 		lifecycleEvents as never,
+		{ grantIfAbsent: vi.fn(async () => null) },
 	);
 	const router = new StripeEventRouter(
 		billingCustomers as unknown as BillingCustomersRepository,

@@ -101,7 +101,8 @@
 		},
 		"card": {
 			"description": "Payez en dollars US sur la page sécurisée de Stripe. Vous payez une seule fois.",
-			"redirecting": "Ouverture de Stripe…"
+			"redirecting": "Ouverture de Stripe…",
+			"dzdEstimate": "Cela fait environ {amount}. Stripe débite des dollars US."
 		},
 		"slickpay": {
 			"description": "Payez en dinars algériens sur la page sécurisée de SlickPay. Vous payez une seule fois.",
@@ -198,6 +199,18 @@
 		"shortfall": "Il vous manque {credits}. {amount} suffisent.",
 		"openSoon": "Recharges bientôt disponibles",
 		"youGetWithBonus": "Vous recevez {credits}, dont {bonus} de bonus"
+	},
+	"starterPass": {
+		"title": "Pass Démarrage",
+		"dialogTitle": "Obtenir le Pass Démarrage",
+		"why": "Wandit demande un petit paiement réel avant d’utiliser des crédits. Cela tient à l’écart les faux comptes et les abus.",
+		"youGet": "Vous recevez {credits}.",
+		"welcomeUnlock": "Vos crédits de bienvenue se débloquent aussi.",
+		"methods": "Payez par carte ou par CIB / Edahabia. Un paiement en espèces ou par virement n’achète pas le Pass Démarrage.",
+		"cta": "Obtenir le Pass Démarrage · {price}",
+		"askOwner": "Les crédits de ce portefeuille restent bloqués jusqu’à ce que son propriétaire achète le Pass Démarrage. Demandez-lui de l’acheter.",
+		"unavailableTitle": "Le Pass Démarrage n’est pas disponible pour le moment",
+		"unavailableBody": "Les paiements par carte et par CIB / Edahabia sont fermés pour le moment. Réessayez plus tard."
 	},
 	"offlineRequest": {
 		"title": "Demande de recharge hors ligne en attente",

@@ -599,6 +599,16 @@ describe("AffiliateCommissionService", () => {
 			expect(repository.insertEarning).toHaveBeenCalledOnce();
 		});
 
+		it("earns nothing and writes no candidate for a 1 USD Starter pass top-up", async () => {
+			const session = { ...topupSession(), amount_total: 100 };
+			const { repository, service } = setup(invoice(), session);
+			repository.attribution = attribution(fixedProgram);
+
+			await expect(service.handlePaidTopup(session)).resolves.toBe(false);
+			expect(repository.upsertCandidate).not.toHaveBeenCalled();
+			expect(repository.insertEarning).not.toHaveBeenCalled();
+		});
+
 		it("marks the candidate ineligible when the affiliate paid the top-up", async () => {
 			const { checkoutAttempts, repository, service } = setup();
 			checkoutAttempts.findByProviderSessionId.mockResolvedValueOnce({

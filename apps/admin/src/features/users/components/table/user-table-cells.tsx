@@ -1,14 +1,20 @@
+/**
+ * Cells of the admin users table and its mobile list: identity, role, plan, Starter pass, phone, status.
+ * UsersTableColumns, UsersMobileList, and the user detail header render them.
+ */
 import { Link } from "@tanstack/react-router";
 import { BadgeCheckIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type {
+	AdminStarterPass,
 	AdminUserPlan,
 	AdminUserRole,
 	AdminUserSummary,
 } from "@/features/users/api/users.dto";
 import { CountryFlag } from "@/features/users/components/country-flag";
+import { STARTER_PASS_SOURCE_LABELS } from "@/features/users/lib/constants";
 import { cn } from "@/lib/utils";
 
 import { getInitials, titleCase } from "./users-table-utils";
@@ -75,6 +81,34 @@ function PlanBadge({ plan }: { plan: AdminUserPlan }) {
 	);
 }
 
+/** Live Starter pass of the personal pool. Undefined: an older API sent no field, so the cell shows a dash. */
+function StarterPassBadge({
+	starterPass,
+}: {
+	starterPass: AdminStarterPass | null | undefined;
+}) {
+	if (starterPass === undefined) {
+		return <span className="text-muted-foreground">—</span>;
+	}
+
+	if (starterPass === null) {
+		return (
+			<Badge variant="outline" className="text-muted-foreground">
+				None
+			</Badge>
+		);
+	}
+
+	return (
+		<Badge
+			variant="outline"
+			className="border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+		>
+			Active · {STARTER_PASS_SOURCE_LABELS[starterPass.source]}
+		</Badge>
+	);
+}
+
 function PhoneCell({ phone }: { phone: string | null }) {
 	if (!phone) {
 		return <span className="text-muted-foreground">—</span>;
@@ -124,4 +158,11 @@ function StatusBadge({ user }: { user: AdminUserSummary }) {
 	);
 }
 
-export { PhoneCell, PlanBadge, RoleBadge, StatusBadge, UserIdentity };
+export {
+	PhoneCell,
+	PlanBadge,
+	RoleBadge,
+	StarterPassBadge,
+	StatusBadge,
+	UserIdentity,
+};

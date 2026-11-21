@@ -20,6 +20,7 @@ function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 20,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: false,
 		updatedAt: "2026-08-01T10:00:00.000Z",
 		updatedByUserId: null,

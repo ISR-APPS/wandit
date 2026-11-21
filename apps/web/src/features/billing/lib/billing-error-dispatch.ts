@@ -85,6 +85,10 @@ export function toUpgradeModalIntent(
 			? { heldCredits: candidate.details.heldCredits }
 			: {}),
 		...(payer.success ? { payer: payer.data } : {}),
+		// The pool cannot spend its credits before the Starter pass. The provider reloads the wallet, or asks for the owner.
+		...(candidate.details.reason === "starter_pass_required"
+			? { reason: "starter_pass_required" as const }
+			: {}),
 	};
 }
 

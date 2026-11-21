@@ -3,12 +3,18 @@
  * The queries and mutations files call these functions.
  * They send requests to the `adminRoutes` organization routes through the api-client helpers.
  */
-import { adminRoutes } from "@wandit/contracts";
+import {
+	adminRoutes,
+	adminStarterPassBodySchema,
+	adminStarterPassResponseSchema,
+} from "@wandit/contracts";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 
 import type {
 	AdminListOrganizationsResponse,
+	AdminStarterPass,
+	ChangeOrganizationStarterPassInput,
 	GrantOrganizationCreditsInput,
 	ListOrganizationsParams,
 	OrganizationDetail,
@@ -55,4 +61,22 @@ export function setOrganizationMemberRole({
 		adminRoutes.organizationSetMemberRole(organizationId, userId),
 		{ role },
 	);
+}
+
+/** Grants or revokes the Starter pass of the team pool. Returns the live pass after the call, null after a revoke. */
+export async function changeOrganizationStarterPass({
+	organizationId,
+	action,
+	note,
+}: ChangeOrganizationStarterPassInput): Promise<AdminStarterPass | null> {
+	const route =
+		action === "grant"
+			? adminRoutes.organizationGrantStarterPass(organizationId)
+			: adminRoutes.organizationRevokeStarterPass(organizationId);
+	const payload = await apiPost<unknown>(
+		route,
+		adminStarterPassBodySchema.parse({ note }),
+	);
+
+	return adminStarterPassResponseSchema.parse(payload).starterPass;
 }

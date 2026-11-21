@@ -5,6 +5,7 @@
 import type { createDb } from "@wandit/db";
 
 import { PaidOwnerRepository } from "../modules/billing/infrastructure/persistence/paid-owner.repository";
+import { StarterPassesRepository } from "../modules/billing/infrastructure/persistence/starter-passes.repository";
 import { EmailService } from "../modules/email/application/services/email.service";
 import { LifecycleEventsDispatcher } from "../modules/lifecycle-events/application/services/lifecycle-events-dispatcher.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
@@ -20,7 +21,9 @@ export function createLifecycleEventsRuntime(db: TriggerDatabase) {
 	return {
 		dispatcher: new LifecycleEventsDispatcher(
 			repository,
-			new ProductSettingsService(new ProductSettingsRepository(db)),
+			new ProductSettingsService(
+				new ProductSettingsRepository(db, new StarterPassesRepository(db)),
+			),
 			new EmailService(),
 			new PaidOwnerRepository(db),
 		),

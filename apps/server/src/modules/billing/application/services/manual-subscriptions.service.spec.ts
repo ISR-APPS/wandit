@@ -15,6 +15,7 @@ import type {
 	ManualSubscriptionRequestRow,
 	UpdateManualSubscriptionRequestInput,
 } from "../../infrastructure/persistence/manual-subscription-requests.repository";
+import type { StarterPassGrant } from "../../infrastructure/persistence/starter-passes.repository";
 import type { SubscriptionCreditsTransaction } from "../../infrastructure/persistence/subscription-credits.repository";
 import type { ManualBillingOwnerRow } from "../../infrastructure/persistence/subscriptions.repository";
 import {
@@ -48,6 +49,7 @@ function productSettings(): ProductSettings {
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 700,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
@@ -350,6 +352,24 @@ function createContext(
 			return reversed;
 		},
 	};
+	// The pass writes of the service. The repository decides between a move and a revoke in SQL.
+	const passGrants: Array<{ owner: CreditOwner; grant: StarterPassGrant }> = [];
+	const passRevokes: Array<{ reason: string; receiptId: string }> = [];
+	const starterPasses = {
+		grantIfAbsent: async (owner: CreditOwner, grant: StarterPassGrant) => {
+			passGrants.push({ grant, owner });
+
+			return null;
+		},
+		revokeOrMoveForReceipt: async (
+			receipt: Pick<BillingTopupReceiptRow, "id">,
+			reason: string,
+		) => {
+			passRevokes.push({ reason, receiptId: receipt.id });
+
+			return null;
+		},
+	};
 	const service = new ManualSubscriptionsService(
 		{
 			countManualActive: async () => 0,
@@ -376,11 +396,14 @@ function createContext(
 		receiptsRepository,
 		{ get: async () => settings },
 		{ enqueue: async () => null },
+		starterPasses,
 	);
 
 	return {
 		ledger,
 		lockedOwners,
+		passGrants,
+		passRevokes,
 		receipts,
 		requests,
 		requestsRepository,
@@ -429,6 +452,13 @@ describe("ManualSubscriptionsService", () => {
 				handledByUserId: ADMIN_ID,
 				status: "approved",
 			});
+			// Cash an admin recorded unlocks the pool once. The replay returns before any write.
+			expect(context.passGrants).toEqual([
+				{
+					grant: { receiptId: first.id, source: "offline" },
+					owner: { type: "user", userId: USER.id },
+				},
+			]);
 		});
 
 		it("returns the first receipt on a replay after an admin changes the DZD rate", async () => {
@@ -552,6 +582,10 @@ describe("ManualSubscriptionsService", () => {
 			expect(context.receipts.get("receipt_1")?.reversedByUserId).toBe(
 				ADMIN_ID,
 			);
+			// The second call returns before the writes, so the pass of the receipt is taken once.
+			expect(context.passRevokes).toEqual([
+				{ reason: "receipt_reversed:receipt_1", receiptId: "receipt_1" },
+			]);
 		});
 
 		it("refuses a Stripe receipt, which a refund webhook reverses", async () => {

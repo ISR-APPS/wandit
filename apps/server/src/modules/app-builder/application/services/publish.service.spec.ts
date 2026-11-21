@@ -181,6 +181,7 @@ function balance(settledBalance: number): SettledCreditBalance {
 		settledPlan: 0,
 		settledPromo: 0,
 		settledTopup: settledBalance,
+		starterPassRequired: false,
 		topup: settledBalance,
 	};
 }

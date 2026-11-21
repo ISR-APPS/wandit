@@ -268,6 +268,7 @@ function setup(
 			settledPlan: 5_000,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		})),
 	};

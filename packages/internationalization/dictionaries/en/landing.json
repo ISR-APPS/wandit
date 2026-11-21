@@ -36,7 +36,7 @@
 		"inputLabel": "Describe your app",
 		"sub": "Wandit designs the screens, writes the code and sets up sign-in and a database. Try it on your phone in minutes.",
 		"cta": "Build it",
-		"ctaHint": "Start free. No code needed.",
+		"ctaHint": "Sign up free. No code needed.",
 		"stageLabel": "Preview of an app that Wandit builds",
 		"scanToOpen": "Scan to open on your phone",
 		"log": {
@@ -203,7 +203,7 @@
 	"pricing": {
 		"meta": {
 			"title": "Pricing — Wandit",
-			"description": "Top up from $10. Bonus credits from $40. No subscription. Credits never expire."
+			"description": "Top up from $10, in US dollars or Algerian dinars. Bonus credits from $40. No subscription. Credits never expire."
 		},
 		"kicker": "Pricing",
 		"title": "Pay for what you build.",
@@ -228,6 +228,13 @@
 				"Top up when you need more AI work"
 			],
 			"cta": "Start free"
+		},
+		"starterPass": {
+			"name": "Starter pass",
+			"title": "{price} to start",
+			"tagline": "One small real payment before your first credits keeps fake accounts away. You get {credits}.",
+			"welcomeUnlock": "Your welcome credits unlock too.",
+			"cta": "Get the Starter pass"
 		},
 		"payg": {
 			"name": "Pay as you go",
@@ -312,7 +319,8 @@
 			},
 			"algeria": {
 				"q": "Can I pay from Algeria?",
-				"a": "Yes. In Algeria you see the price in dinars and can pay with CIB or Edahabia. When it is available, you can also ask for a cash or transfer payment, and our team calls you."
+				"a": "Yes. Every price shows in US dollars and in Algerian dinars, at 1 US dollar = {price}. You can pay in dinars with CIB or Edahabia through SlickPay. When it is available, you can also ask for a cash or transfer payment, and our team calls you.",
+				"aWithoutRate": "Yes. When CIB / Edahabia payments are open, the prices also show in Algerian dinars. When it is available, you can also ask for a cash or transfer payment, and our team calls you."
 			},
 			"refunds": {
 				"q": "Can I get a refund?",
@@ -345,7 +353,7 @@
 			},
 			{
 				"q": "How do credits work?",
-				"a": "Every AI action uses credits, and you see what each one used. Top up from $10, with bonus credits from $40. There is no subscription, and credits never expire."
+				"a": "Every AI action uses credits, and you see what each one used. Top up from $10, with bonus credits from $40. You can pay in US dollars or in Algerian dinars. There is no subscription, and credits never expire."
 			}
 		]
 	},

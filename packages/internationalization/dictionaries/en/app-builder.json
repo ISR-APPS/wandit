@@ -798,6 +798,7 @@
 			"modelRetired": "The model of this conversation is no longer available. Start a new conversation.",
 			"sendFailed": "We could not send your message. Send it again.",
 			"connectionLost": "The chat lost its connection to the server.",
+			"starterPassRequired": "Get the Starter pass to start building. Your credits unlock after it.",
 			"providerFallback": "The AI provider"
 		},
 		"building": "Building",
@@ -883,7 +884,8 @@
 				"one": "{count} request",
 				"other": "{count} requests"
 			}
-		}
+		},
+		"payerStarterPassRequired": "The workspace of this project needs the Starter pass. Ask its owner to buy it."
 	},
 	"publish": {
 		"cta": "Publish",

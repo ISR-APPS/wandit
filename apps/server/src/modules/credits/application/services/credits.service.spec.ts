@@ -42,6 +42,8 @@ class InMemoryCreditsRepository {
 	readonly usageEvents: Required<SeedUsageEvent>[] = [];
 	readonly transactionInputs: Array<CreditsTransaction | undefined> = [];
 	readonly writeClients: unknown[] = [];
+	/** What the snapshot SQL answers for `starter_pass_required`, for every pool. */
+	starterPassRequired = false;
 	private lock: Promise<void> = Promise.resolve();
 	private nextId = 1;
 	private readonly tx = {} as CreditsTransaction;
@@ -121,6 +123,7 @@ class InMemoryCreditsRepository {
 			settledPlan: balance.plan + holds.plan,
 			settledPromo: balance.promo + holds.promo,
 			settledTopup: balance.topup + holds.topup,
+			starterPassRequired: this.starterPassRequired,
 		};
 	}
 
@@ -1129,6 +1132,45 @@ describe("CreditsService.consume admission requirePositiveBalance", () => {
 		expect(insufficient.heldCredits).toBeCloseTo(10);
 	});
 
+	it("refuses a new reserve with the Starter pass reason and still admits its replay", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "promo",
+			delta: 2000,
+			kind: "grant",
+			userId: "user_1",
+		});
+		const reserve = {
+			admission: "requirePositiveBalance",
+			idempotencyKey: "reserve:event_pass",
+			meta: { action: "chat" },
+		} as const;
+		const rows = await service.consume(userOwner("user_1"), 100, reserve);
+
+		// The switch goes on while the run is in flight: the replay keeps its debit.
+		repository.starterPassRequired = true;
+		await expect(
+			service.consume(userOwner("user_1"), 100, reserve),
+		).resolves.toEqual(rows);
+
+		const error = await service
+			.consume(userOwner("user_1"), 100, {
+				...reserve,
+				idempotencyKey: "reserve:event_new",
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(InsufficientCreditsError);
+		// SAFETY: the line above proves the class.
+		const refused = error as InsufficientCreditsError;
+		expect(refused.getResponse()).toMatchObject({
+			code: "INSUFFICIENT_CREDITS",
+			details: { availableCredits: 19, reason: "starter_pass_required" },
+		});
+		expect(refused.message).toMatch(/^Insufficient credits: required 1, /);
+		expect(repository.rows).toHaveLength(2);
+	});
+
 	it("records the admission mode in the fingerprint and validates replays", async () => {
 		const { repository, service } = setup();
 		repository.seed({
@@ -1314,6 +1356,7 @@ describe("CreditsService.getSettledBalance", () => {
 			settledPlan: 500,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 	});
@@ -1371,6 +1414,7 @@ describe("CreditsService.getSettledBalance", () => {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 700,
+			starterPassRequired: false,
 			topup: 700,
 		});
 	});

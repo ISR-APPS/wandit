@@ -1,3 +1,7 @@
+/**
+ * The out-of-credits strip around the native chat composer. The chat screen renders it.
+ * It reads the billing refusal and the Starter pass state, and opens the web /billing page.
+ */
 import { useTranslation } from "@wandit/internationalization/react";
 import { useThemeColor } from "heroui-native";
 import type { ReactNode } from "react";
@@ -5,9 +9,15 @@ import { Pressable, Text, View } from "react-native";
 
 import { WanditIcon } from "@/components/wandit-icon";
 
-import type { BillingErrorIntent } from "../lib/billing-error";
+import {
+	type BillingErrorIntent,
+	isStarterPassIntent,
+} from "../lib/billing-error";
 import { formatCreditAmount, formatCreditBalance } from "../lib/format-credits";
-import { openBillingInBrowser } from "../lib/open-billing";
+import {
+	openBillingInBrowser,
+	openStarterPassInBrowser,
+} from "../lib/open-billing";
 
 /**
  * Out-of-credits treatment for the composer (web parity with
@@ -23,16 +33,20 @@ import { openBillingInBrowser } from "../lib/open-billing";
  * so both arrive as optional props that default to the owner shape —
  * personal workspaces are the mobile norm; wire real signals here once
  * native grows a workspace/settings query.
+ * A pool with no Starter pass gets the Starter pass copy, and the CTA opens /billing?starterPass=1.
  */
 export function OutOfCreditsBanner({
 	active,
 	intent,
+	starterPassRequired,
 	isBillingOwner = true,
 	purchasesEnabled = true,
 	children,
 }: {
 	active: boolean;
 	intent: BillingErrorIntent | null;
+	/** True when the balance says the pool must buy the Starter pass, from useOutOfCredits. */
+	starterPassRequired: boolean;
 	isBillingOwner?: boolean;
 	purchasesEnabled?: boolean;
 	children: ReactNode;
@@ -45,29 +59,38 @@ export function OutOfCreditsBanner({
 	}
 
 	const isMemberLimit = intent?.code === "MEMBER_CREDIT_LIMIT_REACHED";
+	// The refusal reason covers the time before the balance refetch shows the flag.
+	const isStarterPass =
+		!isMemberLimit && (starterPassRequired || isStarterPassIntent(intent));
 	// Member-limit refusals are not fixable by buying credits (billing-error.ts),
 	// so they suppress the CTA even for a billing owner.
 	const canUpgrade =
 		isBillingOwner && purchasesEnabled !== false && !isMemberLimit;
 	const detail = !isBillingOwner
-		? t("credits.outOfCredits.memberBody")
+		? t(
+				isStarterPass
+					? "credits.outOfCredits.starterPass.memberBody"
+					: "credits.outOfCredits.memberBody",
+			)
 		: purchasesEnabled === false
 			? t("credits.outOfCredits.pausedBody")
-			: intent
-				? isMemberLimit
-					? t("native.workspace.chat.errors.memberLimit")
-					: // Decimal credits: exact charge, floored balance (pricing v4).
-						t("native.workspace.chat.errors.creditsDetails", {
-							requiredCredits: formatCreditAmount(
-								intent.requiredCredits,
-								locale,
-							),
-							availableCredits: formatCreditBalance(
-								intent.availableCredits,
-								locale,
-							),
-						})
-				: null;
+			: isStarterPass
+				? t("credits.outOfCredits.starterPass.body")
+				: intent
+					? isMemberLimit
+						? t("native.workspace.chat.errors.memberLimit")
+						: // Decimal credits: exact charge, floored balance (pricing v4).
+							t("native.workspace.chat.errors.creditsDetails", {
+								requiredCredits: formatCreditAmount(
+									intent.requiredCredits,
+									locale,
+								),
+								availableCredits: formatCreditBalance(
+									intent.availableCredits,
+									locale,
+								),
+							})
+					: null;
 
 	return (
 		<View className="rounded-[22px] bg-accent/10 p-1">
@@ -78,18 +101,28 @@ export function OutOfCreditsBanner({
 				<WanditIcon name="spark" size={13} color={accent} />
 				<Text className="min-w-0 flex-1 text-[12px] leading-[17px]">
 					<Text className="font-sans-semibold text-foreground">
-						{t("credits.outOfCredits.title")}
+						{t(
+							isStarterPass
+								? "credits.outOfCredits.starterPass.title"
+								: "credits.outOfCredits.title",
+						)}
 					</Text>
 					{detail ? <Text className="text-muted"> — {detail}</Text> : null}
 				</Text>
 				{canUpgrade ? (
 					<Pressable
 						accessibilityRole="button"
-						onPress={openBillingInBrowser}
+						onPress={
+							isStarterPass ? openStarterPassInBrowser : openBillingInBrowser
+						}
 						className="h-7 shrink-0 flex-row items-center justify-center rounded-full bg-foreground px-3 active:opacity-85"
 					>
 						<Text className="font-sans-semibold text-[12px] text-background">
-							{t("credits.outOfCredits.cta")}
+							{t(
+								isStarterPass
+									? "native.credits.starterPassCta"
+									: "credits.outOfCredits.cta",
+							)}
 						</Text>
 					</Pressable>
 				) : null}

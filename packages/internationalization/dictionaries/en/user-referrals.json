@@ -84,7 +84,7 @@
 		"title": "Good to know",
 		"newAccounts": "Only new accounts count. Your friend must sign up with your link.",
 		"window": "Your friend has {days} to use {min}. You get this reward for up to {friends} every {days}.",
-		"noCash": "Credits have no cash value.",
+		"noCash": "Credits have no cash value. If an account must buy the Starter pass, its credits unlock after that payment.",
 		"abuse": "Fake or duplicate accounts lose their rewards."
 	},
 	"card": {

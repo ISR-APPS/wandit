@@ -36,6 +36,7 @@ import { ManualSubscriptionPaymentsRepository } from "./infrastructure/persisten
 import { ManualSubscriptionRequestsRepository } from "./infrastructure/persistence/manual-subscription-requests.repository";
 import { PaidOwnerRepository } from "./infrastructure/persistence/paid-owner.repository";
 import { SlickpayPaymentsRepository } from "./infrastructure/persistence/slickpay-payments.repository";
+import { StarterPassesRepository } from "./infrastructure/persistence/starter-passes.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
@@ -63,6 +64,8 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 	exports: [
 		BillingService,
 		BillingWebhookRetryService,
+		// For a module that imports BillingModule. AdminModule, SettingsModule, and AuthModule register their own copy.
+		StarterPassesRepository,
 		SubscriptionRefillService,
 	],
 	imports: [
@@ -95,6 +98,7 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 		PaymentRefundsService,
 		SlickpayPaymentsRepository,
 		SlickpayPaymentsService,
+		StarterPassesRepository,
 		// Null without SLICKPAY_PUBLIC_KEY: SlickpayPaymentsService then hides SlickPay and answers 503.
 		{ provide: SLICKPAY_CLIENT, useFactory: slickpayClientFromEnv },
 		StripeEventRouter,

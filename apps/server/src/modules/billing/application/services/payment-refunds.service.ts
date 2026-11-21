@@ -1,6 +1,6 @@
 /**
  * Takes back purchased credits when Stripe refunds or disputes a charge.
- * Gives them back when Wandit wins the dispute.
+ * Gives them back when Wandit wins the dispute. A dispute also takes the Starter pass of its receipt.
  * StripeEventRouterService, the billing maintenance task, and the reconciliation, refill, and subscription credit services call it.
  * Writes revoke and restore rows to `credit_ledger` through BillingCreditLedgerRepository and CreditsService.
  */
@@ -29,6 +29,7 @@ import {
 	type BillingCreditLedgerRow,
 	type BillingCreditLedgerTransaction,
 } from "../../infrastructure/persistence/billing-credit-ledger.repository";
+import { StarterPassesRepository } from "../../infrastructure/persistence/starter-passes.repository";
 import { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
 
 type ClawbackFraction = {
@@ -74,6 +75,11 @@ export class PaymentRefundsService {
 		private readonly orderRefundHandler: WebhookOrderRefundHandler,
 		@Inject(StripeProvider)
 		private readonly stripeProvider: StripeProvider,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"revokeOrMoveForStripePayment"
+		>,
 	) {}
 
 	async handleChargeRefunded(charge: Stripe.Charge): Promise<boolean> {
@@ -686,6 +692,16 @@ export class PaymentRefundsService {
 								reason: input.reason,
 							},
 						},
+						tx,
+					);
+				}
+
+				// A dispute is a fraud signal, so the pool loses the pass of this payment under the owner lock.
+				// A refund and a won dispute keep the pass. An admin can grant it again.
+				if (input.disputeId) {
+					await this.starterPasses.revokeOrMoveForStripePayment(
+						paymentReference,
+						`dispute:${input.disputeId}`,
 						tx,
 					);
 				}

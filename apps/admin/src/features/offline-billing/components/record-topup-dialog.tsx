@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import type {
 	AdminManualRequest,
+	AdminStarterPass,
 	ManualBillingUserReference,
 } from "@/features/offline-billing/api/offline-billing.dto";
 import { useRecordTopupMutation } from "@/features/offline-billing/api/offline-billing.mutations";
@@ -53,6 +54,8 @@ export type RecordTopupPrefill = {
 		AdminManualRequest,
 		"id" | "amountUsd" | "plan" | "tierCredits" | "interval"
 	>;
+	/** Live Starter pass of the wallet that gets the credits. Null: no pass. Undefined: the opener does not know. */
+	starterPass?: AdminStarterPass | null;
 };
 
 type RecordTopupDialogProps = {
@@ -121,6 +124,11 @@ function OpenRecordTopupDialog({
 	const prefilledUserIsLocked = Boolean(
 		prefill.user && (prefill.user.name || prefill.user.email),
 	);
+	// The API grants a pass with every offline top-up. The note shows only while the prefilled wallet still gets the credits.
+	const topupGivesStarterPass =
+		prefill.starterPass === null &&
+		(prefill.organization !== undefined ||
+			(prefill.user !== undefined && user?.id === prefill.user.id));
 
 	function handleOpenChange(nextOpen: boolean) {
 		if (!nextOpen && mutation.isPending) {
@@ -185,6 +193,9 @@ function OpenRecordTopupDialog({
 								<DialogDescription className="mt-1">
 									Record the money you received. The API adds the credits to the
 									wallet{prefill.organization ? " of the team" : ""}.
+									{topupGivesStarterPass
+										? " This offline top-up also gives the Starter pass."
+										: null}
 								</DialogDescription>
 							</div>
 						</div>

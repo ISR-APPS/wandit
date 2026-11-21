@@ -1,3 +1,7 @@
+/**
+ * Card list of users below the lg breakpoint. It replaces the users table on small screens.
+ * UsersDataTable renders it. The cells come from user-table-cells.tsx.
+ */
 import type { ReactNode } from "react";
 
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
@@ -13,6 +17,7 @@ import {
 	PhoneCell,
 	PlanBadge,
 	RoleBadge,
+	StarterPassBadge,
 	StatusBadge,
 	UserIdentity,
 } from "./user-table-cells";
@@ -44,6 +49,12 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 						</MobileDatum>
 						<MobileDatum label="Plan">
 							<PlanBadge plan={user.plan} />
+						</MobileDatum>
+					</div>
+
+					<div className="border-b">
+						<MobileDatum label="Starter pass">
+							<StarterPassBadge starterPass={user.starterPass} />
 						</MobileDatum>
 					</div>
 

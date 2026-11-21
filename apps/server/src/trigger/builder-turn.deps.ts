@@ -68,6 +68,7 @@ import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/
 import { TriggerGithubSyncScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-github-sync-scheduler";
 import { TriggerThumbnailCaptureScheduler } from "../modules/app-builder/infrastructure/trigger/trigger-thumbnail-capture-scheduler";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
+import { StarterPassesRepository } from "../modules/billing/infrastructure/persistence/starter-passes.repository";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { subjectPayer } from "../modules/credits/domain/credit-owner";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
@@ -214,7 +215,7 @@ export async function createBuilderTurnDeps(
 		const metering = createTriggerMetering(db);
 		const credits = new CreditsService(new CreditsRepository(db));
 		const settings = new ProductSettingsService(
-			new ProductSettingsRepository(db),
+			new ProductSettingsRepository(db, new StarterPassesRepository(db)),
 		);
 		const promoter = new TurnPromoter(
 			turns,

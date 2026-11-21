@@ -32,6 +32,7 @@ export function mapProductSettingsRow(
 		paidSubscriptionsEnabled: row.paidSubscriptionsEnabled,
 		signupGrantCredits: row.signupGrantCredits,
 		signupGrantEnabled: row.signupGrantEnabled,
+		starterPassRequired: row.starterPassRequired,
 		topupsEnabled: row.topupsEnabled,
 		updatedAt: row.updatedAt.toISOString(),
 		updatedByUserId: row.updatedByUserId,

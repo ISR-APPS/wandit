@@ -3,6 +3,7 @@
  * refreshes the credits, and opens `/app/$projectId`. Same result shape as
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
  * Calls `useCreateAppProject` and the auth, credits, and projects features.
+ * A pool with no Starter pass opens the insufficient credits dialog before any call.
  * Stores the model pick and the thinking pick for the new project, so its
  * composer shows them.
  * Starts the audio of the turn end sound at the create gesture (turn-end-sound.ts).
@@ -20,7 +21,7 @@ import type {
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { promptStash } from "@/features/auth";
-import { creditsKeys } from "@/features/credits";
+import { creditsKeys, useOutOfCredits } from "@/features/credits";
 import { isInsufficientCreditsApiError } from "@/features/projects";
 import { getApiErrorMessage } from "@/lib/api-client";
 import type { AppTypeChoice } from "@/lib/app-type-choice";
@@ -39,7 +40,7 @@ export type UseCreateAppProjectWithPromptResult = {
 		attachments?: UploadAttachmentResponse[],
 	) => Promise<boolean>;
 	isCreating: boolean;
-	/** True after a 402: the dashboard opens the insufficient credits dialog. */
+	/** True after a 402, or when the pool needs the Starter pass: the dashboard opens the insufficient credits dialog. */
 	insufficientOpen: boolean;
 	setInsufficientOpen: (open: boolean) => void;
 };
@@ -49,8 +50,8 @@ export type UseCreateAppProjectWithPromptResult = {
  * its Plan chip: the server starts the first turn with it, before the
  * navigation. The server checks the balance, and it answers 503 for
  * `mobile` when it has no mobile template. Both come back as errors here,
- * so the dashboard has no precheck. `model` is the pick of the model menu
- * for the first turn. Undefined sends none, as from the landing hero: the
+ * so the only precheck is the Starter pass state of the cached balance.
+ * `model` is the pick of the model menu for the first turn. Undefined sends none, as from the landing hero: the
  * server default runs. `thinking` is the thinking level of the first turn,
  * from sentThinkingOf. Undefined sends none: the first turn runs "balanced".
  */
@@ -65,6 +66,7 @@ function useAppProjectCreateFlow(
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
+	const { starterPassRequired } = useOutOfCredits();
 
 	const create = useCallback(
 		async (
@@ -75,6 +77,11 @@ function useAppProjectCreateFlow(
 			// The server starts the first turn before the builder page opens. So the
 			// create click starts the audio of the turn end sound, as Safari needs.
 			unlockTurnEndSound();
+			// Product rule: a pool with no Starter pass cannot spend. The stash stays for the next try.
+			if (starterPassRequired) {
+				setInsufficientOpen(true);
+				return false;
+			}
 			// Claim the post-auth stash so a later dashboard visit cannot create
 			// a second project from the same landing-page draft.
 			promptStash.consume();
@@ -130,6 +137,7 @@ function useAppProjectCreateFlow(
 			thinking,
 			navigate,
 			queryClient,
+			starterPassRequired,
 		],
 	);
 

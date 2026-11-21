@@ -6,8 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	type DevSeedCredits,
+	type DevSeedStarterPasses,
 	DevUserSeedService,
 } from "./dev-user-seed.service";
+
+// The pass write is a no-op here: these cases check the user and the top-up.
+const noStarterPasses: DevSeedStarterPasses = {
+	grantIfAbsent: async () => null,
+};
 
 // A real Better Auth instance on an in-memory store, with the same
 // emailAndPassword options that createAuth uses in local development.
@@ -92,7 +98,11 @@ describe("DevUserSeedService", () => {
 		vi.stubEnv("NODE_ENV", "development");
 		const auth = createMemoryAuth();
 
-		await new DevUserSeedService(auth, memoryCredits().credits).onModuleInit();
+		await new DevUserSeedService(
+			auth,
+			memoryCredits().credits,
+			noStarterPasses,
+		).onModuleInit();
 
 		const signIn = await signInAsDevUser(auth);
 		expect(signIn.user).toMatchObject({
@@ -107,7 +117,7 @@ describe("DevUserSeedService", () => {
 		vi.stubEnv("NODE_ENV", "development");
 		const auth = createMemoryAuth();
 		const { credits, toppedUp } = memoryCredits();
-		const service = new DevUserSeedService(auth, credits);
+		const service = new DevUserSeedService(auth, credits, noStarterPasses);
 
 		await service.onModuleInit();
 		await service.onModuleInit();
@@ -141,7 +151,11 @@ describe("DevUserSeedService", () => {
 			{ method: "email-password" },
 		);
 
-		await new DevUserSeedService(auth, memoryCredits().credits).onModuleInit();
+		await new DevUserSeedService(
+			auth,
+			memoryCredits().credits,
+			noStarterPasses,
+		).onModuleInit();
 
 		expect(await internalAdapter.listUsers()).toHaveLength(1);
 		await expect(signInAsDevUser(auth)).resolves.toMatchObject({
@@ -159,7 +173,7 @@ describe("DevUserSeedService", () => {
 		const auth = createMemoryAuth();
 		const { credits, toppedUp } = memoryCredits();
 
-		await new DevUserSeedService(auth, credits).onModuleInit();
+		await new DevUserSeedService(auth, credits, noStarterPasses).onModuleInit();
 
 		expect(await findDevUser(auth)).toBeNull();
 		expect(toppedUp).toEqual([]);
@@ -176,6 +190,7 @@ describe("DevUserSeedService", () => {
 			new DevUserSeedService(
 				{ $context: Promise.reject(failure) },
 				memoryCredits().credits,
+				noStarterPasses,
 			).onModuleInit(),
 		).resolves.toBeUndefined();
 

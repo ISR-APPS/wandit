@@ -5,6 +5,7 @@
  * `billing_topup_receipts`, `credit_ledger`, and `affiliate_attributions`. It writes only the two referral tables.
  */
 import { Inject, Injectable } from "@nestjs/common";
+import { TOPUP_MIN_AMOUNT_USD } from "@wandit/contracts";
 import {
 	alias,
 	and,
@@ -63,6 +64,16 @@ function netRevokedCentiCredits(chargeId: SQL, paymentIntentId: SQL): SQL {
 			)
 	)`;
 }
+
+/**
+ * True when a top-up receipt is worth TOPUP_MIN_AMOUNT_USD (10 USD) or more. markFirstPayments and hasLivePersonalPayment use it.
+ * Fraud rule: a 1 USD Starter pass must not earn the referrer the 100-credit paid reward.
+ * A receipt from before v8 has no `amount_usd_cents`; a USD one then uses `amount_cents`. Other NULL rows do not count.
+ */
+export const receiptReachesTopupMinimum = sql`coalesce(
+	${billingTopupReceipts.amountUsdCents},
+	case when ${billingTopupReceipts.currency} = 'usd' then ${billingTopupReceipts.amountCents} end
+) >= ${TOPUP_MIN_AMOUNT_USD * 100}`;
 
 /** One row of `user_referrals`. The three credit columns are centi-credits. */
 export type UserReferralRow = typeof userReferrals.$inferSelect;
@@ -207,7 +218,7 @@ export class UserReferralsRepository {
 
 	/**
 	 * True when the user has one personal payment with a net revoke of 0.
-	 * The payment is a top-up receipt, or a paid invoice or manual payment of a personal plan.
+	 * The payment is a top-up receipt of 10 USD or more, or a paid invoice or manual payment of a personal plan.
 	 * The sweep calls it after the 7-day hold. It is a cross-module read: the billing module stays unchanged.
 	 */
 	async hasLivePersonalPayment(
@@ -226,7 +237,7 @@ export class UserReferralsRepository {
 							select 1 from ${billingTopupReceipts}
 							where ${billingTopupReceipts.userId} = ${userId}
 								and ${billingTopupReceipts.organizationId} is null
-								and ${billingTopupReceipts.amountCents} > 0
+								and ${receiptReachesTopupMinimum}
 								and ${billingTopupReceipts.reversedAt} is null
 								and ${netRevokedCentiCredits(
 									sql`${billingTopupReceipts.chargeId}`,
@@ -327,7 +338,7 @@ export class UserReferralsRepository {
 
 	/**
 	 * Sets `first_paid_at` on each referral whose friend has a real personal payment and no mark.
-	 * A real payment is a top-up receipt, or a plan payment, with an amount above 0. Team payments do not count.
+	 * A real payment is a top-up receipt of 10 USD or more, or a plan payment above 0. Team payments do not count.
 	 * A cross-module read of the billing tables: it covers Stripe, manual, SlickPay, and offline with no billing hook.
 	 * The refund check comes later, in `hasLivePersonalPayment`, after the hold.
 	 */
@@ -345,7 +356,7 @@ export class UserReferralsRepository {
 						select 1 from ${billingTopupReceipts}
 						where ${billingTopupReceipts.userId} = ${userReferrals.referredUserId}
 							and ${billingTopupReceipts.organizationId} is null
-							and ${billingTopupReceipts.amountCents} > 0
+							and ${receiptReachesTopupMinimum}
 							and ${billingTopupReceipts.reversedAt} is null
 					)
 					or exists (

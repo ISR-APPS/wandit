@@ -89,6 +89,7 @@ function productSettings(
 		paidSubscriptionsEnabled: true,
 		signupGrantCredits: 700,
 		signupGrantEnabled: true,
+		starterPassRequired: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,

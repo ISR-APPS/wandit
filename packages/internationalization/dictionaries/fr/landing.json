@@ -36,7 +36,7 @@
 		"inputLabel": "Décris ton app",
 		"sub": "Wandit dessine les écrans, écrit le code et installe la connexion et la base de données. Essaie-la sur ton téléphone en quelques minutes.",
 		"cta": "Construire",
-		"ctaHint": "Commence gratuitement. Sans code.",
+		"ctaHint": "Inscription gratuite. Sans code.",
 		"stageLabel": "Aperçu d'une app que Wandit construit",
 		"scanToOpen": "Scanne pour l'ouvrir sur ton téléphone",
 		"log": {
@@ -203,7 +203,7 @@
 	"pricing": {
 		"meta": {
 			"title": "Tarifs — Wandit",
-			"description": "Recharge dès 10 $. Crédits bonus dès 40 $. Sans abonnement. Les crédits n’expirent jamais."
+			"description": "Recharge dès 10 $, en dollars US ou en dinars algériens. Crédits bonus dès 40 $. Sans abonnement. Les crédits n’expirent jamais."
 		},
 		"kicker": "Tarifs",
 		"title": "Paie ce que tu construis.",
@@ -228,6 +228,13 @@
 				"Recharge quand tu as besoin de plus d’IA"
 			],
 			"cta": "Commencer gratuitement"
+		},
+		"starterPass": {
+			"name": "Pass Démarrage",
+			"title": "{price} pour commencer",
+			"tagline": "Un petit paiement réel avant tes premiers crédits tient les faux comptes à l’écart. Tu reçois {credits}.",
+			"welcomeUnlock": "Tes crédits de bienvenue se débloquent aussi.",
+			"cta": "Obtenir le Pass Démarrage"
 		},
 		"payg": {
 			"name": "Paiement à l’usage",
@@ -312,7 +319,8 @@
 			},
 			"algeria": {
 				"q": "Puis-je payer depuis l’Algérie ?",
-				"a": "Oui. En Algérie, tu vois le prix en dinars et tu peux payer par CIB ou Edahabia. Quand l’option est disponible, tu peux aussi demander un paiement en espèces ou par virement, et notre équipe t’appelle."
+				"a": "Oui. Chaque prix s’affiche en dollars US et en dinars algériens, au taux de 1 dollar US = {price}. Tu peux payer en dinars par CIB ou Edahabia via SlickPay. Quand l’option est disponible, tu peux aussi demander un paiement en espèces ou par virement, et notre équipe t’appelle.",
+				"aWithoutRate": "Oui. Quand les paiements par CIB / Edahabia sont ouverts, les prix s’affichent aussi en dinars algériens. Quand l’option est disponible, tu peux aussi demander un paiement en espèces ou par virement, et notre équipe t’appelle."
 			},
 			"refunds": {
 				"q": "Puis-je être remboursé ?",
@@ -345,7 +353,7 @@
 			},
 			{
 				"q": "Comment marchent les crédits ?",
-				"a": "Chaque action de l'IA utilise des crédits, et tu vois ce que chacune a utilisé. Recharge dès 10 $, avec des crédits bonus dès 40 $. Il n'y a pas d'abonnement, et les crédits n'expirent jamais."
+				"a": "Chaque action de l'IA utilise des crédits, et tu vois ce que chacune a utilisé. Recharge dès 10 $, avec des crédits bonus dès 40 $. Tu peux payer en dollars US ou en dinars algériens. Il n'y a pas d'abonnement, et les crédits n'expirent jamais."
 			}
 		]
 	},

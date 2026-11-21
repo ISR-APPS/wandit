@@ -19,6 +19,11 @@ export const apiErrorCodes = [
 	"GENERATION_PAYMENT_REQUIRED",
 	"SUBSCRIPTIONS_DISABLED",
 	"TOPUPS_DISABLED",
+	// 409 of a Starter pass checkout when the pool does not need the pass: the switch is off, or the pool has a live pass.
+	"STARTER_PASS_NOT_AVAILABLE",
+	// 409 of a Starter pass checkout while a SlickPay Starter pass row of the pool is younger than 30 min.
+	// The caller is a card checkout, or a SlickPay checkout of another team admin.
+	"STARTER_PASS_SLICKPAY_OPEN",
 	"ORGANIZATIONS_DISABLED",
 	"MEMBER_CREDIT_LIMIT_REACHED",
 	"WORKSPACE_PERMISSION_DENIED",
@@ -138,11 +143,14 @@ export type CreditPayer = z.infer<typeof creditPayerSchema>;
 // never seen. heldCredits is the slice temporarily reserved by running
 // generations (optional: older servers omit it).
 // payer is optional for the same reason; see `creditPayerSchema`.
+// reason is set only when the pool has credits it cannot spend yet. Absent means "not enough credits".
 export const paymentRequiredDetailsSchema = z.object({
 	requiredCredits: z.number().positive(),
 	availableCredits: z.number(),
 	heldCredits: z.number().nonnegative().optional(),
 	payer: creditPayerSchema.optional(),
+	// starter_pass_required: the Starter pass switch is on and the pool has no live pass.
+	reason: z.enum(["starter_pass_required"]).optional(),
 });
 
 export type PaymentRequiredDetails = z.infer<

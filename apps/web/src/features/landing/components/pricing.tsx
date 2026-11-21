@@ -2,15 +2,18 @@
  * The body of the public pricing page. pages/pricing-page.tsx renders it.
  * An ember hero holds the title and the rate. The night meter card overlaps its bottom edge.
  * It holds the amount picker and the receipt of the billing feature. Its keycap opens the top-up dialog.
- * Below come the free strip, the credit uses, the trophy teaser, and the pricing FAQ.
+ * Below come the free strip (or the Starter pass strip), the credit uses, the trophy teaser, and the pricing FAQ.
+ * Prices show USD, then DZD when the billing feature knows the rate.
  */
 import { useNavigate } from "@tanstack/react-router";
 import {
+	STARTER_PASS_USD,
 	TOPUP_BONUS_TIERS,
 	TOPUP_CREDITS_PER_USD,
 	TOPUP_MAX_AMOUNT_USD,
 	TOPUP_MIN_AMOUNT_USD,
 	TOPUP_PRESET_AMOUNTS_USD,
+	topupQuoteForUsd,
 } from "@wandit/contracts";
 import { useId, useState } from "react";
 
@@ -18,10 +21,11 @@ import { Spark } from "@/components/logo";
 import { useAuthModal, useSession } from "@/features/auth";
 import {
 	formatLocalPrice,
+	formatUsdAndDzd,
 	TopupAmountPicker,
 	TopupReceipt,
 	useBillingModal,
-	useLocalPricingQuery,
+	useDzdPerUsdRate,
 	usePurchasesEnabled,
 } from "@/features/billing";
 import { formatCreditAmount } from "@/features/credits";
@@ -55,8 +59,10 @@ export function Pricing() {
 	const { locale, t } = useTranslation();
 	const pricing = useDictionary().landing.pricing;
 	const titleId = useId();
-	// The hero states the USD rate for every visitor. The receipt adds the DZD price for Algeria.
-	const formatUsdPrice = (usd: number) => formatLocalPrice(usd, locale, null);
+	const dzdPerUsdRate = useDzdPerUsdRate();
+	// The hero states the USD rate, then the DZD price when the rate is known.
+	const formatUsdPrice = (usd: number) =>
+		formatUsdAndDzd(usd, locale, dzdPerUsdRate);
 
 	return (
 		<section aria-labelledby={titleId}>
@@ -104,7 +110,7 @@ export function Pricing() {
 			</div>
 
 			<MeterCard />
-			<FreeStrip />
+			<StartStrip />
 			<PricingCreditUses />
 			<PricingTrophyTeaser />
 			<PricingFaq />
@@ -122,11 +128,10 @@ function MeterCard() {
 	const pricing = useDictionary().landing.pricing;
 	const { openTopup } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
-	const localPricingQuery = useLocalPricingQuery();
 	// Null while the typed text is not a valid amount. The keycap is then disabled.
 	const [amountUsd, setAmountUsd] = useState<number | null>(START_AMOUNT_USD);
-	// Decimal DZD per 1 USD. Not null only for visitors in Algeria. A failed request falls back to USD.
-	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
+	// Decimal DZD per 1 USD for every visitor. A failed request falls back to USD only.
+	const dzdPerUsdRate = useDzdPerUsdRate();
 	const localPriceLabel =
 		dzdPerUsdRate !== null && amountUsd !== null
 			? formatLocalPrice(amountUsd, locale, dzdPerUsdRate)
@@ -198,10 +203,14 @@ function MeterCard() {
 									{amountUsd === null ? (
 										pricing.meter.ctaEmpty
 									) : (
-										// The keycap names the USD price, like the picker and the first receipt line.
+										// The keycap names the USD price first, like the picker and the first receipt line.
 										<bdi>
 											{t("landing.pricing.payg.cta", {
-												price: formatLocalPrice(amountUsd, locale, null),
+												price: formatUsdAndDzd(
+													amountUsd,
+													locale,
+													dzdPerUsdRate,
+												),
 											})}
 										</bdi>
 									)}
@@ -214,6 +223,101 @@ function MeterCard() {
 			<p className="mt-5 text-center text-night/60 text-sm">
 				{pricing.meter.footnote}
 			</p>
+		</div>
+	);
+}
+
+/** The Starter pass strip while the admin switch is on. Else the free strip. */
+function StartStrip() {
+	const settingsQuery = usePublicSettingsQuery();
+
+	// An API from before the Starter pass has no flag. The free strip shows, as before.
+	return settingsQuery.data?.starterPassRequired ? (
+		<StarterPassStrip
+			grantCredits={
+				settingsQuery.data.signupGrantEnabled
+					? settingsQuery.data.signupGrantCredits
+					: 0
+			}
+		/>
+	) : (
+		<FreeStrip />
+	);
+}
+
+/**
+ * The Starter pass, as one white strip: its price in USD and DZD, why Wandit asks for it, and its credits.
+ * The button opens the top-up dialog in its Starter pass mode, or the auth modal when signed out.
+ */
+function StarterPassStrip({
+	grantCredits,
+}: {
+	/** Decimal signup credits from the public settings, 0 when the grant is off. Above 0 adds "welcome credits unlock too". */
+	grantCredits: number;
+}) {
+	const { data: session } = useSession();
+	const { open: openAuth } = useAuthModal();
+	const { openTopup } = useBillingModal();
+	const { locale, t } = useTranslation();
+	const copy = useDictionary().landing.pricing.starterPass;
+	const dzdPerUsdRate = useDzdPerUsdRate();
+	const credits = topupQuoteForUsd(STARTER_PASS_USD).credits;
+
+	const getPass = () => {
+		if (session) {
+			openTopup("marketing_pricing");
+			return;
+		}
+		// After sign-in the wallet page opens the dialog, so the new user lands on the pass.
+		openAuth({ next: "/billing?starterPass=1" });
+	};
+
+	return (
+		<div className="mx-auto mt-16 max-w-5xl px-4 md:mt-20 md:px-8">
+			<Reveal>
+				<div className="flex flex-col gap-6 rounded-[1.75rem] bg-white p-6 shadow-[0_1px_0_rgb(11_16_51/0.06),0_24px_48px_-28px_rgb(11_16_51/0.35)] sm:flex-row sm:items-center sm:justify-between md:rounded-[2rem] md:p-8">
+					<div className="flex items-start gap-4">
+						<span
+							aria-hidden
+							className="grid size-12 shrink-0 place-items-center rounded-2xl bg-spark/20 text-ember shadow-[0_3px_0_color-mix(in_oklab,var(--color-spark-deep)_35%,transparent)]"
+						>
+							<Spark className="size-6" />
+						</span>
+						<div className="min-w-0">
+							<p className="font-semibold text-ember-deep text-xs uppercase tracking-[0.14em] rtl:tracking-normal">
+								{copy.name}
+							</p>
+							<h2 className="mt-1 font-bold text-2xl tracking-[-0.03em] rtl:tracking-normal">
+								<bdi>
+									{t("landing.pricing.starterPass.title", {
+										price: formatUsdAndDzd(
+											STARTER_PASS_USD,
+											locale,
+											dzdPerUsdRate,
+										),
+									})}
+								</bdi>
+							</h2>
+							<p className="mt-1 text-[15px] text-night/65 leading-snug">
+								{t("landing.pricing.starterPass.tagline", {
+									credits: t("credits.creditUnit", {
+										count: credits,
+										countDisplay: formatNumber(credits, locale),
+									}),
+								})}
+								{grantCredits > 0 ? ` ${copy.welcomeUnlock}` : null}
+							</p>
+						</div>
+					</div>
+					<button
+						type="button"
+						className={OUTLINE_BUTTON_CLASS}
+						onClick={getPass}
+					>
+						{copy.cta}
+					</button>
+				</div>
+			</Reveal>
 		</div>
 	);
 }

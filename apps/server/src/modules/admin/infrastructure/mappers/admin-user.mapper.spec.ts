@@ -19,6 +19,7 @@ const SUMMARY_ROW = {
 	plan: null,
 	projectsCount: 1,
 	role: "user",
+	starterPass: null,
 } satisfies AdminUserSummaryRow;
 
 describe("mapAdminUserSummary", () => {
@@ -26,6 +27,25 @@ describe("mapAdminUserSummary", () => {
 		expect(mapAdminUserSummary({ ...SUMMARY_ROW, plan: "starter" }).plan).toBe(
 			"starter",
 		);
+	});
+
+	it("maps the JSON Starter pass of the summary subquery to an ISO date", () => {
+		// json_build_object writes a timestamptz as Postgres text, with microseconds and an offset.
+		const starterPass = {
+			source: "admin",
+			createdAt: "2026-11-20T11:30:00.123456+01:00",
+			grantedByUserId: "admin-1",
+			note: "Paid cash at the office",
+		} as const;
+
+		expect(
+			mapAdminUserSummary({ ...SUMMARY_ROW, starterPass }).starterPass,
+		).toEqual({
+			source: "admin",
+			createdAt: "2026-11-20T10:30:00.123Z",
+			grantedByUserId: "admin-1",
+			note: "Paid cash at the office",
+		});
 	});
 
 	it("maps a non-empty phone number", () => {

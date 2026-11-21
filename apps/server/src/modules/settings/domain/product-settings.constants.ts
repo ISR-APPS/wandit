@@ -11,8 +11,8 @@ export const PRODUCT_SETTINGS_ID = 1 as const;
  * in `packages/db/src/schema/billing.ts`. Credit amounts are centi-credits.
  */
 export const DEFAULT_PRODUCT_SETTINGS = {
-	// Hundredths of a DZD per 1 USD; the admin API exposes decimal DZD.
-	dzdPerUsdRate: 27_000,
+	// Hundredths of a DZD per 1 USD (25000 = 250.00 DZD); the admin API exposes decimal DZD.
+	dzdPerUsdRate: 25_000,
 	emailAuthEnabled: false,
 	id: PRODUCT_SETTINGS_ID,
 	lifecycleEmailsEnabled: false,
@@ -25,6 +25,8 @@ export const DEFAULT_PRODUCT_SETTINGS = {
 	// SIGNUP_GRANT_CREDITS (whole credits) in @wandit/contracts.
 	signupGrantCredits: 2000,
 	signupGrantEnabled: false,
+	// The Starter pass gate ships off. Turning it on grants a pass to every pool that already paid.
+	starterPassRequired: false,
 	topupsEnabled: false,
 	// 1000 centi-credits = 10 credits: the reward of the referrer when the friend builds.
 	userReferralActivationCredits: 1000,

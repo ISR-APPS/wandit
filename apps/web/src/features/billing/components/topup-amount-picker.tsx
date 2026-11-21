@@ -2,6 +2,7 @@
  * Amount picker of the top-up kit, in whole USD. Layout "meter" shows a big field and the Spark Meter slider.
  * Layout "compact" shows presets, a field, and a static bonus track. The wallet card and /pricing use "meter".
  * The top-up dialog uses "compact". The picker parses the text with parseTopupAmountUsd and reads TOPUP_BONUS_TIERS.
+ * The min and max texts add the DZD price when useDzdPerUsdRate knows the rate.
  */
 import { TOPUP_BONUS_TIERS } from "@wandit/contracts";
 import { Slider } from "@wandit/ui/components/slider";
@@ -14,7 +15,11 @@ import {
 } from "react";
 
 import { Spark } from "@/components/logo";
-import { formatUsd } from "@/features/billing/lib/price-format";
+import { useDzdPerUsdRate } from "@/features/billing/api/billing.queries";
+import {
+	formatUsd,
+	formatUsdAndDzd,
+} from "@/features/billing/lib/price-format";
 import {
 	adjacentMeterStopUsd,
 	meterPositionToUsd,
@@ -92,7 +97,10 @@ export function TopupAmountPicker({
 	const { dir, locale, t } = useTranslation();
 	const copy = useDictionary().billing.topup;
 	const fieldId = useId();
+	const dzdPerUsdRate = useDzdPerUsdRate();
 	const limits = { minAmountUsd, maxAmountUsd };
+	const minText = formatUsdAndDzd(minAmountUsd, locale, dzdPerUsdRate);
+	const maxText = formatUsdAndDzd(maxAmountUsd, locale, dzdPerUsdRate);
 	const [text, setText] = useState(amountUsd === null ? "" : String(amountUsd));
 	// The last `amountUsd` prop that the field followed.
 	const [syncedAmountUsd, setSyncedAmountUsd] = useState(amountUsd);
@@ -111,8 +119,8 @@ export function TopupAmountPicker({
 	}
 
 	const error = amountErrorText(parsed, {
-		min: formatUsd(minAmountUsd, locale),
-		max: formatUsd(maxAmountUsd, locale),
+		min: minText,
+		max: maxText,
 		copy: copy.amountErrors,
 		t,
 	});
@@ -145,8 +153,8 @@ export function TopupAmountPicker({
 		>
 			{error ??
 				t("billing.topup.customAmountHint", {
-					min: formatUsd(minAmountUsd, locale),
-					max: formatUsd(maxAmountUsd, locale),
+					min: minText,
+					max: maxText,
 				})}
 		</p>
 	);

@@ -13,10 +13,12 @@ import type {
 } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import type { BillingCustomerRow } from "../../infrastructure/persistence/billing-customers.repository";
 import type { BillingTopupReceiptWithRevoked } from "../../infrastructure/persistence/billing-topup-receipts.repository";
+import type { SlickpayPaymentRow } from "../../infrastructure/persistence/slickpay-payments.repository";
 import { BillingService } from "./billing.service";
 
 const NOW = new Date("2026-11-12T12:00:00.000Z");
 const OLD_ATTEMPT_ID = "44444444-4444-4444-8444-444444444444";
+const MINUTE_MS = 60_000;
 
 // SAFETY: the fakes below never read the transaction handle.
 const TX = {} as BillingCheckoutAttemptTransaction;
@@ -129,6 +131,10 @@ function setup(
 		/** Status that Stripe answers when the service expires an open session. */
 		expireStatus?: Stripe.Checkout.Session["status"];
 		receipts?: BillingTopupReceiptWithRevoked[];
+		/** What the credit snapshot of the pool answers. */
+		starterPassRequired?: boolean;
+		/** Open SlickPay Starter pass rows of the pool. The fake filters them only by age. */
+		slickpayStarterPasses?: SlickpayPaymentRow[];
 	} = {},
 ) {
 	const attempts = new FakeCheckoutAttempts();
@@ -142,10 +148,23 @@ function setup(
 		),
 	};
 	const customer = stub<BillingCustomerRow>({ providerCustomerId: "cus_1" });
+	const credits = {
+		getSettledBalance: async () => ({
+			balance: 0,
+			plan: 0,
+			promo: 0,
+			settledBalance: 0,
+			settledPlan: 0,
+			settledPromo: 0,
+			settledTopup: 0,
+			starterPassRequired: input.starterPassRequired ?? false,
+			topup: 0,
+		}),
+	};
 	const service = new BillingService(
 		stub({}),
 		stub({}),
-		stub({}),
+		stub(credits),
 		stub(provider),
 		stub({ ensureCustomer: async () => customer }),
 		stub(attempts),
@@ -153,6 +172,12 @@ function setup(
 		stub({}),
 		stub({}),
 		stub({ listRecentForOwner: async () => input.receipts ?? [] }),
+		{
+			findOpenStarterPasses: async (_owner: CreditOwner, createdAfter: Date) =>
+				(input.slickpayStarterPasses ?? []).filter(
+					(row) => row.createdAt > createdAfter,
+				),
+		},
 	);
 
 	return { attempts, provider, service };
@@ -221,8 +246,91 @@ describe("BillingService top-up checkout", () => {
 			bonusCredits,
 			customerId: "cus_1",
 			organizationId: null,
+			requestThreeDSecure: false,
 			userId: user.id,
 		});
+	});
+
+	it("sells the Starter pass at 1 USD for 10 credits with 3-D Secure when the pool needs it", async () => {
+		const { attempts, provider, service } = setup({
+			starterPassRequired: true,
+		});
+
+		await service.topup(user, { starterPass: true });
+
+		expect(attempts.rows).toMatchObject([
+			{ amountUsdCents: 100, credits: 1_000 },
+		]);
+		expect(provider.createTopupCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				amountUsdCents: 100,
+				baseCredits: 10,
+				requestThreeDSecure: true,
+			}),
+		);
+	});
+
+	it("answers 409 STARTER_PASS_NOT_AVAILABLE when the pool does not need the pass", async () => {
+		const { attempts, provider, service } = setup({
+			starterPassRequired: false,
+		});
+
+		await expect(
+			service.topup(user, { starterPass: true }),
+		).rejects.toMatchObject({
+			response: { code: "STARTER_PASS_NOT_AVAILABLE" },
+			status: 409,
+		});
+		expect(attempts.rows).toEqual([]);
+		expect(provider.createTopupCheckout).not.toHaveBeenCalled();
+	});
+
+	// SlickPay cannot cancel an invoice, so a young SlickPay Starter pass invoice blocks a card Starter pass page.
+	it.each([
+		{
+			body: { starterPass: true },
+			code: "STARTER_PASS_SLICKPAY_OPEN",
+			minutesOld: 10,
+			name: "refuses a card Starter pass while a SlickPay Starter pass invoice is younger than 30 minutes",
+		},
+		{
+			body: { starterPass: true },
+			minutesOld: 31,
+			name: "sells a card Starter pass when the SlickPay Starter pass invoice is older than 30 minutes",
+		},
+		{
+			body: { amountUsd: 10 },
+			minutesOld: 10,
+			name: "sells a normal card top-up while a SlickPay Starter pass invoice is open",
+		},
+	] satisfies Array<{
+		body: CreateBillingTopupBody;
+		code?: string;
+		minutesOld: number;
+		name: string;
+	}>)("$name", async ({ body, code, minutesOld }) => {
+		const { attempts, provider, service } = setup({
+			slickpayStarterPasses: [
+				stub<SlickpayPaymentRow>({
+					createdAt: new Date(NOW.getTime() - minutesOld * MINUTE_MS),
+				}),
+			],
+			starterPassRequired: true,
+		});
+		const checkout = service.topup(user, body);
+
+		if (code) {
+			await expect(checkout).rejects.toMatchObject({
+				response: { code },
+				status: 409,
+			});
+			expect(attempts.rows).toEqual([]);
+			expect(provider.createTopupCheckout).not.toHaveBeenCalled();
+		} else {
+			await expect(checkout).resolves.toEqual({
+				url: "https://checkout.stripe.test/cs_new",
+			});
+		}
 	});
 
 	it("expires the open session of an attempt, then starts the new top-up", async () => {

@@ -7,6 +7,7 @@ import {
 	slickpayCreateInvoiceResponseSchema,
 	slickpayInvoiceDetailsResponseSchema,
 	smallestTopupCovering,
+	startSlickpayCheckoutBodySchema,
 	topupQuoteForUsd,
 } from "./billing";
 
@@ -22,8 +23,39 @@ describe("createBillingTopupBodySchema", () => {
 		["a v7 pack id from a cached bundle", { packId: "topup_250" }, true],
 		["a v6 pack id", { packId: "topup_175" }, false],
 		["an amount and a pack id", { amountUsd: 25, packId: "topup_250" }, false],
+		["the Starter pass", { starterPass: true }, true],
+		["a Starter pass set to false", { starterPass: false }, false],
+		// A client must not pick the price of the pass.
+		[
+			"the Starter pass with an amount",
+			{ starterPass: true, amountUsd: 1 },
+			false,
+		],
 	])("%s: %o -> success %s", (_case, body, expected) => {
 		expect(createBillingTopupBodySchema.safeParse(body).success).toBe(expected);
+	});
+});
+
+describe("startSlickpayCheckoutBodySchema", () => {
+	const contact = { fullName: "Amine B", phone: "+213555123456", city: "Oran" };
+
+	// The amount sets the DZD invoice and the credits. Only the Starter pass may go below the top-up minimum.
+	it.each([
+		["a top-up at the minimum", { ...contact, amountUsd: 10 }, true],
+		["the Starter pass", { ...contact, starterPass: true }, true],
+		["one USD as a plain top-up", { ...contact, amountUsd: 1 }, false],
+		["a Starter pass set to false", { ...contact, starterPass: false }, false],
+		["the Starter pass with no contact", { starterPass: true }, false],
+		// A mixed body must fail. Before, it parsed as a 50 USD top-up.
+		[
+			"the Starter pass with an amount",
+			{ ...contact, starterPass: true, amountUsd: 50 },
+			false,
+		],
+	])("%s -> success %s", (_case, body, expected) => {
+		expect(startSlickpayCheckoutBodySchema.safeParse(body).success).toBe(
+			expected,
+		);
 	});
 });
 

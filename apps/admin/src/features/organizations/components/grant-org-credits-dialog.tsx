@@ -1,3 +1,7 @@
+/**
+ * "Grant credits" dialog for the shared pool of one team workspace.
+ * The organization detail page opens it. It calls useGrantOrganizationCreditsMutation.
+ */
 import { Loader2Icon, WalletCardsIcon } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -21,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { OrganizationSummary } from "@/features/organizations/api/organizations.dto";
+import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
 import { useGrantOrganizationCreditsMutation } from "@/features/organizations/api/organizations.mutations";
 import { isApiClientError } from "@/lib/api-client";
 import {
@@ -33,7 +37,8 @@ import {
 const CREDIT_PRESETS = [100, 500, 1_000, 5_000] as const;
 
 type GrantOrgCreditsDialogProps = {
-	organization: OrganizationSummary;
+	/** The detail, not the list row: the dialog reads the live Starter pass of the team pool. */
+	organization: OrganizationDetail;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 };
@@ -151,6 +156,13 @@ export function GrantOrgCreditsDialog({
 								Current pool balance:{" "}
 								{formatCreditBalance(organization.creditsBalance)} credits.
 							</FieldDescription>
+							{/* Null: the API says the pool has no pass. Undefined: an older API, so no note. */}
+							{organization.starterPass === null ? (
+								<FieldDescription>
+									No Starter pass. While the Starter pass switch is on, credits
+									stay locked until the Starter pass.
+								</FieldDescription>
+							) : null}
 							<FieldError>
 								{submitted && !amountIsValid
 									? "Enter an amount between 0.01 and 1,000,000, in 0.01 steps."

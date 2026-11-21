@@ -17,6 +17,7 @@ import {
 	manualSubscriptionRequestStatusSchema,
 	OPEN_MANUAL_REQUEST_STATUSES,
 	preferredPaymentMethodSchema,
+	starterPassSourceSchema,
 	topupReceiptProviderSchema,
 } from "./billing";
 import {
@@ -167,6 +168,34 @@ export const adminUserCountryFilters = [
 
 export type AdminUserCountryFilter = DialCountryIso | "unknown";
 
+/** The live Starter pass of one pool (a row of `starter_passes` with no `revoked_at`). */
+export const adminStarterPassSchema = z.object({
+	source: starterPassSourceSchema,
+	createdAt: isoDateTimeSchema,
+	// The staff account that granted it. Null for a pass from a payment or from the grandfather backfill.
+	grantedByUserId: z.string().nullable(),
+	// The note of the staff grant, or of the dev seed. Null for a pass from a payment.
+	note: z.string().nullable(),
+});
+
+export type AdminStarterPass = z.infer<typeof adminStarterPassSchema>;
+
+/** Body of the admin Starter pass grant and revoke routes. The note goes to the audit log and the pass row. */
+export const adminStarterPassBodySchema = z.object({
+	note: z.string().trim().min(3).max(500),
+});
+
+export type AdminStarterPassBody = z.infer<typeof adminStarterPassBodySchema>;
+
+/** Answer of the admin Starter pass grant and revoke routes: the live pass after the call, null after a revoke. */
+export const adminStarterPassResponseSchema = z.object({
+	starterPass: adminStarterPassSchema.nullable(),
+});
+
+export type AdminStarterPassResponse = z.infer<
+	typeof adminStarterPassResponseSchema
+>;
+
 export const adminUserSummarySchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -185,6 +214,8 @@ export const adminUserSummarySchema = z.object({
 	// True when the personal pool has a top-up or had a subscription (the
 	// paid-owner rule of billing). "plan: free" with this true means a past payer.
 	isPaidOwner: z.boolean(),
+	// Live Starter pass of the personal pool. Null when it has none. Optional: an older API omits it.
+	starterPass: adminStarterPassSchema.nullable().optional(),
 	// Decimal credits (server divides internal centi-credits by 100).
 	creditsBalance: z.number(),
 	creditsConsumed: z.number().nonnegative(),
@@ -935,6 +966,8 @@ export const adminOrganizationDetailSchema =
 		// The pool that pays has a top-up or had a subscription (spec section 6).
 		// A personal workspace reads the personal pool of its owner.
 		isPaidOwner: z.boolean(),
+		// Live Starter pass of the pool that pays. Null when it has none. Optional: an older API omits it.
+		starterPass: adminStarterPassSchema.nullable().optional(),
 	});
 
 export type AdminOrganizationDetail = z.infer<
@@ -1083,6 +1116,9 @@ export const adminOverviewTotalsSchema = z.object({
 	signupsChangePercent: z.number(),
 	activeUsers: z.int().nonnegative(),
 	activationPercent: z.number().min(0).max(100),
+	// Starter passes bought in the range (source stripe or slickpay). Grants and the backfill do not count.
+	// Optional: an older API omits it.
+	starterPassesInRange: z.int().nonnegative().optional(),
 });
 
 export type AdminOverviewTotals = z.infer<typeof adminOverviewTotalsSchema>;
@@ -1616,6 +1652,12 @@ export const adminRoutes = {
 		`/api/v1/admin/organizations/${organizationId}`,
 	organizationGrantCredits: (organizationId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/credits`,
+	/** POST grants the Starter pass to the team pool. Body adminStarterPassBodySchema. Same permission as the credit grant. */
+	organizationGrantStarterPass: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/starter-pass`,
+	/** POST revokes the live Starter pass of the team pool. Body adminStarterPassBodySchema. */
+	organizationRevokeStarterPass: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/starter-pass/revoke`,
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	publications: "/api/v1/admin/publications",
@@ -1643,6 +1685,12 @@ export const adminRoutes = {
 	generationAttempt: (surface: string, attemptId: string) =>
 		`/api/v1/admin/generations/${surface}/${attemptId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
+	/** POST grants the Starter pass to the personal pool. Body adminStarterPassBodySchema. Same permission as the credit grant. */
+	grantStarterPass: (userId: string) =>
+		`/api/v1/admin/users/${userId}/starter-pass`,
+	/** POST revokes the live Starter pass of the personal pool. Body adminStarterPassBodySchema. */
+	revokeStarterPass: (userId: string) =>
+		`/api/v1/admin/users/${userId}/starter-pass/revoke`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
 	/** GET reads the refund preview. POST refunds the last Stripe plan payment and cancels the plan. Needs billing:manage. */

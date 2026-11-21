@@ -1,3 +1,7 @@
+/**
+ * The post-login home screen: a greeting, suggestion chips, and the composer that creates a project.
+ * The app home route renders it. It calls the create project mutation and opens the new project chat.
+ */
 import { useTranslation } from "@wandit/internationalization/react";
 import { router, useNavigation } from "expo-router";
 import { cn, useThemeColor } from "heroui-native";
@@ -10,7 +14,11 @@ import { DottedGrid } from "@/components/dotted-grid";
 import { IconCircleButton } from "@/components/icon-circle-button";
 import { Wordmark } from "@/components/wordmark";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { CreditsChip } from "@/features/credits";
+import {
+	CreditsChip,
+	isStarterPassIntent,
+	toBillingErrorIntent,
+} from "@/features/credits";
 import {
 	PromptBox,
 	type PromptDraft,
@@ -93,8 +101,15 @@ export function HomeScreen() {
 					setPrefill({ key: Date.now(), value: "" });
 					router.push(`/project/${projectId}`);
 				},
-				onError: () => {
-					setSubmitError(t("native.home.createProjectError"));
+				onError: (error) => {
+					// The pool has credits but no Starter pass, so the generic error would hide the fix.
+					setSubmitError(
+						t(
+							isStarterPassIntent(toBillingErrorIntent(error))
+								? "native.home.starterPassRequired"
+								: "native.home.createProjectError",
+						),
+					);
 				},
 				onSettled: () => {
 					createProjectLockRef.current = false;

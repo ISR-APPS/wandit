@@ -271,9 +271,15 @@ async function waitForResume(
 }
 
 // An error answer of the turn routes, as the status-preserving fetch throws it.
-function turnRouteError(statusCode: number, code: string) {
+// `details` is the raw details field of the error envelope.
+function turnRouteError(
+	statusCode: number,
+	code: string,
+	details?: ApiClientError["details"],
+) {
 	return new ApiClientError({
 		code,
+		details,
 		message: "The turn route failed.",
 		path: `/api/v2/projects/${PROJECT_ID}/turns`,
 		requestId: "req-turn",
@@ -302,6 +308,28 @@ describe("turnErrorKey and canReconnectAfter", () => {
 			error: turnRouteError(409, "BUILDER_OTHER_CHAT_BUSY"),
 			isSendRefused: true,
 			key: "errors.codes.BUILDER_OTHER_CHAT_BUSY",
+			canReconnect: false,
+		},
+		// The pool has credits but no Starter pass: "no credits" would be false.
+		{
+			failure: "a send refused for the Starter pass",
+			error: turnRouteError(402, "INSUFFICIENT_CREDITS", {
+				requiredCredits: 6,
+				availableCredits: 40,
+				reason: "starter_pass_required",
+			}),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.starterPassRequired",
+			canReconnect: false,
+		},
+		{
+			failure: "a send refused for credits",
+			error: turnRouteError(402, "INSUFFICIENT_CREDITS", {
+				requiredCredits: 6,
+				availableCredits: 0,
+			}),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.noCredits",
 			canReconnect: false,
 		},
 		{

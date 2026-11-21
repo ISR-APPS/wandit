@@ -42,6 +42,7 @@ describe("workstream 5 contract round-trips", () => {
 			paidSubscriptionsEnabled: true,
 			signupGrantCredits: 20,
 			signupGrantEnabled: true,
+			starterPassRequired: false,
 			topupsEnabled: true,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: "admin_1",
@@ -120,6 +121,7 @@ describe("workstream 5 contract round-trips", () => {
 			paidSubscriptionsEnabled: false,
 			signupGrantCredits: 0.5,
 			signupGrantEnabled: true,
+			starterPassRequired: false,
 			topupsEnabled: false,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: null,
@@ -146,7 +148,8 @@ describe("workstream 5 contract round-trips", () => {
 		{ userReferralFriendCredits: 1 },
 		{ userReferralActivationCredits: 25 },
 		{ userReferralPaidCredits: 10_000 },
-	])("accepts a patch that holds only the user referral setting %o", (change) => {
+		{ starterPassRequired: true },
+	])("accepts a patch that holds only the setting %o", (change) => {
 		expect(
 			patchProductSettingsBodySchema.parse({ ...change, version: 4 }),
 		).toEqual({ ...change, version: 4 });

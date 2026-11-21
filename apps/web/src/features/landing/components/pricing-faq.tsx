@@ -2,6 +2,7 @@
  * The pricing questions of the /pricing page. components/pricing.tsx renders it.
  * It uses the Accordion of packages/ui, and the copy of landing.pricing.faq.<id>.
  * The refund answer links to /terms, so this page states no refund policy of its own.
+ * The Algeria answer names the live DZD rate from the billing feature.
  */
 import { Link } from "@tanstack/react-router";
 import {
@@ -13,7 +14,8 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { useId } from "react";
 
-import { useDictionary } from "@/lib/i18n";
+import { formatLocalPrice, useDzdPerUsdRate } from "@/features/billing";
+import { useDictionary, useTranslation } from "@/lib/i18n";
 import { SECTION_TITLE_CLASS } from "../lib/constants";
 
 // The questions in display order. Each id keys landing.pricing.faq.<id>.{q,a}.
@@ -29,7 +31,18 @@ const PRICING_FAQ_IDS = [
 /** One question open at a time, the first by default. A second click closes it. */
 export function PricingFaq() {
 	const faq = useDictionary().landing.pricing.faq;
+	const { locale, t } = useTranslation();
+	const dzdPerUsdRate = useDzdPerUsdRate();
 	const titleId = useId();
+	// No rate means no SlickPay key, so the answer cannot name a DZD price.
+	const answerOf = (id: (typeof PRICING_FAQ_IDS)[number]) =>
+		id !== "algeria"
+			? faq[id].a
+			: dzdPerUsdRate === null
+				? faq.algeria.aWithoutRate
+				: t("landing.pricing.faq.algeria.a", {
+						price: formatLocalPrice(1, locale, dzdPerUsdRate),
+					});
 
 	return (
 		<section
@@ -59,7 +72,7 @@ export function PricingFaq() {
 							{faq[id].q}
 						</AccordionTrigger>
 						<AccordionContent className="max-w-2xl pe-10 pb-7 text-base text-night/70 leading-relaxed md:text-lg">
-							{faq[id].a}
+							{answerOf(id)}
 							{id === "refunds" ? (
 								<>
 									{" "}

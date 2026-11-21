@@ -212,6 +212,18 @@ export class CreditsService {
 			);
 
 			if (options.admission === "requirePositiveBalance") {
+				// Fraud gate: with the switch on, a pool that never paid cannot start new work.
+				// It runs after the replay return, so a reserve that already committed stays admitted.
+				if (balance.starterPassRequired) {
+					throw new InsufficientCreditsError(
+						amount,
+						balance.balance,
+						balance.settledBalance,
+						this.refusedPayer(owner, options.actorUserId),
+						"starter_pass_required",
+					);
+				}
+
 				// Ruling 5 admission on the SETTLED view: a positive settled balance
 				// admits the spend even while reserve holds dip the raw ledger
 				// negative — a running build must never lock its owner out of chat,

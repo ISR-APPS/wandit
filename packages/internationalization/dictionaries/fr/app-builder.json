@@ -798,6 +798,7 @@
 			"modelRetired": "Le modèle de cette conversation n'est plus disponible. Démarrez une nouvelle conversation.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
 			"connectionLost": "Le chat a perdu la connexion au serveur.",
+			"starterPassRequired": "Obtenez le Pass Démarrage pour commencer à créer. Vos crédits se débloquent ensuite.",
 			"providerFallback": "Le fournisseur d’IA"
 		},
 		"building": "En création",
@@ -883,7 +884,8 @@
 				"one": "{count} requête",
 				"other": "{count} requêtes"
 			}
-		}
+		},
+		"payerStarterPassRequired": "L'espace de travail de ce projet a besoin du Pass Démarrage. Demandez à son propriétaire de l'acheter."
 	},
 	"publish": {
 		"cta": "Publier",

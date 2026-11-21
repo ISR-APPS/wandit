@@ -313,6 +313,7 @@ describe("StripeProvider", () => {
 			bonusCredits: 0,
 			customerId: "cus_1",
 			organizationId: null,
+			requestThreeDSecure: false,
 			userId: "user_1",
 		};
 		sessionsCreate.mockRejectedValueOnce(
@@ -395,6 +396,7 @@ describe("StripeProvider", () => {
 				bonusCredits: 100,
 				customerId: "cus_1",
 				organizationId: null,
+				requestThreeDSecure: false,
 				userId: "user_1",
 			}),
 		).resolves.toEqual({
@@ -435,6 +437,26 @@ describe("StripeProvider", () => {
 		expect(sessionsCreate.mock.calls[0]?.[1]).toEqual({
 			idempotencyKey:
 				"topup-checkout:user_1:22222222-2222-4222-8222-222222222222",
+		});
+	});
+
+	it("asks for 3-D Secure on every card of a Starter pass checkout", async () => {
+		const { provider, sessionsCreate } = setup();
+
+		await provider.createTopupCheckout({
+			amountUsdCents: 100,
+			attemptId: "33333333-3333-4333-8333-333333333333",
+			baseCredits: 10,
+			bonusCredits: 0,
+			customerId: "cus_1",
+			organizationId: null,
+			requestThreeDSecure: true,
+			userId: "user_1",
+		});
+
+		expect(sessionsCreate.mock.calls[0]?.[0]).toMatchObject({
+			payment_method_options: { card: { request_three_d_secure: "any" } },
+			payment_method_types: ["card"],
 		});
 	});
 

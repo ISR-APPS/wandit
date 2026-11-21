@@ -823,6 +823,8 @@ export class TurnsService {
 				isActor: creditPayerOf(payer, scope.actorUserId).isActor,
 				// The reserve admission refuses at a settled balance of 0 or less.
 				outOfCredits: balance.settledBalance <= 0,
+				// The reserve admission also refuses a pool with no Starter pass while the switch is on.
+				starterPassRequired: balance.starterPassRequired,
 			},
 		};
 	}

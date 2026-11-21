@@ -1,7 +1,7 @@
 /**
  * Owns the top-up dialog and the workspace billing notice for the whole web app.
  * Listens to billing-error-dispatch.ts: a refusal opens the top-up dialog or a notice.
- * Components open the dialog through useBillingModal().openTopup.
+ * Components open the dialog through useBillingModal().openTopup. The dialog sells the Starter pass while the wallet needs it.
  */
 import { useQueryClient } from "@tanstack/react-query";
 import type { CreditPayer, ProductEventSurface } from "@wandit/contracts";
@@ -22,6 +22,7 @@ import {
 	type WorkspaceBillingNoticeKind,
 } from "@/features/workspaces/components/workspace-billing-notice-dialog";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { billingKeys } from "../api/billing.queries";
 import {
 	type BillingErrorIntent,
 	subscribeToBillingErrors,
@@ -32,7 +33,7 @@ import { TopupDialog } from "./topup-dialog";
 type BillingModalContextValue = {
 	/**
 	 * Opens the top-up dialog for the active workspace wallet. A signed-out visitor gets the auth modal.
-	 * `amountUsd` is whole USD to select at open.
+	 * `amountUsd` is whole USD to select at open. The dialog ignores it while the wallet needs the Starter pass.
 	 */
 	openTopup: (surface: ProductEventSurface, amountUsd?: number) => void;
 };
@@ -88,11 +89,15 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 		kind: WorkspaceBillingNoticeKind;
 		limitCredits?: number;
 	} | null>(null);
+	const [askOwnerForStarterPass, setAskOwnerForStarterPass] = useState(false);
 
 	useEffect(
 		() =>
 			subscribeToBillingErrors((nextIntent: BillingErrorIntent) => {
 				void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+				const isStarterPassRefusal =
+					nextIntent.code !== "MEMBER_CREDIT_LIMIT_REACHED" &&
+					nextIntent.reason === "starter_pass_required";
 
 				// A top-up cannot fix a member's monthly cap, and members
 				// cannot fix an empty org pool — both get a notice instead
@@ -106,24 +111,46 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				if (
-					!canBuyForPayer({
-						payer: nextIntent.payer,
-						activeWorkspaceId,
-						isPersonal,
-						actorCanManageBilling,
-					})
-				) {
+				const canBuy = canBuyForPayer({
+					payer: nextIntent.payer,
+					activeWorkspaceId,
+					isPersonal,
+					actorCanManageBilling,
+				});
+
+				// The pool has credits but no Starter pass. "Pool empty" is not true, so the dialog asks for the owner.
+				if (!canBuy && isStarterPassRefusal) {
+					setIntent(null);
+					setAskOwnerForStarterPass(true);
+					setOpen(true);
+					return;
+				}
+
+				if (!canBuy) {
 					setNotice({ kind: "poolEmptyMember" });
 					return;
 				}
 
-				setIntent(nextIntent);
-				setAmountUsd(undefined);
-				// A 402 opens the dialog from no named screen. "plan_picker" is the analytics value of the dialog itself.
-				// The value stays: it is in the shared surface enum, and old funnel reports use it.
-				setSurface("plan_picker");
-				setOpen(true);
+				const openDialog = () => {
+					setIntent(nextIntent);
+					setAmountUsd(undefined);
+					setAskOwnerForStarterPass(false);
+					// A 402 opens the dialog from no named screen. "plan_picker" is the analytics value of the dialog itself.
+					// The value stays: it is in the shared surface enum, and old funnel reports use it.
+					setSurface("plan_picker");
+					setOpen(true);
+				};
+
+				// The dialog picks the Starter pass mode from the wallet. A cached wallet can be from before the switch.
+				// So the dialog opens after a fresh wallet. A failed reload still opens it, with the cached wallet.
+				if (isStarterPassRefusal) {
+					void queryClient
+						.refetchQueries({ queryKey: billingKeys.wallet() })
+						.finally(openDialog);
+					return;
+				}
+
+				openDialog();
 			}),
 		[actorCanManageBilling, activeWorkspaceId, isPersonal, queryClient],
 	);
@@ -137,6 +164,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 
 			setIntent(null);
 			setAmountUsd(nextAmountUsd);
+			setAskOwnerForStarterPass(false);
 			setSurface(nextSurface);
 			setOpen(true);
 		},
@@ -148,6 +176,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 		if (!nextOpen) {
 			setIntent(null);
 			setAmountUsd(undefined);
+			setAskOwnerForStarterPass(false);
 		}
 	}, []);
 
@@ -164,6 +193,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 				requiredCredits={intent?.requiredCredits}
 				availableCredits={intent?.availableCredits}
 				heldCredits={intent?.heldCredits}
+				askOwnerForStarterPass={askOwnerForStarterPass}
 			/>
 			<WorkspaceBillingNoticeDialog
 				kind={notice?.kind ?? "memberLimit"}

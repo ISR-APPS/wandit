@@ -415,11 +415,21 @@ export class AppProjectsService {
 
 	/**
 	 * D-C: a create holds nothing and debits nothing. It only refuses a payer
-	 * with no credits, before any row exists. Throws `InsufficientCreditsError` (402).
+	 * with no credits, or with no Starter pass, before any row exists. Throws `InsufficientCreditsError` (402).
 	 */
 	private async assertPayerHasCredits(scope: ProjectScope): Promise<void> {
 		const payer = subjectPayer(meteringSubjectFrom(scope));
 		const balance = await this.credits.getSettledBalance(payer);
+		// The same refusal as the reserve admission: the first turn would fail, so no empty project is made.
+		if (balance.starterPassRequired) {
+			throw new InsufficientCreditsError(
+				TURN_HOLD_DEFAULT_CREDITS,
+				balance.balance,
+				balance.settledBalance,
+				creditPayerOf(payer, scope.actorUserId),
+				"starter_pass_required",
+			);
+		}
 		if (balance.settledBalance <= 0) {
 			throw new InsufficientCreditsError(
 				TURN_HOLD_DEFAULT_CREDITS,

@@ -310,6 +310,7 @@ function productSettings(
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: false,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,

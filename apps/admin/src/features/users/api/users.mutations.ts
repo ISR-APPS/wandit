@@ -9,6 +9,7 @@ import { creditGrantKeys } from "@/features/credit-grants";
 
 import type {
 	ChangeUserRoleInput,
+	ChangeUserStarterPassInput,
 	GrantUserCreditsInput,
 	RefundUserInput,
 	SetUserAdminViewsInput,
@@ -18,6 +19,7 @@ import type {
 import { userKeys } from "./users.queries";
 import {
 	changeUserRole,
+	changeUserStarterPass,
 	grantUserCredits,
 	refundUser,
 	setUserAdminViews,
@@ -78,6 +80,27 @@ export function useRefundUserMutation() {
 			// The detail key is a prefix of the refund preview key, so this refreshes both.
 			void queryClient.invalidateQueries({
 				queryKey: userKeys.detail(input.userId),
+			});
+			void queryClient.invalidateQueries({ queryKey: userKeys.lists() });
+		},
+	});
+}
+
+/**
+ * Grants or revokes the Starter pass of the personal pool of a user.
+ * The answer holds only the pass, so a success refetches the user detail and the lists.
+ */
+export function useChangeUserStarterPassMutation() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: (input: ChangeUserStarterPassInput) =>
+			changeUserStarterPass(input),
+		onSuccess: (_starterPass, input) => {
+			// Exact: the pages, projects, and refund preview keys share this prefix and do not change.
+			void queryClient.invalidateQueries({
+				queryKey: userKeys.detail(input.userId),
+				exact: true,
 			});
 			void queryClient.invalidateQueries({ queryKey: userKeys.lists() });
 		},

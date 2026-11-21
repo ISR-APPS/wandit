@@ -2,14 +2,22 @@ import { NotFoundException } from "@nestjs/common";
 import type {
 	ProductSettings,
 	SlickpayInvoiceDetailsResponse,
+	StarterPassSource,
 	StartSlickpayCheckoutBody,
 } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CreditOwner } from "../../../credits/domain/credit-owner";
+import {
+	type CreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import type { CreditLedgerRow } from "../../../credits/infrastructure/persistence/credits.repository";
+import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { SlickpayTooManyCheckoutsError } from "../../domain/errors/slickpay.errors";
-import type { BillingCheckoutAttemptTransaction } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import type {
+	BillingCheckoutAttemptRow,
+	BillingCheckoutAttemptTransaction,
+} from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import type {
 	BillingTopupReceiptRow,
 	InsertBillingTopupReceipt,
@@ -20,6 +28,7 @@ import type {
 	SlickpayPaymentChanges,
 	SlickpayPaymentRow,
 } from "../../infrastructure/persistence/slickpay-payments.repository";
+import type { StarterPassGrant } from "../../infrastructure/persistence/starter-passes.repository";
 import type { SubscriptionCreditsTransaction } from "../../infrastructure/persistence/subscription-credits.repository";
 import { SlickpayPaymentsService } from "./slickpay-payments.service";
 
@@ -29,6 +38,10 @@ const PAYMENT_ID = "11111111-1111-4111-8111-111111111111";
 const SUBSCRIPTION_ID = "22222222-2222-4222-8222-222222222222";
 const INVOICE_ID = "901";
 const PAYMENT_URL = "https://devapi.slick-pay.com/satim/payment/abc";
+const OPEN_PAYMENT_ID = "33333333-3333-4333-8333-333333333333";
+const OPEN_PAYMENT_URL = "https://devapi.slick-pay.com/satim/payment/open";
+const MINUTE_MS = 60_000;
+const ORGANIZATION_ID = "org_1";
 const USER = { email: "amina@example.com", id: "user_1" };
 // SAFETY: the fake repositories in this spec never read the transaction.
 const TRANSACTION = {} as BillingCheckoutAttemptTransaction;
@@ -41,6 +54,54 @@ const CHECKOUT_BODY: StartSlickpayCheckoutBody = {
 	fullName: "Amina Ben Ali",
 	phone: "+213 661 22 33 44",
 };
+
+const STARTER_PASS_BODY: StartSlickpayCheckoutBody = {
+	city: "Oran",
+	fullName: "Amina Ben Ali",
+	phone: "+213 661 22 33 44",
+	starterPass: true,
+};
+
+const TEAM_WORKSPACE: WorkspaceContext = {
+	kind: "org",
+	organizationId: ORGANIZATION_ID,
+	role: "owner",
+	roles: ["owner"],
+};
+
+// An open Starter pass row of the pool: 1 USD at 270.00 DZD per USD, 10 credits.
+function starterPassRow(
+	minutesOld: number,
+	overrides: Partial<SlickpayPaymentRow> = {},
+): SlickpayPaymentRow {
+	return paymentRow({
+		amountDzd: 270,
+		amountUsdCents: 100,
+		createdAt: new Date(NOW.getTime() - minutesOld * MINUTE_MS),
+		credits: 1_000,
+		id: OPEN_PAYMENT_ID,
+		paymentUrl: OPEN_PAYMENT_URL,
+		...overrides,
+	});
+}
+
+// An open card Starter pass checkout of the personal pool, with its Stripe session.
+function cardStarterAttempt(): BillingCheckoutAttemptRow {
+	return {
+		amountUsdCents: 100,
+		createdAt: new Date(NOW.getTime() - 10 * MINUTE_MS),
+		credits: 1_000,
+		id: "55555555-5555-4555-8555-555555555555",
+		organizationId: null,
+		packId: null,
+		priceLookupKey: null,
+		providerSessionId: "cs_open",
+		purpose: "topup",
+		status: "session_attached",
+		updatedAt: NOW,
+		userId: USER.id,
+	};
+}
 
 // A pricing v8 row: 25 USD at 270.00 DZD per USD is 6750 DZD and 250 credits.
 function paymentRow(
@@ -116,10 +177,11 @@ function productSettings(): ProductSettings {
 		lifecycleEmailsEnabled: false,
 		manualGraceDays: 0,
 		manualPaymentsEnabled: true,
-		organizationsEnabled: false,
+		organizationsEnabled: true,
 		paidSubscriptionsEnabled: true,
 		signupGrantCredits: 700,
 		signupGrantEnabled: false,
+		starterPassRequired: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
@@ -136,6 +198,22 @@ function productSettings(): ProductSettings {
 /** In-memory credit ledger with the replay rule of CreditsService.topup: same key, same owner and amount. */
 class FakeLedger {
 	readonly rows: CreditLedgerRow[] = [];
+	/** What the credit snapshot of every pool answers for the Starter pass gate. */
+	starterPassRequired = false;
+
+	async getSettledBalance(_owner: CreditOwner) {
+		return {
+			balance: 0,
+			plan: 0,
+			promo: 0,
+			settledBalance: 0,
+			settledPlan: 0,
+			settledPromo: 0,
+			settledTopup: 0,
+			starterPassRequired: this.starterPassRequired,
+			topup: 0,
+		};
+	}
 
 	async topup(
 		owner: CreditOwner,
@@ -192,6 +270,10 @@ type ContextOptions = {
 	recentCheckouts?: number;
 	/** When true, old code grants the row as a plan without the owner lock, just before the grant sets "fulfilled". */
 	fulfilledByOldCode?: boolean;
+	/** Card checkout attempts of the pool in `billing_checkout_attempts`. */
+	cardAttempts?: BillingCheckoutAttemptRow[];
+	/** When false, Stripe does not expire the open card sessions. Default: Stripe expires them. */
+	stripeExpires?: boolean;
 };
 
 function createContext(options: ContextOptions = {}) {
@@ -199,6 +281,28 @@ function createContext(options: ContextOptions = {}) {
 	const recorded = options.recordedPayments ?? [];
 	const ledger = new FakeLedger();
 	const receipts = new Map<string, BillingTopupReceiptRow>();
+	const passGrants: Array<{
+		owner: CreditOwner;
+		receiptId?: string;
+		source: StarterPassSource;
+	}> = [];
+	let cardAttempts = options.cardAttempts ?? [];
+	const isOpenCardAttempt = (attempt: BillingCheckoutAttemptRow) =>
+		attempt.status === "created" || attempt.status === "session_attached";
+	// Stands in for BillingService.expireOpenTopupSessions: Stripe expires each open session, or answers "open".
+	const cardCheckouts = {
+		expireOpenTopupSessions: async (_owner: CreditOwner) => {
+			if (options.stripeExpires === false) {
+				return;
+			}
+
+			cardAttempts = cardAttempts.map((attempt) =>
+				isOpenCardAttempt(attempt) && attempt.providerSessionId !== null
+					? { ...attempt, status: "expired" }
+					: attempt,
+			);
+		},
+	};
 	const payments = {
 		claimInvoiceCheck: async (id: string, writtenBefore: Date) => {
 			const row = rows.get(id);
@@ -218,6 +322,18 @@ function createContext(options: ContextOptions = {}) {
 		},
 		countByUserSince: async () => options.recentCheckouts ?? 0,
 		findById: async (id: string) => rows.get(id) ?? null,
+		findOpenStarterPasses: async (owner: CreditOwner, createdAfter: Date) =>
+			[...rows.values()].filter(
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					row.amountUsdCents === 100 &&
+					(row.status === "created" ||
+						row.status === "pending" ||
+						row.status === "paid") &&
+					row.createdAt > createdAfter,
+			),
 		insert: async (input: InsertSlickpayPaymentInput) => {
 			const row = paymentRow({
 				...input,
@@ -297,12 +413,14 @@ function createContext(options: ContextOptions = {}) {
 			): Promise<T> => {
 				// A thrown error rolls the transaction back, like Postgres does.
 				const ledgerLength = ledger.rows.length;
+				const passGrantsLength = passGrants.length;
 				const receiptSnapshot = new Map(receipts);
 
 				try {
 					return await fn(OWNER_TRANSACTION);
 				} catch (error) {
 					ledger.rows.splice(ledgerLength);
+					passGrants.splice(passGrantsLength);
 					receipts.clear();
 					for (const [key, receipt] of receiptSnapshot) {
 						receipts.set(key, receipt);
@@ -345,15 +463,40 @@ function createContext(options: ContextOptions = {}) {
 		},
 		{ enqueue: async () => null },
 		{
+			findOpenForOwner: async () => cardAttempts.filter(isOpenCardAttempt),
+			withOwnerLock: async <T>(
+				_owner: CreditOwner,
+				fn: (tx: BillingCheckoutAttemptTransaction) => Promise<T>,
+			) => fn(TRANSACTION),
 			withUserLock: async <T>(
 				_userId: string,
 				fn: (tx: BillingCheckoutAttemptTransaction) => Promise<T>,
 			) => fn(TRANSACTION),
 		},
 		{ get: async () => productSettings() },
+		{
+			grantIfAbsent: async (owner: CreditOwner, grant: StarterPassGrant) => {
+				passGrants.push({
+					owner,
+					receiptId: grant.receiptId,
+					source: grant.source,
+				});
+
+				return null;
+			},
+		},
+		cardCheckouts,
 	);
 
-	return { ledger, receipts, rows, service, slickpay };
+	return {
+		cardAttempts: () => cardAttempts,
+		ledger,
+		passGrants,
+		receipts,
+		rows,
+		service,
+		slickpay,
+	};
 }
 
 describe("SlickpayPaymentsService", () => {
@@ -388,6 +531,135 @@ describe("SlickpayPaymentsService", () => {
 				plan: null,
 				status: "pending",
 			});
+		});
+
+		it("sells the Starter pass at 1 USD in DZD for 10 credits when the pool needs it", async () => {
+			const context = createContext();
+			context.ledger.starterPassRequired = true;
+
+			await context.service.startCheckout(USER, {
+				city: "Oran",
+				fullName: "Amina Ben Ali",
+				phone: "+213 661 22 33 44",
+				starterPass: true,
+			});
+
+			// The fixture rate is 270.00 DZD per USD.
+			expect(context.slickpay.createInvoice).toHaveBeenCalledWith(
+				expect.objectContaining({ amountDzd: 270 }),
+			);
+			expect(context.rows.get(PAYMENT_ID)).toMatchObject({
+				amountDzd: 270,
+				amountUsdCents: 100,
+				credits: 1_000,
+			});
+		});
+
+		it("answers 409 STARTER_PASS_NOT_AVAILABLE before any row when the pool does not need the pass", async () => {
+			const context = createContext();
+
+			await expect(
+				context.service.startCheckout(USER, {
+					city: "Oran",
+					fullName: "Amina Ben Ali",
+					phone: "+213 661 22 33 44",
+					starterPass: true,
+				}),
+			).rejects.toMatchObject({
+				response: { code: "STARTER_PASS_NOT_AVAILABLE" },
+				status: 409,
+			});
+			expect(context.slickpay.createInvoice).not.toHaveBeenCalled();
+			expect(context.rows.size).toBe(0);
+		});
+
+		// A pool has at most one open Starter pass page over card and SlickPay. SlickPay cannot cancel an invoice.
+		it.each([
+			{
+				answer: { paymentId: OPEN_PAYMENT_ID, url: OPEN_PAYMENT_URL },
+				body: STARTER_PASS_BODY,
+				name: "answers the open invoice again for a second Starter pass request of the buyer",
+				rows: [starterPassRow(10)],
+			},
+			{
+				answer: { paymentId: PAYMENT_ID, url: PAYMENT_URL },
+				body: STARTER_PASS_BODY,
+				cardAttempts: [cardStarterAttempt()],
+				name: "expires the open card Starter pass session, then creates the invoice",
+			},
+			{
+				body: STARTER_PASS_BODY,
+				cardAttempts: [cardStarterAttempt()],
+				code: "BILLING_CHECKOUT_PENDING",
+				name: "refuses while Stripe does not expire the open card session",
+				stripeExpires: false,
+			},
+			{
+				body: STARTER_PASS_BODY,
+				code: "BILLING_CHECKOUT_PENDING",
+				name: "refuses while the invoice call of a young Starter pass row is in flight",
+				rows: [starterPassRow(1, { paymentUrl: null, status: "created" })],
+			},
+			{
+				body: STARTER_PASS_BODY,
+				code: "STARTER_PASS_SLICKPAY_OPEN",
+				name: "refuses a second team admin while the invoice of the first is open",
+				rows: [
+					starterPassRow(10, {
+						organizationId: ORGANIZATION_ID,
+						userId: "user_2",
+					}),
+				],
+				workspace: TEAM_WORKSPACE,
+			},
+			{
+				answer: { paymentId: PAYMENT_ID, url: PAYMENT_URL },
+				body: STARTER_PASS_BODY,
+				name: "creates a new invoice when the open Starter pass row is older than 30 minutes",
+				rows: [starterPassRow(31)],
+			},
+			{
+				answer: { paymentId: PAYMENT_ID, url: PAYMENT_URL },
+				body: CHECKOUT_BODY,
+				cardAttempts: [cardStarterAttempt()],
+				cardStaysOpen: true,
+				name: "leaves a normal top-up as it was, with an open Starter pass invoice and card session",
+				rows: [starterPassRow(10)],
+			},
+		])("$name", async (testCase) => {
+			const context = createContext({
+				cardAttempts: testCase.cardAttempts,
+				rows: testCase.rows,
+				stripeExpires: testCase.stripeExpires,
+			});
+			context.ledger.starterPassRequired = true;
+			const checkout = context.service.startCheckout(
+				USER,
+				testCase.body,
+				testCase.workspace,
+			);
+
+			if (testCase.answer) {
+				await expect(checkout).resolves.toEqual(testCase.answer);
+			} else {
+				await expect(checkout).rejects.toMatchObject({
+					response: { code: testCase.code },
+					status: 409,
+				});
+			}
+
+			// A new invoice exists only when the answer is the new row.
+			expect(context.slickpay.createInvoice).toHaveBeenCalledTimes(
+				testCase.answer?.paymentId === PAYMENT_ID ? 1 : 0,
+			);
+
+			if (testCase.cardAttempts) {
+				expect(context.cardAttempts()[0]?.status).toBe(
+					testCase.cardStaysOpen || testCase.stripeExpires === false
+						? "session_attached"
+						: "expired",
+				);
+			}
 		});
 
 		it("refuses a user with 5 checkouts in the last 10 minutes before SlickPay creates an invoice", async () => {
@@ -438,6 +710,14 @@ describe("SlickpayPaymentsService", () => {
 					recordedByUserId: null,
 					reference: INVOICE_ID,
 				}),
+			]);
+			// The second refresh finds the row fulfilled, so the pass is written once, with the receipt.
+			expect(context.passGrants).toEqual([
+				{
+					owner: userOwner(USER.id),
+					receiptId: "receipt_1",
+					source: "slickpay",
+				},
 			]);
 		});
 

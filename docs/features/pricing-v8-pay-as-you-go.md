@@ -12,7 +12,7 @@ unit does not change: 1 credit = $0.032 of AI-provider cost.
 | D2 | Wallet | The wallet is the total balance: `plan + promo + topup`. The three ledger buckets stay. No ledger row moves at the cutover. |
 | D3 | Expiry | No code writes an `expire` ledger row. No code lowers the refundable part of a plan hold. |
 | D4 | Rate | Base rate: 10 credits for 1 USD. Pricing v8.1 adds a volume bonus (table below). It reverses the decision of Nov 12 ("no volume bonus"). One rate for personal and team wallets. No cashback. |
-| D5 | Amounts | Presets 10, 20, 40, 100, 200 USD (v8.1). Custom amount in whole USD, minimum 10, maximum 1000. A custom amount gets the bonus of the same tier as a preset. |
+| D5 | Amounts | Presets 10, 20, 40, 100, 200 USD (v8.1). Custom amount in whole USD, minimum 10, maximum 1000. A custom amount gets the bonus of the same tier as a preset. One exception: the 1 USD Starter pass (D15). |
 | D6 | Stripe | Checkout `mode: payment` with `price_data` (no lookup-key Price, no seed). USD only, cards only. |
 | D7 | Algeria | SlickPay (DZD) and the offline request flow stay. Each one sells a wallet top-up of an amount. |
 | D8 | Existing subscribers | They keep every remaining credit. The cutover script ends each subscription with no proration and no refund. |
@@ -22,6 +22,8 @@ unit does not change: 1 credit = $0.032 of AI-provider cost.
 | D12 | Affiliates | A Stripe top-up earns a commission with the terms of the attribution. |
 | D13 | Trophies | v8.1: 40 personal trophies in 8 tracks (section 8). The spend badges are the Fuel track. A trophy gives no credits and no money. |
 | D14 | Tables | No table and no enum value is dropped. Refunds, disputes, and reports read the old rows. |
+| D15 | Starter pass | 2026-11-20 (founder). With the admin switch on, a pool that never paid cannot spend credits. It buys the Starter pass: 1 USD by card, or 250 DZD by SlickPay at the default rate (10 credits). Cash on delivery never sells the pass. See section 14. |
+| D16 | DZD for everyone | 2026-11-20 (founder). The default rate is 250 DZD for 1 USD. Each visitor sees DZD prices next to USD prices, and the SlickPay tab, when SlickPay has a key. |
 
 Volume bonus of D4 (`TOPUP_BONUS_TIERS`, pricing v8.1). The tier of an amount is
 the last tier with `minAmountUsd <= amountUsd`.
@@ -113,6 +115,7 @@ TOPUP_PRESET_AMOUNTS_USD = [10, 20, 40, 100, 200]
 TOPUP_MIN_AMOUNT_USD = 10
 TOPUP_MAX_AMOUNT_USD = 1000
 TOPUP_CREDITS_PER_USD = 10      // base rate, before the bonus
+STARTER_PASS_USD = 1            // price of the Starter pass (D15), below the minimum on purpose
 TOPUP_BONUS_TIERS               // [{ minAmountUsd, bonusPercent }], ascending (D4)
 topupQuoteForUsd(amountUsd)     // { baseCredits, bonusPercent, bonusCredits, credits, nextTier }
 topupCreditsForUsd(amountUsd)   // whole credits, bonus included
@@ -125,7 +128,9 @@ SlickPay row, or the receipt. The webhook grants the stored number. The web
 shows a quote from the same contracts function. The web credit count is display
 only. The Stripe Checkout page shows the split as the product description, for
 example "1,100 credits (1,000 + 100 bonus)". The
-Stripe, SlickPay, and offline request bodies all use `topupAmountUsdSchema`.
+Stripe, SlickPay, and offline request bodies all use `topupAmountUsdSchema`. The Stripe and
+SlickPay bodies have one more variant, `{ starterPass: true }`, with the fixed amount
+`STARTER_PASS_USD`. The offline body has no such variant.
 
 `// LIMIT:` the maximum is for one payment, not for one owner per day. Upgrade: a
 daily sum from `billing_topup_receipts`.
@@ -134,11 +139,11 @@ daily sum from `billing_topup_receipts`.
 
 | Route | Behavior |
 |---|---|
-| `GET /billing/wallet` | New. `{ balance, isPaidOwner, hasStripeCustomer, spentLast30DaysCredits, topup: { enabled, presetAmountsUsd, minAmountUsd, maxAmountUsd, creditsPerUsd } }` for the active workspace. Each member can read it. `spentLast30DaysCredits` is the net consumption of this wallet in the last 30 days, in decimal credits, never below 0. |
-| `POST /billing/topup` | `{ amountUsd }` → `{ url }`. Guards: `TopupsEnabledGuard`, `WebOriginWriteGuard` (new), `@RequireWorkspacePermission("billing", "manage")` (kept). For one release it also accepts `{ packId }` from a cached web bundle and maps the pack to its USD price (25, 100, 250). |
+| `GET /billing/wallet` | New. `{ balance, isPaidOwner, starterPassRequired, hasStripeCustomer, spentLast30DaysCredits, topup: { enabled, presetAmountsUsd, minAmountUsd, maxAmountUsd, creditsPerUsd } }` for the active workspace. `starterPassRequired` is optional (section 14). Each member can read it. `spentLast30DaysCredits` is the net consumption of this wallet in the last 30 days, in decimal credits, never below 0. |
+| `POST /billing/topup` | `{ amountUsd }` or `{ starterPass: true }` → `{ url }`. Guards: `TopupsEnabledGuard`, `WebOriginWriteGuard` (new), `@RequireWorkspacePermission("billing", "manage")` (kept). For one release it also accepts `{ packId }` from a cached web bundle and maps the pack to its USD price (25, 100, 250). |
 | `GET /billing/topup/status?sessionId=` | New. `{ status: "pending" }` or `{ status: "credited", credits }` (decimal credits, bonus included). `credits` is null for an old pack receipt with an unknown pack id. Finds the receipt by session id and the caller's user id. It does not read the workspace header. |
 | `GET /billing/payments` | New. The last 50 receipts of the pool. Guard: `billing: manage`. Fields: provider, method, amount, currency, credits, paid date, `revokedCredits`, reversed date. |
-| `POST /billing/slickpay/checkout` | `{ amountUsd }` in place of plan, tier, interval. |
+| `POST /billing/slickpay/checkout` | `{ amountUsd }` or `{ starterPass: true }`, with the contact, in place of plan, tier, interval. |
 | `POST /billing/slickpay/payments/:id/confirm` | Stays. The view has nullable `amountUsd`, `plan`, `tierCredits`, `interval`, and adds `credits`. |
 | `POST /billing/manual-request` | `{ amountUsd, ...contact }` in place of plan, tier, interval. |
 | `GET /billing/manual-request`, `POST /billing/manual-request/cancel` | Stay. The view has nullable `amountUsd`, `plan`, `tierCredits`, `interval` (34 open requests have a plan and no amount). |
@@ -149,7 +154,7 @@ Removed: `POST /billing/checkout`, `/change/preview`, `/change`, `/cancel`,
 `/resume`, `/sync`.
 
 Kept unchanged for installed clients: `GET /credits/balance` (all eight fields)
-and every field of the public settings. `paidSubscriptionsEnabled` is the
+and every field of the public settings. Section 14 adds only optional fields to both. `paidSubscriptionsEnabled` is the
 constant `false` in the public settings. The admin settings card loses its
 toggle and the grace-days field.
 
@@ -221,7 +226,9 @@ fulfils it.
   grant nothing. Else grant the larger of `tier_credits` (times 12 for a yearly
   row) and 10 credits for each USD of `amount_dzd * 100 / dzd_per_usd_rate`.
 - A row can never fulfil with zero credits.
-- The per-user limit, the country rule, and `WebOriginWriteGuard` stay.
+- The per-user limit and `WebOriginWriteGuard` stay. The country rule changed on 2026-11-20 (D16):
+  `GET /billing/local-pricing` sends `dzdPerUsdRate` to every visitor. Its `slickpay` field stays
+  Algeria-only, because old cached web bundles read it as "the visitor is in Algeria".
 
 ### Offline
 
@@ -261,8 +268,10 @@ SlickPay and offline top-ups earn no affiliate commission (same as today).
 ## 6. Paid owner and entitlements
 
 One function holds the rule: `isPaidOwner(owner)` is true when the pool has a
-ledger row of kind `topup`, or a `subscriptions` row whose status is not
-`incomplete` or `incomplete_expired`. A personal check needs
+ledger row of kind `topup` of 100 credits or more (`PAID_OWNER_MIN_TOPUP_CENTI_CREDITS`,
+the credits of a 10 USD top-up), or a `subscriptions` row whose status is not
+`incomplete` or `incomplete_expired`. The threshold is a fraud rule: the 1 USD
+Starter pass does not buy a backend, device minutes, or the badge removal. A personal check needs
 `organization_id IS NULL`: an organization row holds the buyer in `user_id`.
 
 Seven readers call this one function: V2 backends, V2 device sessions, the
@@ -288,7 +297,8 @@ The limits for a paid owner equal the Pro and Business limits of today.
 - Team creation dialog: name, create the organization, switch workspace, close.
   It reads no plan and starts no checkout.
 - Dev seed: one `CreditsService.topup` of 250 credits with key
-  `dev-seed:topup:{userId}`. No subscription row. The dev account needs
+  `dev-seed:topup:{userId}`, and one Starter pass (source `admin`, note
+  "dev seed"). No subscription row and no receipt. The dev account needs
   `BACKEND_LIMIT_OFF=true` for more than one V2 backend.
 - Lifecycle emails: "free" means "not a paid owner and no open offline request".
   `payload.plan` is `paid` or `free`. A past customer gets no follow-up email of
@@ -297,9 +307,12 @@ The limits for a paid owner equal the Pro and Business limits of today.
 The user referral program does not use `isPaidOwner`. It has its own payment
 rule, because it pays credits to a second user:
 
-- First payment mark: the friend has a personal top-up receipt with an amount
-  above 0 and no reversal (Stripe, SlickPay, or offline), or a personal plan
-  payment with an amount above 0. A team payment does not count.
+- First payment mark: the friend has a personal top-up receipt of 10 USD or more
+  and no reversal (Stripe, SlickPay, or offline), or a personal plan payment with
+  an amount above 0. A team payment does not count. The receipt value is
+  `amount_usd_cents`. A receipt from before v8 has no such value: a USD receipt
+  then uses `amount_cents`, and another currency does not count. Fraud rule: a
+  1 USD Starter pass of a fake friend must not earn the 100-credit paid reward.
 - Paid reward, after the 7-day hold: one of these payments has a net revoke of
   0. Net revoke = the `revoke` rows minus the `clawback_restore` rows of the
   payment in `credit_ledger`. Strict rule: any refund means "not paid".
@@ -330,6 +343,9 @@ opens (WANDIT-153).
   clawback, and payout as an invoice.
 - A fixed one-time commission is `min(fixedAmountCents, base)`. No commission can
   be larger than its payment.
+- A USD session with `amount_total` below 10 USD (the 1 USD Starter pass) earns no
+  commission and writes no candidate. The one fixed earning of a program then stays
+  for a real top-up.
 - If the payer of the session is the affiliate, the candidate is `ineligible`.
   `// LIMIT:` a second account of the affiliate is not found; the hold stays.
 
@@ -523,3 +539,188 @@ table.
 Auto top-up, Stripe Tax, a refund of a card top-up from the admin app (use the
 Stripe Dashboard: the webhook revokes the credits in proportion), a low-balance
 email, in-app purchase in the native app.
+
+## 14. Starter pass (2026-11-20)
+
+Founder request: show prices in DZD (1 USD = 250 DZD). A user spends credits only after a real
+payment of 1 USD or 250 DZD. Many accounts abused the free credits. Cash on delivery stays
+for top-ups only, never for the 1 USD payment.
+
+Names: the UI says "Starter pass" (fr "Pass Démarrage", ar "تذكرة البداية"). The code says
+`starterPass` or `starter_pass`. The word `starter` alone is the old v6 plan id.
+
+### Rules
+
+| Item | Value |
+|---|---|
+| Switch | `product_settings.starter_pass_required`, default `false`. Admin Settings, Product controls, toggle "Starter pass". |
+| Price | `STARTER_PASS_USD` = 1 USD by card. By SlickPay, `dzdPriceFor(1, rate)`: 250 DZD at the default rate. |
+| Credits | `topupCreditsForUsd(1)` = 10 credits, bucket `topup`. |
+| Pool | The credit pool: a personal wallet or a team wallet. A team pass never holds the buyer. |
+| Cash | The offline request keeps its 10 USD minimum. The dialog has no Cash / transfer tab in Starter pass mode. |
+| Paid owner | The pass does not make a paid owner. That needs a top-up of 100 credits or more (section 6). |
+
+The gate applies only while the switch is on. A pool with no live pass then keeps its credits, but
+it cannot start new spend. This includes the signup grant, the referral credits, and promo credits.
+
+### Data (`packages/db`, migration `0105_starter-pass`)
+
+- Enum `starter_pass_source`: `stripe`, `slickpay`, `offline`, `grandfathered`, `admin`.
+- Table `starter_passes`: `user_id` or `organization_id` (CHECK: exactly one), `source`,
+  `receipt_id` (FK `billing_topup_receipts`, set null), `granted_by_user_id`, `note`,
+  `created_at`, `revoked_at`, `revoked_by_user_id`, `revoked_reason`.
+- Two partial unique indexes keep one live pass (`revoked_at` NULL) for each personal pool and
+  for each team pool. A revoked row stays as history.
+- `product_settings.starter_pass_required boolean NOT NULL DEFAULT false`.
+- The `dzd_per_usd_rate` default becomes 25000 (250.00 DZD). The migration also sets the row to
+  25000 when it still holds the old default 27000. A rate that an admin chose stays.
+
+### Gate (`modules/credits`)
+
+- `CreditsRepository.getSettledBalanceSnapshot` returns `starterPassRequired` from the same SQL
+  statement as the sums. It is true when the switch is on and the pool has no live pass.
+  A missing settings row means "off".
+- `CreditsService.consume` with `admission: "requirePositiveBalance"` checks it after the replay
+  return. A reserve that already committed stays admitted.
+- The refusal is the usual 402 `INSUFFICIENT_CREDITS` (`InsufficientCreditsError`), with the same
+  message and `details.reason = "starter_pass_required"`.
+- `AppProjectsService` refuses a V2 project create the same way, before any row exists.
+- Settle and completion debits (`allowOverdraft`) do not check the pass, so a running job
+  never gets stuck.
+- The Trigger.dev runtimes build `CreditsService` with `CreditsRepository`, so they get the gate
+  with no other change.
+- `GET /credits/balance`, `GET /billing/wallet`, and the payer block of the V2 turn estimate
+  send `starterPassRequired`. The field is optional, so a new client survives an old API.
+
+### Buy the pass
+
+- Card: `POST /billing/topup` with `{ starterPass: true }`. Under the owner lock, the API reads
+  the snapshot. If the pool does not need the pass, it answers 409 `STARTER_PASS_NOT_AVAILABLE`.
+  The session sets `request_three_d_secure = "any"` against card testing.
+- SlickPay: `POST /billing/slickpay/checkout` with `{ starterPass: true, fullName, phone, city }`.
+  Same 409 rule, under the same owner lock.
+- One open Starter pass page per pool, over card and SlickPay. The check and the insert run under
+  the owner lock. SlickPay cannot cancel an invoice, so an open SlickPay pass row younger than
+  30 min blocks:
+  - SlickPay again, same buyer: the API answers the same `{ paymentId, url }` and makes no invoice.
+    Another team admin gets 409 `STARTER_PASS_SLICKPAY_OPEN`.
+  - Card: 409 `STARTER_PASS_SLICKPAY_OPEN`.
+  A SlickPay pass request first expires the open card sessions of the pool. A session that Stripe
+  does not expire answers 409 `BILLING_CHECKOUT_PENDING`. After 30 min, a buyer can still pay the
+  old SlickPay page. It then grants its 10 credits like a normal payment.
+- Each fulfilled card top-up and SlickPay top-up gives the pass, not only the 1 USD payment.
+
+### Writers and revokers
+
+Every write runs in the transaction and under the owner lock of its receipt or credit grant.
+`StarterPassesRepository.grantIfAbsent` returns null when the pool has a live pass, so a second
+grant is a no-op.
+
+| Event | Effect | Source or reason |
+|---|---|---|
+| Paid card top-up (`SubscriptionCreditsService.grantTopup`) | Grant, with the new receipt | `stripe` |
+| Paid SlickPay top-up (`SlickpayPaymentsService`) | Grant, with the new receipt | `slickpay` |
+| Admin "Record top-up" (cash, transfer, CCP) | Grant, with the new receipt | `offline` |
+| Admin grant | Grant. A live pass is returned with no write. | `admin`, with the note |
+| Dev seed | Grant on each boot. A live pass makes it a no-op. | `admin`, note "dev seed" |
+| Switch goes from off to on | Backfill (`grandfatherAll`) | `grandfathered` |
+| Admin "Reverse top-up" | Move or revoke the pass of this receipt | `receipt_reversed:{receiptId}` |
+| Stripe `charge.dispute.created` | Move or revoke the pass of this receipt | `dispute:{disputeId}` |
+| Admin revoke | Revoke the live pass | `admin:{note}` |
+
+Move rule: the pass of a lost receipt goes to the newest other live receipt of the same pool. A
+live receipt is not reversed, has no refund or dispute revoke row on its charge, and never gave
+a revoked pass. If no such receipt exists, the pass is revoked.
+
+A refund (`charge.refunded`) and a won dispute do not change the pass. An admin can grant it again.
+
+### Backfill when the switch goes on
+
+`ProductSettingsRepository.updateIfVersion` runs `grandfatherAll` in the same transaction as the
+settings write, only when the value goes from `false` to `true`. So no paying pool is refused
+between the two writes. The API then logs
+`starter_pass_required_enabled admin=<id> grandfathered_passes=<count>` when the count is above 0.
+
+A pool gets a `grandfathered` pass when it paid before (the old paid-owner rule, with no amount
+threshold):
+
+- a `subscriptions` row whose status is not `incomplete` or `incomplete_expired`,
+- a `credit_ledger` row with kind `topup` in bucket `topup`,
+- a `credit_ledger` row with `meta.reason = 'admin_grant'`,
+- for a personal pool only, a `payment_orders` row (domain purchase) in `paid`, `fulfilling`, or
+  `fulfilled`.
+
+A pool with any pass row, a revoked one included, gets nothing. An admin revoke then stays after
+a second flip. `// LIMIT:` two full scans of `credit_ledger` for each flip. Upgrade: batch by owner id.
+
+### Fraud rules for a 1 USD payment
+
+- Paid owner: a top-up ledger row of 100 credits or more (`PAID_OWNER_MIN_TOPUP_CENTI_CREDITS`).
+  The admin users list uses the same constant.
+- User referrals: only a receipt of 10 USD or more marks the first payment and pays the reward
+  (section 6).
+- Affiliates: a USD top-up below 10 USD earns no commission (section 7).
+
+### Surfaces
+
+- Web top-up dialog: when the wallet says `starterPassRequired`, it opens in Starter pass mode. It
+  shows the fixed price and the Card and "CIB / Edahabia" tabs only.
+- Web `/billing`: a Starter pass card at the top. `/billing?starterPass=1` opens the dialog once.
+- Web out-of-credits banner, builder chat, V1 chat, project create, and the insufficient-credits
+  dialog show the Starter pass text. They read `starterPassRequired` from the balance, or
+  `reason = "starter_pass_required"` from a 402.
+- A team member without billing rights sees "Ask the team owner to buy the Starter pass".
+- `/pricing`: a Starter pass strip replaces "Start free" when the public setting
+  `starterPassRequired` is true.
+- Native: the banner and the create error show the Starter pass text. The button opens
+  `/billing?starterPass=1` on the web.
+- Admin: a badge in the users list, and a pass card on the user and organization detail. The card
+  grants and revokes with a note. The credit grant and "Record top-up" dialogs show a note when
+  the pool has no pass. The overview tile `starterPassesInRange` counts passes of source `stripe` and `slickpay` created
+  in the range. A revoked pass still counts.
+- Admin routes: `POST /api/v1/admin/users/:userId/starter-pass` and `.../starter-pass/revoke`, and
+  the same two for `organizations/:organizationId`. Permission `credits: grant`. Body `{ note }`,
+  3 to 500 characters.
+
+Out of scope:
+- one pass for each card fingerprint,
+- a payer check on the sandbox wake,
+- the copy of the Resend welcome template,
+- `paymentEventsSql` of the admin analytics.
+
+### Rollout runbook
+
+Precondition: section 9 is complete, and the branch with migration 0105 is on `main`.
+
+1. In the SlickPay sandbox, create one invoice of 250 DZD, one of 2500 DZD, and one of 250000 DZD.
+2. In SlickPay production, create the same three invoices.
+3. If an invoice fails, change the SlickPay limits before you continue. The 250 DZD invoice is the pass.
+4. Run `pnpm db:migrate` against production. It applies `0105_starter-pass`.
+5. Deploy the API and the harness host.
+6. Deploy the Trigger.dev worker. Make sure that the Trigger dashboard shows the new version as current.
+7. Deploy web and admin.
+8. In admin Settings, read "USD → DZD rate". If the value is not 250, set it to 250.
+9. In admin Settings, make sure that "Card top-ups" is on. Users outside Algeria can pay only by card.
+10. List the open offline requests with read-only SQL (query below). Process each one, or contact the customer.
+11. In admin Settings, Product controls, turn on "Starter pass". The save runs the backfill.
+12. In the API log, find `starter_pass_required_enabled`. Write down `grandfathered_passes`.
+13. Count the passes by source with read-only SQL (query below).
+14. On a test account that never paid, make sure that the web shows the Starter pass.
+15. Buy the pass by card. Make sure that the account can then start a builder turn.
+
+```sql
+-- Step 10: open offline requests.
+select id, user_id, organization_id, amount_usd_cents, status, created_at
+from manual_subscription_requests
+where status in ('pending','contacted','no_answer','call_back','wrong_number','awaiting_payment')
+order by created_at;
+
+-- Step 13: passes by source.
+select source, count(*) from starter_passes where revoked_at is null group by source;
+```
+
+A pool with an open offline request and no pass cannot spend after step 11. "Record top-up" of
+its payment gives the pass and unlocks the pool.
+
+Rollback: turn off "Starter pass" in admin Settings. Every pool can spend again, and the passes
+stay. A second turn-on runs the backfill again and adds only pools that have no pass row.

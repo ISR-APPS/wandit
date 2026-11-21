@@ -49,6 +49,7 @@ function productSettings(userReferralsEnabled: boolean): ProductSettings {
 		paidSubscriptionsEnabled: true,
 		signupGrantCredits: 2000,
 		signupGrantEnabled: true,
+		starterPassRequired: false,
 		topupsEnabled: false,
 		updatedAt: "2026-11-01T10:00:00.000Z",
 		updatedByUserId: null,

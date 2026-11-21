@@ -1,6 +1,6 @@
 /**
  * Price text of the top-up dialog, the wallet page, the return pages, and the landing pricing page.
- * Amounts are in USD. Visitors in Algeria see them in DZD with dzdPriceFor from the contracts.
+ * Amounts are in USD. The DZD price comes from dzdPriceFor in the contracts and the live rate of GET local-pricing.
  */
 import { dzdPriceFor } from "@wandit/contracts";
 import type { Locale } from "@wandit/internationalization";
@@ -32,8 +32,8 @@ export function formatDzd(amountDzd: number): string {
 }
 
 /**
- * Formats a USD amount for the visitor.
- * dzdPerUsdRate is decimal DZD per 1 USD from GET local-pricing. It is null outside Algeria, so those visitors see USD.
+ * Formats a USD amount as DZD when the rate is known, else as USD. The SlickPay and offline tabs use it for the DZD charge.
+ * dzdPerUsdRate is decimal DZD per 1 USD from useDzdPerUsdRate. Null means "no rate", so the text is USD.
  */
 export function formatLocalPrice(
 	priceUsd: number,
@@ -43,4 +43,20 @@ export function formatLocalPrice(
 	return dzdPerUsdRate === null
 		? formatUsd(priceUsd, locale)
 		: formatDzd(dzdPriceFor(priceUsd, dzdPerUsdRate));
+}
+
+/**
+ * Formats a USD amount with its DZD price after it, for example "$20 · 5 000 DZD". Every visitor sees both.
+ * dzdPerUsdRate is decimal DZD per 1 USD from useDzdPerUsdRate. Null gives the USD text only, for example "$20".
+ */
+export function formatUsdAndDzd(
+	priceUsd: number,
+	locale: Locale,
+	dzdPerUsdRate: number | null,
+): string {
+	const usd = formatUsd(priceUsd, locale);
+
+	return dzdPerUsdRate === null
+		? usd
+		: `${usd} · ${formatDzd(dzdPriceFor(priceUsd, dzdPerUsdRate))}`;
 }

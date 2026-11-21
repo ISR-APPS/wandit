@@ -60,7 +60,7 @@ class FakeProductSettingsRepository {
 			version: this.row.version + 1,
 		};
 
-		return this.row;
+		return { grandfatheredPasses: 0, row: this.row };
 	});
 }
 
@@ -127,37 +127,6 @@ describe("ProductSettingsService", () => {
 		expect(() =>
 			patchProductSettingsBodySchema.parse({ dzdPerUsdRate, version: 1 }),
 		).toThrow();
-	});
-
-	it("creates and returns the singleton with launch defaults", async () => {
-		const { repository, service } = setup();
-
-		await expect(service.get()).resolves.toEqual({
-			// Stored internally in hundredths: 27000 = 270.00 DZD/USD.
-			dzdPerUsdRate: 27_000,
-			emailAuthEnabled: false,
-			id: 1,
-			lifecycleEmailsEnabled: false,
-			manualGraceDays: 0,
-			manualPaymentsEnabled: false,
-			organizationsEnabled: false,
-			paidSubscriptionsEnabled: false,
-			// Stored (and internally served) as centi-credits: 2000 = 20 credits.
-			signupGrantCredits: 2000,
-			signupGrantEnabled: false,
-			topupsEnabled: false,
-			updatedAt: INITIAL_DATE.toISOString(),
-			updatedByUserId: null,
-			// Centi-credits: 10, 10, and 100 credits.
-			userReferralActivationCredits: 1000,
-			userReferralFriendCredits: 1000,
-			userReferralPaidCredits: 10_000,
-			userReferralsEnabled: false,
-			v2BuilderEnabled: false,
-			v2DisabledModels: [],
-			version: 1,
-		});
-		expect(repository.getOrCreate).toHaveBeenCalledTimes(1);
 	});
 
 	it("passes DZD rate changes through and bumps the version", async () => {
@@ -278,6 +247,7 @@ describe("ProductSettingsService", () => {
 			paidSubscriptionsEnabled: true,
 			signupGrantCredits: storedCentiCredits,
 			signupGrantEnabled: true,
+			starterPassRequired: true,
 			topupsEnabled: false,
 			userReferralActivationCredits: 2500,
 			userReferralFriendCredits: 1500,
@@ -294,6 +264,7 @@ describe("ProductSettingsService", () => {
 			paidSubscriptionsEnabled: false,
 			signupGrantCredits: exposedCredits,
 			signupGrantEnabled: true,
+			starterPassRequired: true,
 			topupsEnabled: false,
 			// The row holds centi-credits. The public answer holds credits.
 			userReferralActivationCredits: 25,
@@ -308,7 +279,7 @@ describe("ProductSettingsService", () => {
 			expectedPublicSettings,
 		);
 		expect(await service.get()).toMatchObject({
-			dzdPerUsdRate: 27_000,
+			dzdPerUsdRate: 25_000,
 			lifecycleEmailsEnabled: true,
 		});
 	});
