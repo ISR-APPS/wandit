@@ -1,19 +1,20 @@
+/**
+ * Shows the brain model and the builder model of a V1 chat, read from the transcript.
+ * The brain model comes from the assistant message metadata.
+ * The builder model comes from the newest finished `generate_page` tool output.
+ * No file imports this component now, so nothing renders it.
+ */
 import { useTranslation } from "@/lib/i18n";
 import { getModelLabel } from "@/lib/model-labels";
 import type { WanditUIMessage } from "../../lib/use-ai-chat";
 
 export function ConversationModelIndicator({
 	messages,
-	pickerBuilderModel,
 }: {
 	messages: readonly WanditUIMessage[];
-	pickerBuilderModel?: string;
 }) {
 	const { t } = useTranslation();
-	const { brainModel, builderModel } = resolveConversationModels(
-		messages,
-		pickerBuilderModel,
-	);
+	const { brainModel, builderModel } = resolveConversationModels(messages);
 
 	if (!brainModel && !builderModel) return null;
 
@@ -51,13 +52,12 @@ function ModelSegment({ label, modelId }: { label: string; modelId: string }) {
 	);
 }
 
-function resolveConversationModels(
-	messages: readonly WanditUIMessage[],
-	pickerBuilderModel: string | undefined,
-): { brainModel?: string; builderModel?: string } {
+function resolveConversationModels(messages: readonly WanditUIMessage[]): {
+	brainModel?: string;
+	builderModel?: string;
+} {
 	let brainModel: string | undefined;
 	let transcriptBuilderModel: string | undefined;
-	let hasQueuedBuild = false;
 
 	for (
 		let messageIndex = messages.length - 1;
@@ -84,10 +84,6 @@ function resolveConversationModels(
 				continue;
 			}
 
-			if (part.output.status === "queued") {
-				hasQueuedBuild = true;
-			}
-
 			if (!transcriptBuilderModel && part.output.builderModel) {
 				transcriptBuilderModel = part.output.builderModel;
 			}
@@ -96,10 +92,6 @@ function resolveConversationModels(
 
 	return {
 		...(brainModel ? { brainModel } : {}),
-		...(transcriptBuilderModel
-			? { builderModel: transcriptBuilderModel }
-			: !hasQueuedBuild && pickerBuilderModel
-				? { builderModel: pickerBuilderModel }
-				: {}),
+		...(transcriptBuilderModel ? { builderModel: transcriptBuilderModel } : {}),
 	};
 }

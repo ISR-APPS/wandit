@@ -256,6 +256,7 @@ export class AppProjectsService {
 					message: body.prompt,
 					mode: body.mode,
 					model: body.model,
+					thinking: body.thinking,
 				},
 				{
 					existingMessageId: messageId,
@@ -588,6 +589,7 @@ export class AppProjectsService {
 				createdAt: row.createdAt.toISOString(),
 				id: row.id,
 				lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+				model: row.model,
 				title: row.title,
 			})),
 		};
@@ -615,6 +617,8 @@ export class AppProjectsService {
 				createdAt: chat.createdAt.toISOString(),
 				id: chat.id,
 				lastMessageAt: null,
+				// A chat with no message has no turn, so no locked model.
+				model: null,
 				title: null,
 			},
 		};

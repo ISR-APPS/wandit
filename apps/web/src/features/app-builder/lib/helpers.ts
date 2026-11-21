@@ -3,9 +3,11 @@
  * panels of the More view and pick the open one. One picks the open
  * conversation. Five pairs store the open
  * state and the split layout of the chat column, the chat view of local dev,
- * the Expo Go username, and the model pick. Two pair a model with its Fast
- * variant for the model menu. Three serve the effort tiers of the model
- * slider: BUILDER_TIERS, visibleBuilderTiers, and builderTierOf. One copies
+ * the Expo Go username, and the model pick. One pair stores the thinking
+ * pick, and one rule tells if the thinking control shows. Two pair a model
+ * with its Fast variant for the model menu. Three serve the effort tiers of
+ * the model slider: BUILDER_TIERS, visibleBuilderTiers, and builderTierOf.
+ * One gives the cost ratio of a tier against Standard. One copies
  * text to the clipboard. One puts an app page path on the signed preview URL.
  * Two convert the spending limits between the Settings fields and the API.
  * One formats a USD amount of the chat cost. Three serve the Thème sheet:
@@ -19,11 +21,14 @@
 
 import {
 	type BuilderModelsResponse,
+	type BuilderThinking,
+	builderThinkingSchema,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	expoUsernameSchema,
 	type LlmModelPrice,
 	type ProjectChat,
+	TYPICAL_TURN_USAGE,
 	type UpdateProjectCostCapsRequest,
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
@@ -36,6 +41,7 @@ import type { Locale } from "@wandit/internationalization";
 import type { AppProjectKind } from "../api/dto";
 import {
 	BUILDER_MODEL_STORAGE_KEY_PREFIX,
+	BUILDER_THINKING_STORAGE_KEY_PREFIX,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
 	CHAT_VIEW_STORAGE_KEY,
@@ -97,6 +103,12 @@ export type OpenChat = {
 	id: string;
 	/** True when no conversation of the project is older. Only that conversation can hold the first turn of the project. */
 	isOldest: boolean;
+	/**
+	 * Model id of the newest turn with a model, from `projectChatSchema.model`:
+	 * a tier model or its Fast row. Null before the first turn. A set id locks
+	 * the tier: see lockedTurnModelOf.
+	 */
+	lockedModelId: string | null;
 };
 
 /**
@@ -115,6 +127,7 @@ export function openChatOf(
 	return {
 		id: chat.id,
 		isOldest: chats.every((row) => Date.parse(row.createdAt) >= createdAtMs),
+		lockedModelId: chat.model,
 	};
 }
 
@@ -227,7 +240,9 @@ export function readBuilderModel(
 ): string | undefined {
 	let stored: string | null;
 	try {
-		stored = window.localStorage.getItem(builderModelStorageKey(projectId));
+		stored = window.localStorage.getItem(
+			pickStorageKey(BUILDER_MODEL_STORAGE_KEY_PREFIX, projectId),
+		);
 	} catch {
 		// Private mode can block storage. The first tier then runs.
 		stored = null;
@@ -251,15 +266,54 @@ export function writeBuilderModel(
 	modelId: string,
 ): void {
 	try {
-		window.localStorage.setItem(builderModelStorageKey(projectId), modelId);
+		window.localStorage.setItem(
+			pickStorageKey(BUILDER_MODEL_STORAGE_KEY_PREFIX, projectId),
+			modelId,
+		);
 	} catch {
 		// Private mode or a full quota: the pick only lasts the session.
 	}
 }
 
-/** Storage key of one model pick. The read and the write must use the same key, so both call this. */
-function builderModelStorageKey(projectId: string | null): string {
-	return `${BUILDER_MODEL_STORAGE_KEY_PREFIX}${projectId ?? "new"}`;
+/**
+ * Thinking pick of a project, or of the next new project when `projectId`
+ * is null. "balanced" when nothing valid is stored or storage fails. A
+ * stored "normal" of the old two-level control fails the parse, so it
+ * reads as "balanced" too.
+ */
+export function readBuilderThinking(projectId: string | null): BuilderThinking {
+	try {
+		// A user or an extension can put any text in storage; the API accepts only the schema.
+		const stored = builderThinkingSchema.safeParse(
+			window.localStorage.getItem(
+				pickStorageKey(BUILDER_THINKING_STORAGE_KEY_PREFIX, projectId),
+			),
+		);
+		return stored.success ? stored.data : "balanced";
+	} catch {
+		// Private mode can block storage. The default level then runs.
+		return "balanced";
+	}
+}
+
+/** Stores the thinking pick of a project, or of the next new project when `projectId` is null. A storage failure is not an error for the user. */
+export function writeBuilderThinking(
+	projectId: string | null,
+	thinking: BuilderThinking,
+): void {
+	try {
+		window.localStorage.setItem(
+			pickStorageKey(BUILDER_THINKING_STORAGE_KEY_PREFIX, projectId),
+			thinking,
+		);
+	} catch {
+		// Private mode or a full quota: the pick only lasts the session.
+	}
+}
+
+/** Storage key of one pick of a project. The read and the write must use the same key, so both call this. */
+function pickStorageKey(prefix: string, projectId: string | null): string {
+	return `${prefix}${projectId ?? "new"}`;
 }
 
 // The Vercel AI Gateway names every Fast variant `<base id>-fast`, for example `zai/glm-5.3-fast`.
@@ -331,6 +385,100 @@ export function builderTierOf(
 	const baseModelId = baseModelIdOf(models, modelId);
 	return visibleBuilderTiers(models).find(
 		(tier) => tier.modelId === baseModelId,
+	);
+}
+
+/**
+ * True when the thinking control works for the model of the next turn,
+ * and the page sends the thinking pick. False when the control shows disabled:
+ * the list is not loaded, `modelId` is undefined, or the model has no tier.
+ */
+export function hasThinkingControl(
+	models: readonly LlmModelPrice[] | undefined,
+	modelId: string | undefined,
+): boolean {
+	// Deep costs more credits, so a level goes out only when the user sees the control enabled.
+	if (models === undefined || modelId === undefined) return false;
+	const tier = builderTierOf(models, modelId);
+	// Product rule: Standard has no thinking control. Effort had no measured effect on its model.
+	return tier !== undefined && tier.id !== "standard";
+}
+
+/**
+ * Thinking level a turn or a project create sends. The builder page and the
+ * dashboard call it. Undefined runs "balanced" on the server.
+ */
+export function sentThinkingOf(
+	models: readonly LlmModelPrice[] | undefined,
+	modelId: string | undefined,
+	thinking: BuilderThinking,
+): BuilderThinking | undefined {
+	// Deep costs more credits, so the pick goes out only where the control shows it.
+	return hasThinkingControl(models, modelId) ? thinking : undefined;
+}
+
+/**
+ * Model id the next send of a locked conversation carries. `isFast`
+ * undefined keeps `lockedModelId`. True picks the Fast row of its tier, false
+ * the tier model. A tier without a Fast row sends the tier model.
+ */
+export function lockedTurnModelOf(
+	models: readonly LlmModelPrice[] | undefined,
+	lockedModelId: string,
+	isFast: boolean | undefined,
+): string {
+	// Without the list no switch shows, so the conversation keeps its model.
+	if (models === undefined || isFast === undefined) return lockedModelId;
+	// Product rule: a locked conversation keeps its tier, but Fast mode can change on each message.
+	const baseModelId = baseModelIdOf(models, lockedModelId);
+	if (!isFast) return baseModelId;
+	return fastModelOf(models, baseModelId)?.modelId ?? baseModelId;
+}
+
+// The ratio shows one decimal below this value and a whole number from it, so "≈ ×5.6" and "≈ ×17" stay short.
+const COST_RATIO_WHOLE_FROM = 10;
+
+/**
+ * Cost of a typical turn (TYPICAL_TURN_USAGE) on `modelId`, divided by the
+ * same cost on `baseModelId`. One decimal below 10, a whole number from 10.
+ * Undefined when a row is not listed or the base costs nothing.
+ */
+export function typicalTurnCostRatio(
+	models: readonly LlmModelPrice[],
+	modelId: string,
+	baseModelId: string,
+): number | undefined {
+	const price = models.find((model) => model.modelId === modelId);
+	const basePrice = models.find((model) => model.modelId === baseModelId);
+	if (price === undefined || basePrice === undefined) return undefined;
+	const baseCost = typicalTurnCostOf(basePrice);
+	if (baseCost === 0) return undefined;
+	const ratio = typicalTurnCostOf(price) / baseCost;
+	// The rounded value decides, so 9.96 shows as "10", not "10.0".
+	const tenths = Math.round(ratio * 10) / 10;
+	return tenths < COST_RATIO_WHOLE_FROM ? tenths : Math.round(ratio);
+}
+
+/**
+ * Cost of one typical turn on a price row, in USD per million tokens times
+ * tokens. Only ratios read it, so it skips the division by one million.
+ * The long-context rule copies `priceUsdMicros` of the server price table.
+ */
+function typicalTurnCostOf(price: LlmModelPrice): number {
+	const usage = TYPICAL_TURN_USAGE;
+	// The provider picks the rate from the whole prompt, cached tokens included.
+	const promptTokens =
+		usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+	const rates =
+		price.longContext !== undefined &&
+		promptTokens > price.longContext.aboveTokens
+			? price.longContext
+			: price;
+	return (
+		usage.inputTokens * rates.inputUsdPerMTok +
+		usage.outputTokens * rates.outputUsdPerMTok +
+		usage.cacheReadTokens * rates.cacheReadUsdPerMTok +
+		usage.cacheWriteTokens * rates.cacheWriteUsdPerMTok
 	);
 }
 

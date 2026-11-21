@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	BUILDER_MODEL_STORAGE_KEY_PREFIX,
+	BUILDER_THINKING_STORAGE_KEY_PREFIX,
 	CHAT_LAYOUT_STORAGE_KEY,
 	EXPO_GO_USERNAME_STORAGE_KEY,
 } from "./constants";
@@ -20,17 +21,21 @@ import {
 	costCapToDraft,
 	fastModelOf,
 	formatUsdMicros,
+	hasThinkingControl,
 	isSameThemeSource,
 	isThemeDraftStale,
+	lockedTurnModelOf,
 	openChatOf,
 	panelsForKind,
 	previewSrcFor,
 	readBuilderModel,
+	readBuilderThinking,
 	readChatLayout,
 	readChatOpen,
 	readExpoUsername,
 	resolvePanel,
 	toCostCapsBody,
+	typicalTurnCostRatio,
 	writeChatLayout,
 	writeChatOpen,
 	writeExpoUsername,
@@ -42,12 +47,14 @@ describe("openChatOf", () => {
 		title: "Build a shop",
 		createdAt: "2026-11-01T08:00:00.000Z",
 		lastMessageAt: "2026-11-01T08:05:00.000Z",
+		model: "google/gemini-4-hydrogen",
 	};
 	const newerChat = {
 		id: crypto.randomUUID(),
 		title: null,
 		createdAt: "2026-11-05T08:00:00.000Z",
 		lastMessageAt: null,
+		model: null,
 	};
 	// The API sorts the list by activity. The newer conversation has none, so its creation date counts.
 	const chats = [newerChat, olderChat];
@@ -57,19 +64,23 @@ describe("openChatOf", () => {
 			request: "an id that the list holds",
 			chats,
 			requestedChatId: olderChat.id,
-			expected: { id: olderChat.id, isOldest: true },
+			expected: {
+				id: olderChat.id,
+				isOldest: true,
+				lockedModelId: "google/gemini-4-hydrogen",
+			},
 		},
 		{
 			request: "an id that the list does not hold",
 			chats,
 			requestedChatId: crypto.randomUUID(),
-			expected: { id: newerChat.id, isOldest: false },
+			expected: { id: newerChat.id, isOldest: false, lockedModelId: null },
 		},
 		{
 			request: "no id",
 			chats,
 			requestedChatId: undefined,
-			expected: { id: newerChat.id, isOldest: false },
+			expected: { id: newerChat.id, isOldest: false, lockedModelId: null },
 		},
 		{
 			request: "an empty list",
@@ -308,6 +319,102 @@ describe("readBuilderModel", () => {
 	});
 });
 
+describe("readBuilderThinking", () => {
+	const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+	const values = new Map<string, string>();
+
+	beforeEach(() => {
+		values.clear();
+		Object.defineProperty(window, "localStorage", {
+			configurable: true,
+			value: { getItem: (key: string) => values.get(key) ?? null },
+		});
+	});
+
+	afterEach(() => {
+		if (original) Object.defineProperty(window, "localStorage", original);
+	});
+
+	// The old control stored "normal". The API refuses it, so it must read as the default level.
+	it.each([
+		["the old two-level value as balanced", "normal", "balanced"],
+		["a current level as itself", "deep", "deep"],
+		["no stored value as balanced", null, "balanced"],
+	])("reads %s", (_, stored, expected) => {
+		if (stored !== null) {
+			values.set(`${BUILDER_THINKING_STORAGE_KEY_PREFIX}new`, stored);
+		}
+		expect(readBuilderThinking(null)).toBe(expected);
+	});
+});
+
+describe("typicalTurnCostRatio", () => {
+	// Rates in USD per million tokens. The typical turn is 60k input, 12k output, 180k cache reads, 20k cache writes.
+	const rates = (
+		modelId: string,
+		input: number,
+		output: number,
+		cacheRead: number,
+		cacheWrite: number,
+	) => ({
+		provider: "test",
+		modelId,
+		inputUsdPerMTok: input,
+		outputUsdPerMTok: output,
+		cacheReadUsdPerMTok: cacheRead,
+		cacheWriteUsdPerMTok: cacheWrite,
+	});
+	// The typical turn costs 0.03966 USD on the base: 0.018 + 0.0144 + 0.00126 + 0.006.
+	const base = rates("base", 0.3, 1.2, 0.007, 0.3);
+	const models = [
+		base,
+		// 0.2235 USD: 5.635x the base, one decimal.
+		rates("high", 1.5, 7.5, 0.075, 1.5),
+		// 0.676 USD: 17.04x the base, a whole number from 10.
+		rates("nuclear", 4, 20, 0.2, 8),
+		// 9.96x the base rounds to 10.0, so it shows as a whole number.
+		rates("almost-ten", 2.988, 11.952, 0.06972, 2.988),
+		// Its long-context rates apply: the 260k prompt is above 200k. They are 4x the base rates.
+		{
+			...base,
+			modelId: "long",
+			longContext: {
+				aboveTokens: 200_000,
+				inputUsdPerMTok: 1.2,
+				outputUsdPerMTok: 4.8,
+				cacheReadUsdPerMTok: 0.028,
+				cacheWriteUsdPerMTok: 1.2,
+			},
+		},
+		// A long-context threshold above the 260k prompt keeps the normal rates.
+		{
+			...base,
+			modelId: "long-unused",
+			longContext: {
+				aboveTokens: 272_000,
+				inputUsdPerMTok: 1.2,
+				outputUsdPerMTok: 4.8,
+				cacheReadUsdPerMTok: 0.028,
+				cacheWriteUsdPerMTok: 1.2,
+			},
+		},
+		rates("free", 0, 0, 0, 0),
+	];
+
+	it.each([
+		["a tier under 10x", "high", "base", 5.6],
+		["a tier from 10x", "nuclear", "base", 17],
+		["a ratio that rounds up to 10", "almost-ten", "base", 10],
+		["a row with long-context rates", "long", "base", 4],
+		["a row under its long-context threshold", "long-unused", "base", 1],
+		["a row the list does not hold", "removed", "base", undefined],
+		["a base the list does not hold", "high", "removed", undefined],
+		["a base that costs nothing", "high", "free", undefined],
+	])("gives the ratio of %s", (_, modelId, baseModelId, expected) => {
+		expect(typicalTurnCostRatio(models, modelId, baseModelId)).toBe(expected);
+	});
+});
+
 describe("baseModelIdOf and fastModelOf", () => {
 	const models = [
 		priceRow("anthropic/claude-opus-5.5"),
@@ -340,6 +447,76 @@ describe("baseModelIdOf and fastModelOf", () => {
 		const base = baseModelIdOf(models, pickId);
 		expect(base).toBe(baseId);
 		expect(fastModelOf(models, base)?.modelId).toBe(fastId);
+	});
+});
+
+describe("hasThinkingControl", () => {
+	const STANDARD = "deepseek/deepseek-v4.1-flash-1017";
+	const HIGH = "google/gemini-4-hydrogen";
+	const models = [
+		priceRow(STANDARD),
+		priceRow(`${STANDARD}-fast`),
+		priceRow(HIGH),
+		priceRow(`${HIGH}-fast`),
+		priceRow("zai/glm-5.3"),
+	];
+
+	// The page sends a level only on true, and Deep costs more credits.
+	it.each([
+		["a High pick", models, HIGH, true],
+		["a High Fast pick", models, `${HIGH}-fast`, true],
+		["a Standard pick", models, STANDARD, false],
+		["a Standard Fast pick", models, `${STANDARD}-fast`, false],
+		["a model outside the tiers", models, "zai/glm-5.3", false],
+		["no model pick: the picker hides", models, undefined, false],
+		["a list that is not loaded", undefined, HIGH, false],
+	])("answers for %s", (_, list, modelId, expected) => {
+		expect(hasThinkingControl(list, modelId)).toBe(expected);
+	});
+});
+
+describe("lockedTurnModelOf", () => {
+	const STANDARD = "deepseek/deepseek-v4.1-flash-1017";
+	const NUCLEAR = "anthropic/claude-opus-5.5";
+	const models = [
+		priceRow(STANDARD),
+		priceRow(NUCLEAR),
+		priceRow(`${NUCLEAR}-fast`),
+	];
+
+	// Fast costs more and another tier answers 409, so the sent id must follow the switch inside the tier.
+	it.each([
+		[
+			"no switch keeps the Fast lock",
+			models,
+			`${NUCLEAR}-fast`,
+			undefined,
+			`${NUCLEAR}-fast`,
+		],
+		["Fast on picks the Fast row", models, NUCLEAR, true, `${NUCLEAR}-fast`],
+		[
+			"Fast off goes back to the tier model",
+			models,
+			`${NUCLEAR}-fast`,
+			false,
+			NUCLEAR,
+		],
+		[
+			"Fast on without a Fast row keeps the tier model",
+			models,
+			STANDARD,
+			true,
+			STANDARD,
+		],
+		[
+			"a list that is not loaded keeps the lock",
+			undefined,
+			NUCLEAR,
+			true,
+			NUCLEAR,
+		],
+	])("%s", (_, list, lockedModelId, isFast, expected) => {
+		expect(lockedTurnModelOf(list, lockedModelId, isFast)).toBe(expected);
 	});
 });
 

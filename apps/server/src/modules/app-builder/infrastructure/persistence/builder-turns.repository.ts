@@ -9,6 +9,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import {
+	type BuilderThinking,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	type ComposerMetadata,
@@ -86,6 +87,8 @@ export type BuilderTurnSpec = {
 	targets: PreviewTarget[];
 	/** `plan` for a Plan Mode turn (interview and plan, no file change), else `build`. */
 	mode: BuilderTurnMode;
+	/** Thinking level of the turn. The runtime puts it in the proxy token, and the proxy maps it to an effort. */
+	thinking: BuilderThinking;
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */
@@ -330,6 +333,27 @@ export class BuilderTurnsRepository {
 					inArray(builderTurns.status, [...CHAT_ACTIVE_TURN_STATUSES]),
 				),
 			);
+	}
+
+	/**
+	 * The locked model of a chat: the model of its newest turn that has one,
+	 * or null before the first turn. `TurnsService.create` refuses a model
+	 * of another tier with it (baseModelIdOf). The chat list reads the same rule in SQL.
+	 */
+	async findLockedModelByChat(chatId: string): Promise<string | null> {
+		const [row] = await this.db
+			.select({ model: builderTurns.model })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.chatId, chatId),
+					sql`${builderTurns.model} is not null`,
+				),
+			)
+			.orderBy(desc(builderTurns.turnNumber))
+			.limit(1);
+
+		return row?.model ?? null;
 	}
 
 	/**

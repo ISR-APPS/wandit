@@ -14,8 +14,11 @@
  * The details panel of a reply covers the main card (a sheet on a phone).
  * Raw agent thinking never shows in production; local dev has a switch.
  * The page owns the elements picked in the web preview: the composer shows
- * them as chips. It also owns the model pick of the project, which every
- * send carries, and reads the chat cost for the line under the composer.
+ * them as chips. It also owns the model pick and the thinking pick of the
+ * project, which every send carries, and reads the chat cost for the line
+ * under the composer. A locked chat sends its tier model, or that tier's
+ * Fast row while the lock chip has Fast mode on. While a card waits, it
+ * sends the model of the paused turn.
  * Every edit control reads `project.access.role`, never the workspace header
  * role: a project viewer gets a read-only builder. The payer state of the
  * composer comes from the turn estimate (workspaces-sharing.md 4 and 6).
@@ -67,6 +70,7 @@ import { projectGithubStatusQuery } from "../api/github.queries";
 import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
+import type { ModelLock } from "../components/chat/model-lock-chip";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
@@ -78,11 +82,13 @@ import {
 	CHAT_PANEL_MIN_WIDTH,
 } from "../lib/constants";
 import {
+	lockedTurnModelOf,
 	openChatOf,
 	readChatLayout,
 	readChatOpen,
 	readDeveloperView,
 	resolvePanel,
+	sentThinkingOf,
 	writeChatLayout,
 	writeChatOpen,
 	writeDeveloperView,
@@ -145,7 +151,44 @@ export default function AppBuilderPage({
 	const chats = chatList?.chats ?? [];
 	const openChat = openChatOf(chats, search.chat);
 	const openChatId = openChat?.id;
-	const thread = useBuilderThread(projectId, openChat, modelPick.modelId);
+	// The Fast switch of the lock chip, for one conversation. No storage: after a
+	// send the chat list loads again, and its model holds the new Fast state.
+	const [lockedFastSwitch, setLockedFastSwitch] = useState<{
+		chatId: string;
+		isFast: boolean;
+	} | null>(null);
+	// Product rule: after its first turn, a conversation keeps its model tier. Fast mode can change.
+	const lockedSwitchModelId =
+		openChat === null || openChat.lockedModelId === null
+			? null
+			: lockedTurnModelOf(
+					modelPick.models,
+					openChat.lockedModelId,
+					lockedFastSwitch?.chatId === openChat.id
+						? lockedFastSwitch.isFast
+						: undefined,
+				);
+	const turnModelId = lockedSwitchModelId ?? modelPick.modelId;
+	const thread = useBuilderThread(
+		projectId,
+		openChat,
+		turnModelId,
+		sentThinkingOf(modelPick.models, turnModelId, modelPick.thinking),
+	);
+	// While a card waits, the thread sends the stored model, so the chip shows it and blocks the Fast row.
+	const modelLock: ModelLock | null =
+		openChat === null ||
+		openChat.lockedModelId === null ||
+		lockedSwitchModelId === null
+			? null
+			: {
+					modelId: thread.isCardWaiting
+						? openChat.lockedModelId
+						: lockedSwitchModelId,
+					isFastBlocked: thread.isCardWaiting,
+					onFastChange: (isFast) =>
+						setLockedFastSwitch({ chatId: openChat.id, isFast }),
+				};
 	const createChat = useCreateProjectChat(projectId);
 	// A link without `?chat=` opens the conversation with the newest activity.
 	// The URL then gets its id. Without it, a list refresh with a new order
@@ -451,6 +494,7 @@ export default function AppBuilderPage({
 			isPlanMode={thread.isPlanMode}
 			onPlanModeChange={thread.setPlanMode}
 			modelPick={modelPick}
+			modelLock={modelLock}
 			// Product rule: only a web project can copy a web page.
 			canCloneSite={project.kind === "web"}
 			chatCost={chatCost}

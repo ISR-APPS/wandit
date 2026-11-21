@@ -1,14 +1,15 @@
 /**
  * React hook over the V2 turn stream of one conversation of a project. Owns
  * the useChat instance and exposes the running turn id and its cost estimate.
- * Sends text, files, question answers, approval decisions, and the turn mode
- * as turn requests. A refused send leaves the chat, so the composer can show
- * it again. After a failed stream, `reconnect` replays the running turn.
+ * Sends text, files, question answers, approval decisions, the turn mode,
+ * and the thinking level as turn requests. A refused send leaves the chat,
+ * so the composer can show it again. After a failed stream, `reconnect` replays the running turn.
  * While no stream runs, it polls the running turn, the busy conversation,
  * and the head. It then follows a turn of this conversation or a commit of
  * another client, such as a coding agent. A turn of another conversation
  * never replays here: the hook only reports that conversation as busy.
- * A 402 answer opens the credits dialog. At the end frame of a turn it
+ * A 402 answer opens the credits dialog. A 409 model lock answer loads the
+ * conversation list again. At the end frame of a turn it
  * plays a chime when the user is away. Called by use-builder-thread.ts;
  * calls builder-chat-transport.ts, turn-end-sound.ts,
  * api/app-builder.queries.ts, api/app-builder.services.ts, and the billing
@@ -18,6 +19,7 @@
 import { useChat } from "@ai-sdk/react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	type BuilderThinking,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	createTurnResponseSchema,
@@ -32,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { dispatchBillingError } from "@/features/billing";
 import { creditsKeys } from "@/features/credits";
+import { isApiClientError } from "@/lib/api-client";
 import {
 	activeTurnStateQuery,
 	appBuilderKeys,
@@ -62,8 +65,10 @@ export type BuilderChatSend = {
 	approval?: TurnApprovalAnswer;
 	/** One answer per open `data-question` card, from the request tray. */
 	answers?: TurnQuestionAnswer[];
-	/** Model id from the model menu, a row of `GET /api/v2/models`; absent uses the deploy default. */
+	/** Model id from the model menu, a row of `GET /api/v2/models`; absent uses the locked model of the chat, else the deploy default. */
 	model?: string;
+	/** Thinking level of the thinking row (thinking-level-row.tsx); absent runs "balanced". */
+	thinking?: BuilderThinking;
 	/** `plan` runs the turn in Plan Mode: the agent asks and plans, and changes no file. Absent sends a build turn. */
 	mode?: BuilderTurnMode;
 	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
@@ -380,6 +385,13 @@ export function useBuilderChat(
 					queryKey: appBuilderKeys.turnEstimate(projectId),
 				});
 			}
+			// A 409 V2_MODEL_LOCKED means the list missed the first turn of this chat, for example from another tab.
+			// The list loads again, so the composer shows the lock and the next send carries the locked tier model.
+			if (isApiClientError(error) && error.code === "V2_MODEL_LOCKED") {
+				void queryClient.invalidateQueries({
+					queryKey: appBuilderKeys.chats(projectId),
+				});
+			}
 			if (reconnectRef.current !== null) {
 				reconnectRef.current.hasFailed = true;
 			}
@@ -479,6 +491,7 @@ export function useBuilderChat(
 						...(sendInput.answers ? { answers: sendInput.answers } : {}),
 						...(sendInput.model ? { model: sendInput.model } : {}),
 						...(sendInput.mode ? { mode: sendInput.mode } : {}),
+						...(sendInput.thinking ? { thinking: sendInput.thinking } : {}),
 					},
 				},
 			);

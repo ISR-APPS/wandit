@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { billingPlanIdSchema } from "../v1/billing";
 import { uuidSchema } from "../v1/shared/primitives";
+import { builderThinkingSchema } from "./turns";
 
 /**
  * Claims inside a signed LLM run token. The token is the only auth on the
@@ -38,6 +39,9 @@ export const llmProxyTokenClaimsSchema = z.object({
 	// Model id of the turn, in price-table form, for example
 	// `anthropic/claude-opus-5`. Absent on a token minted before the model picker.
 	model: z.string().min(1).optional(),
+	// Thinking level of the turn. The proxy maps it to `output_config.effort`; see `builderThinkingSchema`.
+	// Absent on a token minted before the control: no change to the body.
+	thinking: builderThinkingSchema.optional(),
 });
 
 /** TypeScript run-token claims type. */
@@ -119,6 +123,19 @@ export const llmModelPriceSchema = z.object({
 
 /** TypeScript price-row type. */
 export type LlmModelPrice = z.infer<typeof llmModelPriceSchema>;
+
+/**
+ * The WANDIT-151 typical message: one builder turn is about 60k fresh
+ * input, 180k cache reads, 20k cache writes, and 12k output tokens.
+ * The server prices the turn estimate with it. The web model slider shows
+ * the cost ratio of each tier with it. Source: Linear WANDIT-151, D2 notes.
+ */
+export const TYPICAL_TURN_USAGE = {
+	cacheReadTokens: 180_000,
+	cacheWriteTokens: 20_000,
+	inputTokens: 60_000,
+	outputTokens: 12_000,
+} as const;
 
 /**
  * Answer of `GET /api/v2/models`: the models the builder dropdown offers.

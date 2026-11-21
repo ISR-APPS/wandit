@@ -50,6 +50,10 @@ export const apiErrorCodes = [
 	"V2_ENV_MISSING",
 	"V2_MODEL_UNPRICED",
 	"V2_MODEL_DENIED",
+	// 409 on a turn create whose model differs from the model of the first turn of the chat.
+	"V2_MODEL_LOCKED",
+	// 409 on a turn create when the locked model of the chat has no price row any more. The user starts a new chat.
+	"V2_MODEL_RETIRED",
 	"MOBILE_TEMPLATE_UNAVAILABLE",
 	// 404 of POST /api/v2/projects/from-starter-template: the id is not in the catalog, or the API has no archive for it.
 	"STARTER_TEMPLATE_NOT_FOUND",

@@ -62,6 +62,18 @@ export const builderTurnModeSchema = z.enum(builderTurnModes);
 export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
 /**
+ * How long the model thinks on one turn. The LLM proxy maps it to
+ * `output_config.effort` of each Messages call. `light` sets "medium".
+ * `balanced` keeps the value Claude Code sends ("high"). `deep` sets "xhigh",
+ * or "max" on an Anthropic model. A turn can change it, and so can Fast
+ * mode; the tier of a chat stays locked.
+ */
+export const builderThinkingSchema = z.enum(["light", "balanced", "deep"]);
+
+/** `light`, `balanced`, or `deep`; see `builderThinkingSchema`. */
+export type BuilderThinking = z.infer<typeof builderThinkingSchema>;
+
+/**
  * Max length of a V2 user message or typed answer, in UTF-16 chars. About
  * 12K to 15K tokens. One field of this length stays under the 1 MiB JSON
  * body limit of Fastify (apps/server/src/main.ts). V1, native, and MCP keep
@@ -117,10 +129,14 @@ export const createTurnRequestSchema = z
 		composer: composerMetadataSchema.optional(),
 		// The model the user picked; absent means the deploy default. Any
 		// model with a price row is legal (`GET /api/v2/models` lists them).
-		// Another id answers 400 `V2_MODEL_DENIED`.
+		// Another id answers 400 `V2_MODEL_DENIED`. After the first turn of a
+		// chat, the chat keeps its model: absent runs on it, another id answers
+		// 409 `V2_MODEL_LOCKED`.
 		model: z.string().min(1).optional(),
 		// The Plan toggle of the composer; absent means `build`.
 		mode: builderTurnModeSchema.optional(),
+		// The thinking control of the composer; absent means `balanced`.
+		thinking: builderThinkingSchema.optional(),
 		// The answer to a `data-approval` card.
 		approval: turnApprovalAnswerSchema.optional(),
 		// The answers to the open `data-question` cards. Without them, the

@@ -2036,6 +2036,9 @@ export async function runBuilderTurn(
 			plan: LEGACY_LLM_TOKEN_PLAN,
 			projectId,
 			runId,
+			// The proxy reads it on each Messages call. The chat binding carries
+			// it too, so a continued process thinks at the level of this turn.
+			thinking: spec.thinking,
 			turnId,
 			userId: input.actorUserId,
 			workspaceId: input.organizationId,

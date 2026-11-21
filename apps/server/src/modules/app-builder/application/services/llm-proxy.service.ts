@@ -6,6 +6,8 @@
  * the answer back. A Paper body loses the blocks that Paper refuses.
  * Every body loses the Claude Code identity: the persona line, the model
  * bullets, and the model sentences. The Wandit persona line takes their place.
+ * The thinking level of the token sets the Messages effort: `light` lowers it,
+ * `deep` raises it, and `balanced` keeps the effort of Claude Code.
  * It writes one `llm_proxy_requests` row per request. With the Langfuse
  * keys set, it also sends one Langfuse generation for each Messages call.
  * A second controller for the OpenAI-compatible inbound format can reuse
@@ -18,6 +20,7 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	type BuilderThinking,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
 	uuidSchema,
@@ -163,6 +166,13 @@ const anthropicSystemSchema = z.union([
 	z.string(),
 	z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
 ]);
+
+// The effort fields of a request, for the thinking rewrite. It has its own
+// parse: a failure in `anthropicRequestBodySchema` would drop the model routing.
+const anthropicEffortSchema = z.object({
+	output_config: z.looseObject({ effort: z.string() }),
+	thinking: z.looseObject({ type: z.string() }).optional(),
+});
 
 // The system prompt of Claude Code 2.1.281 opens with one of these lines.
 // The SDK with an appended prompt sends the second line.
@@ -491,6 +501,11 @@ export class LlmProxyService {
 				? null
 				: (wanditUserMessages(paperMessages ?? bodyJson.messages) ??
 					paperMessages);
+		// The thinking control of the turn. A count_tokens call has no effort to change.
+		const outputConfig =
+			bodyJson === undefined || input.endpoint === "count_tokens"
+				? null
+				: thinkingOutputConfig(bodyJson, claims.thinking, upstream.provider);
 		// A body that keeps its model id and needs no rewrite keeps its raw
 		// bytes. The rewrite gives the same bytes for the same input, so the
 		// prompt cache still hits.
@@ -498,7 +513,8 @@ export class LlmProxyService {
 			bodyJson === undefined ||
 			(bodyJson.model === upstream.upstreamModelId &&
 				system === null &&
-				messages === null)
+				messages === null &&
+				outputConfig === null)
 				? input.body
 				: Buffer.from(
 						JSON.stringify({
@@ -506,6 +522,7 @@ export class LlmProxyService {
 							model: upstream.upstreamModelId,
 							...(messages === null ? {} : { messages }),
 							...(system === null ? {} : { system }),
+							...(outputConfig === null ? {} : { output_config: outputConfig }),
 						}),
 						"utf8",
 					);
@@ -1195,6 +1212,44 @@ function wanditUserMessages(
 	return rewritten.some((message, index) => message !== original[index])
 		? rewritten
 		: null;
+}
+
+/**
+ * The `output_config` for the thinking level of the turn, with the same fields.
+ * `light` sends effort "medium". `deep` sends "xhigh", or "max" on an Anthropic model.
+ * Returns null for `balanced` or no level, when the body sends no effort (the
+ * harness knows the model takes none), when the effort already matches, or when thinking is off.
+ */
+function thinkingOutputConfig(
+	body: z.infer<typeof anthropicRequestBodySchema>,
+	/** Level from the run token; absent on a token minted before the field. */
+	level: BuilderThinking | undefined,
+	/** `upstream.provider`: `upstreamFor` resolves it for every request, also `anthropic` for a bare `claude-` id. */
+	provider: string,
+): z.infer<typeof anthropicEffortSchema>["output_config"] | null {
+	// Live test, 2026-11: on Opus 5.5 only "max" changes the thinking, "xhigh" does not.
+	// On Gemini, "xhigh" already raises the thinking a lot.
+	const target =
+		level === "light"
+			? "medium"
+			: level === "deep"
+				? provider === "anthropic"
+					? "max"
+					: "xhigh"
+				: null;
+	if (target === null) {
+		return null;
+	}
+	const parsed = anthropicEffortSchema.safeParse(body);
+	if (!parsed.success) {
+		return null;
+	}
+	const { output_config: original, thinking } = parsed.data;
+	// Claude Code holds the effort down when thinking is off: some models then refuse a higher effort.
+	if (original.effort === target || thinking?.type === "disabled") {
+		return null;
+	}
+	return { ...original, effort: target };
 }
 
 // Removes "You are powered by the model ..." and the cutoff sentence.

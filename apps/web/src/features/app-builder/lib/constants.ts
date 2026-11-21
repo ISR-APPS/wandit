@@ -238,6 +238,14 @@ export const CHAT_VIEW_STORAGE_KEY = "wandit-app-builder-chat-view";
 export const BUILDER_MODEL_STORAGE_KEY_PREFIX = "wandit:v2-builder-model:";
 
 /**
+ * localStorage key prefix of the thinking control pick. A project id, or
+ * "new", ends the key, like the model pick. The value is "light",
+ * "balanced", or "deep".
+ */
+export const BUILDER_THINKING_STORAGE_KEY_PREFIX =
+	"wandit:v2-builder-thinking:";
+
+/**
  * Start width of the chat column, the width of the design. Every card fits.
  * The composer row fits too: the Plan chip shows only its icon, and the
  * model name truncates. See the LIMIT mark in chat/composer.tsx.
