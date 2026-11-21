@@ -794,6 +794,8 @@
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "This model is not available. Choose another model.",
 			"modelUnpriced": "This model has no price yet. Try again later.",
+			"modelLocked": "This conversation keeps the model of its first message. Start a new conversation to use another model.",
+			"modelRetired": "The model of this conversation is no longer available. Start a new conversation.",
 			"sendFailed": "We could not send your message. Send it again.",
 			"connectionLost": "The chat lost its connection to the server.",
 			"providerFallback": "The AI provider"
@@ -835,6 +837,34 @@
 					"name": "Nuclear",
 					"hint": "Our most powerful model, for your boldest ideas."
 				}
+			},
+			"costRatio": "≈ ×{ratio}",
+			"costRatioCaption": "Cost of a typical message, compared with {tier}.",
+			"lock": {
+				"chip": "Model: {tier}, locked for this conversation",
+				"chipFast": "Model: {tier}, Fast mode, locked for this conversation",
+				"unknown": "Locked model",
+				"body": "This conversation keeps the same tier to the end. Fast mode and the thinking level can change.",
+				"newChat": "New conversation with another model",
+				"fastSwitchHint": "A switch makes the next message read the whole conversation again, so that message costs more.",
+				"fastAfterCard": "Answer the open card first. Then you can change Fast mode."
+			},
+			"thinking": {
+				"label": "Thinking",
+				"light": {
+					"name": "Light",
+					"hint": "Answers faster with less thinking."
+				},
+				"balanced": {
+					"name": "Balanced",
+					"hint": "The default. Good for most messages."
+				},
+				"deep": {
+					"name": "Deep",
+					"hint": "Thinks longer before it answers. Uses more credits."
+				},
+				"unavailable": "The thinking level does not change on {tier}.",
+				"chipLabel": "{label}, thinking: {level}"
 			}
 		},
 		"cost": {

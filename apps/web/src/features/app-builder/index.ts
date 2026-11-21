@@ -20,6 +20,7 @@ export {
 export { PlanModeToggle } from "./components/plan-mode-toggle";
 export { AppNotFound } from "./components/shell/app-not-found";
 export { redirectV2Project } from "./lib/engine-redirect";
+export { sentThinkingOf } from "./lib/helpers";
 export { appBuilderSearchSchema } from "./lib/schemas";
 export {
 	type BuilderModelPick,

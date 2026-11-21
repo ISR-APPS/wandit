@@ -1,11 +1,15 @@
 /**
  * The model menu of a V2 prompt box: a chip with the effort tier, and a
  * popover card with a tier slider (Standard, High, Max, Nuclear), a Fast
- * toggle, and a reset. The thumb glides while the user drags it and snaps to
+ * toggle, a reset, and the thinking row
+ * (thinking-level-row.tsx). The thumb glides while the user drags it and snaps to
  * the nearest tier on release. The tier hint sits in an info tooltip.
+ * Each stop shows the cost of a typical message against the base tier.
  * The builder composer and the dashboard prompt box
  * (features/projects, through the barrel) render it. useBuilderModelPick owns
- * the state. helpers.ts holds the tiers and pairs a model with its Fast row.
+ * the state. helpers.ts holds the tiers, pairs a model with its Fast row,
+ * and gives the cost ratios. chat/model-lock-chip.tsx reuses the chip
+ * class and the tier colors.
  */
 
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
@@ -34,7 +38,7 @@ import {
 } from "motion/react";
 import { type KeyboardEvent, useRef, useState } from "react";
 
-import { useTranslation } from "@/lib/i18n";
+import { formatNumber, useTranslation } from "@/lib/i18n";
 import { getModelLabel } from "@/lib/model-labels";
 import {
 	BUILDER_TIERS,
@@ -42,10 +46,13 @@ import {
 	type BuilderTierId,
 	builderTierOf,
 	fastModelOf,
+	hasThinkingControl,
+	typicalTurnCostRatio,
 	visibleBuilderTiers,
 } from "../lib/helpers";
 import type { BuilderModelPick } from "../lib/use-builder-model-pick";
 import { NuclearLaunchDialog } from "./nuclear-launch-dialog";
+import { ThinkingLevelRow, ThinkingMark } from "./thinking-level-row";
 
 /** Props of the model menu. The caller wraps it in a TooltipProvider. */
 export type BuilderModelPickerProps = {
@@ -75,7 +82,8 @@ type TierStyle = {
 	glow: string;
 };
 
-const TIER_STYLE: Record<BuilderTierId, TierStyle> = {
+/** Colors of each tier, from cool to hot. chat/model-lock-chip.tsx uses the text color for its lock icon. */
+export const TIER_STYLE: Record<BuilderTierId, TierStyle> = {
 	standard: { text: "text-sky-600 dark:text-sky-400", glow: "bg-sky-400" },
 	high: { text: "text-violet-600 dark:text-violet-400", glow: "bg-violet-500" },
 	max: {
@@ -151,7 +159,7 @@ export function BuilderModelPicker({
 	disabled = false,
 	size = "sm",
 }: BuilderModelPickerProps) {
-	const { t } = useTranslation();
+	const { t, locale } = useTranslation();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const isReducedMotion = useReducedMotion() === true;
 	// Thumb position in tier units (1.5 is halfway from High to Max) while it glides or snaps. Null rests on the picked tier.
@@ -191,15 +199,39 @@ export function BuilderModelPicker({
 	const tierName = (id: BuilderTierId) =>
 		t(`appBuilder.chat.model.tiers.${id}.name`);
 	const tierHint = t(`appBuilder.chat.model.tiers.${shownTier.id}.hint`);
-	// Product rule: users never see a model name. The label says the tier and, for a screen reader, Fast mode.
-	const chipLabel = t(
+	const hasThinking = hasThinkingControl(models, pick.modelId);
+	// The chip marks a level other than Balanced, only where the control applies it.
+	const markedThinking =
+		hasThinking && pick.thinking !== "balanced" ? pick.thinking : undefined;
+	// Product rule: users never see a model name. The label says the tier and, for a screen reader, Fast mode and the thinking level.
+	const tierChipLabel = t(
 		isFast ? "appBuilder.chat.model.chipFast" : "appBuilder.chat.model.chip",
 		{ tier: tierName(tier.id) },
 	);
+	const chipLabel =
+		markedThinking === undefined
+			? tierChipLabel
+			: t("appBuilder.chat.model.thinking.chipLabel", {
+					label: tierChipLabel,
+					level: t(`appBuilder.chat.model.thinking.${markedThinking}.name`),
+				});
 	const resetLabel = t("appBuilder.chat.model.reset", {
 		tier: tierName(baseTier.id),
 	});
 	const fillWidth = `(${fraction} * (100% - ${THUMB_SIZE_PX}px) + ${THUMB_SIZE_PX}px)`;
+	// Product rule: each stop shows its cost against the base tier. With Fast on, a stop with a Fast row shows the Fast cost.
+	const costRatioTexts = tiers.map((stop) => {
+		const stopModelId = isFast
+			? (fastModelOf(models, stop.modelId)?.modelId ?? stop.modelId)
+			: stop.modelId;
+		const ratio = typicalTurnCostRatio(models, stopModelId, baseTier.modelId);
+		return ratio === undefined
+			? undefined
+			: t("appBuilder.chat.model.costRatio", {
+					ratio: formatNumber(ratio, locale),
+				});
+	});
+	const shownCostRatioText = costRatioTexts[shownIndex];
 	// Sparkles drift faster at each tier: 2.6 s on Standard, 1.1 s on Nuclear.
 	const sparkleDurationSec = 2.6 - 0.5 * shownIndex;
 
@@ -291,6 +323,9 @@ export function BuilderModelPicker({
 							aria-hidden
 						/>
 					) : null}
+					{markedThinking === undefined ? null : (
+						<ThinkingMark level={markedThinking} />
+					)}
 					<CaretDownIcon
 						weight="bold"
 						className="size-3 shrink-0 transition-transform duration-200 group-aria-expanded/trigger:rotate-180 motion-reduce:transition-none"
@@ -514,11 +549,16 @@ export function BuilderModelPicker({
 							moveToTier(Math.round(from), from);
 						}}
 						onKeyDown={moveByKey}
-						aria-label={chipLabel}
-						aria-valuetext={tierName(shownTier.id)}
+						aria-label={tierChipLabel}
+						aria-valuetext={
+							shownCostRatioText === undefined
+								? tierName(shownTier.id)
+								: `${tierName(shownTier.id)}, ${shownCostRatioText}`
+						}
 						className={SLIDER_CLASS}
 					/>
-					<div className="relative mt-2 h-4">
+					{/* Two lines per stop: the tier name, then its cost ratio. */}
+					<div className="relative mt-2 h-8">
 						{tiers.map((stop, index) => (
 							// The slider owns the keyboard, so the stop labels stay out of the tab order.
 							<button
@@ -527,18 +567,41 @@ export function BuilderModelPicker({
 								tabIndex={-1}
 								onClick={() => moveToTier(index, position)}
 								className={cn(
-									"absolute top-0 -translate-x-1/2 whitespace-nowrap font-grotesk text-[11px] leading-4 transition-colors",
+									"absolute top-0 flex -translate-x-1/2 flex-col items-center whitespace-nowrap font-grotesk text-[11px] leading-4 transition-colors",
 									stop === shownTier
 										? cn("font-semibold", TIER_STYLE[stop.id].text)
 										: "text-muted-foreground hover:text-foreground",
 								)}
 								style={{ insetInlineStart: thumbCenterAt(index / lastIndex) }}
 							>
-								{tierName(stop.id)}
+								<span>{tierName(stop.id)}</span>
+								{costRatioTexts[index] === undefined ? null : (
+									<span className="font-normal text-[10px] tabular-nums opacity-80">
+										{costRatioTexts[index]}
+									</span>
+								)}
 							</button>
 						))}
 					</div>
 				</div>
+				{costRatioTexts.some((text) => text !== undefined) ? (
+					<p className="mt-1 text-center text-[11px] text-muted-foreground">
+						{t("appBuilder.chat.model.costRatioCaption", {
+							tier: tierName(baseTier.id),
+						})}
+					</p>
+				) : null}
+				<ThinkingLevelRow
+					level={hasThinking ? pick.thinking : "balanced"}
+					onLevelChange={pick.setThinking}
+					unavailableHint={
+						hasThinking
+							? undefined
+							: t("appBuilder.chat.model.thinking.unavailable", {
+									tier: tierName(tier.id),
+								})
+					}
+				/>
 
 				{/* Inside the card, so the popover counts the dialog as its own layer and stays open. */}
 				<NuclearLaunchDialog

@@ -275,6 +275,18 @@ export function llmModelPrice(modelId: string): LlmModelPrice | undefined {
 }
 
 /**
+ * The tier model id of a model id: `<id>-fast` maps to `<id>` when `<id>` has
+ * a price row. Any other id comes back unchanged. The chat model lock of
+ * `TurnsService.create` compares these ids. Web mirrors it in `baseModelIdOf`.
+ */
+export function baseModelIdOf(modelId: string): string {
+	const baseModelId = modelId.replace(/-fast$/, "");
+	return baseModelId !== modelId && llmModelPrice(baseModelId) !== undefined
+		? baseModelId
+		: modelId;
+}
+
+/**
  * Cost of one request in USD micros, integer math throughout. Rounds the
  * total up so a partial million-token unit never underbills. A prompt above
  * `longContext.aboveTokens` bills every token at the long-context rates.

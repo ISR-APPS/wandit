@@ -4,7 +4,8 @@
  * Repository means: keep SQL/database details here, not inside services.
  *
  * The API and the V2 `builder-turn` task use it. The V1 worker has its own
- * repository for writing the final assistant message.
+ * repository for writing the final assistant message. The V2 conversation
+ * list also reads the locked model of each chat from `builder_turns`.
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
@@ -30,6 +31,7 @@ import {
 	sql,
 	stripNulCharacters,
 } from "@wandit/db";
+import { builderTurns } from "@wandit/db/schema/builder-turns";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
 import type { UIMessage } from "ai";
@@ -71,6 +73,8 @@ export type ProjectChatRow = Pick<
 	lastMessageAt: Date | null;
 	/** Text of the first user message, at most 80 characters. Null without a user message or without text. */
 	title: string | null;
+	/** Locked model of the chat: the model of its newest turn that has one. Null before the first turn. */
+	model: string | null;
 };
 
 // Product rule: a conversation title is the first user message, cut to 80 characters.
@@ -191,18 +195,33 @@ export class ChatsRepository {
 			.orderBy(desc(messages.seq))
 			.limit(1)
 			.as("newest_message");
+		// The same rule as `BuilderTurnsRepository.findLockedModelByChat`.
+		const lockedModel = this.db
+			.select({ model: builderTurns.model })
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.chatId, chats.id),
+					sql`${builderTurns.model} is not null`,
+				),
+			)
+			.orderBy(desc(builderTurns.turnNumber))
+			.limit(1)
+			.as("locked_model");
 
-		// LIMIT: one answer holds all chats, with two index reads per chat. Fine for hundreds of chats per project. Upgrade: a cursor on the activity date.
+		// LIMIT: one answer holds all chats, with three index reads per chat. Fine for hundreds of chats per project. Upgrade: a cursor on the activity date.
 		return this.db
 			.select({
 				createdAt: chats.createdAt,
 				id: chats.id,
 				lastMessageAt: newestMessage.createdAt,
+				model: lockedModel.model,
 				title: firstUserMessage.title,
 			})
 			.from(chats)
 			.leftJoinLateral(firstUserMessage, sql`true`)
 			.leftJoinLateral(newestMessage, sql`true`)
+			.leftJoinLateral(lockedModel, sql`true`)
 			.where(eq(chats.projectId, projectId))
 			.orderBy(
 				desc(sql`coalesce(${newestMessage.createdAt}, ${chats.createdAt})`),

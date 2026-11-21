@@ -6,7 +6,7 @@
  * it by path. Calls the projects queries, the V1 and V2 create hooks, and
  * the credits banners. From the landing it uses the key button, the platform
  * word, and the V2 strip. It owns the app type, the Plan chip, and the model
- * menu of a V2 create. Below the grid, "Shared with me" lists the projects of
+ * menu with its thinking row of a V2 create. Below the grid, "Shared with me" lists the projects of
  * other workspaces that the user has a direct grant on (features/project-sharing).
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import {
+	sentThinkingOf,
 	useBuilderModelPick,
 	useCreateAppProjectWithPrompt,
 	useV2BuilderEnabled,
@@ -220,6 +221,7 @@ export default function DashboardPage() {
 		appType,
 		isPlanMode ? "plan" : "build",
 		modelPick.modelId,
+		sentThinkingOf(modelPick.models, modelPick.modelId, modelPick.thinking),
 	);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		v2Enabled ? v2Flow : v1Flow;

@@ -5,6 +5,7 @@
 
 import type {
 	AppLanguage,
+	BuilderThinking,
 	BuilderTurnMode,
 	ComposerMetadata,
 	CreateAppProjectRequest,
@@ -27,6 +28,8 @@ export type CreateAppProjectInput = {
 	mode: BuilderTurnMode;
 	/** Model id of the first turn, from the model menu. Absent: the deploy default. */
 	model?: string;
+	/** Thinking level of the first turn, from sentThinkingOf. Absent runs "balanced". */
+	thinking?: BuilderThinking;
 };
 
 /**
@@ -51,5 +54,6 @@ export function toCreateAppProjectBody(
 		languages: [input.locale],
 		mode: input.mode,
 		model: input.model,
+		thinking: input.thinking,
 	};
 }

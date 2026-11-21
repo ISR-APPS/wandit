@@ -4,8 +4,8 @@
  * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * model check (price row, disabled list), the monthly cap, the per-actor turn limit, then
- * the `agent_session` metering hold, then the session row, the project
+ * chat model lock, the model check (price row, disabled list), the monthly cap, the per-actor
+ * turn limit, then the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
  * It writes the `turn.start` and `turn.cancel` audit rows through `AuditEventsService`,
@@ -65,7 +65,7 @@ import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reac
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BuilderOtherChatBusyError } from "../../domain/errors/builder-other-chat-busy.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
-import { llmModelPrice } from "../../domain/llm-model-prices";
+import { baseModelIdOf, llmModelPrice } from "../../domain/llm-model-prices";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
 import {
 	TURN_EVENT_READER,
@@ -155,7 +155,8 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 };
 
 /**
- * The model a new turn runs on: the pick, else the deploy default (null when unset).
+ * The model a new turn runs on: the pick, else `defaultModel` (null when unset).
+ * `create` passes the chat lock there, else the deploy default.
  * Throws 400 `V2_MODEL_DENIED` for a pick with no row in `LLM_MODEL_PRICES`,
  * and for a pick or default in `product_settings.v2DisabledModels`.
  * `create` and the V2 create-project route call it before any write.
@@ -241,7 +242,11 @@ export class TurnsService {
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project that
 	 * another conversation holds answers 409 BUILDER_OTHER_CHAT_BUSY. A project
 	 * whose last turn waits on an approval card answers 409
-	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
+	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A chat
+	 * after its first turn keeps its model tier: another tier answers 409
+	 * V2_MODEL_LOCKED, a locked model with no price row 409 V2_MODEL_RETIRED.
+	 * The Fast row of the tier stays allowed in both directions, but not
+	 * while a card waits (409 V2_MODEL_LOCKED). A new
 	 * message also starts an `error` or missing backend row again. With
 	 * `options.requestKey`, a retry answers the first turn before these gates.
 	 * A replay with another message answers 409 REQUEST_KEY_REUSED.
@@ -324,11 +329,57 @@ export class TurnsService {
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
 
+		// Product rule: the first turn of a chat locks its model tier. A tier
+		// switch loses the prompt cache and can break the thinking signatures.
+		// A Fast switch stays in the tier: the gateway accepts the old thinking
+		// blocks, but Fast has its own cache, so the next message pays one
+		// cache write (measured). The refusal comes before the credit hold.
+		// LIMIT: two first sends of one empty chat at the same instant both read
+		// no lock. The second parks and runs on its own model. Upgrade: read the
+		// lock again after the turn row insert, and fail and refund the loser.
+		const lockedModel = await this.turns.findLockedModelByChat(body.chatId);
+		if (lockedModel !== null) {
+			if (
+				body.model !== undefined &&
+				baseModelIdOf(body.model) !== baseModelIdOf(lockedModel)
+			) {
+				throw new ConflictException({
+					code: "V2_MODEL_LOCKED",
+					message:
+						"This conversation keeps the model of its first message. Start a new conversation to use another model",
+				});
+			}
+			// A lock without a price row answers V2_MODEL_RETIRED, not V2_MODEL_DENIED.
+			if (
+				(body.model === undefined || body.model === lockedModel) &&
+				llmModelPrice(lockedModel) === undefined
+			) {
+				throw new ConflictException({
+					code: "V2_MODEL_RETIRED",
+					message:
+						"The model of this conversation is no longer available. Start a new conversation",
+				});
+			}
+		}
+		// A send with no model (the MCP `send_prompt` tool) runs on the lock.
 		const model = resolvePickableModel(
 			body.model,
-			defaultModel,
+			lockedModel ?? defaultModel,
 			(await this.settings.get()).v2DisabledModels,
 		);
+		// A waiting card continues the paused process on its start model (runtime
+		// `pausedModel`). A Fast change now runs and bills on the old model.
+		if (
+			waitingTurn !== null &&
+			body.model !== undefined &&
+			body.model !== (lockedModel ?? defaultModel)
+		) {
+			throw new ConflictException({
+				code: "V2_MODEL_LOCKED",
+				message:
+					"Answer the waiting card first. Then you can turn Fast mode on or off",
+			});
+		}
 
 		// The monthly cap refuses before the hold: the pool could pay, the
 		// cap could not — buying credits is not the fix.
@@ -412,6 +463,7 @@ export class TurnsService {
 				// build turn. A plan turn would drop that call as a mode switch.
 				mode: body.approval === undefined ? (body.mode ?? "build") : "build",
 				targets: body.targets ?? [],
+				thinking: body.thinking ?? "balanced",
 			};
 
 			// The row check is the fast path; the lock is authoritative. The

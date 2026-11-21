@@ -280,6 +280,22 @@ service checks the scope:
   400 `V2_MODEL_DENIED` (`resolvePickableModel`). So does a model in the
   admin setting `v2DisabledModels`. A default model with no
   price row answers 503 `V2_MODEL_UNPRICED` (a deploy error).
+  The first turn of a chat locks its model tier. The lock is the model of
+  the newest turn row of the chat that has one (`findLockedModelByChat`).
+  `baseModelIdOf` maps a Fast row `<id>-fast` to its tier model `<id>`.
+  After the first turn, a body `model` of another tier answers 409
+  `V2_MODEL_LOCKED`. A switch to the Fast row or back is allowed: Fast keeps
+  its own prompt cache, so the next message pays one cache write. A new
+  pick in the tier with no price row answers 400 `V2_MODEL_DENIED`. A body
+  with no `model` runs on the lock, and a locked model with no price row
+  answers 409 `V2_MODEL_RETIRED`. The optional `thinking` field (`light`,
+  `balanced`, or `deep`; absent means `balanced`) can change on each message,
+  and the create-project body passes it to the first turn. It goes into the
+  spec and the run token. On a Messages body that sends an effort, the proxy
+  sets `output_config.effort`: `light` sends "medium", and `balanced` keeps the
+  effort of Claude Code. `deep` sends "max" on an Anthropic model, and "xhigh"
+  on other models: on Opus 5.5 only "max" changes the thinking. The proxy keeps
+  the effort when thinking is off and on a `count_tokens` call.
   Two create-time stops refuse early: a project at its monthly cap
   answers 403 `PROJECT_CREDIT_CAP_REACHED` with `cap: "monthly"`, and a
   user holding three reserved `agent_session` events answers 429

@@ -1,8 +1,8 @@
 /**
  * The cost line of the whole chat: the provider cost in USD, the credits,
- * and the turn count. A click opens the split per model, so a user can
- * compare models. Rendered by chat-pane.tsx under the composer. The data
- * comes from `GET /api/v2/projects/:id/chats/:chatId/cost`.
+ * and the turn count. In a local dev build, a click opens the split per
+ * model. Rendered by chat-pane.tsx under the composer. The data comes from
+ * `GET /api/v2/projects/:id/chats/:chatId/cost`.
  */
 
 import { CoinsIcon } from "@phosphor-icons/react/Coins";
@@ -26,7 +26,7 @@ import { formatUsdMicros } from "../../lib/helpers";
 const LINE_CLASS =
 	"flex items-center gap-1.5 font-grotesk text-[12px] text-night/45 tabular-nums dark:text-foreground/45";
 
-/** One line under the composer. With no model row it is plain text and opens nothing. */
+/** One line under the composer. Outside a dev build, or with no model row, it is plain text and opens nothing. */
 export function ChatCostLine({
 	cost,
 }: {
@@ -51,8 +51,9 @@ export function ChatCostLine({
 			})}
 		</>
 	);
+	// Product rule: users never see a model name, so only a local dev build shows the split per model.
 	// Every turn of the chat can fail before its first model call. The split then has no row.
-	if (cost.byModel.length === 0) {
+	if (!import.meta.env.DEV || cost.byModel.length === 0) {
 		return <p className={LINE_CLASS}>{content}</p>;
 	}
 	return (

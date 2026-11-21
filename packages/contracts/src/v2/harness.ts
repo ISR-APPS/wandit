@@ -11,6 +11,7 @@ import { composerMetadataSchema } from "../v1/chats";
 import { presentPlanHostToolInputSchema } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 import {
+	builderThinkingSchema,
 	builderTurnModeSchema,
 	turnApprovalAnswerSchema,
 	turnQuestionAnswerSchema,
@@ -174,6 +175,9 @@ export const builderTurnSpecSchema = z.object({
 	targets: z.array(previewTargetSchema).max(PREVIEW_TARGETS_MAX).default([]),
 	// Plan Mode or a build. Specs saved before Plan Mode existed were builds.
 	mode: builderTurnModeSchema.default("build"),
+	// The thinking level that the run token carries to the LLM proxy. Specs
+	// saved before the control existed have none: `balanced`.
+	thinking: builderThinkingSchema.default("balanced"),
 });
 
 /** Parsed `builder_turns.spec`; `message` may be empty when attachments carry the turn. */

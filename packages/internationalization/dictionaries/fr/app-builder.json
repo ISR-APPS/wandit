@@ -794,6 +794,8 @@
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
 			"modelDenied": "Ce modèle n'est pas disponible. Choisis un autre modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
+			"modelLocked": "Cette conversation garde le modèle de son premier message. Démarrez une nouvelle conversation pour utiliser un autre modèle.",
+			"modelRetired": "Le modèle de cette conversation n'est plus disponible. Démarrez une nouvelle conversation.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
 			"connectionLost": "Le chat a perdu la connexion au serveur.",
 			"providerFallback": "Le fournisseur d’IA"
@@ -835,6 +837,34 @@
 					"name": "Nuclear",
 					"hint": "Notre modèle le plus puissant, pour tes idées les plus audacieuses."
 				}
+			},
+			"costRatio": "≈ ×{ratio}",
+			"costRatioCaption": "Coût d'un message type, comparé à {tier}.",
+			"lock": {
+				"chip": "Modèle : {tier}, verrouillé pour cette conversation",
+				"chipFast": "Modèle : {tier}, mode rapide, verrouillé pour cette conversation",
+				"unknown": "Modèle verrouillé",
+				"body": "Cette conversation garde le même modèle jusqu'au bout. Le mode rapide et le niveau de réflexion peuvent changer.",
+				"newChat": "Nouvelle conversation avec un autre modèle",
+				"fastSwitchHint": "Un changement fait relire toute la conversation au prochain message : ce message coûte donc plus.",
+				"fastAfterCard": "Réponds d'abord à la carte ouverte. Ensuite, tu peux changer le mode rapide."
+			},
+			"thinking": {
+				"label": "Réflexion",
+				"light": {
+					"name": "Légère",
+					"hint": "Répond plus vite, avec moins de réflexion."
+				},
+				"balanced": {
+					"name": "Équilibrée",
+					"hint": "Le réglage par défaut. Convient à la plupart des messages."
+				},
+				"deep": {
+					"name": "Approfondie",
+					"hint": "Réfléchit plus longtemps avant de répondre. Consomme plus de crédits."
+				},
+				"unavailable": "Le niveau de réflexion ne change pas sur {tier}.",
+				"chipLabel": "{label}, réflexion : {level}"
 			}
 		},
 		"cost": {

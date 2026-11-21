@@ -855,6 +855,7 @@ describe("AppProjectsService.createChat", () => {
 			createdAt: "2026-08-02T10:00:00.000Z",
 			id: "chat-empty",
 			lastMessageAt: null,
+			model: null,
 			title: null,
 		});
 		expect(chats.createProjectChat).not.toHaveBeenCalled();
