@@ -15,10 +15,10 @@ import { usdMicrosToCentiCredits } from "./model-pricing";
 
 /**
  * The settle `pricingSnapshot.table` value. Bump it when a row in
- * `LLM_MODEL_PRICES` changes so a settled event names the table that
- * priced it.
+ * `LLM_MODEL_PRICES` or the price math changes, so a settled event names
+ * the table that priced it. @7 bills 5-minute cache writes at 1.25x input.
  */
-export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@6";
+export const HARNESS_PRICE_TABLE_VERSION = "llm-model-prices@7";
 
 /**
  * Cost of `modelId` relative to the default model, rounded to 2 decimals.

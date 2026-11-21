@@ -115,7 +115,6 @@ async function setup(rows: BuilderTurnRow[]) {
 		},
 		promoteNext: vi.fn(async (_projectId: string, _endedTurnId: string) => {}),
 		turns: {
-			fail: vi.fn(async () => true),
 			findHostOwnedActive: vi.fn(async () => rows),
 			transition: vi.fn(async () => true),
 		},
@@ -129,8 +128,10 @@ describe("recoverHostTurns", () => {
 
 		await recoverHostTurns(deps, new Set(), new Set());
 
-		expect(deps.turns.fail).toHaveBeenCalledWith(
+		expect(deps.turns.transition).toHaveBeenCalledWith(
 			"turn-1",
+			["running"],
+			"failed",
 			expect.objectContaining({ failureCode: "host_lost" }),
 		);
 		expect(events[0]?.events.map((event) => event.type)).toEqual([
@@ -166,7 +167,7 @@ describe("recoverHostTurns", () => {
 
 		await recoverHostTurns(deps, new Set(["turn-1"]), new Set());
 
-		expect(deps.turns.fail).not.toHaveBeenCalled();
+		expect(deps.turns.transition).not.toHaveBeenCalled();
 	});
 
 	it("leaves a turn with a run mark of another instance alone and ends one without", async () => {
@@ -180,9 +181,11 @@ describe("recoverHostTurns", () => {
 
 		await recoverHostTurns(deps, new Set(), new Set());
 
-		expect(deps.turns.fail).toHaveBeenCalledTimes(1);
-		expect(deps.turns.fail).toHaveBeenCalledWith(
+		expect(deps.turns.transition).toHaveBeenCalledTimes(1);
+		expect(deps.turns.transition).toHaveBeenCalledWith(
 			"turn-dead",
+			["running"],
+			"failed",
 			expect.objectContaining({ failureCode: "host_lost" }),
 		);
 		expect(await lock.holder("project-1")).toBe("turn-old-instance");
@@ -193,10 +196,10 @@ describe("recoverHostTurns", () => {
 		const { deps } = await setup([turnRow({ status: "queued" })]);
 
 		const seen = await recoverHostTurns(deps, new Set(), new Set());
-		expect(deps.turns.fail).not.toHaveBeenCalled();
+		expect(deps.turns.transition).not.toHaveBeenCalled();
 
 		await recoverHostTurns(deps, new Set(), seen);
-		expect(deps.turns.fail).toHaveBeenCalledTimes(1);
+		expect(deps.turns.transition).toHaveBeenCalledTimes(1);
 	});
 
 	it("ends a cancelling turn as canceled", async () => {
@@ -233,7 +236,7 @@ describe("recoverHostTurns", () => {
 
 	it("does no cleanup when another writer ended the row first", async () => {
 		const { deps, lock } = await setup([turnRow()]);
-		deps.turns.fail.mockResolvedValue(false);
+		deps.turns.transition.mockResolvedValue(false);
 
 		await recoverHostTurns(deps, new Set(), new Set());
 

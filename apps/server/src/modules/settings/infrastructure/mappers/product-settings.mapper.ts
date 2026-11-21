@@ -40,6 +40,7 @@ export function mapProductSettingsRow(
 		userReferralPaidCredits: row.userReferralPaidCredits,
 		userReferralsEnabled: row.userReferralsEnabled,
 		v2BuilderEnabled: row.v2BuilderEnabled,
+		v2DisabledModels: row.v2DisabledModels,
 		version: row.version,
 	};
 }

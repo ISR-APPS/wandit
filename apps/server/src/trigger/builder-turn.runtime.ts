@@ -54,8 +54,10 @@ import {
 	worldOrder,
 } from "../modules/ai-chat/agent/worlds";
 import {
+	type AiErrorContext,
 	captureAiError,
 	classifyAiError,
+	classifyFinish,
 	renderAiErrorSentence,
 } from "../modules/ai-errors/domain";
 import { BUILDER_MAX_IMAGES_PER_TURN } from "../modules/app-builder/application/host-tools/generate-image.host-tool";
@@ -194,8 +196,19 @@ import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricin
 const TURN_KEEPALIVE_MS = 60_000;
 // 30 s of part silence triggers a heartbeat; the Trigger read dies at 60 s.
 const STREAM_HEARTBEAT_MS = 30_000;
-// 4 minutes without a part means a dead harness, not a slow one.
+// 4 minutes without a part and without a proxy call in flight means a dead harness.
 const TURN_STALL_MS = 4 * 60_000;
+// 10 min, the default request timeout of Claude Code (API_TIMEOUT_MS). After it, the CLI ends the call itself.
+const TURN_STALL_IN_FLIGHT_MS = 10 * 60_000;
+// 55 min: below the task maxDuration (3,600 s) and the 65-min run token TTL.
+// The turn then ends with a wip commit and a settle, not as a Trigger kill.
+const TURN_MAX_RUN_MS = 55 * 60_000;
+// The error text of a turn that reached TURN_MAX_RUN_MS.
+const TURN_TIMEOUT_TEXT =
+	"This build ran for 55 minutes. Send Continue to go on.";
+// 900,000 bytes: under the S2 record cap (1 MiB - 1 KiB) of the Trigger SDK
+// writer. One larger record ends the whole ui stream for the rest of the turn.
+const UI_STREAM_EVENT_MAX_BYTES = 900_000;
 // About $0.25 = 7.8 credits per checkpoint; about 30 debits for an $8
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
@@ -235,13 +248,24 @@ const HARNESS_CAUSE_MAX_CHARS = 1_000;
 /**
  * Matches harness error texts that repeat on each resume of the same
  * Claude Code conversation. Causes: a lost transcript, a safety refusal,
- * or a denied fallback model.
+ * a denied fallback model, or a conversation too long for the model.
  * The texts come from code.claude.com/docs/en/errors and the Claude Code CLI.
  * A safety flag moves the session to a fallback model. The proxy can refuse
  * that model with the 403 text of `llm-proxy.service.ts`.
  */
 const SESSION_BOUND_FAILURE_PATTERN =
-	/No conversation found with session ID|Failed to resume session|Start a new session|safeguards flagged this (?:message|session)|This plan may not call that model/u;
+	/No conversation found with session ID|Failed to resume session|Start a new session|safeguards flagged this (?:message|session)|This plan may not call that model|Prompt is too long/u;
+/**
+ * Matches the safety refusal texts of Claude Code. They have no HTTP status,
+ * so the classifier sees a plain Error and returns `internal`.
+ */
+const HARNESS_REFUSAL_PATTERN =
+	/can't help with this|safeguards flagged this (?:message|session)|Usage Policy/u;
+/**
+ * The Claude Code text for a request over the context window of the model.
+ * It has no HTTP status. The provider refused the request size, like a 400.
+ */
+const CONTEXT_TOO_LONG_PATTERN = /Prompt is too long/u;
 /**
  * The `plan` claim of the LLM run token and the chat binding. The API of
  * pricing v8 does not read it. An old API instance requires it during a
@@ -362,7 +386,9 @@ type AbortCode =
 	| "no_credits"
 	| "project_cap"
 	| "stale"
-	| "stalled";
+	| "stalled"
+	// The run reached TURN_MAX_RUN_MS.
+	| "timed_out";
 
 /**
  * Terminal row status each stop code lands on; the other codes fail. The
@@ -412,6 +438,28 @@ const stoppedTurnError = (code: keyof typeof STOP_STATUS) =>
 	Object.assign(new Error(`Turn stopped: ${STOP_REASON[code]}`), {
 		code: STOP_STATUS[code],
 	});
+
+/**
+ * The stream copy of one harness chunk. A tool input or output over
+ * UI_STREAM_EVENT_MAX_BYTES (a Read of a big image, an Edit of a big file)
+ * becomes `{ omitted: true, bytes }`. The stored reply keeps the full chunk.
+ */
+function streamCopyOfChunk(chunk: UIMessageChunk): UIMessageChunk {
+	if (
+		chunk.type !== "tool-input-available" &&
+		chunk.type !== "tool-output-available"
+	) {
+		return chunk;
+	}
+	const bytes = Buffer.byteLength(JSON.stringify(chunk));
+	if (bytes <= UI_STREAM_EVENT_MAX_BYTES) {
+		return chunk;
+	}
+	const omitted = { bytes, omitted: true };
+	return chunk.type === "tool-input-available"
+		? { ...chunk, input: omitted }
+		: { ...chunk, output: omitted };
+}
 
 /** The narrow log the runtime writes to; the task passes `logger`. */
 export type BuilderTurnLogger = Pick<Console, "error" | "info" | "warn">;
@@ -569,6 +617,8 @@ export type BuilderTurnDeps = {
 	 * `ProductSettingsService.get`, which caches 30 s.
 	 */
 	readV2Enabled: () => Promise<boolean>;
+	/** `product_settings.v2DisabledModels`, the ops switch per model; the task binds the same cached `get`. */
+	readDisabledModels: () => Promise<readonly string[]>;
 	/** `GENERATION_BILLING_MODE === "off"`: no checkpoint, no settle, one `billing.off` log. */
 	billingDisabled: boolean;
 	/**
@@ -1046,6 +1096,23 @@ export async function runBuilderTurn(
 	};
 
 	/**
+	 * The in-flight count of proxy requests of the run, for the stall rule.
+	 * A Redis failure answers 0, so the 4-minute rule still applies.
+	 */
+	const readInFlightForStall = async (): Promise<number> => {
+		try {
+			return await deps.counters.readInFlight(runId);
+		} catch (error) {
+			logger.warn("builder-turn.stall-in-flight-read-failed", {
+				message: messageOf(error),
+				runId,
+				turnId,
+			});
+			return 0;
+		}
+	};
+
+	/**
 	 * Waits until every proxy request of the run has its usage row. The
 	 * proxy writes the row after the reply ends, so a turn with no commit
 	 * could settle on a partial sum and refund work that ran. The revoke
@@ -1062,6 +1129,27 @@ export async function runBuilderTurn(
 				turnId,
 			});
 		}
+	};
+
+	/**
+	 * Settles the hold at the proxy-row sum and stores the turn usage. A
+	 * stop, a timeout, and a user Stop call it after `waitForProxyRows`.
+	 */
+	const settleSpendFromRows = async (rows: LlmProxyTurnSum) => {
+		// A stop lands only after the `model === null` check, so `resolvedModel`
+		// is set; `recordUsage` still writes when it is not.
+		if (resolvedModel !== null) {
+			await settleHoldFromRows(resolvedModel, rows);
+		}
+		await deps.turns.recordUsage(turnId, {
+			cacheReadTokens: rows.cacheReadTokens,
+			cacheWriteTokens: rows.cacheWriteTokens,
+			credits: creditsFromRows(rows),
+			harness: deps.harness.kind,
+			inputTokens: rows.inputTokens,
+			model: resolvedModel,
+			outputTokens: rows.outputTokens,
+		});
 	};
 
 	/** The cleanup tail every terminal path shares. */
@@ -1211,9 +1299,25 @@ export async function runBuilderTurn(
 			}
 			if (moved) {
 				await recordTurnEnd("canceled");
-				// The CAS winner refunds. The API cancel (turns.service.ts) refunds
-				// only when its own `cancelling -> canceled` CAS wins.
-				await cleanupStep(() => refundHold("builder_turn_canceled"));
+				// Product rule: a Stop keeps the file work, so it bills the tokens
+				// used, like the D3 stop branch of failTurn. A Stop with no spend
+				// stays free. The API cancel (turns.service.ts) refunds only when the
+				// run is already dead and its own `cancelling -> canceled` CAS wins.
+				// LIMIT: the wip commit and the row wait (up to PROXY_ROWS_WAIT_MS)
+				// can pass the ~30 s cancel kill window; the stranded-hold sweep
+				// then refunds the hold. Upgrade: settle from the API cancel path.
+				await cleanupStep(async () => {
+					await waitForProxyRows();
+					const rows = await deps.proxyRows.sumByTurn(turnId);
+					if (
+						resolvedModel === null ||
+						(rows.usdMicros === 0 && checkpointCount === 0)
+					) {
+						await refundHold("builder_turn_canceled");
+						return;
+					}
+					await settleSpendFromRows(rows);
+				});
 			}
 			await finishTurn();
 		})();
@@ -1221,9 +1325,24 @@ export async function runBuilderTurn(
 	};
 	builderTurnCancelFinalizers.set(runId, finalizeCanceled);
 
-	/** Writes one stream event under the turn-number fence. */
+	/**
+	 * Writes one stream event under the turn-number fence. An event over
+	 * UI_STREAM_EVENT_MAX_BYTES is dropped with a warn: the Trigger writer
+	 * would end the whole stream on it.
+	 */
 	const writeEvent = (event: TurnStreamEventInput) =>
-		fenced(() => deps.writer.write(turnId, event));
+		fenced(async () => {
+			const bytes = Buffer.byteLength(JSON.stringify(event));
+			if (bytes > UI_STREAM_EVENT_MAX_BYTES) {
+				logger.warn("builder-turn.stream-event-too-large", {
+					bytes,
+					turnId,
+					type: event.type,
+				});
+				return;
+			}
+			await deps.writer.write(turnId, event);
+		});
 	const writeStatus = (phase: TurnStreamPhase, message?: string) =>
 		writeEvent({
 			data: message === undefined ? { phase } : { message, phase },
@@ -1239,20 +1358,50 @@ export async function runBuilderTurn(
 		failureCode: string | null,
 	): Promise<void> => {
 		const stopCode = stopCodeOf(abortCode);
-		// A stop comes from a product rule (a cap, no credits, the off switch).
-		// Its error can carry the 402 of our own proxy, so it must not classify
-		// as a provider failure. The stop code on the row names the cause.
+		const isTimedOut = abortCode === "timed_out";
+		// The text of an end from a product rule: a stop code, or the run
+		// deadline. Null for every other failure.
+		const ruleEndText =
+			stopCode !== null
+				? `Turn stopped: ${STOP_REASON[stopCode]}`
+				: isTimedOut
+					? TURN_TIMEOUT_TEXT
+					: null;
+		// A stop comes from a product rule (a cap, no credits, the off switch,
+		// the deadline). Its error can carry the 402 of our own proxy, so it must
+		// not classify as a provider failure. The code on the row names the cause.
+		const errorText = messageOf(error);
 		const classified =
-			stopCode === null
-				? error
-				: new Error(`Turn stopped: ${STOP_REASON[stopCode]}`);
+			ruleEndText !== null
+				? new Error(ruleEndText)
+				: // Status 400 makes the size refusal `invalid_request`, like an `API Error: 400` text.
+					CONTEXT_TOO_LONG_PATTERN.test(errorText)
+					? new APICallError({
+							message: errorText,
+							requestBodyValues: {},
+							statusCode: 400,
+							url: "",
+						})
+					: error;
+		const classifyContext: AiErrorContext = {
+			// A stall and the run deadline abort only `ownAbort`, not the task signal.
+			// The TimeoutError reason makes them `timeout` from our side, not `internal`.
+			abortSignal:
+				abortCode === "stalled" || isTimedOut
+					? AbortSignal.abort(
+							new DOMException("Turn time budget", "TimeoutError"),
+						)
+					: signal,
+			model: resolvedModel ?? undefined,
+			route: "none",
+			surface: "chat",
+		};
+		// A safety refusal is a content rule of the provider, so a resend of the
+		// same prompt fails again. `classifyFinish` gives that kind with no Retry.
 		const normalized =
-			classifyAiError(classified, {
-				abortSignal: signal,
-				model: resolvedModel ?? undefined,
-				route: "none",
-				surface: "chat",
-			}) ??
+			(ruleEndText === null && HARNESS_REFUSAL_PATTERN.test(errorText)
+				? classifyFinish({ ...classifyContext, finishReason: "content-filter" })
+				: classifyAiError(classified, classifyContext)) ??
 			classifyAiError(new Error("Builder turn failed"), {
 				model: resolvedModel ?? undefined,
 				route: "none",
@@ -1269,11 +1418,12 @@ export async function runBuilderTurn(
 			stack: error instanceof Error ? error.stack : undefined,
 			turnId,
 		});
-		// A stop is an expected end, so it opens no Sentry issue.
+		// A stop or the deadline is an expected end, so it opens no Sentry issue.
 		normalized.sentryEventId =
-			stopCode === null
+			ruleEndText === null
 				? captureAiError(error, normalized, {
 						chatId,
+						failureCode: failureCode ?? undefined,
 						harness: deps.harness.kind,
 						projectId,
 						route: "none",
@@ -1287,12 +1437,13 @@ export async function runBuilderTurn(
 		// `pageFailurePersistenceValues`. Its key type is page-specific, so
 		// the mapping stays inline here.
 		const failure: BuilderTurnFailure = {
-			error:
-				stopCode === null
-					? renderAiErrorSentence(normalized)
-					: `Turn stopped: ${STOP_REASON[stopCode]}`,
+			error: ruleEndText ?? renderAiErrorSentence(normalized),
 			failureCode:
-				stopCode === null ? failureCode : stopFailureCodeOf(stopCode),
+				stopCode !== null
+					? stopFailureCodeOf(stopCode)
+					: isTimedOut
+						? "turn_timeout"
+						: failureCode,
 			failureKind: normalized.kind,
 			failureProvider: normalized.provider,
 			// The Claude Code text names the real cause (529, 402, lost socket).
@@ -1369,10 +1520,10 @@ export async function runBuilderTurn(
 				{ logger, projectId, sandbox, turnId },
 				knownTheme,
 			));
-		// D3: a stopped turn keeps its file work. The commit lands before the
-		// `done` event: the web refetches the project at the stream end and
-		// must see the change (`hasCodeChanges`).
-		if (stopCode !== null && sandbox !== null) {
+		// D3: a stopped or timed-out turn keeps its file work. The commit lands
+		// before the `done` event: the web refetches the project at the stream
+		// end and must see the change (`hasCodeChanges`).
+		if (ruleEndText !== null && sandbox !== null) {
 			try {
 				await deps.commit(sandbox, deps.commitDeps, {
 					chatId,
@@ -1380,7 +1531,7 @@ export async function runBuilderTurn(
 					organizationId: input.organizationId,
 					projectId,
 					source: "wip",
-					summary: "Stopped",
+					summary: isTimedOut ? "Timed out" : "Stopped",
 					turnId,
 					userId: input.actorUserId,
 				});
@@ -1420,14 +1571,17 @@ export async function runBuilderTurn(
 			}
 		}
 		const errorData: TurnErrorData = {
-			code:
-				stopCode === null
-					? (failureCode ?? normalized.kind)
-					: stopFailureCodeOf(stopCode),
+			code: failure.failureCode ?? normalized.kind,
 			message: failure.error,
 			// Retry reads it, so a failed `security_scan` turn retries as a scan.
 			mode: turnMode,
-			retryable: stopCode === null ? normalized.retryable : false,
+			// A timed-out turn can go on with Continue; a stop needs credits or a cap change first.
+			retryable: stopCode !== null ? false : isTimedOut || normalized.retryable,
+			// The web shows the `errors.ai.<kind>` sentence in the user's language.
+			// A stop and the deadline keep their own text: no `errors.ai` sentence says "Continue".
+			...(ruleEndText === null
+				? { kind: normalized.kind, providerLabel: normalized.providerLabel }
+				: {}),
 		};
 		// The stored reply ends with the same part as the stream, so a reload
 		// shows the error card and Retry. It lands before the events: a reload
@@ -1455,39 +1609,31 @@ export async function runBuilderTurn(
 		if (done !== null) {
 			await deps.writer.write(turnId, { data: done, type: "done" });
 		}
-		if (stopCode === null) {
+		if (ruleEndText === null) {
 			await cleanupStep(() => refundHold("builder_turn_failed"));
 			await detachSession();
 			// Each resume of this conversation fails the same way, so the next turn
 			// starts a new Claude Code session. It gets no chat recap, because a
 			// recap can carry the flagged words again. The next turn finds no stored
 			// state, so createSession drops the kept session and kills the old bridge.
-			if (SESSION_BOUND_FAILURE_PATTERN.test(messageOf(error))) {
+			// A 400 on a resumed conversation can come from a block in its history
+			// that the model refuses, for example after a model switch. It repeats too.
+			if (
+				SESSION_BOUND_FAILURE_PATTERN.test(errorText) ||
+				(sessionStart === "resumed" && normalized.kind === "invalid_request")
+			) {
 				await cleanupStep(async () => {
 					await deps.sessions.clearResumeState(chatId);
 				});
 			}
 		} else {
-			// D3: a stopped turn settles the real spend; the hold is not
-			// refunded. The wip commit ran above, before the `done` event.
+			// D3: a stopped or timed-out turn settles the real spend; the hold is
+			// not refunded. The wip commit ran above, before the `done` event.
 			await detachSession();
 			await cleanupStep(async () => {
 				await waitForProxyRows();
 				const rows = await deps.proxyRows.sumByTurn(turnId);
-				// A stop code lands only after the `model === null` check, so
-				// `resolvedModel` is set; `recordUsage` still writes when it is not.
-				if (resolvedModel !== null) {
-					await settleHoldFromRows(resolvedModel, rows);
-				}
-				await deps.turns.recordUsage(turnId, {
-					cacheReadTokens: rows.cacheReadTokens,
-					cacheWriteTokens: rows.cacheWriteTokens,
-					credits: creditsFromRows(rows),
-					harness: deps.harness.kind,
-					inputTokens: rows.inputTokens,
-					model: resolvedModel,
-					outputTokens: rows.outputTokens,
-				});
+				await settleSpendFromRows(rows);
 			});
 		}
 		await finishTurn();
@@ -1592,10 +1738,22 @@ export async function runBuilderTurn(
 		}, TURN_KEEPALIVE_MS);
 		pulseTimer = setInterval(() => {
 			guardTick(async () => {
+				// Both runners share this tick, so the host runner gets the deadline too.
+				if (deps.now() - runStartedAt >= TURN_MAX_RUN_MS) {
+					abortTurn("timed_out");
+					return;
+				}
 				const silenceMs = deps.now() - lastPartAt;
 				if (silenceMs >= TURN_STALL_MS) {
-					abortTurn("stalled");
-					return;
+					// A compaction, a long prefill, hidden thinking, or a non-streamed
+					// call sends no part while its proxy call runs.
+					const isCallInFlight =
+						silenceMs < TURN_STALL_IN_FLIGHT_MS &&
+						(await readInFlightForStall()) > 0;
+					if (!isCallInFlight) {
+						abortTurn("stalled");
+						return;
+					}
 				}
 				if (silenceMs >= STREAM_HEARTBEAT_MS) {
 					// A long tool call is quiet; the heartbeat keeps the read open.
@@ -1720,6 +1878,16 @@ export async function runBuilderTurn(
 	};
 
 	try {
+		// The API takes the lock at enqueue. A long Trigger queue wait can outlive
+		// its TTL, so the run renews it, or takes it again when the key is gone.
+		const ownsLock =
+			(await deps.lock.refresh(projectId, turnId, TURN_LOCK_TTL_MS)) ||
+			(await deps.lock.acquire(projectId, turnId, TURN_LOCK_TTL_MS));
+		if (!ownsLock) {
+			// Another turn or a wake holds the project. Fail before any sandbox or token work.
+			abortTurn("lock_lost");
+			throw new Error(`Turn ${turnId} lost the project lock in the queue`);
+		}
 		const spec = builderTurnSpecSchema.parse(turn.spec);
 		turnMode = spec.mode;
 
@@ -1778,6 +1946,13 @@ export async function runBuilderTurn(
 			});
 		}
 		resolvedModel = model;
+		// Ops can turn a model off after this turn parked as `waiting`. The turn
+		// fails before the sandbox starts, so the failure path refunds the hold.
+		if ((await deps.readDisabledModels()).includes(model)) {
+			throw Object.assign(new Error(`Model ${model} is turned off`), {
+				code: "model_disabled",
+			});
+		}
 		// A Plan toggle change while cards wait: the paused call cannot
 		// continue in the other mode, so the answers go as a text prompt.
 		const modeSwitch =
@@ -2201,7 +2376,11 @@ export async function runBuilderTurn(
 		}
 		// The bridge of this chat is gone after a sandbox stop. It is also gone
 		// after a turn of another chat, because that turn started its own bridge.
-		const isBridgeLost = sandboxWoke || didOtherChatRunLast;
+		// A Trigger turn never attaches to a live bridge: the harness host can keep
+		// a socket on it. That socket reconnects, sends `resume`, and takes the
+		// event stream. A new bridge gets a new token, so the old socket cannot attach.
+		const isBridgeLost =
+			sandboxWoke || didOtherChatRunLast || input.runner === "trigger";
 		// On a lost bridge, the rerun bridge matches a host-tool result
 		// only by the old call id, so an ask_user or present_plan answer goes
 		// as text on the same thread. An approval keeps the continue path: a
@@ -2278,7 +2457,7 @@ export async function runBuilderTurn(
 						sessionInput,
 						stored,
 						{
-							// A sandbox wake or a turn of another chat loses the bridge.
+							// A sandbox wake, a turn of another chat, or the Trigger runner loses the bridge.
 							// A mode switch keeps it: the new start replaces the paused
 							// call in the same bridge, so no kill and no second bridge
 							// on the port.
@@ -2410,7 +2589,7 @@ export async function runBuilderTurn(
 						? "suspended session lost"
 						: modeSwitch
 							? "mode switch"
-							: "bridge lost in a sandbox stop or to another chat"
+							: "bridge lost in a sandbox stop, to another chat, or on Trigger"
 				}`,
 			);
 			turnInput = {
@@ -2507,7 +2686,10 @@ export async function runBuilderTurn(
 				// first get the `data-turn-error` card that `failTurn` writes, so
 				// the raw harness error stays off the stream.
 				if (event.chunk.type !== "error") {
-					await writeEvent({ data: event.chunk, type: "part" });
+					await writeEvent({
+						data: streamCopyOfChunk(event.chunk),
+						type: "part",
+					});
 				}
 				if (event.chunk.type === "reasoning-start") {
 					reasoningStartedAt.set(event.chunk.id, lastPartAt);
@@ -2569,6 +2751,19 @@ export async function runBuilderTurn(
 		await stopIfRefusedForCap();
 		if (abortCode !== null) {
 			throw new Error(`Turn ${turnId} stopped at the stream end: ${abortCode}`);
+		}
+		// A model can stop with no output. That is a failure: refund it and offer
+		// Retry. A paused turn always holds a tool part (ask_user, a plan, an approval).
+		const hasVisibleReply = (await replyPartsSoFar()).some(
+			(part) =>
+				(part.type === "text" && part.text.trim() !== "") ||
+				part.type === "dynamic-tool" ||
+				part.type.startsWith("tool-"),
+		);
+		if (!hasVisibleReply) {
+			throw Object.assign(new Error("The model sent an empty reply"), {
+				code: "empty_reply",
+			});
 		}
 
 		// The harness counts stay informational; money comes from the proxy rows.

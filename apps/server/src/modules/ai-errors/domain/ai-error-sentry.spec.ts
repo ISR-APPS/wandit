@@ -152,15 +152,29 @@ describe("captureAiError", () => {
 			},
 		});
 
-		const capture = toSentryCapture(value, captureContext);
+		const capture = toSentryCapture(value, {
+			...captureContext,
+			failureCode: "harness_error",
+			harness: "claude_code",
+		});
 		expect(capture).toMatchObject({
-			fingerprint: ["ai-error", "internal", "provider:anthropic", "anthropic"],
+			fingerprint: [
+				"ai-error",
+				"internal",
+				"provider:anthropic",
+				"anthropic",
+				"chat",
+				"claude_code",
+				"harness_error",
+			],
 			level: "error",
 			tags: {
 				chatId: "chat_1",
 				errorKind: "internal",
 				errorSource: "provider:anthropic",
+				failureCode: "harness_error",
 				functionId: "chat.agent",
+				harness: "claude_code",
 				gatewayGenerationId: "gen_gateway",
 				generationId: "attempt_1",
 				model: "anthropic/claude",

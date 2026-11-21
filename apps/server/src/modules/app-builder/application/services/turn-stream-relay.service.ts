@@ -12,11 +12,13 @@
 import type { ServerResponse } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type {
-	CreateTurnResponse,
-	TurnDataPart,
-	TurnDoneData,
-	TurnStreamPartEvent,
+import {
+	builderTurnSpecSchema,
+	type CreateTurnResponse,
+	type TurnDataPart,
+	type TurnDoneData,
+	type TurnErrorData,
+	type TurnStreamPartEvent,
 } from "@wandit/contracts";
 import { allowedCorsWebOrigin } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
@@ -377,11 +379,6 @@ export class TurnStreamRelayService {
 		return this.write(raw, "data: [DONE]\n\n");
 	}
 
-	/**
-	 * Writes `data-turn-done` plus `[DONE]` and runs `onDone` when the row
-	 * — not the stream — reports the end. Covers a parked turn canceled
-	 * before it ran and a run that ended without a `done` event.
-	 */
 	// A row deleted while a stream is open would otherwise poll or reopen
 	// until the browser leaves; the frames give the UI a reason to stop.
 	private async endMissingRow(
@@ -405,12 +402,48 @@ export class TurnStreamRelayService {
 		await this.writeDone(raw);
 	}
 
+	/**
+	 * Writes `data-turn-done` plus `[DONE]` and runs `onDone` when the row
+	 * — not the stream — reports the end. Covers a parked turn canceled
+	 * before it ran and a run that ended without a `done` event.
+	 * A failed, stalled, or stopped row first gets the error frames, in the
+	 * order of the event path.
+	 */
 	private async finishFromRow(
 		raw: ServerResponse,
 		row: BuilderTurnRow,
 		onDone: OnTurnDone | undefined,
 		turnId: string,
 	): Promise<void> {
+		// The web shows the error card and Retry only from a `data-turn-error` part.
+		// The stream can lose the error event after the row write, so the row gives it.
+		if (
+			isTerminalStatus(row.status) &&
+			row.status !== "succeeded" &&
+			row.status !== "canceled"
+		) {
+			// Retry reads the mode, so a failed `security_scan` turn retries as a scan.
+			const spec = builderTurnSpecSchema
+				.pick({ mode: true })
+				.safeParse(row.spec);
+			const error: TurnErrorData = {
+				// For a stop, the runtime writes the stop code (`daily_cap`, `stopped_*`) to the row.
+				code: row.failureCode ?? row.failureKind ?? row.status,
+				message: row.error ?? "The build stopped before it finished.",
+				mode: spec.success ? spec.data.mode : undefined,
+				// Same rule as the runtime: a resend after a stop fails the same way.
+				retryable: !row.status.startsWith("stopped_"),
+			};
+			await this.writeChunk(raw, {
+				data: error,
+				id: "turn-error",
+				type: "data-turn-error",
+			});
+			await this.writeChunk(raw, {
+				errorText: error.message,
+				type: "error",
+			});
+		}
 		const data: TurnDoneData = {
 			status: row.status,
 			// The column is nullable; the part omits the key when empty.

@@ -1451,6 +1451,19 @@ describe("ClaudeCodeHarness keep-alive (harness host)", () => {
 		expect(inner.detach).toHaveBeenCalledTimes(2);
 		expect(captured.createCount).toBe(3);
 	});
+
+	// A kept socket of a draining host takes the bridge stream from the new instance.
+	it("closes the kept sessions on a drain and keeps no session after it", async () => {
+		const { captured, harness, session: inner, stored } = await finishOneTurn();
+
+		await harness.closeKeptSessions();
+		const session = await harness.resumeSession(sessionInput(), stored, LIVE);
+		await harness.detach(session);
+
+		expect(inner.detach).toHaveBeenCalledTimes(3);
+		// The start, the keep, and the stored-state resume; no keep after the drain.
+		expect(captured.createCount).toBe(3);
+	});
 });
 
 describe("ClaudeCodeHarness template snapshot support", () => {

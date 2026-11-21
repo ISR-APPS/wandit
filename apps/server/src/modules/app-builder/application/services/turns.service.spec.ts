@@ -146,6 +146,8 @@ function setup(
 		V2_DEFAULT_MODEL: DEFAULT_MODEL,
 		V2_HARNESS: "claude-code",
 	},
+	// `product_settings.v2DisabledModels`: the models ops turned off.
+	v2DisabledModels: string[] = [],
 ) {
 	const turns = {
 		create: vi.fn(
@@ -286,6 +288,7 @@ function setup(
 		backends,
 		credits,
 		{ findBranch: vi.fn(async () => null) },
+		{ get: async () => ({ v2DisabledModels }) },
 	);
 
 	return {
@@ -632,6 +635,29 @@ describe("TurnsService.create", () => {
 				expect.objectContaining({ model: runsOn }),
 			);
 		}
+	});
+
+	it.each([
+		["a picked model", "anthropic/claude-opus-5", null],
+		["the deploy default", undefined, null],
+		["the chat lock", undefined, "anthropic/claude-opus-5"],
+	])("denies %s that ops turned off before the hold", async (_label, model, locked) => {
+		const disabled = model ?? locked ?? DEFAULT_MODEL;
+		const { metering, service, turns } = setup(undefined, [disabled]);
+		turns.findLockedModelByChat.mockResolvedValue(locked);
+
+		const failure = await service
+			.create(SCOPE, "project-1", { ...BODY, model })
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BadRequestException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as BadRequestException).getResponse()).toMatchObject({
+			code: "V2_MODEL_DENIED",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
 	});
 
 	it("runs a priced model outside the plan list and stores it on the row", async () => {

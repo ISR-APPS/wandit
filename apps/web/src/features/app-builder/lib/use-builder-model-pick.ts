@@ -52,6 +52,11 @@ function useBuilderModelPickInBuild(
 		() => (data === undefined ? undefined : readBuilderModel(projectId, data)),
 		[projectId, data],
 	);
+	// Ops can turn a model off. A pick that the list no longer holds then falls back to the stored-pick rule.
+	const isPickListed =
+		pick !== null &&
+		pick.projectId === projectId &&
+		data?.models.some((row) => row.modelId === pick.modelId) === true;
 	// The same project rule as the model pick above.
 	const [thinkingPick, setThinkingPick] = useState<{
 		projectId: string | null;
@@ -63,10 +68,7 @@ function useBuilderModelPickInBuild(
 	);
 	return {
 		models: data?.models,
-		modelId:
-			pick !== null && pick.projectId === projectId
-				? pick.modelId
-				: storedModelId,
+		modelId: isPickListed ? pick.modelId : storedModelId,
 		setModelId: (modelId) => {
 			writeBuilderModel(projectId, modelId);
 			setPick({ projectId, modelId });

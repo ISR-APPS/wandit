@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	createAnthropicSseUsageParser,
+	gatewayCostFromAnthropicJson,
 	messageFromAnthropicJson,
 	usageFromAnthropicJson,
 } from "./anthropic-sse-usage";
@@ -30,20 +31,23 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 17,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
-	it("reads the gateway counts from message_delta and provider_metadata", () => {
+	it("reads the gateway counts and the cache TTL split from message_delta and provider_metadata", () => {
 		// Vercel AI Gateway: zero input in message_start, real counts later.
+		// The split shape is from a live gateway probe (2026-11-19).
 		const parser = createAnthropicSseUsageParser();
 		parser.feed(
 			`event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":0,"output_tokens":0}}}\n\n` +
-				`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"output_tokens":5},"provider_metadata":{"anthropic":{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":7}}}}\n\n`,
+				`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"output_tokens":5},"provider_metadata":{"anthropic":{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}}}\n\n`,
 		);
 
 		expect(parser.usage()).toEqual({
 			cacheReadTokens: 7,
 			cacheWriteTokens: 3,
+			cacheWrite5mTokens: 2,
 			inputTokens: 10,
 			outputTokens: 5,
 		});
@@ -60,6 +64,7 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 17,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -73,6 +78,7 @@ describe("createAnthropicSseUsageParser", () => {
 			outputTokens: 0,
 			cacheReadTokens: 30,
 			cacheWriteTokens: 40,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -216,6 +222,7 @@ describe("usageFromAnthropicJson", () => {
 			outputTokens: 5,
 			cacheReadTokens: 3,
 			cacheWriteTokens: 2,
+			cacheWrite5mTokens: 0,
 		});
 	});
 
@@ -237,6 +244,132 @@ describe("usageFromAnthropicJson", () => {
 			outputTokens: 0,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
+			cacheWrite5mTokens: 0,
 		});
+	});
+});
+
+// One gateway provider attempt, shortened from the 2026-11-20 probes.
+function attempt(
+	provider: string,
+	credentialType: "byok" | "system",
+	success: boolean,
+) {
+	return { provider, credentialType, success, statusCode: 200 };
+}
+
+// `provider_metadata.gateway` as the Vercel AI Gateway sends it, shortened.
+function gatewayMetadata(options: {
+	cost: string;
+	marketCost: string;
+	finalProvider: string;
+	attempts: ReturnType<typeof attempt>[];
+}) {
+	return {
+		routing: {
+			resolvedProvider: options.finalProvider,
+			finalProvider: options.finalProvider,
+			modelAttempts: [
+				{
+					canonicalSlug: "deepseek/deepseek-v4.1-flash-1017",
+					success: true,
+					providerAttempts: options.attempts,
+				},
+			],
+		},
+		cost: options.cost,
+		marketCost: options.marketCost,
+		surchargeCost: "0",
+		gatewayCost: options.cost,
+	};
+}
+
+// The final `message_delta` of a gateway stream (probe `cost_stream`).
+function gatewayDeltaFrame(
+	gateway: ReturnType<typeof gatewayMetadata> | undefined,
+): string {
+	return `event: message_delta\n${sseFrame(
+		JSON.stringify({
+			type: "message_delta",
+			delta: { stop_reason: "max_tokens" },
+			usage: { input_tokens: 33, output_tokens: 20 },
+			provider_metadata: {
+				baseten: { acceptedPredictionTokens: 9 },
+				...(gateway === undefined ? {} : { gateway }),
+			},
+		}),
+	)}`;
+}
+
+describe("gateway cost", () => {
+	// 33 input x $0.30/M + 20 output x $1.20/M = $0.0000339, rounded up to 34 micros.
+	const byok = gatewayMetadata({
+		cost: "0",
+		marketCost: "0.0000339",
+		finalProvider: "baseten",
+		attempts: [attempt("baseten", "byok", true)],
+	});
+
+	it.each([
+		[
+			"a BYOK host bills marketCost, rounded up",
+			byok,
+			{ usdMicros: 34, provider: "baseten" },
+		],
+		[
+			"a system credential bills cost, not marketCost",
+			gatewayMetadata({
+				cost: "0.000704",
+				marketCost: "0.0009",
+				finalProvider: "anthropic",
+				attempts: [attempt("anthropic", "system", true)],
+			}),
+			{ usdMicros: 704, provider: "anthropic" },
+		],
+		[
+			"a fallback reads the successful BYOK attempt, not the failed first one",
+			gatewayMetadata({
+				cost: "0",
+				marketCost: "0.000033",
+				finalProvider: "baseten",
+				attempts: [
+					attempt("vertex", "system", false),
+					attempt("baseten", "byok", true),
+				],
+			}),
+			{ usdMicros: 33, provider: "baseten" },
+		],
+		["no gateway metadata gives null", undefined, null],
+		[
+			"a cost that is not a number gives null",
+			{ ...byok, marketCost: "abc" },
+			null,
+		],
+		["a negative cost gives null", { ...byok, marketCost: "-1" }, null],
+	])("%s, and the billed counts do not change", (_name, gateway, expected) => {
+		const parser = createAnthropicSseUsageParser();
+		parser.feed(
+			`event: message_start\n${sseFrame('{"type":"message_start","message":{"usage":{"input_tokens":0,"output_tokens":0}}}')}${gatewayDeltaFrame(gateway)}`,
+		);
+
+		expect(parser.gatewayCost()).toEqual(expected);
+		expect(parser.usage()).toEqual({
+			inputTokens: 33,
+			outputTokens: 20,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			cacheWrite5mTokens: 0,
+		});
+	});
+
+	it("reads the top-level provider_metadata of a JSON answer", () => {
+		// Probe `cost_json`: a non-streamed answer carries the gateway block at the top level.
+		expect(
+			gatewayCostFromAnthropicJson({
+				type: "message",
+				usage: { input_tokens: 33, output_tokens: 20 },
+				provider_metadata: { gateway: byok },
+			}),
+		).toEqual({ usdMicros: 34, provider: "baseten" });
 	});
 });

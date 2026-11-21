@@ -2,59 +2,23 @@
  * Crash recovery of the harness host. A host crash leaves its turns active:
  * the unique index blocks every new build of the project, the lock stays,
  * and the credit hold stays reserved. `main.ts` calls `recoverHostTurns` at
- * start and on a timer; it ends those turns like a failed run does.
+ * start and on a timer; `endLostTurn` ends those turns like a failed run does.
  */
-import { randomUUID } from "node:crypto";
-import {
-	builderTurnSpecSchema,
-	type TurnDoneData,
-	type TurnErrorData,
-} from "@wandit/contracts";
-import { LLM_PROXY_TOKEN_TTL_SECONDS } from "../modules/app-builder/application/services/llm-proxy-token.service";
-import type { TurnStreamEventInput } from "../modules/app-builder/domain/ports/turn-events";
-import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
 import { hostRunIdOf } from "../modules/app-builder/domain/turn-queue";
-import type {
-	BuilderTurnRow,
-	BuilderTurnsRepository,
-} from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
-import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
-import type { MeteringService } from "../modules/metering/application/services/metering.service";
-import type {
-	BuilderTurnDeps,
-	BuilderTurnLogger,
-} from "../trigger/builder-turn.runtime";
+import type { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { endLostTurn, type LostTurnDeps } from "../trigger/end-lost-turn";
 
 /** The error the turn card shows after a host crash. */
 const HOST_LOST_ERROR = "The build server restarted. Send your message again.";
 
 /** What the recovery reads and writes; `main.ts` passes the host deps. */
-export type HostRecoveryDeps = {
-	turns: Pick<
-		BuilderTurnsRepository,
-		"fail" | "findHostOwnedActive" | "transition"
-	>;
-	lock: Pick<TurnLock, "release">;
-	counters: Pick<LlmSpendCounterStore, "revokeRun" | "unbindChat">;
-	metering: Pick<MeteringService, "findByIdempotencyKeyAnyPayer" | "refund">;
-	/** `TurnPromoter.promoteNext`: queues the next waiting turn of the project. */
-	promoteNext: (projectId: string, endedTurnId: string) => Promise<void>;
+export type HostRecoveryDeps = Omit<LostTurnDeps, "turns"> & {
+	turns: Pick<BuilderTurnsRepository, "findHostOwnedActive" | "transition">;
 	/**
 	 * True while some host instance runs the turn: the run mark that its runner
 	 * refreshes in Redis has not expired yet. `main.ts` reads the mark.
 	 */
 	isRunningOnAnyHost: (turnId: string) => Promise<boolean>;
-	/**
-	 * Stores the reply row of the dead turn, so a reload shows the error card
-	 * or the Stopped line. `main.ts` passes the task dep.
-	 */
-	insertAssistantMessage: BuilderTurnDeps["insertAssistantMessage"];
-	/** Appends events after the ones the dead run wrote to the turn's Redis Stream. */
-	appendEvents: (
-		turnId: string,
-		events: TurnStreamEventInput[],
-	) => Promise<void>;
-	logger: BuilderTurnLogger;
 };
 
 /**
@@ -83,116 +47,11 @@ export async function recoverHostTurns(
 		if (await deps.isRunningOnAnyHost(row.id)) {
 			continue;
 		}
-		await recoverTurn(deps, row);
+		await endLostTurn(deps, row, {
+			code: "host_lost",
+			message: HOST_LOST_ERROR,
+			runId: hostRunIdOf(row.id),
+		});
 	}
 	return queuedSeenNow;
-}
-
-/** Ends one dead turn: the row, the stream, the hold, the token, the lock, the queue. */
-async function recoverTurn(
-	deps: HostRecoveryDeps,
-	row: BuilderTurnRow,
-): Promise<void> {
-	// A cancel already asked for the stop, so the turn ends as canceled.
-	const canceled = row.status === "cancelling";
-	const ended = canceled
-		? await deps.turns.transition(row.id, ["cancelling"], "canceled", {
-				completedAt: new Date(),
-			})
-		: await deps.turns.fail(row.id, {
-				error: HOST_LOST_ERROR,
-				failureCode: "host_lost",
-				failureKind: null,
-				failureProvider: null,
-				failureProviderMessage: null,
-				failureRequestId: null,
-				failureSource: "task",
-				sentryEventId: null,
-			});
-	// A false CAS: the row ended under us, and its writer owns the cleanup.
-	if (!ended) {
-		return;
-	}
-	deps.logger.warn("harness-host.turn-recovered", {
-		projectId: row.projectId,
-		status: row.status,
-		turnId: row.id,
-	});
-	const step = async (name: string, fn: () => Promise<void>) => {
-		try {
-			await fn();
-		} catch (error) {
-			// The row is terminal; one failed step must not skip the next ones.
-			deps.logger.warn("harness-host.recovery-step-failed", {
-				message: error instanceof Error ? error.message : String(error),
-				step: name,
-				turnId: row.id,
-			});
-		}
-	};
-	const done: TurnDoneData = { status: canceled ? "canceled" : "failed" };
-	// Retry reads the mode, so a lost `security_scan` turn retries as a scan.
-	// A spec that fails the parse leaves it absent: Retry then uses the toggle.
-	const spec = builderTurnSpecSchema.pick({ mode: true }).safeParse(row.spec);
-	const errorData: TurnErrorData = {
-		code: "host_lost",
-		message: HOST_LOST_ERROR,
-		mode: spec.success ? spec.data.mode : undefined,
-		retryable: true,
-	};
-	// A run stores its reply only at its end, so a dead run left none. The row
-	// holds the same part as the stream: a reload shows the error card and
-	// Retry, or the Stopped line. It lands before the events, for a reload
-	// right after `done`.
-	const { chatId } = row;
-	if (chatId !== null) {
-		await step("reply", () =>
-			deps.insertAssistantMessage({
-				chatId,
-				id: randomUUID(),
-				metadata: null,
-				parts: canceled
-					? [{ data: done, id: "turn-done", type: "data-turn-done" }]
-					: [{ data: errorData, id: "turn-error", type: "data-turn-error" }],
-				turnId: row.id,
-			}),
-		);
-	}
-	await step("events", () =>
-		deps.appendEvents(
-			row.id,
-			canceled
-				? [{ data: done, type: "done" }]
-				: [
-						{ data: errorData, type: "error" },
-						{ data: done, type: "done" },
-					],
-		),
-	);
-	// The same rule as a failed or canceled run: the reserved hold goes back,
-	// and the checkpoint debits of the work that ran stay paid. The refund
-	// returns the credits to the pool that the hold row names.
-	await step("refund", async () => {
-		const hold = await deps.metering.findByIdempotencyKeyAnyPayer(
-			`builder-turn:${row.id}`,
-		);
-		if (hold?.status === "reserved") {
-			await deps.metering.refund(
-				hold.id,
-				canceled ? "builder_turn_canceled" : "builder_turn_failed",
-			);
-		}
-	});
-	// The token and the chat binding die with the turn, so no process in the
-	// sandbox can spend after it.
-	if (chatId !== null) {
-		await step("unbind", () => deps.counters.unbindChat(chatId, row.id));
-	}
-	await step("revoke", () =>
-		deps.counters.revokeRun(hostRunIdOf(row.id), LLM_PROXY_TOKEN_TTL_SECONDS),
-	);
-	await step("lock", async () => {
-		await deps.lock.release(row.projectId, row.id);
-	});
-	await step("promote", () => deps.promoteNext(row.projectId, row.id));
 }

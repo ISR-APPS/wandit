@@ -50,6 +50,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D36 | macOS desktop builds: ad-hoc signature first | confirmed | 2026-11-05 |
 | D37 | Electron as a second, experimental desktop engine | confirmed | 2026-11-12 |
 | D38 | Starter templates as an overlay on the web template | default | 2026-11-13 |
+| D39 | A user Stop bills the tokens used | confirmed | 2026-11-20 |
 
 ## D1. Sandbox vendor
 
@@ -516,9 +517,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: A keeps one template snapshot and its boot of about 4 s. B needs one snapshot build per starter template. C needs a publish pipeline per code.storage org. No install runs and no credit is spent. A failed apply sets `projects.starter_template_id` to NULL.
 
+## D39. A user Stop bills the tokens used
+
+- Question: What does a user pay when they click Stop during a builder turn?
+- Options: A. Full refund of the hold and of every checkpoint debit. B. Settle at the proxy-row sum, like a cap stop (D3), and refund the rest of the hold.
+- Default: A.
+- Final choice: B.
+- Status: confirmed
+- Date: 2026-11-20
+- Decided by: Zack, in the reliability audit before production.
+- Issues that change: branch `fix/v2-reliability`.
+- Notes: The wip commit keeps all file work, so A gives free work on every turn. A Stop with no spend and no checkpoints stays free. The API cancel of a dead run still refunds in full. A failed turn still refunds in full.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D39.
+1. Take the next number. The next number is D40.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

@@ -255,8 +255,8 @@ export function readBuilderModel(
 	) {
 		return stored;
 	}
-	// Product rule: Standard is the base tier, so the server default (Nuclear today) never runs silently.
-	// When the server lists Nuclear as the only tier, Nuclear runs: undefined sends the same server default.
+	// Product rule: Standard is the base tier. `V2_DEFAULT_MODEL` on the server must name Standard too.
+	// A send with no model (no tier listed, list loading, or list failed) runs that server default.
 	return visibleBuilderTiers(list.models)[0]?.modelId;
 }
 

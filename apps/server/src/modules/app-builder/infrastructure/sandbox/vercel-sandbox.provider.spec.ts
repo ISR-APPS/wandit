@@ -227,6 +227,8 @@ class FakeVercelSdk implements VercelSandboxSdk {
 	listFailWith: Error | null = null;
 	/** When set, a create from a snapshot `source` answers this HTTP status. 404 is a deleted snapshot. */
 	rejectSnapshotSourceWith: number | null = null;
+	/** HTTP statuses the next `getOrCreate` calls answer, one per call, before a normal answer. */
+	readonly rejectNextWith: number[] = [];
 	/** Command name → the answer of its first run in each new sandbox: a failed-step path. */
 	readonly firstResults = new Map<string, FakeFinished>();
 
@@ -263,6 +265,12 @@ class FakeVercelSdk implements VercelSandboxSdk {
 		params: VercelGetOrCreateParams,
 	): Promise<VercelSandboxInstance> {
 		this.getOrCreateCalls.push(params);
+		const rejectStatus = this.rejectNextWith.shift();
+		if (rejectStatus !== undefined) {
+			throw new APIError(new Response(null, { status: rejectStatus }), {
+				message: "vendor unavailable",
+			});
+		}
 		const name = params.name;
 		const existing = name ? this.instances.get(name) : undefined;
 		if (existing && !existing.deleted && !(name && this.gone.has(name))) {
@@ -753,17 +761,60 @@ describe("VercelSandboxProvider template snapshot boot", () => {
 		);
 	});
 
-	it("rethrows a vendor 5xx on the snapshot boot and makes no image boot", async () => {
-		const { provider, sdk, templateInit } = setup();
-		sdk.readySnapshot = READY;
-		sdk.rejectSnapshotSourceWith = 500;
+	it("retries a vendor 5xx on the snapshot boot, then rethrows it as sandbox_unavailable with no image boot", async () => {
+		vi.useFakeTimers();
+		try {
+			const { provider, sdk, templateInit } = setup();
+			sdk.readySnapshot = READY;
+			sdk.rejectSnapshotSourceWith = 500;
 
-		await expect(provider.getOrCreate("p1", WITH_KEY)).rejects.toBeInstanceOf(
-			APIError,
-		);
+			const failed = expect(
+				provider.getOrCreate("p1", WITH_KEY),
+			).rejects.toMatchObject({ code: "sandbox_unavailable" });
+			await vi.runAllTimersAsync();
+			await failed;
 
-		expect(sdk.getOrCreateCalls).toHaveLength(1);
-		expect(templateInit.applied).toEqual([]);
+			expect(
+				sdk.getOrCreateCalls.map((call) => call.source?.snapshotId),
+			).toEqual([
+				"snap-ready",
+				"snap-ready",
+				"snap-ready",
+				"snap-ready",
+				"snap-ready",
+			]);
+			expect(templateInit.applied).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A rate limit or a vendor blip at boot must not fail the turn, and a 429
+	// is not a refused snapshot.
+	it.each([
+		429, 503,
+	])("boots from the snapshot after one vendor %i", async (status) => {
+		vi.useFakeTimers();
+		try {
+			const { logger, provider, sdk, templateInit } = setup();
+			sdk.readySnapshot = READY;
+			sdk.rejectNextWith.push(status);
+
+			const booted = provider.getOrCreate("p1", WITH_KEY);
+			await vi.runAllTimersAsync();
+			await booted;
+
+			expect(
+				sdk.getOrCreateCalls.map((call) => call.source?.snapshotId),
+			).toEqual(["snap-ready", "snap-ready"]);
+			expect(templateInit.applied).toEqual([]);
+			expect(logger.warn).toHaveBeenCalledWith(
+				"sandbox.lifecycle.boot-retry",
+				expect.objectContaining({ delayMs: "2000", status: String(status) }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("resumes a stopped sandbox and logs no warning when no archive is packed", async () => {
