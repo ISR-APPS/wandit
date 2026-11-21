@@ -729,6 +729,13 @@
       "when": 1795260753963,
       "tag": "0103_v2-disabled-models",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1795261246192,
+      "tag": "0104_llm-proxy-gateway-cost",
+      "breakpoints": true
     }
   ]
 }

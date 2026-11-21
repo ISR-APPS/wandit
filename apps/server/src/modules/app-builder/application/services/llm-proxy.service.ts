@@ -32,6 +32,8 @@ import { ProductSettingsService } from "../../../settings";
 import {
 	type AnthropicAssistantMessage,
 	createAnthropicSseUsageParser,
+	gatewayCostFromAnthropicJson,
+	type LlmGatewayCost,
 	type LlmTokenUsage,
 	messageFromAnthropicJson,
 	usageFromAnthropicJson,
@@ -818,6 +820,7 @@ export class LlmProxyService {
 				// Without Langfuse, the proxy does no content work.
 				this.langfuse === null ? null : messageFromAnthropicJson(json),
 				upstreamRequestId,
+				gatewayCostFromAnthropicJson(json),
 			);
 			return;
 		}
@@ -835,6 +838,7 @@ export class LlmProxyService {
 			// Without Langfuse, the proxy does no content work.
 			message: this.langfuse === null ? null : messageFromAnthropicJson(json),
 			upstreamErrorBody: null,
+			gatewayCost: gatewayCostFromAnthropicJson(json),
 		});
 	}
 
@@ -941,6 +945,7 @@ export class LlmProxyService {
 			forwardedBody: options.forwardedBody,
 			message: parser.message(),
 			upstreamErrorBody: null,
+			gatewayCost: parser.gatewayCost(),
 		});
 	}
 
@@ -960,6 +965,8 @@ export class LlmProxyService {
 		forwardedBody: Buffer,
 		message: AnthropicAssistantMessage | null,
 		upstreamRequestId?: string,
+		// Gateway cost of a buffered body that arrived before the abort.
+		gatewayCost?: LlmGatewayCost | null,
 	): Promise<void> {
 		reply.end();
 		await this.finish(input, claims, upstream, modelId, {
@@ -971,6 +978,7 @@ export class LlmProxyService {
 			forwardedBody,
 			message,
 			upstreamErrorBody: null,
+			gatewayCost,
 		});
 	}
 
@@ -1128,6 +1136,9 @@ export class LlmProxyService {
 			message: AnthropicAssistantMessage | null;
 			// The upstream body of a non-2xx answer; null on every other path.
 			upstreamErrorBody: string | null;
+			// Real cost from `provider_metadata.gateway`. Only a 2xx answer has
+			// it; absent or null writes null. Billing never reads it.
+			gatewayCost?: LlmGatewayCost | null | undefined;
 		},
 	): Promise<void> {
 		// Anthropic's count_tokens endpoint is free: the row keeps the token
@@ -1174,6 +1185,8 @@ export class LlmProxyService {
 				cacheReadTokens: result.usage.cacheReadTokens,
 				cacheWriteTokens: result.usage.cacheWriteTokens,
 				usdMicros,
+				gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+				gatewayProvider: result.gatewayCost?.provider ?? null,
 				status: result.status,
 				reason: result.reason,
 				upstreamRequestId: result.upstreamRequestId ?? null,
@@ -1214,6 +1227,8 @@ export class LlmProxyService {
 			cacheReadTokens: result.usage.cacheReadTokens,
 			cacheWriteTokens: result.usage.cacheWriteTokens,
 			usdMicros,
+			gatewayUsdMicros: result.gatewayCost?.usdMicros ?? null,
+			gatewayProvider: result.gatewayCost?.provider ?? null,
 			status: result.status,
 			latencyMs: result.latencyMs,
 		});

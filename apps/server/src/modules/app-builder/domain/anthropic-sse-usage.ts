@@ -5,9 +5,13 @@
  * `LlmProxyService` feeds the streamed copy of an upstream response into
  * the SSE parser, or passes a JSON response body to `usageFromAnthropicJson`
  * and `messageFromAnthropicJson`. The counts feed `llm_proxy_requests` rows
- * and the price math.
+ * and the price math. It also reads the real cost that the Vercel AI Gateway
+ * reports, for the `gateway_usd_micros` column. Billing does not read it.
  */
+import { appAiGatewayCostSchema } from "@wandit/contracts";
 import { z } from "zod";
+
+import { appAiGatewayUsdToMicros } from "./app-ai-request";
 
 /** Token counts from one Anthropic response, all in whole tokens. */
 export type LlmTokenUsage = {
@@ -56,6 +60,64 @@ const anthropicSseEventSchema = z.object({
 	// event from failing its usage parse.
 	error: z.object({ type: z.string() }).optional().catch(undefined),
 });
+
+/** Real cost of one upstream call, from `provider_metadata.gateway`. Billing still reads the price catalog. */
+export type LlmGatewayCost = {
+	/** What the call costs us, in micros of USD, rounded up. */
+	usdMicros: number;
+	/** `routing.finalProvider`: the host that answered, for example `baseten` or `vertex`. */
+	provider: string;
+};
+
+// `provider_metadata.gateway` at the top level of an object: the final
+// `message_delta` event of a stream, or a JSON (non-streamed) answer.
+const gatewayMetadataSchema = z.object({
+	provider_metadata: z.object({
+		// `cost` and `marketCost` are untrusted decimal strings. The contracts
+		// schema reads "abc" or "-1" as absent.
+		gateway: appAiGatewayCostSchema.extend({
+			routing: z.object({
+				finalProvider: z.string(),
+				modelAttempts: z.array(
+					z.object({
+						providerAttempts: z.array(
+							z.object({
+								provider: z.string(),
+								credentialType: z.enum(["byok", "system"]),
+								success: z.boolean(),
+							}),
+						),
+					}),
+				),
+			}),
+		}),
+	}),
+});
+
+// The cost of the attempt that answered. Null when no successful attempt
+// of `finalProvider` is in the list, or the cost is absent, 0, or above int4.
+function gatewayCostFromMetadata(
+	metadata: z.infer<typeof gatewayMetadataSchema>,
+): LlmGatewayCost | null {
+	const { cost, marketCost, routing } = metadata.provider_metadata.gateway;
+	const answered = routing.modelAttempts
+		.flatMap((attempt) => attempt.providerAttempts)
+		.find(
+			(attempt) =>
+				attempt.success && attempt.provider === routing.finalProvider,
+		);
+	if (answered === undefined) {
+		return null;
+	}
+	// A BYOK host (Baseten, Fireworks) bills marketCost on its own invoice.
+	// Vercel then bills nothing and reports `cost` "0".
+	const usd = answered.credentialType === "byok" ? marketCost : cost;
+	// Rounds up, like `priceUsdMicros`: the two columns then compare without a rounding bias.
+	const usdMicros = appAiGatewayUsdToMicros(usd ?? 0);
+	return usdMicros === null
+		? null
+		: { usdMicros, provider: routing.finalProvider };
+}
 
 // A JSON (non-streamed) Messages response, or a `count_tokens` answer that
 // reports token counts at the top level.
@@ -288,6 +350,8 @@ export function createAnthropicSseUsageParser(
 ): {
 	feed: (chunk: string) => void;
 	usage: () => LlmTokenUsage;
+	/** Gateway cost from the final `message_delta`; null when it has not arrived or does not parse. */
+	gatewayCost: () => LlmGatewayCost | null;
 	streamEnd: () => AnthropicStreamEnd;
 	/** The answer so far; null when `collectContent` is false. A tool input that does not parse stays raw text. */
 	message: () => AnthropicAssistantMessage | null;
@@ -304,6 +368,7 @@ export function createAnthropicSseUsageParser(
 		errorType: null,
 		sawMessageStop: false,
 	};
+	let gatewayCost: LlmGatewayCost | null = null;
 	// Null without `collectContent`: the relay then does no content work.
 	const content = options.collectContent ? createMessageAssembler() : null;
 
@@ -319,6 +384,13 @@ export function createAnthropicSseUsageParser(
 		const result = anthropicSseEventSchema.safeParse(json);
 		if (result.success) {
 			applyUsage(result.data);
+		}
+		// A separate parse: a bad gateway field cannot change the billed counts.
+		if (result.success && result.data.type === "message_delta") {
+			const metadata = parseOrUndefined(gatewayMetadataSchema, json);
+			if (metadata !== undefined) {
+				gatewayCost = gatewayCostFromMetadata(metadata);
+			}
 		}
 		// After usage, and `apply` catches its parse errors: the content step
 		// cannot change the billed counts or stop the relay.
@@ -386,6 +458,9 @@ export function createAnthropicSseUsageParser(
 		usage(): LlmTokenUsage {
 			return usage;
 		},
+		gatewayCost(): LlmGatewayCost | null {
+			return gatewayCost;
+		},
 		streamEnd(): AnthropicStreamEnd {
 			return { ...streamEnd };
 		},
@@ -443,4 +518,15 @@ export function usageFromAnthropicJson(body: unknown): LlmTokenUsage {
 		cacheWriteTokens:
 			usage.cacheWriteTokens + (parsed.data.cache_creation_input_tokens ?? 0),
 	};
+}
+
+/**
+ * Reads the gateway cost of a JSON (non-streamed) Messages body. Returns null
+ * for a body without valid `provider_metadata.gateway`, for example `count_tokens`.
+ */
+export function gatewayCostFromAnthropicJson(
+	body: unknown,
+): LlmGatewayCost | null {
+	const metadata = parseOrUndefined(gatewayMetadataSchema, body);
+	return metadata === undefined ? null : gatewayCostFromMetadata(metadata);
 }
