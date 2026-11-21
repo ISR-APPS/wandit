@@ -66,6 +66,26 @@ function invoice(overrides: Partial<Stripe.Invoice> = {}): Stripe.Invoice {
 	} as unknown as Stripe.Invoice;
 }
 
+/** A top-up session as `retrieveCheckoutSession` gives it: `payment_intent.latest_charge` is expanded. */
+function topupSession(): Stripe.Checkout.Session {
+	const chargeCreated = Math.floor(paidAt.getTime() / 1_000);
+	// SAFETY: the service reads only the fields set here; the rest of the Stripe object is unused.
+	return {
+		amount_total: 1_000,
+		// The session is older than the charge. The candidate must take the charge time.
+		created: chargeCreated - 3_600,
+		currency: "USD",
+		customer: "cus_1",
+		id: "cs_1",
+		mode: "payment",
+		payment_intent: {
+			id: "pi_1",
+			latest_charge: { created: chargeCreated, id: "ch_topup" },
+		},
+		payment_status: "paid",
+	} as Stripe.Checkout.Session;
+}
+
 class FakeAffiliatesRepository {
 	readonly calls: string[] = [];
 	attribution: AffiliateAttributionRow | null = attribution();
@@ -144,35 +164,68 @@ class FakeAffiliatesRepository {
 
 	findEarningByInvoiceId = vi.fn(async () => this.existingInvoiceEarning);
 
-	listPendingCandidatesForUser = vi.fn(async () => []);
+	/** `affiliates.user_id` of the attribution's affiliate. */
+	affiliateUserId: string | null = "user_affiliate";
+	affiliateIdentityForSelfCheck = vi.fn(async () => ({
+		email: "affiliate@example.com",
+		userId: this.affiliateUserId,
+	}));
+
+	listPendingCandidatesForUser = vi.fn(
+		async (): Promise<AffiliateCandidateRow[]> => [],
+	);
 	listPendingAttributedCandidateUserIds = vi.fn(
 		async (): Promise<string[]> => [],
 	);
 }
 
-function setup(freshInvoice = invoice()) {
+/** Checkout attempt of the top-up session. `userId` is the user who paid. */
+function checkoutAttemptsFake() {
+	return {
+		findByProviderSessionId: vi.fn(async () => ({ userId: "user_1" })),
+	};
+}
+
+function setup(freshInvoice = invoice(), freshSession = topupSession()) {
 	const repository = new FakeAffiliatesRepository();
 	const customers = {
 		findByProviderCustomerId: vi.fn(async () => ({ userId: "user_1" })),
 	};
 	const stripe = {
 		listInvoicePayments: vi.fn(async () => freshInvoice.payments?.data ?? []),
+		retrieveCheckoutSession: vi.fn(async () => freshSession),
 		retrieveInvoice: vi.fn(async () => freshInvoice),
 		retrievePaymentIntent: vi.fn(),
 	};
 	const clawbacks = {
 		reconcileInvoiceAfterEarning: vi.fn(async () => true),
 	};
+	const checkoutAttempts = checkoutAttemptsFake();
 	const service = new AffiliateCommissionService(
 		repository as unknown as AffiliatesRepository,
 		customers as unknown as BillingCustomersRepository,
 		{ findByProviderCustomerId: async () => null } as never,
 		stripe as unknown as StripeProvider,
 		clawbacks as unknown as AffiliateClawbackService,
+		// SAFETY: the service calls only `findByProviderSessionId` and reads only `userId`.
+		checkoutAttempts as never,
 	);
 
-	return { clawbacks, customers, repository, service, stripe };
+	return {
+		checkoutAttempts,
+		clawbacks,
+		customers,
+		repository,
+		service,
+		stripe,
+	};
 }
+
+const fixedProgram = {
+	commissionRateBps: null,
+	fixedCurrency: "usd",
+	programKind: "fixed_one_time",
+} as const;
 
 describe("AffiliateCommissionService", () => {
 	beforeEach(() => vi.restoreAllMocks());
@@ -462,6 +515,8 @@ describe("AffiliateCommissionService", () => {
 			{ findByProviderCustomerId: async () => null } as never,
 			stripe as unknown as StripeProvider,
 			clawbacks as unknown as AffiliateClawbackService,
+			// SAFETY: the service calls only `findByProviderSessionId` and reads only `userId`.
+			checkoutAttemptsFake() as never,
 		);
 
 		const outcomes = await Promise.all([
@@ -471,5 +526,121 @@ describe("AffiliateCommissionService", () => {
 
 		expect(outcomes.sort()).toEqual([false, true]);
 		expect(repository.earningInvoiceIds).toHaveLength(1);
+	});
+
+	describe("top-up", () => {
+		it("earns one commission on the charge time and earns no second one on a replay", async () => {
+			const { repository, service, stripe } = setup();
+
+			await expect(service.handlePaidTopup(topupSession())).resolves.toBe(true);
+			await expect(service.handlePaidTopup(topupSession())).resolves.toBe(true);
+
+			expect(stripe.retrieveCheckoutSession).toHaveBeenCalledWith("cs_1");
+			expect(repository.upsertCandidate).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					baseAmountCents: 1_000,
+					billingReason: "topup",
+					currency: "usd",
+					paidAt,
+					stripeInvoiceId: "cs_1",
+				}),
+				transaction,
+			);
+			expect(repository.insertEarning).toHaveBeenCalledOnce();
+			expect(repository.insertedEarning).toEqual(
+				expect.objectContaining({
+					amountCents: 250,
+					holdUntil: new Date("2026-03-03T00:00:00.000Z"),
+					stripeChargeId: "ch_topup",
+					stripeInvoiceId: "cs_1",
+				}),
+			);
+		});
+
+		it.each([
+			{ base: 1_000, fixed: 2_500, expected: 1_000 },
+			{ base: 1_000, fixed: 400, expected: 400 },
+		])("caps a fixed $fixed commission at the $base base", async ({
+			base,
+			fixed,
+			expected,
+		}) => {
+			const session = { ...topupSession(), amount_total: base };
+			const { repository, service } = setup(invoice(), session);
+			repository.attribution = attribution({
+				...fixedProgram,
+				fixedAmountCents: fixed,
+			});
+
+			await expect(service.handlePaidTopup(session)).resolves.toBe(true);
+			expect(repository.insertedEarning).toEqual(
+				expect.objectContaining({
+					amountCents: expected,
+					baseAmountCents: base,
+				}),
+			);
+		});
+
+		it("replays a stored fixed earning from before the cap without a mismatch", async () => {
+			const session = { ...topupSession(), amount_total: 1_000 };
+			const { repository, service } = setup(invoice(), session);
+			repository.attribution = attribution({
+				...fixedProgram,
+				fixedAmountCents: 2_500,
+			});
+			await service.handlePaidTopup(session);
+			const stored = await repository.insertEarning.mock.results[0]?.value;
+			// The old code stored the full fixed amount, above the 1,000 base.
+			// The candidate stays pending when a run stops after the earning insert.
+			repository.existingInvoiceEarning = { ...stored, amountCents: 2_500 };
+			repository.candidateStatus = "pending_attribution";
+
+			await expect(service.handlePaidTopup(session)).resolves.toBe(true);
+			expect(repository.insertEarning).toHaveBeenCalledOnce();
+		});
+
+		it("marks the candidate ineligible when the affiliate paid the top-up", async () => {
+			const { checkoutAttempts, repository, service } = setup();
+			checkoutAttempts.findByProviderSessionId.mockResolvedValueOnce({
+				userId: "user_affiliate",
+			});
+
+			await expect(service.handlePaidTopup(topupSession())).resolves.toBe(
+				false,
+			);
+			expect(repository.setCandidateStatus).toHaveBeenCalledWith(
+				"55555555-5555-4555-8555-555555555555",
+				"ineligible",
+				transaction,
+			);
+			expect(repository.insertEarning).not.toHaveBeenCalled();
+		});
+
+		it("reconciles a top-up candidate from the Checkout Session and not from an invoice", async () => {
+			const { repository, service, stripe } = setup();
+			repository.listPendingCandidatesForUser.mockResolvedValueOnce([
+				{
+					baseAmountCents: 1_000,
+					billingReason: "topup",
+					createdAt: paidAt,
+					currency: "usd",
+					id: "55555555-5555-4555-8555-555555555555",
+					paidAt,
+					status: "pending_attribution",
+					stripeInvoiceId: "cs_1",
+					updatedAt: paidAt,
+					userId: "user_1",
+				},
+			]);
+
+			await expect(service.reconcileCandidatesForUser("user_1")).resolves.toBe(
+				1,
+			);
+			expect(stripe.retrieveCheckoutSession).toHaveBeenCalledWith("cs_1");
+			expect(stripe.retrieveInvoice).not.toHaveBeenCalled();
+			expect(repository.insertedEarning).toEqual(
+				expect.objectContaining({ stripeInvoiceId: "cs_1" }),
+			);
+		});
 	});
 });

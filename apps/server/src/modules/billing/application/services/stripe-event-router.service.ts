@@ -84,8 +84,10 @@ export class StripeEventRouter {
 			case "customer.subscription.trial_will_end":
 				return this.routeSubscriptionSync(event.data.object);
 			case "customer.subscription.deleted":
+				// Pricing v8 (I5): the deletion updates the mirror and the state event
+				// only. It writes no ledger row and cancels no refill slot.
 				await this.recordBillingHistory(event);
-				return this.routeDeletedSubscription(event.data.object);
+				return this.routeSubscriptionSync(event.data.object);
 			case "invoice.paid":
 				return this.routePaidInvoice(event.data.object);
 			case "invoice.upcoming":
@@ -258,6 +260,8 @@ export class StripeEventRouter {
 		}
 
 		await this.subscriptionCreditsService.grantTopup(session);
+		// No catch: a throw keeps the webhook failed. The grant key `topup:{sessionId}` makes the retry safe.
+		await this.affiliateCommissionService?.handlePaidTopup(session);
 
 		return PROCESSED;
 	}
@@ -429,22 +433,6 @@ export class StripeEventRouter {
 		);
 
 		await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
-
-		return PROCESSED;
-	}
-
-	private async routeDeletedSubscription(
-		subscription: Stripe.Subscription,
-	): Promise<StripeEventRouteResult> {
-		const providerCustomerId = this.requiredCustomerId(
-			subscription.customer,
-			`subscription ${subscription.id}`,
-		);
-
-		await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
-		await this.subscriptionCreditsService.expireForDeletedSubscription(
-			subscription,
-		);
 
 		return PROCESSED;
 	}

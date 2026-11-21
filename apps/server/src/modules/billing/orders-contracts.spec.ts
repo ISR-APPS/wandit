@@ -1,5 +1,4 @@
 import {
-	billingRoutes,
 	CHECKOUT_PURPOSE,
 	createDomainOrderBodySchema,
 	createOrderResponseSchema,
@@ -188,7 +187,6 @@ describe("payment order contracts", () => {
 		expect(ordersRoutes.reconcileSession).toBe(
 			"/api/v1/orders/reconcile-session",
 		);
-		expect(billingRoutes.sync).toBe("/api/v1/billing/sync");
 		expect(
 			reconcileSessionBodySchema.safeParse({ sessionId: "" }).success,
 		).toBe(false);

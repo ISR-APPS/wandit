@@ -1,5 +1,5 @@
 /**
- * Admin HTTP routes of the "Refund last payment" action on a user.
+ * Admin HTTP routes of the "Refund last plan payment" action on a user.
  * The admin SPA calls them from the users table. Calls AdminUserRefundsService.
  * Only full admins pass: the support role has no billing:manage.
  */

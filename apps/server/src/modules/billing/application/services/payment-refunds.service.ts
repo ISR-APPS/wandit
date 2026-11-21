@@ -1,3 +1,9 @@
+/**
+ * Takes back purchased credits when Stripe refunds or disputes a charge.
+ * Gives them back when Wandit wins the dispute.
+ * StripeEventRouterService, the billing maintenance task, and the reconciliation, refill, and subscription credit services call it.
+ * Writes revoke and restore rows to `credit_ledger` through BillingCreditLedgerRepository and CreditsService.
+ */
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
@@ -727,6 +733,7 @@ export class PaymentRefundsService {
 				),
 			0,
 		);
+		// LIMIT: after a partial refund, the credits that stay keep the bonus rate of the full amount. Upgrade: quote the kept amount again.
 		const globalTarget = Math.min(
 			originalGranted,
 			this.floorRatio(originalGranted, fraction),

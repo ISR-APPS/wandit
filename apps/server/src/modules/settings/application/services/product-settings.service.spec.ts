@@ -96,19 +96,20 @@ describe("ProductSettingsService", () => {
 		expect(off).not.toHaveProperty("signupGrantSkippedCount");
 	});
 
-	it.each([
-		0, 30,
-	])("accepts a manual grace period of %i days", (manualGraceDays) => {
+	it("drops the removed plan switches from an admin patch", () => {
 		expect(
-			patchProductSettingsBodySchema.parse({ manualGraceDays, version: 1 }),
-		).toEqual({ manualGraceDays, version: 1 });
-	});
-
-	it.each([
-		-1, 31, 1.5,
-	])("rejects an invalid manual grace period of %s days", (manualGraceDays) => {
+			patchProductSettingsBodySchema.parse({
+				manualGraceDays: 3,
+				paidSubscriptionsEnabled: true,
+				topupsEnabled: true,
+				version: 1,
+			}),
+		).toEqual({ topupsEnabled: true, version: 1 });
 		expect(() =>
-			patchProductSettingsBodySchema.parse({ manualGraceDays, version: 1 }),
+			patchProductSettingsBodySchema.parse({
+				paidSubscriptionsEnabled: true,
+				version: 1,
+			}),
 		).toThrow();
 	});
 
@@ -182,7 +183,7 @@ describe("ProductSettingsService", () => {
 		const { repository, service } = setup();
 
 		const first = await service.get();
-		repository.row = defaultRow({ paidSubscriptionsEnabled: true, version: 2 });
+		repository.row = defaultRow({ topupsEnabled: true, version: 2 });
 
 		vi.advanceTimersByTime(29_999);
 		await expect(service.get()).resolves.toBe(first);
@@ -190,29 +191,29 @@ describe("ProductSettingsService", () => {
 
 		vi.advanceTimersByTime(2);
 		await expect(service.get()).resolves.toMatchObject({
-			paidSubscriptionsEnabled: true,
+			topupsEnabled: true,
 			version: 2,
 		});
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it("passes grace changes through, bumps the version, and invalidates the cache", async () => {
+	it("passes switch changes through, bumps the version, and invalidates the cache", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(INITIAL_DATE);
 		const { repository, service } = setup();
 		await service.get();
 
 		const input: PatchProductSettingsBody = {
-			manualGraceDays: 3,
+			manualPaymentsEnabled: true,
 			version: 1,
 		};
 		await expect(service.update(input, "admin_1")).resolves.toMatchObject({
-			manualGraceDays: 3,
+			manualPaymentsEnabled: true,
 			updatedByUserId: "admin_1",
 			version: 2,
 		});
 		expect(repository.updateIfVersion).toHaveBeenCalledWith({
-			changes: { manualGraceDays: 3 },
+			changes: { manualPaymentsEnabled: true },
 			expectedVersion: 1,
 			updatedByUserId: "admin_1",
 		});
@@ -234,15 +235,12 @@ describe("ProductSettingsService", () => {
 		);
 
 		const staleRead = service.get();
-		await service.update(
-			{ paidSubscriptionsEnabled: true, version: 1 },
-			"admin_1",
-		);
+		await service.update({ topupsEnabled: true, version: 1 }, "admin_1");
 		resolveRead(staleRow);
 
 		await expect(staleRead).resolves.toMatchObject({ version: 1 });
 		await expect(service.get()).resolves.toMatchObject({
-			paidSubscriptionsEnabled: true,
+			topupsEnabled: true,
 			version: 2,
 		});
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(2);
@@ -268,7 +266,7 @@ describe("ProductSettingsService", () => {
 	it.each([
 		{ exposedCredits: 0.5, storedCentiCredits: 50 },
 		{ exposedCredits: 7, storedCentiCredits: 700 },
-	])("exposes $storedCentiCredits stored centi-credits publicly as $exposedCredits credits", async ({
+	])("exposes $storedCentiCredits stored centi-credits publicly as $exposedCredits credits, and paid subscriptions as off", async ({
 		exposedCredits,
 		storedCentiCredits,
 	}) => {
@@ -293,7 +291,7 @@ describe("ProductSettingsService", () => {
 			manualGraceDays: 7,
 			manualPaymentsEnabled: true,
 			organizationsEnabled: false,
-			paidSubscriptionsEnabled: true,
+			paidSubscriptionsEnabled: false,
 			signupGrantCredits: exposedCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,

@@ -1,11 +1,90 @@
 import { describe, expect, it } from "vitest";
 import {
+	createBillingTopupBodySchema,
 	createManualSubscriptionRequestBodySchema,
 	dzdPriceFor,
 	isSlickpayInvoicePaid,
 	slickpayCreateInvoiceResponseSchema,
 	slickpayInvoiceDetailsResponseSchema,
+	smallestTopupCovering,
+	topupQuoteForUsd,
 } from "./billing";
+
+describe("createBillingTopupBodySchema", () => {
+	// The amount sets the Stripe charge and the credits, so a value outside 10 to 1000 whole USD must not pass.
+	it.each([
+		["the minimum", { amountUsd: 10 }, true],
+		["the maximum", { amountUsd: 1000 }, true],
+		["one USD below the minimum", { amountUsd: 9 }, false],
+		["one USD above the maximum", { amountUsd: 1001 }, false],
+		["a fraction of a USD", { amountUsd: 10.5 }, false],
+		["an amount as a string", { amountUsd: "25" }, false],
+		["a v7 pack id from a cached bundle", { packId: "topup_250" }, true],
+		["a v6 pack id", { packId: "topup_175" }, false],
+		["an amount and a pack id", { amountUsd: 25, packId: "topup_250" }, false],
+	])("%s: %o -> success %s", (_case, body, expected) => {
+		expect(createBillingTopupBodySchema.safeParse(body).success).toBe(expected);
+	});
+});
+
+describe("topupQuoteForUsd", () => {
+	// The webhook grants `credits`, so each tier edge and the rounding down of the bonus must hold.
+	it.each([
+		[1, 10, 0, 10],
+		[10, 100, 0, 100],
+		[19, 190, 0, 190],
+		[20, 200, 0, 200],
+		[39, 390, 0, 390],
+		[40, 400, 20, 420],
+		[41, 410, 20, 430],
+		[99, 990, 49, 1039],
+		[100, 1000, 100, 1100],
+		[199, 1990, 199, 2189],
+		[200, 2000, 300, 2300],
+		[1000, 10000, 1500, 11500],
+		[1500, 15000, 2250, 17250],
+	])("%d USD gives %d base + %d bonus = %d credits", (amountUsd, base, bonus, total) => {
+		const quote = topupQuoteForUsd(amountUsd);
+		expect([quote.baseCredits, quote.bonusCredits, quote.credits]).toEqual([
+			base,
+			bonus,
+			total,
+		]);
+	});
+
+	// A tier edge must never make one more dollar buy fewer credits.
+	it("gives more credits for each added dollar from 1 to 1000 USD", () => {
+		for (let amountUsd = 1; amountUsd < 1000; amountUsd++) {
+			expect(topupQuoteForUsd(amountUsd + 1).credits).toBeGreaterThan(
+				topupQuoteForUsd(amountUsd).credits,
+			);
+		}
+	});
+
+	// A bug must not grant a fraction or a negative amount.
+	it.each([
+		[0],
+		[-1],
+		[10.5],
+		[Number.NaN],
+	])("throws a RangeError for %d USD", (amountUsd) => {
+		expect(() => topupQuoteForUsd(amountUsd)).toThrow(RangeError);
+	});
+});
+
+describe("smallestTopupCovering", () => {
+	// The 402 dialog opens on this amount. It must cover a decimal shortfall and stay in 10 to 1000 USD.
+	it.each([
+		[0, 10],
+		[37, 10],
+		[100.5, 11],
+		[390, 39],
+		[391, 40],
+		[20000, 1000],
+	])("a shortfall of %d credits needs %d USD", (shortfallCredits, expected) => {
+		expect(smallestTopupCovering(shortfallCredits)).toBe(expected);
+	});
+});
 
 describe("dzdPriceFor", () => {
 	// SlickPay charges whole dinars, so a fractional rate must round to the nearest dinar.
@@ -79,11 +158,9 @@ describe("createManualSubscriptionRequestBodySchema", () => {
 	it.each([
 		["ccp", true],
 		["slickpay", false],
-	])("accepts the preferred method %s: %s", (preferredPaymentMethod, expected) => {
+	])("preferred method %s -> success %s", (preferredPaymentMethod, expected) => {
 		const result = createManualSubscriptionRequestBodySchema.safeParse({
-			plan: "pro",
-			tierCredits: 500,
-			interval: "month",
+			amountUsd: 25,
 			fullName: "Amina Example",
 			phone: "+213 661 22 33 44",
 			country: "DZ",

@@ -12,6 +12,7 @@ const SUMMARY_ROW = {
 	emailVerified: true,
 	id: "user-1",
 	image: null,
+	isPaidOwner: false,
 	lastSeenAt: null,
 	name: "Example User",
 	phone: "+213555123456",

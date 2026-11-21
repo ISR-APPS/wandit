@@ -37,8 +37,8 @@ export type V2EnvSource = Readonly<
 		 */
 		CLOUDFLARE_ACCOUNT_ID?: string;
 		/**
-		 * Staging test switch, not a V2 name: true skips the plan limit on
-		 * backends. The zod default makes it false; specs may omit it.
+		 * Staging test switch, not a V2 name: true skips the backend limit of
+		 * the payer. The zod default makes it false; specs may omit it.
 		 */
 		BACKEND_LIMIT_OFF?: boolean;
 	}

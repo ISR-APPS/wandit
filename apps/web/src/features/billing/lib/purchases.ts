@@ -1,12 +1,12 @@
 /**
- * Purchase kill-switch view for the upgrade button, the out-of-credits banner, and the credits dialogs.
+ * Purchase kill-switch view for the credits chip, the out-of-credits banner, and the credits dialogs.
  * It reads the public settings and the SlickPay local pricing of the visitor.
  */
 import { useLocalPricingQuery } from "@/features/billing/api/billing.queries";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 
 /**
- * Whether any credit purchase (subscription or top-up) is currently possible.
+ * Whether any top-up (card, SlickPay, or offline request) is currently possible.
  * `undefined` while public settings load — callers treat only an explicit
  * `false` as "hide purchase CTAs" so a slow settings fetch never strips them.
  * The server guards every checkout regardless; this is UI honesty only.
@@ -18,7 +18,6 @@ export function usePurchasesEnabled(): boolean | undefined {
 	if (!settingsQuery.data) return undefined;
 
 	if (
-		settingsQuery.data.paidSubscriptionsEnabled ||
 		settingsQuery.data.manualPaymentsEnabled ||
 		settingsQuery.data.topupsEnabled
 	) {

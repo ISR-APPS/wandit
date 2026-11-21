@@ -1,242 +1,121 @@
 {
 	"meta": {
-		"title": "Facturation — Wandit"
+		"title": "Portefeuille — Wandit"
 	},
 	"page": {
-		"title": "Facturation",
-		"description": "Gérez votre offre, vos crédits et votre activité de facturation.",
-		"betaBadge": "Bêta privée",
-		"betaBody": "Les achats sont suspendus pendant la bêta privée. Vos crédits attribués restent disponibles.",
-		"loadErrorTitle": "Impossible de charger la facturation",
-		"loadErrorBody": "Nous n’avons pas pu charger vos dernières informations de facturation. Réessayez.",
+		"title": "Portefeuille",
+		"description": "Vos crédits, vos recharges et vos paiements. Les crédits n’expirent jamais.",
+		"loadErrorTitle": "Impossible de charger votre portefeuille",
+		"loadErrorBody": "Nous n’avons pas pu charger les dernières informations de votre portefeuille. Réessayez.",
 		"retry": "Réessayer",
-		"balanceTitle": "Solde de crédits",
-		"balanceDescription": "Les crédits sont utilisés dans l’ordre : offre, promotion, puis recharge.",
-		"totalBalance": "Total disponible",
-		"subscriptionTitle": "Offre actuelle",
-		"subscriptionDescription": "État de votre abonnement et détails du renouvellement.",
-		"noSubscriptionTitle": "Aucun abonnement actif",
-		"noSubscriptionBody": "Choisissez une offre lorsque vous serez prêt à vous abonner.",
-		"statusLabel": "État",
-		"renewsLabel": "Renouvellement",
-		"endsLabel": "Fin",
-		"pendingTierLabel": "Prochain niveau",
-		"creditsPerCycle": "{count} crédits par cycle",
-		"changePlan": "Changer d’offre",
-		"choosePlan": "Choisir une offre",
-		"openPortal": "Portail de facturation",
-		"cancelPlan": "Annuler l’offre",
-		"cancelTitle": "Annuler votre abonnement ?",
-		"cancelBody": "Votre offre reste active jusqu’à la fin de la période en cours. Vous pouvez la reprendre avant cette date.",
-		"cancelOffer": {
-			"title": "Essayez plutôt Starter",
-			"body": "Votre offre actuelle reste active jusqu’au {date}. Starter commence au renouvellement. Vous pouvez annuler à tout moment.",
-			"cta": "Passer plutôt à Starter",
-			"orCancel": "Ou dites-nous pourquoi vous partez"
-		},
-		"cancelReasonPrompt": "Quelle est la principale raison de votre départ ?",
-		"cancelReasons": {
-			"too_expensive": "C’est trop cher",
-			"not_using_enough": "Je ne l’utilise pas assez",
-			"missing_features": "Il manque des fonctionnalités dont j’ai besoin",
-			"technical_issues": "Problèmes techniques",
-			"switching_provider": "Je passe à un autre outil",
-			"temporary_pause": "Je fais simplement une pause",
-			"other": "Autre"
-		},
-		"cancelDetailsLabel": "Dites-nous-en plus",
-		"cancelDetailsOptional": "(facultatif)",
-		"cancelDetailsPlaceholder": "Partagez tout détail qui pourrait nous aider à nous améliorer.",
-		"cancelDetailsRequired": "Merci de nous en dire un peu plus.",
-		"keepPlan": "Conserver l’offre",
-		"confirmCancel": "Annuler en fin de période",
-		"cancelling": "Planification de l’annulation…",
-		"resumePlan": "Reprendre l’offre",
-		"resuming": "Reprise…",
-		"cancelSuccess": "Votre offre prendra fin à la clôture de cette période de facturation.",
-		"resumeSuccess": "Votre offre sera renouvelée normalement.",
-		"topupsTitle": "Packs de recharge",
-		"topupsDescription": "Ajoutez des crédits sans modifier votre niveau d’abonnement.",
-		"buyTopup": "Acheter {count} crédits",
+		"balanceTitle": "Solde du portefeuille",
+		"personalWallet": "Portefeuille personnel",
+		"teamWallet": "Portefeuille de {name}",
+		"totalBalance": "Crédits disponibles",
+		"negativeBalance": "Votre solde est négatif. Un remboursement ou un litige a repris des crédits déjà utilisés. Rechargez pour continuer.",
+		"topup": "Recharger",
+		"purchasesPaused": "Recharges bientôt disponibles. Vos crédits restent utilisables.",
+		"pastInvoices": "Anciennes factures",
 		"ledgerTitle": "Activité des crédits",
-		"ledgerDescription": "Historique complet des attributions, utilisations, expirations et recharges.",
+		"ledgerDescription": "Chaque crédit qui entre dans ce portefeuille ou qui en sort.",
 		"previousPage": "Précédent",
 		"nextPage": "Suivant",
 		"pageStatus": "Page {page} sur {totalPages}",
-		"offline": {
-			"badge": "Prépayé",
-			"expiresLabel": "Expire le",
-			"requestChange": "Demander un renouvellement ou un changement",
-			"graceTitle": "Paiement hors ligne attendu",
-			"graceNotice": "Votre période payée a pris fin le {endDate}. Renouvelez avant le {accessEndDate} pour conserver votre offre.",
-			"pending": {
-				"title": "Demande de paiement hors ligne en attente",
-				"body": "Nous vous appellerons au {phone}.",
-				"cancel": "Annuler la demande",
-				"cancelling": "Annulation…",
-				"cancelTitle": "Annuler cette demande ?",
-				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
-				"keep": "Conserver la demande",
-				"confirmCancel": "Annuler la demande",
-				"cancelSuccess": "Votre demande a été annulée."
-			}
+		"workspacePersonal": "Personnel",
+		"runway": {
+			"days": {
+				"zero": "Environ {count} jour à votre rythme",
+				"one": "Environ {count} jour à votre rythme",
+				"two": "Environ {count} jours à votre rythme",
+				"few": "Environ {count} jours à votre rythme",
+				"many": "Environ {count} jours à votre rythme",
+				"other": "Environ {count} jours à votre rythme"
+			},
+			"weeks": {
+				"zero": "Environ {count} semaine à votre rythme",
+				"one": "Environ {count} semaine à votre rythme",
+				"two": "Environ {count} semaines à votre rythme",
+				"few": "Environ {count} semaines à votre rythme",
+				"many": "Environ {count} semaines à votre rythme",
+				"other": "Environ {count} semaines à votre rythme"
+			},
+			"longer": "Plus de 6 mois à votre rythme",
+			"lessThanDay": "Moins d’un jour à votre rythme"
+		},
+		"neverExpire": "Vos crédits n’expirent jamais",
+		"topupCard": {
+			"title": "Ajouter des crédits",
+			"description": "Faites glisser ou saisissez un montant. Vous voyez chaque crédit avant de payer."
+		},
+		"continue": "Continuer · {amount} → {credits}",
+		"tabs": {
+			"label": "Historique du portefeuille",
+			"activity": "Activité",
+			"payments": "Paiements"
 		}
 	},
-	"status": {
-		"active": "Actif",
-		"trialing": "Essai",
-		"past_due": "Paiement en retard",
-		"unpaid": "Impayé",
-		"paused": "En pause",
-		"canceled": "Annulé",
-		"incomplete": "Incomplet",
-		"incomplete_expired": "Expiré",
-		"unknown": "À vérifier",
-		"canceling": "Fin à la clôture de la période"
+	"payments": {
+		"title": "Historique des paiements",
+		"description": "Les 50 derniers paiements de ce portefeuille.",
+		"empty": "Aucun paiement pour le moment.",
+		"loadError": "Impossible de charger l’historique des paiements.",
+		"dateLabel": "Date",
+		"methodLabel": "Moyen",
+		"amountLabel": "Montant",
+		"creditsLabel": "Crédits",
+		"stateLabel": "État",
+		"providers": {
+			"stripe": "Carte",
+			"slickpay": "CIB / Edahabia",
+			"offline": "Espèces / virement"
+		},
+		"paid": "Payé",
+		"reversed": "Annulé le {date}",
+		"revoked": "{credits} repris"
 	},
-	"planPicker": {
-		"loadingTitle": "Chargement des offres",
-		"loadingBody": "Récupération du catalogue et de votre abonnement.",
-		"loadErrorTitle": "Impossible de charger les offres",
-		"loadErrorBody": "Nous n’avons pas pu charger les dernières offres. Fermez cette fenêtre puis réessayez.",
-		"catalogEmptyBody": "Le catalogue des offres est temporairement indisponible.",
-		"betaBadge": "Bêta privée",
-		"betaTitle": "Les achats ne sont pas encore ouverts",
-		"betaBody": "Vos crédits actuels restent disponibles pendant la pause des abonnements et recharges.",
-		"chooseTitle": "Choisissez votre offre",
-		"chooseDescription": "Choisissez un cycle de facturation et le volume mensuel adapté à votre activité.",
-		"starterName": "Starter",
-		"starterTagline": "Pour votre première boutique et vos premières campagnes",
-		"proName": "Pro",
-		"proTagline": "Pour les vendeurs qui créent et améliorent chaque mois",
-		"popularBadge": "Populaire",
-		"businessName": "Business",
-		"businessTagline": "Pour les équipes qui partagent un pool de crédits",
-		"businessFromPrice": "À partir de {price}",
-		"starterFeatures": [
-			"Pages de boutique créées par l'IA en quelques minutes",
-			"Images produit et textes marketing par l'IA",
-			"Domaine personnalisé inclus",
-			"CRM de leads pour les commandes",
-			"Publication toujours gratuite, résiliable à tout moment"
-		],
-		"proFeatures": [
-			"De nouveaux crédits chaque mois",
-			"Outils marketing & campagnes IA",
-			"Génération d'images IA",
-			"Bibliothèque d'assets",
-			"Domaines personnalisés",
-			"Connexion d'apps & intégrations",
-			"CRM de leads pour vos commandes",
-			"Publication toujours gratuite"
-		],
-		"businessFeatures": [
-			"Tout ce qui est inclus dans Pro",
-			"Un pool de crédits partagé pour toute l'équipe",
-			"Rôles, invitations et limites par membre",
-			"Sièges illimités — payez les crédits, pas les personnes"
-		],
-		"changeTitle": "Changer votre offre",
-		"changeDescription": "Consultez le montant exact et les crédits avant de confirmer.",
-		"currentPlan": "Abonnement actuel",
+	"topup": {
+		"title": "Recharger votre portefeuille",
+		"personalWallet": "Les crédits vont dans votre portefeuille personnel.",
+		"teamWallet": "Les crédits vont dans le portefeuille de {name}.",
+		"loadErrorTitle": "Impossible de charger les options de recharge",
+		"loadErrorBody": "Fermez cette fenêtre et réessayez.",
+		"pausedBody": "Vos crédits restent disponibles. Réessayez plus tard.",
+		"amountLabel": "Montant",
+		"customAmountLabel": "Autre montant en dollars US",
+		"customAmountHint": "Un nombre entier de {min} à {max}.",
+		"amountErrors": {
+			"empty": "Choisissez ou saisissez un montant.",
+			"notWholeNumber": "Saisissez un nombre entier, par exemple 40.",
+			"belowMinimum": "Le minimum est {min}.",
+			"aboveMaximum": "Le maximum est {max}."
+		},
+		"creditsYouGet": "Vous recevez {credits}",
 		"requiredCredits": "Requis",
 		"availableCredits": "Disponible",
 		"heldCredits": "Réservés par des générations en cours",
-		"billingCycle": "Cycle de facturation",
-		"monthly": "Mensuel",
-		"yearly": "Annuel",
-		"twoMonthsFree": "2 mois offerts",
-		"yearlyToMonthlyUnavailable": "Le passage d’une offre annuelle à mensuelle n’est pas disponible dans cette version.",
-		"creditTier": "Crédits par mois",
-		"creditsEveryMonth": {
-			"zero": "{count} crédit chaque mois",
-			"one": "{count} crédit chaque mois",
-			"two": "{count} crédits chaque mois",
-			"few": "{count} crédits chaque mois",
-			"many": "{count} crédits chaque mois",
-			"other": "{count} crédits chaque mois"
+		"methodsLabel": "Mode de paiement",
+		"methods": {
+			"card": "Carte",
+			"slickpay": "CIB / Edahabia",
+			"offline": "Espèces / virement"
 		},
-		"selectedPrice": "Prix de l’offre",
-		"perMonth": "/ mois",
-		"perYear": "/ an",
-		"savePercent": "Économisez {percent} %",
-		"topupTitle": "Besoin de crédits maintenant ?",
-		"topupBody": "Une recharge ne modifie pas votre abonnement récurrent.",
-		"currentSelection": "Offre actuelle",
-		"preparing": "Préparation…",
-		"previewChange": "Prévisualiser",
-		"continueToCheckout": "Mettre à niveau",
-		"previewTitle": "Vérifier le changement",
-		"previewDescription": "Cet aperçu est verrouillé brièvement afin de conserver le montant confirmé.",
-		"newPlan": "Nouvelle offre",
-		"payNowCredits": "Payer {amount} maintenant · {credits} crédits",
-		"upgradeExplanation": "Le nouveau niveau complet est facturé maintenant et le temps non utilisé de votre niveau actuel est remboursé. Vos crédits de forfait sont réinitialisés immédiatement à la dotation complète du nouveau niveau.",
-		"changesAtRenewal": "Changement au renouvellement",
-		"downgradeExplanation": "Votre niveau actuel reste actif jusqu’à la fin de cette période. Le niveau inférieur commence au renouvellement.",
-		"keepCurrentPlanExplanation": "Votre offre actuelle sera renouvelée normalement. Le changement prévu sera annulé, sans frais ni modification de vos crédits.",
-		"back": "Retour",
-		"applying": "Application…",
-		"confirmChange": "Confirmer le changement",
-		"changeAppliedTitle": "Changement confirmé",
-		"changeAppliedBody": "Votre nouveau niveau est actif. Le solde sera actualisé à la fin de la facturation.",
-		"downgradeAppliedBody": "Votre niveau inférieur est programmé pour le prochain renouvellement.",
-		"keepCurrentPlanAppliedBody": "Le changement prévu a été annulé. Votre offre actuelle sera renouvelée normalement.",
-		"paymentRequiredTitle": "Action de paiement requise",
-		"paymentRequiredBody": "Terminez le paiement sur la facture hébergée pour finaliser ce changement.",
-		"openInvoice": "Ouvrir la facture",
-		"changeFailedTitle": "Échec du changement",
-		"changeFailedBody": "Le prestataire n’a pas pu appliquer ce changement. Créez un nouvel aperçu puis réessayez.",
-		"tryAgain": "Réessayer",
-		"done": "Terminé",
-		"changePendingError": "Un changement d’offre attend déjà un paiement.",
-		"previewExpiredError": "Cet aperçu a expiré. Revenez en arrière pour en créer un nouveau.",
-		"previewInvalidError": "Cet aperçu a déjà été utilisé ou n’est plus valide.",
-		"resumeFirstTitle": "Reprenez l’offre avant de changer de niveau",
-		"resumeFirstBody": "Cet abonnement doit prendre fin. Reprenez-le d’abord, puis choisissez un autre niveau.",
-		"resume": "Reprendre l’abonnement",
-		"resuming": "Reprise…",
-		"paymentAttentionTitle": "Corrigez le paiement de l’abonnement",
-		"paymentAttentionBody": "Ouvrez le portail de facturation pour régler le paiement avant de changer de niveau.",
-		"openPortal": "Ouvrir le portail",
-		"close": "Fermer",
+		"card": {
+			"description": "Payez en dollars US sur la page sécurisée de Stripe. Vous payez une seule fois.",
+			"redirecting": "Ouverture de Stripe…"
+		},
 		"slickpay": {
-			"tab": "CIB / Edahabia",
-			"title": "Payer par CIB / Edahabia",
-			"description": "Payez en dinars algériens sur la page sécurisée de SlickPay. Un paiement couvre un mois ou un an. Il ne se renouvelle pas automatiquement.",
+			"description": "Payez en dinars algériens sur la page sécurisée de SlickPay. Vous payez une seule fois.",
 			"formTitle": "Informations de paiement",
 			"formDescription": "SlickPay affiche ces informations sur votre facture.",
-			"renewTitle": "Renouveler votre offre",
-			"renewBody": "Vous payez une période de plus pour votre offre actuelle. La nouvelle période commence à la fin de la période en cours.",
 			"cityLabel": "Ville ou wilaya",
 			"cityPlaceholder": "ex. Alger",
 			"cityError": "Indiquez votre ville ou votre wilaya.",
 			"pay": "Payer {amount} par CIB / Edahabia",
-			"renew": "Renouveler pour {amount}",
 			"redirecting": "Ouverture de SlickPay…"
 		},
 		"offline": {
-			"tabs": {
-				"ariaLabel": "Mode de paiement",
-				"card": "Carte",
-				"offline": "Paiement à la livraison"
-			},
-			"managed": {
-				"title": "Votre offre est gérée hors ligne",
-				"body": "Envoyez-nous une demande pour la modifier ou la renouveler."
-			},
-			"cardActive": {
-				"title": "Votre offre est facturée par carte",
-				"body": "Pour passer au paiement en espèces ou par virement, annulez d'abord votre abonnement par carte — il reste actif jusqu'à la fin de la période payée — puis envoyez-nous une demande."
-			},
-			"title": "Espèces ou virement",
-			"description": "Choisissez votre offre et indiquez-nous comment vous joindre. Nous vous appellerons pour organiser le paiement.",
+			"description": "Indiquez-nous comment vous joindre. Nous vous appellerons pour organiser le paiement de {amount}.",
 			"localPriceNote": "Nous conviendrons du prix local pendant l’appel.",
-			"steps": {
-				"label": "Étape {current} sur {total}",
-				"plan": "Choisissez votre offre"
-			},
-			"continue": "Continuer",
-			"changePlan": "Modifier",
 			"form": {
 				"title": "Coordonnées",
 				"description": "Indiquez-nous comment vous joindre au sujet de cette demande.",
@@ -273,9 +152,6 @@
 				"OTHER": "Autre"
 			},
 			"validation": {
-				"plan": "Choisissez une offre valide.",
-				"tierCredits": "Choisissez un niveau de crédits.",
-				"interval": "Choisissez un cycle de facturation.",
 				"fullName": "Saisissez un nom de 2 à 120 caractères.",
 				"phone": "Saisissez un numéro de téléphone valide.",
 				"company": "Le nom de l’entreprise ne doit pas dépasser 120 caractères.",
@@ -287,26 +163,62 @@
 			},
 			"submit": "Envoyer la demande",
 			"submitting": "Envoi…",
-			"close": "Fermer",
 			"success": {
 				"title": "Demande reçue",
 				"body": "Nous avons reçu votre demande. Nous vous appellerons bientôt au {phone}."
-			},
-			"pending": {
-				"title": "Demande de paiement hors ligne en attente",
-				"body": "Nous vous appellerons au {phone}.",
-				"planLabel": "Offre",
-				"tierLabel": "Niveau de crédits",
-				"cycleLabel": "Cycle de facturation",
-				"createdLabel": "Envoyée le",
-				"cancel": "Annuler la demande",
-				"cancelling": "Annulation…",
-				"cancelTitle": "Annuler cette demande ?",
-				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
-				"keep": "Conserver la demande",
-				"confirmCancel": "Annuler la demande",
-				"cancelSuccess": "Votre demande a été annulée."
 			}
-		}
+		},
+		"close": "Fermer",
+		"amountInputLabel": "Montant en dollars US",
+		"presetsLabel": "Montants rapides",
+		"bonusLabel": "+{percent} %",
+		"bonusTrack": {
+			"label": "Bonus de volume",
+			"base": "Tarif de base"
+		},
+		"receipt": {
+			"label": "Votre recharge",
+			"youPay": "Vous payez",
+			"localPrice": "Ou {price} par CIB / Edahabia",
+			"credits": "Crédits",
+			"bonus": "Bonus {percent}",
+			"youGet": "Vous recevez",
+			"totalUnit": {
+				"zero": "crédit",
+				"one": "crédit",
+				"two": "crédits",
+				"few": "crédits",
+				"many": "crédits",
+				"other": "crédits"
+			},
+			"footer": "Sans expiration. Valables dans tous vos projets."
+		},
+		"nudge": "Ajoutez {amount} pour atteindre {bonus}",
+		"payAction": "Payer {amount} · recevoir {credits}",
+		"shortfall": "Il vous manque {credits}. {amount} suffisent.",
+		"openSoon": "Recharges bientôt disponibles",
+		"youGetWithBonus": "Vous recevez {credits}, dont {bonus} de bonus"
+	},
+	"offlineRequest": {
+		"title": "Demande de recharge hors ligne en attente",
+		"body": "Nous vous appellerons au {phone}.",
+		"amountLabel": "Montant",
+		"createdLabel": "Envoyée le",
+		"cancel": "Annuler la demande",
+		"cancelling": "Annulation…",
+		"cancelTitle": "Annuler cette demande ?",
+		"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
+		"keep": "Conserver la demande",
+		"confirmCancel": "Annuler la demande",
+		"cancelSuccess": "Votre demande a été annulée."
+	},
+	"history": {
+		"plans": {
+			"starter": "Offre Starter",
+			"pro": "Offre Pro",
+			"business": "Offre Business"
+		},
+		"month": "Mensuel",
+		"year": "Annuel"
 	}
 }

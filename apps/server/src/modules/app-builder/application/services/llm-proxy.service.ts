@@ -3,8 +3,10 @@
  * `LlmProxyController` feeds each inbound request. The service verifies the
  * run token, rejects a revoked run, and checks the model (allow-list and
  * the admin disabled list), the rate limit, and the spend caps. It
- * forwards the body to the provider and streams the answer back. A Paper body loses the blocks that Paper refuses. A
- * Claude 400 for a foreign thinking signature gets one retry without the
+ * forwards the body to the provider and streams the answer back. A Paper body loses the blocks that Paper refuses.
+ * Every body loses the Claude Code identity: the persona line, the model
+ * bullets, and the model sentences. The Wandit persona line takes their place.
+ * A Claude 400 for a foreign thinking signature gets one retry without the
  * thinking of earlier turns.
  * It writes one `llm_proxy_requests` row per request. With the Langfuse
  * keys set, it also sends one Langfuse generation for each Messages call.
@@ -18,7 +20,6 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
-	allowedLlmModels,
 	type LlmProxyRequestStatus,
 	type LlmProxyTokenClaims,
 	type ProductSettings,
@@ -126,9 +127,9 @@ const anthropicRequestBodySchema = z.looseObject({
 	model: z.string().min(1).optional(),
 });
 
-// The `messages` of a request, for the Paper rewrite and the thinking retry.
-// Only the `role`, the block `type`, and the blocks nested in a `tool_result`
-// are read; other fields pass through.
+// The `messages` of a request, for the Paper rewrite, the thinking retry, and
+// the identity rewrite. Only the `role`, the block `type` and `text`, and the
+// blocks nested in a `tool_result` are read; other fields pass through.
 const anthropicMessagesSchema = z.array(
 	z.looseObject({
 		role: z.string(),
@@ -137,6 +138,7 @@ const anthropicMessagesSchema = z.array(
 			z.array(
 				z.looseObject({
 					type: z.string(),
+					text: z.string().optional(),
 					content: z
 						.union([z.string(), z.array(z.looseObject({ type: z.string() }))])
 						.optional(),
@@ -176,6 +178,42 @@ const OMITTED_THINKING_BLOCK = {
 	type: "text",
 	text: "[Thinking omitted: another model wrote it.]",
 } as const;
+
+// The `system` of a request, for the identity rewrite. It has its own parse:
+// a failure in `anthropicRequestBodySchema` would drop the model routing.
+const anthropicSystemSchema = z.union([
+	z.string(),
+	z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
+]);
+
+// The system prompt of Claude Code 2.1.281 opens with one of these lines.
+// The SDK with an appended prompt sends the second line.
+const HARNESS_IDENTITY_LINES = [
+	"You are Claude Code, Anthropic's official CLI for Claude.",
+	"You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+	"You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+] as const;
+
+// Takes the place of each `HARNESS_IDENTITY_LINES` line.
+const WANDIT_IDENTITY_LINE =
+	"You are the Wandit builder, an AI assistant that builds apps for Wandit users.";
+
+// The bullets that name the Claude models, Claude Code, or its help and
+// feedback channel: the "# Environment" bullets and the help bullet of
+// "# Doing tasks" with its two sub-bullets ("  - "). The match takes the
+// whole line and its newline.
+const HARNESS_NAME_BULLET =
+	/^ {1,2}- (?:The most recent Claude models are|Claude Code is available as a CLI|Fast mode for Claude Code|If the user asks for help or wants to give feedback|\/help: Get help with using Claude Code|To give feedback, users should report the issue at)[^\n]*\n?/gm;
+
+// "You are powered by the model named Opus 4.8. The exact model ID is
+// claude-opus-4-8[1m]." A gateway model has no name: "... the model x/y."
+// An id can hold dots, so a dot ends the sentence only before a space, `<`, or the end.
+const MODEL_SENTENCE =
+	/You are powered by the model (?:named [^\n]+?\. The exact model ID is )?\S+?\.(?=\s|$|<)/g;
+
+// Follows `MODEL_SENTENCE`. The match takes the space before it, so no blank stays.
+const KNOWLEDGE_CUTOFF_SENTENCE =
+	/ ?Assistant knowledge cutoff is [^\n]+?\.(?=\s|$|<)/g;
 
 /** Application service behind `LlmProxyController`; see file header. */
 @Injectable()
@@ -308,30 +346,31 @@ export class LlmProxyService {
 			return;
 		}
 
-		// 2. Model allow-list: an absent model means the plan default. The
-		// list is the plan list plus the token `model`: the turn's pick, from
-		// any priced row. A bound chat gives the model of the turn that runs
-		// now. Any other named model is denied. Claude Code resolves its
-		// aliases to dated bare ids (`claude-haiku-4-5-20251001`); normalize
-		// them onto the `anthropic/...` list entries before the check.
+		// 2. Model check (pricing v8 D10): every priced model is open to every
+		// user, and the API does not read `claims.plan`. An absent model means
+		// the deploy default. A named model with no price row gets a 403 and a
+		// `model_denied` row here. Claude Code resolves its aliases to dated
+		// bare ids (`claude-haiku-4-5-20251001`); normalize them onto the
+		// `anthropic/...` price ids before the check.
 		const bodyJson = this.parseBody(input.body);
 		const requestedModel =
 			bodyJson?.model === undefined
 				? undefined
 				: normalizeInboundModelId(bodyJson.model);
 		const defaultModel = this.requireEnv("V2_DEFAULT_MODEL");
-		const allowed = allowedLlmModels(claims.plan, defaultModel);
-		if (claims.model !== undefined && !allowed.includes(claims.model)) {
-			allowed.push(claims.model);
-		}
-		if (requestedModel !== undefined && !allowed.includes(requestedModel)) {
+		if (
+			requestedModel !== undefined &&
+			requestedModel !== defaultModel &&
+			llmModelPrice(requestedModel) === undefined
+		) {
+			// The message text stays: `SESSION_BOUND_FAILURE_PATTERN` of the
+			// builder-turn runtime matches it to reset a resumed session.
 			await this.reject(reply, claims, input, startedAt, {
 				status: 403,
 				code: "V2_MODEL_DENIED",
 				message: "This plan may not call that model",
 				reason: requestedModel,
 				rowStatus: "model_denied",
-				bodyFields: { allowed },
 			});
 			return;
 		}
@@ -506,27 +545,40 @@ export class LlmProxyService {
 		const base = upstream.baseUrl.replace(/\/+$/, "");
 		const url = `${base}${path}${input.queryString ? `?${input.queryString}` : ""}`;
 
-		// Rewrite the body only when the upstream id differs from what the
-		// sandbox sent, or the messages change. Otherwise the raw bytes go out
-		// unchanged. A Paper body always loses its refused blocks.
-		const rewrittenMessages =
+		// A Paper id never matches the inbound id (the proxy drops its prefix),
+		// so a Paper body is always rewritten, also its refused blocks. The
+		// thinking retry starts from its own messages.
+		const paperMessages =
 			retryMessages ??
 			(upstream.provider === PAPER_INSTRUMENTS_PROVIDER &&
 			bodyJson !== undefined
 				? paperSafeMessages(bodyJson.messages)
 				: null);
+		// The Claude Code preset names the vendor, the harness, and the model.
+		// Every tier reads it, and Wandit sells the builder under its own name.
+		// The rewrite runs on top of the Paper or the retry output.
+		const system =
+			bodyJson === undefined ? null : wanditSystem(bodyJson.system);
+		const messages =
+			bodyJson === undefined
+				? null
+				: (wanditUserMessages(paperMessages ?? bodyJson.messages) ??
+					paperMessages);
+		// A body that keeps its model id and needs no rewrite keeps its raw
+		// bytes. The rewrite gives the same bytes for the same input, so the
+		// prompt cache still hits.
 		const forwardBody =
 			bodyJson === undefined ||
 			(bodyJson.model === upstream.upstreamModelId &&
-				rewrittenMessages === null)
+				system === null &&
+				messages === null)
 				? input.body
 				: Buffer.from(
 						JSON.stringify({
 							...bodyJson,
 							model: upstream.upstreamModelId,
-							...(rewrittenMessages === null
-								? {}
-								: { messages: rewrittenMessages }),
+							...(messages === null ? {} : { messages }),
+							...(system === null ? {} : { system }),
 						}),
 						"utf8",
 					);
@@ -996,7 +1048,7 @@ export class LlmProxyService {
 			reason: string;
 			rowStatus: LlmProxyRequestStatus;
 			headers?: Record<string, string>;
-			bodyFields?: Record<string, string | number | readonly string[]>;
+			bodyFields?: Record<string, string | number>;
 		},
 	): Promise<void> {
 		await this.sendError(
@@ -1045,7 +1097,7 @@ export class LlmProxyService {
 		code: string,
 		message: string,
 		headers?: Record<string, string>,
-		bodyFields?: Record<string, string | number | readonly string[]>,
+		bodyFields?: Record<string, string | number>,
 	): Promise<void> {
 		reply.writeHead(status, {
 			"content-type": "application/json",
@@ -1269,6 +1321,91 @@ function upstreamSentryContext(
 		},
 		fingerprint: ["llm-upstream", failure, modelId],
 	};
+}
+
+/**
+ * The `system` of a request without the Claude Code identity. Returns null
+ * when the field is absent, does not parse, or has no identity text. The
+ * field then goes out unchanged; the persona rule of the prompt still applies.
+ */
+function wanditSystem(
+	system: unknown,
+): z.infer<typeof anthropicSystemSchema> | null {
+	const parsed = anthropicSystemSchema.safeParse(system);
+	if (!parsed.success) {
+		return null;
+	}
+	const original = parsed.data;
+	if (!Array.isArray(original)) {
+		const text = wanditSystemText(original);
+		return text === original ? null : text;
+	}
+	const blocks = original.map((block) => {
+		if (block.type !== "text" || block.text === undefined) {
+			return block;
+		}
+		const text = wanditSystemText(block.text);
+		return text === block.text ? block : { ...block, text };
+	});
+	return blocks.some((block, index) => block !== original[index])
+		? blocks
+		: null;
+}
+
+// One system text: the Wandit persona line in place of the harness line,
+// without the model bullets and the model sentences.
+function wanditSystemText(text: string): string {
+	let rewritten = text;
+	for (const line of HARNESS_IDENTITY_LINES) {
+		rewritten = rewritten.replaceAll(line, WANDIT_IDENTITY_LINE);
+	}
+	return withoutModelSentences(rewritten.replace(HARNESS_NAME_BULLET, ""));
+}
+
+/**
+ * The `messages` without the model sentences in the text of user messages.
+ * Claude Code puts them in a `<system-reminder>`. Assistant messages and
+ * tool or thinking blocks stay as they are. Returns null when the field does
+ * not parse or nothing changes.
+ */
+function wanditUserMessages(
+	messages: unknown,
+): z.infer<typeof anthropicMessagesSchema> | null {
+	const parsed = anthropicMessagesSchema.safeParse(messages);
+	if (!parsed.success) {
+		return null;
+	}
+	const original = parsed.data;
+	const rewritten = original.map((message) => {
+		if (message.role !== "user") {
+			return message;
+		}
+		const blocks = message.content;
+		if (!Array.isArray(blocks)) {
+			const content = withoutModelSentences(blocks);
+			return content === blocks ? message : { ...message, content };
+		}
+		const content = blocks.map((block) => {
+			if (block.type !== "text" || block.text === undefined) {
+				return block;
+			}
+			const text = withoutModelSentences(block.text);
+			return text === block.text ? block : { ...block, text };
+		});
+		return content.some((block, index) => block !== blocks[index])
+			? { ...message, content }
+			: message;
+	});
+	return rewritten.some((message, index) => message !== original[index])
+		? rewritten
+		: null;
+}
+
+// Removes "You are powered by the model ..." and the cutoff sentence.
+function withoutModelSentences(text: string): string {
+	return text
+		.replace(MODEL_SENTENCE, "")
+		.replace(KNOWLEDGE_CUTOFF_SENTENCE, "");
 }
 
 function zeroUsage(): LlmTokenUsage {

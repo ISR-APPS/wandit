@@ -168,7 +168,7 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		};
 	}
 
-	it("locks the payer, counts, and inserts under the plan limit", async () => {
+	it("locks the payer, counts, and inserts under the limit", async () => {
 		const { execute, order, repository, values } = setupTransaction({
 			existing: [],
 			inserted: [ROW],
@@ -178,7 +178,11 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
-			(owned) => assertBackendEntitlement("business", owned),
+			(owned) =>
+				assertBackendEntitlement(
+					BACKEND_DEFAULTS.backendsPerPaidOwner.org,
+					owned,
+				),
 		);
 
 		expect(outcome).toEqual({ kind: "inserted", row: ROW });
@@ -189,8 +193,8 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		expect(values).toHaveBeenCalledWith({ ...INPUT, status: "creating" });
 	});
 
-	it("refuses at the plan limit and inserts nothing", async () => {
-		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
+	it("refuses at the limit and inserts nothing", async () => {
+		const limit = BACKEND_DEFAULTS.backendsPerPaidOwner.user;
 		const { order, repository, values } = setupTransaction({
 			existing: [],
 			inserted: [ROW],
@@ -200,7 +204,11 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
-			(owned) => assertBackendEntitlement("pro", owned),
+			(owned) =>
+				assertBackendEntitlement(
+					BACKEND_DEFAULTS.backendsPerPaidOwner.user,
+					owned,
+				),
 		);
 
 		expect(outcome).toEqual({
@@ -209,7 +217,6 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 				allowed: false,
 				code: "backend_limit_reached",
 				limit,
-				plan: "pro",
 			},
 		});
 		expect(order).toEqual(["lock", "project-row", "count"]);
@@ -227,14 +234,18 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
-			(owned) => assertBackendEntitlement("pro", owned),
+			(owned) =>
+				assertBackendEntitlement(
+					BACKEND_DEFAULTS.backendsPerPaidOwner.user,
+					owned,
+				),
 		);
 
 		expect(outcome).toEqual({ kind: "exists", row: existing });
 		expect(order).toEqual(["lock", "project-row"]);
 	});
 
-	it("moves an error row to creating with the new key, under the lock and the plan check", async () => {
+	it("moves an error row to creating with the new key, under the lock and the limit check", async () => {
 		const failed = {
 			...ROW,
 			ref: "abcdefghijklmnopqrst",
@@ -256,7 +267,11 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		const outcome = await repository.writeCreatingWithinLimit(
 			{ ...INPUT, requestKey: "req-key-2" },
 			ORG_OWNER,
-			(owned) => assertBackendEntitlement("pro", owned),
+			(owned) =>
+				assertBackendEntitlement(
+					BACKEND_DEFAULTS.backendsPerPaidOwner.user,
+					owned,
+				),
 		);
 
 		expect(outcome).toEqual({ kind: "retried", row: retried });
@@ -274,18 +289,22 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		expect(guard.params).toEqual(["project-1", "error"]);
 	});
 
-	it("refuses the retry of an error row at the plan limit and writes nothing", async () => {
+	it("refuses the retry of an error row at the limit and writes nothing", async () => {
 		const failed = { ...ROW, status: "error" as const };
 		const { order, repository } = setupTransaction({
 			existing: [failed],
 			inserted: [],
-			owned: BACKEND_DEFAULTS.backendsPerPlan.pro,
+			owned: BACKEND_DEFAULTS.backendsPerPaidOwner.user,
 		});
 
 		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
-			(owned) => assertBackendEntitlement("pro", owned),
+			(owned) =>
+				assertBackendEntitlement(
+					BACKEND_DEFAULTS.backendsPerPaidOwner.user,
+					owned,
+				),
 		);
 
 		expect(outcome).toMatchObject({ kind: "refused" });

@@ -21,6 +21,22 @@ import {
 } from "./plan-mode";
 import type { HarnessQuestionResult } from "./ports/builder-harness";
 
+// The tags that user text must not open or close. It also matches a space,
+// a "-", or a "_" between the words, and any letter case.
+const RESERVED_TAG_PATTERN =
+	/<(\s*\/?\s*(?:user[\s_-]*message|system[\s_-]*reminder))/giu;
+
+/**
+ * The text with "<" changed to "&lt;" in each <user_message> or
+ * <system-reminder> tag. The turn prompt puts the user words in these tags,
+ * so user text must not close one or fake a harness reminder.
+ * Callers: the fallback answer lines here, and the prompt and the chat
+ * recap in builder-turn.runtime.ts.
+ */
+export function escapeReservedTags(text: string): string {
+	return text.replace(RESERVED_TAG_PATTERN, "&lt;$1");
+}
+
 /** One paused question card, as the resume envelope stores it. */
 export type QuestionInteraction = Extract<
 	HarnessPendingInteraction,
@@ -234,7 +250,11 @@ function answerLineOf(answer: AskUserAnswer): string {
 	return answer.hostNote === undefined ? line : `${line}\n${answer.hostNote}`;
 }
 
-/** The answer of the user alone, as one line. */
+/**
+ * The answer of the user alone, as one line. JSON quotes the free text, so
+ * a newline in it cannot fake a host note or another answer line. The line
+ * is outside the <user_message> tags, so the escape stops a fake tag.
+ */
 function userAnswerLineOf(answer: AskUserAnswer): string {
 	if (answer.action === "delegated") {
 		return `Answer to your question "${answer.question}": the user lets you decide.`;
@@ -242,11 +262,11 @@ function userAnswerLineOf(answer: AskUserAnswer): string {
 	if (answer.action === "dismissed") {
 		return answer.text === ""
 			? `Answer to your question "${answer.question}": skipped.`
-			: `Answer to your question "${answer.question}": skipped, then wrote: ${answer.text}`;
+			: `Answer to your question "${answer.question}": skipped, then wrote: ${JSON.stringify(escapeReservedTags(answer.text))}`;
 	}
 	const parts = [
 		answer.selected.map((option) => option.label).join(", "),
-		answer.text,
+		answer.text === "" ? "" : JSON.stringify(escapeReservedTags(answer.text)),
 		answer.files.map((file) => file.path ?? file.url).join(", "),
 	].filter((part) => part !== "");
 	return `Answer to your question "${answer.question}": ${parts.join("; ")}`;

@@ -165,9 +165,8 @@ export function resolvePickableModel(
 	defaultModel: string | null,
 	disabledModels: readonly string[],
 ): string | null {
-	// Product rule (staging and local only): every priced model runs on
-	// every plan. Credits bill the real provider cost, so a pick cannot
-	// under-bill. docs/v2/runbook.md names the restore before production.
+	// Product rule (pricing v8 D10): every priced model runs for every user.
+	// Credits bill the real provider cost, so a pick cannot under-bill.
 	if (pickedModel !== undefined && llmModelPrice(pickedModel) === undefined) {
 		throw modelDeniedError();
 	}
@@ -508,16 +507,16 @@ export class TurnsService {
 				});
 				// The Cloud tab "Try again" is behind a flag. So each new message also
 				// starts a failed or missing backend again. No wait: the turn starts now.
-				// LIMIT: a project the plan refuses runs the plan check on each message. Upgrade: skip a refused project.
+				// LIMIT: a payer with no free backend slot runs the paid-owner read and the locked count on each message. Upgrade: skip a refused project.
 				void this.backends
 					.provisionBackend(projectId, {
 						// The turn route reads no country; null picks the default region.
 						countryCode: null,
-						// The payer's plan decides the backend slot: the project owner columns.
+						// The payer decides the backend slot: the project owner columns.
 						...projectOwnerColumns(scope),
 					})
 					.catch((error: unknown) => {
-						// A plan without a free backend slot is a product rule, not a
+						// A payer with no free backend slot is a product rule, not a
 						// failure: `BackendsService` already logged it.
 						if (!(error instanceof BackendLimitReachedError)) {
 							this.logger.error(
@@ -1162,8 +1161,9 @@ export class TurnsService {
 /**
  * Throws 409 REQUEST_KEY_REUSED when a replayed row holds another prompt than `message`.
  * An MCP agent writes its own `requestKey` and can reuse one by mistake. The new prompt then must not drop silently.
+ * `create` and the MCP `create_project` replay call it.
  */
-function assertSameReplayedMessage(
+export function assertSameReplayedMessage(
 	replayed: BuilderTurnRow,
 	message: string,
 ): void {
@@ -1171,7 +1171,18 @@ function assertSameReplayedMessage(
 	const spec = builderTurnSpecSchema
 		.pick({ message: true })
 		.safeParse(replayed.spec);
-	if (!spec.success || spec.data.message !== message) {
+	assertSameReplayedPrompt(spec.success ? spec.data.message : null, message);
+}
+
+/**
+ * The rule of `assertSameReplayedMessage` for a stored prompt text. Null (no stored prompt) also refuses.
+ * The MCP `create_project` replay calls it with the first chat message when no turn row exists.
+ */
+export function assertSameReplayedPrompt(
+	storedPrompt: string | null,
+	message: string,
+): void {
+	if (storedPrompt !== message) {
 		throw new ConflictException({
 			code: "REQUEST_KEY_REUSED",
 			message:

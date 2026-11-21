@@ -10,8 +10,10 @@ production values on every environment, so staging tests show the real
 stops and upgrade prompts. Do not lift them again without a gate on who
 can sign in.
 
-- `BACKEND_DEFAULTS.backendsPerPlan`: starter 0, pro 1, business 1000.
-- `DEVICE_MINUTES_PER_PLAN`: starter 0, pro 60, business 180.
+- `BACKEND_DEFAULTS.backendsPerPaidOwner` (pricing v8 section 6): a free
+  owner 0, a paid personal owner 1, a paid team 1000.
+- `DEVICE_MINUTES_PER_PAID_OWNER`: a free owner 0, a paid personal owner
+  60, a paid team 180 each month.
 - `LLM_PROXY_DAILY_USER_CAP_USD`: 50.
 - `PROJECT_CREATE_LIMIT` 10 and `PROJECT_CREATE_IP_LIMIT` 30 per day.
 - `TURN_CREATE_IP_LIMIT`: 90 per 10 min.
@@ -27,9 +29,13 @@ Custom domains work only in production. Staging and production use the same wand
 
 These limits are still lifted. Restore them before V2 goes to production.
 
-- Model picks: every priced model runs on every plan. Restore a plan rule
-  for model picks: the turn check (`resolvePickableModel`) and the token
-  `model` in the LLM proxy.
+- Backends: one top-up (or one old subscription) makes a paid owner for
+  all time. A hosted backend is a recurring cost that a one-time top-up
+  does not fund. Price it before V2 opens (WANDIT-153).
+- Device minutes: a paid personal owner gets 60 and a paid team 180 each
+  month, about $3.60 and $10.80 of Appetize cost, with no recurring payment.
+- Team limit: a paid team can hold 1000 backends after one top-up. Set a
+  real team limit before V2 opens.
 - Set `V2_DEFAULT_MODEL=deepseek/deepseek-v4.1-flash-1017` (Standard) on the
   API, the Trigger worker, and harness-host. A send with no model runs this
   default. Today it is Opus 5.5, about 13 times the cost of Standard.
@@ -328,9 +334,9 @@ unset in production until WANDIT-153 settles the numbers.
 `LLM_DAILY_CAP_OFF=true` on the API removes the $50 daily LLM spend cap per
 user; the run cap still applies. Set it only on staging; on Railway
 production the API forces it to false.
-`BACKEND_LIMIT_OFF=true` on the API removes the plan limit on backends, so
-testers without a plan get one. Set it only on staging; on Railway
-production the API forces it to false.
+`BACKEND_LIMIT_OFF=true` on the API removes the paid-owner limit on
+backends, so testers who never topped up get one. Set it only on staging or on a
+local API for tests; on Railway production the API forces it to false.
 
 ## Mobile builds (WANDIT-194)
 

@@ -1,3 +1,7 @@
+/**
+ * React Query mutations of the offline billing feature: request updates, "Record top-up", "Reverse top-up".
+ * Called by the offline billing components. Calls offline-billing.services and refreshes the owner pages.
+ */
 import {
 	type QueryClient,
 	useMutation,
@@ -8,17 +12,14 @@ import { organizationKeys } from "@/features/organizations/api/organizations.que
 import { userKeys } from "@/features/users/api/users.queries";
 
 import type {
-	AdminGrantManualSubscriptionInput,
-	AdminManualSubscriptionDetail,
-	EndManualSubscriptionInput,
-	RenewManualSubscriptionInput,
+	AdminRecordTopupInput,
+	AdminTopupReceipt,
 	UpdateManualRequestInput,
 } from "./offline-billing.dto";
 import { offlineBillingKeys } from "./offline-billing.queries";
 import {
-	endManualSubscription,
-	grantManualSubscription,
-	renewManualSubscription,
+	recordTopup,
+	reverseTopup,
 	updateManualRequest,
 } from "./offline-billing.services";
 
@@ -42,53 +43,33 @@ export function useUpdateManualRequestMutation() {
 	});
 }
 
-export function useGrantManualSubscriptionMutation() {
+/** "Record top-up". The caller keeps the idempotency key for a retry of the same form. */
+export function useRecordTopupMutation() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: (input: AdminGrantManualSubscriptionInput) =>
-			grantManualSubscription(input),
-		onSuccess: (detail) => {
-			syncManualSubscriptionQueries(queryClient, detail.id, detail);
-		},
+		mutationFn: (input: AdminRecordTopupInput) => recordTopup(input),
+		onSuccess: (receipt) => syncTopupReceiptQueries(queryClient, receipt),
 	});
 }
 
-export function useRenewManualSubscriptionMutation() {
+/** "Reverse top-up" of one SlickPay or offline receipt. */
+export function useReverseTopupMutation() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: (input: RenewManualSubscriptionInput) =>
-			renewManualSubscription(input),
-		onSuccess: (detail) => {
-			syncManualSubscriptionQueries(queryClient, detail.id, detail);
-		},
+		mutationFn: (receiptId: string) => reverseTopup(receiptId),
+		onSuccess: (receipt) => syncTopupReceiptQueries(queryClient, receipt),
 	});
 }
 
-export function useEndManualSubscriptionMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: EndManualSubscriptionInput) =>
-			endManualSubscription(input),
-		onSuccess: (detail) => {
-			syncManualSubscriptionQueries(queryClient, detail.id, detail);
-		},
-	});
-}
-
-function syncManualSubscriptionQueries(
+// A receipt changes the wallet balance of its owner and can approve a request.
+function syncTopupReceiptQueries(
 	queryClient: QueryClient,
-	subscriptionId: string,
-	detail: AdminManualSubscriptionDetail,
+	receipt: AdminTopupReceipt,
 ) {
-	queryClient.setQueryData(
-		offlineBillingKeys.subscriptionDetail(subscriptionId),
-		detail,
-	);
 	void queryClient.invalidateQueries({
-		queryKey: offlineBillingKeys.subscriptionLists(),
+		queryKey: offlineBillingKeys.topupReceiptLists(),
 	});
 	void queryClient.invalidateQueries({
 		queryKey: offlineBillingKeys.requests(),
@@ -97,9 +78,9 @@ function syncManualSubscriptionQueries(
 		queryKey: offlineBillingKeys.stats(),
 	});
 
-	if (detail.organization) {
+	if (receipt.organization) {
 		void queryClient.invalidateQueries({
-			queryKey: organizationKeys.detail(detail.organization.id),
+			queryKey: organizationKeys.detail(receipt.organization.id),
 		});
 		void queryClient.invalidateQueries({
 			queryKey: organizationKeys.lists(),
@@ -108,7 +89,7 @@ function syncManualSubscriptionQueries(
 	}
 
 	void queryClient.invalidateQueries({
-		queryKey: userKeys.detail(detail.user.id),
+		queryKey: userKeys.detail(receipt.user.id),
 	});
 	void queryClient.invalidateQueries({ queryKey: userKeys.lists() });
 }

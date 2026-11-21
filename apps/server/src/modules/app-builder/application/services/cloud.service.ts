@@ -308,7 +308,7 @@ export class CloudService {
 	/**
 	 * Creates the backend when the project has none, provisions a failed
 	 * (`error`) row again, and answers the row. Any other row starts
-	 * nothing. A plan without a free slot answers its 403
+	 * nothing. A payer without a free backend slot answers its 403
 	 * `BACKEND_LIMIT_REACHED`.
 	 */
 	async ensureBackend(
@@ -320,7 +320,7 @@ export class CloudService {
 		const project = await this.requireProject(scope, projectId);
 		const row = await this.provisioning.provisionBackend(projectId, {
 			countryCode,
-			// Owner columns of the project row: the payer's plan decides the slot.
+			// Owner columns of the project row: the payer decides the backend slot.
 			organizationId: project.organizationId,
 			userId: project.userId,
 		});

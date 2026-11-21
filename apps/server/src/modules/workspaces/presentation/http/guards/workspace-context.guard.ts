@@ -11,27 +11,21 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import {
-	type WorkspacePermissionRequest,
-	workspaceRoleHasPermission,
-} from "@wandit/auth/permissions";
 import { PERSONAL_WORKSPACE, WORKSPACE_HEADER } from "@wandit/contracts";
 
 import { IS_PUBLIC_KEY } from "../../../../auth/presentation/http/decorators/public.decorator";
+import { WorkspaceNotSupportedError } from "../../../domain/errors/workspace.errors";
 import {
-	WorkspaceNotSupportedError,
-	WorkspacePermissionDeniedError,
-} from "../../../domain/errors/workspace.errors";
-import {
+	assertWorkspacePermission,
 	PERSONAL_WORKSPACE_CONTEXT,
 	type WorkspaceContext,
+	type WorkspacePermissionRequirement,
 	workspaceContextOfMembership,
 } from "../../../domain/workspace-context";
 import { WorkspaceMembersRepository } from "../../../infrastructure/persistence/members.repository";
 import {
 	PERSONAL_WORKSPACE_ONLY_KEY,
 	WORKSPACE_PERMISSION_KEY,
-	type WorkspacePermissionRequirement,
 } from "../decorators/workspace.decorators";
 import type { MaybeWorkspaceScopedRequest } from "../types/workspace-request";
 
@@ -132,27 +126,8 @@ export class WorkspaceContextGuard implements CanActivate {
 				targets,
 			);
 
-		// Personal scope bypasses role checks: users are omnipotent in their own
-		// workspace. Role gates only exist between workspace members.
-		if (!requirement || workspace.kind === "personal") {
-			return;
-		}
-
-		// The money of a shared personal workspace is the owner's personal
-		// pool: only the owner, in personal scope, manages billing and limits.
-		if (
-			workspace.kind === "shared-personal" &&
-			(requirement.resource === "billing" || requirement.resource === "limits")
-		) {
-			throw new WorkspacePermissionDeniedError();
-		}
-
-		const permitted = workspaceRoleHasPermission(workspace.role, {
-			[requirement.resource]: requirement.actions,
-		} as WorkspacePermissionRequest);
-
-		if (!permitted) {
-			throw new WorkspacePermissionDeniedError();
+		if (requirement) {
+			assertWorkspacePermission(workspace, requirement);
 		}
 	}
 }

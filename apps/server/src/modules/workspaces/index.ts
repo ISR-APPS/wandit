@@ -11,6 +11,7 @@ export {
 	PROJECT_INVITE_LINK_TTL_MS,
 } from "./domain/invite-links";
 export {
+	assertWorkspacePermission,
 	parseWorkspaceRoles,
 	type WorkspaceContext,
 	workspaceContextOfMembership,

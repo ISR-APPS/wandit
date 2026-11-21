@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { orgOwner, userOwner } from "../../credits/domain/credit-owner";
 import {
 	assertBackendEntitlement,
 	BACKEND_DEFAULTS,
 	type BackendLifecycleFacts,
 	type BackendLifecycleWindows,
+	backendLimitFor,
 	isProjectComingUp,
 	selectBackendsToDelete,
 	selectBackendsToPause,
@@ -188,20 +190,39 @@ describe("isProjectComingUp", () => {
 	});
 });
 
+describe("backendLimitFor", () => {
+	it.each([
+		{ isPaidOwner: false, owner: userOwner("user_1"), limit: 0 },
+		{ isPaidOwner: false, owner: orgOwner("org_1"), limit: 0 },
+		{
+			isPaidOwner: true,
+			owner: userOwner("user_1"),
+			limit: BACKEND_DEFAULTS.backendsPerPaidOwner.user,
+		},
+		{
+			isPaidOwner: true,
+			owner: orgOwner("org_1"),
+			limit: BACKEND_DEFAULTS.backendsPerPaidOwner.org,
+		},
+	])("paid=$isPaidOwner $owner.type owner gets $limit", ({
+		isPaidOwner,
+		owner,
+		limit,
+	}) => {
+		expect(backendLimitFor(isPaidOwner, owner)).toBe(limit);
+	});
+});
+
 describe("assertBackendEntitlement", () => {
-	it("allows a backend under the plan limit", () => {
-		expect(assertBackendEntitlement("business", 2)).toEqual({
-			allowed: true,
-		});
+	it("allows a backend under the limit", () => {
+		expect(assertBackendEntitlement(3, 2)).toEqual({ allowed: true });
 	});
 
 	it("refuses at the limit with backend_limit_reached", () => {
-		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
-		expect(assertBackendEntitlement("pro", limit)).toEqual({
+		expect(assertBackendEntitlement(1, 1)).toEqual({
 			allowed: false,
 			code: "backend_limit_reached",
-			limit,
-			plan: "pro",
+			limit: 1,
 		});
 	});
 });

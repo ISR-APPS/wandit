@@ -214,6 +214,7 @@ function build() {
 		repository as unknown as AdminOrganizationsRepository,
 		credits as unknown as CreditsService,
 		cleanup,
+		{ isPaidOwner: async () => true },
 	);
 
 	return { cleanup, credits, repository, service };

@@ -1,12 +1,14 @@
 /**
- * The credits pill of the top bars and its dropdown: a navy credits card with
- * the balance and its three buckets, the last three credit events, and a
- * billing action. The dashboard and workspace top bars render it.
- * Reads the credit balance, activity, and workspace balances queries.
+ * The credits pill of the top bars and its dropdown. The dropdown has a navy card with the one wallet number
+ * and the trophy level. It also has the last three credit events and a "Top up" action.
+ * The dashboard and workspace top bars render it.
+ * Reads the credit balance, activity, workspace balances, and trophies queries.
  */
 import { ArrowsLeftRightIcon } from "@phosphor-icons/react/ArrowsLeftRight";
+import { TrophyIcon } from "@phosphor-icons/react/Trophy";
 import { Link } from "@tanstack/react-router";
 import { PERSONAL_WORKSPACE } from "@wandit/contracts";
+import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -19,12 +21,10 @@ import {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 import { Spark } from "@/components/logo";
-import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { areTopupsAvailable } from "@/features/billing/lib/billing-ui-policy";
-import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { useBillingModal, usePurchasesEnabled } from "@/features/billing";
+import { useTrophiesQuery } from "@/features/trophies";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
-import { useTranslation } from "@/lib/i18n";
+import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	useCreditActivityQuery,
 	useCreditBalanceQuery,
@@ -49,7 +49,8 @@ export function CreditsChip({ className }: { className?: string }) {
 		isSharedPersonal,
 		switchWorkspace,
 	} = useWorkspace();
-	const { openPlanPicker } = useBillingModal();
+	const { openTopup } = useBillingModal();
+	const purchasesEnabled = usePurchasesEnabled();
 	const balanceQuery = useCreditBalanceQuery();
 	// Same rule as the API: the activity of another user's personal pool shows that
 	// user's own spend, so only an admin of that workspace reads it.
@@ -60,13 +61,7 @@ export function CreditsChip({ className }: { className?: string }) {
 		{ enabled: canReadActivity },
 	);
 	const balancesQuery = useWorkspaceCreditBalancesQuery();
-	const settingsQuery = usePublicSettingsQuery();
-	const plansQuery = useBillingPlansQuery();
 	const balance = balanceQuery.data;
-	const topupsAvailable = areTopupsAvailable(
-		settingsQuery.data?.topupsEnabled,
-		plansQuery.data?.topupPacks.length,
-	);
 	// Credits-elsewhere hint: the drained active pool has a sibling workspace
 	// with settled credits — tint the chip and offer a switch in the dropdown.
 	const elsewhere = findCreditsElsewhere(
@@ -159,30 +154,16 @@ export function CreditsChip({ className }: { className?: string }) {
 					{balanceQuery.isPending ? (
 						<Skeleton className="mt-2 h-8 w-28 bg-white/10" />
 					) : balance ? (
-						<>
-							<p className="mt-1.5 font-extrabold font-grotesk text-[2rem] tabular-nums leading-none tracking-[-0.03em]">
-								{formatCreditBalance(balance.settledBalance, locale)}
-							</p>
-							<dl className="mt-4 grid grid-cols-3 gap-2 border-white/10 border-t pt-3">
-								<BalanceBucket
-									label={t("credits.buckets.plan")}
-									value={formatCreditBalance(balance.settledPlan, locale)}
-								/>
-								<BalanceBucket
-									label={t("credits.buckets.promo")}
-									value={formatCreditBalance(balance.settledPromo, locale)}
-								/>
-								<BalanceBucket
-									label={t("credits.buckets.topup")}
-									value={formatCreditBalance(balance.settledTopup, locale)}
-								/>
-							</dl>
-						</>
+						// One wallet number: the three ledger buckets are an internal detail.
+						<p className="mt-1.5 font-extrabold font-grotesk text-[2rem] tabular-nums leading-none tracking-[-0.03em]">
+							{formatCreditBalance(balance.settledBalance, locale)}
+						</p>
 					) : (
 						<p role="alert" className="mt-2 text-paper/70 text-xs">
 							{t("credits.balanceLoadError")}
 						</p>
 					)}
+					<TrophyLevelPill />
 				</div>
 				{elsewhere ? (
 					<DropdownMenuItem
@@ -217,45 +198,56 @@ export function CreditsChip({ className }: { className?: string }) {
 						/>
 					</>
 				) : null}
-				{settingsQuery.isSuccess ? (
-					<>
-						<DropdownMenuSeparator />
-						<div className="p-1">
-							{!actorCanManageBilling ? (
-								<p className="px-1.5 py-1 text-muted-foreground text-xs">
-									{t("workspaces.billing.ownerOnlyBody")}
-								</p>
-							) : topupsAvailable ? (
-								<Button
-									type="button"
-									className={FOOTER_ACTION_CLASS}
-									onClick={() => openPlanPicker("credits_chip")}
-								>
-									{t("credits.topUpChip")}
-								</Button>
-							) : (
-								<Button asChild className={FOOTER_ACTION_CLASS}>
-									<Link to="/billing">{t("credits.manageBilling")}</Link>
-								</Button>
-							)}
-						</div>
-					</>
-				) : null}
+				<DropdownMenuSeparator />
+				<div className="p-1">
+					{!actorCanManageBilling ? (
+						<p className="px-1.5 py-1 text-muted-foreground text-xs">
+							{t("workspaces.billing.ownerOnlyBody")}
+						</p>
+					) : purchasesEnabled === false ? (
+						// Every payment method is off: the wallet page still shows the balance and the history.
+						<Button asChild className={FOOTER_ACTION_CLASS}>
+							<Link to="/billing">{t("credits.manageBilling")}</Link>
+						</Button>
+					) : (
+						<Button
+							type="button"
+							className={FOOTER_ACTION_CLASS}
+							onClick={() => openTopup("credits_chip")}
+						>
+							{t("credits.topUpChip")}
+						</Button>
+					)}
+				</div>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
 }
 
-/** One bucket of the balance (plan, promo, or top-up) on the navy credits card. */
-function BalanceBucket({ label, value }: { label: string; value: string }) {
+/**
+ * "Lv 3 · Flame" under the wallet number. It opens /trophies.
+ * The level belongs to the user, so it is the same in every workspace. It renders nothing until the query answers.
+ */
+function TrophyLevelPill() {
+	const { locale, t } = useTranslation();
+	const levelNames = useDictionary().trophies.levels;
+	const trophiesQuery = useTrophiesQuery();
+	const level = trophiesQuery.data?.level;
+	if (!level) return null;
+
 	return (
-		<div className="min-w-0">
-			<dt className="truncate font-grotesk font-medium text-[11px] text-paper/60">
-				{label}
-			</dt>
-			<dd className="mt-0.5 font-grotesk font-semibold text-sm tabular-nums">
-				{value}
-			</dd>
-		</div>
+		// A menu item, so the arrow keys reach it and a click closes the menu.
+		<DropdownMenuItem
+			asChild
+			className="mt-3 inline-flex h-7 w-auto gap-1.5 rounded-full bg-white/10 px-2.5 py-0 font-semibold text-[12px] text-spark focus:bg-white/20"
+		>
+			<Link to="/trophies">
+				<TrophyIcon aria-hidden weight="fill" className="size-3.5 text-spark" />
+				{t("trophies.chip.level", {
+					index: formatNumber(level.index, locale),
+					name: levelNames[level.id],
+				})}
+			</Link>
+		</DropdownMenuItem>
 	);
 }

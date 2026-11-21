@@ -54,7 +54,7 @@ export type OwnedChatRow = {
 // Type of one row from the messages table.
 export type InsertedMessageRow = typeof messages.$inferSelect;
 
-/** One row of `listRecentTexts`: the message id, its role, and its text parts joined. */
+/** One row of `listRecentTexts` or `listFirstTexts`: the message id, its role, and its text parts joined. */
 export type ChatMessageText = Pick<InsertedMessageRow, "id" | "role"> & {
 	text: string;
 };
@@ -266,6 +266,27 @@ export class ChatsRepository {
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
 			.orderBy(desc(messages.seq))
+			.limit(limit);
+	}
+
+	/**
+	 * The oldest `limit` messages of one chat, oldest first, with their text parts joined.
+	 * The MCP `create_project` replay reads the first prompt, its age, and the first reply with it.
+	 */
+	listFirstTexts(
+		chatId: string,
+		limit: number,
+	): Promise<(ChatMessageText & Pick<InsertedMessageRow, "createdAt">)[]> {
+		return this.db
+			.select({
+				createdAt: messages.createdAt,
+				id: messages.id,
+				role: messages.role,
+				text: MESSAGE_TEXT_SQL,
+			})
+			.from(messages)
+			.where(eq(messages.chatId, chatId))
+			.orderBy(asc(messages.seq))
 			.limit(limit);
 	}
 

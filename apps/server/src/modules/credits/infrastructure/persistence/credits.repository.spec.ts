@@ -88,7 +88,7 @@ describe("CreditsRepository.netConsumedCentiCredits", () => {
 		const { params, statement } = render(executed[0]);
 
 		expect(statement).toContain(
-			'select coalesce(-sum("credit_ledger"."delta"), 0)::int as total',
+			'select coalesce(-sum("credit_ledger"."delta"), 0)::bigint as total',
 		);
 		expect(statement).toContain('"credit_ledger"."user_id" = $1');
 		expect(statement).toContain('"credit_ledger"."organization_id" is null');

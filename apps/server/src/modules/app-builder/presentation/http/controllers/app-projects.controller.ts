@@ -49,18 +49,11 @@ import {
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { AppProjectsService } from "../../../application/services/app-projects.service";
 import {
+	PROJECT_CREATE_RATE_LIMIT,
 	RateLimit,
 	RedisRateLimitGuard,
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
-
-// 10 creates per user per day (WANDIT-181). Each create can provision a
-// backend and starts a first turn, so the cap stops a script that farms them.
-const PROJECT_CREATE_LIMIT = 10;
-// Three times the user cap: three people behind one office IP still fit,
-// but the cap stops one person who uses many accounts.
-const PROJECT_CREATE_IP_LIMIT = 30;
-const PROJECT_CREATE_WINDOW_MS = 24 * 60 * 60_000;
 
 @Controller("v2/projects")
 @UseGuards(V2BuilderEnabledGuard, RedisRateLimitGuard)
@@ -79,13 +72,9 @@ export class AppProjectsController {
 		>,
 	) {}
 
+	// The MCP `create_project` tool counts in the same bucket.
 	@RequireWorkspacePermission("project", "create")
-	@RateLimit({
-		ipLimit: PROJECT_CREATE_IP_LIMIT,
-		key: "project-create",
-		limit: PROJECT_CREATE_LIMIT,
-		windowMs: PROJECT_CREATE_WINDOW_MS,
-	})
+	@RateLimit(PROJECT_CREATE_RATE_LIMIT)
 	@Post()
 	create(
 		@Body(new ZodValidationPipe(createAppProjectRequestSchema))
@@ -104,10 +93,8 @@ export class AppProjectsController {
 	// backend and boots a sandbox, so the cap stops a script that farms them.
 	@RequireWorkspacePermission("project", "create")
 	@RateLimit({
-		ipLimit: PROJECT_CREATE_IP_LIMIT,
+		...PROJECT_CREATE_RATE_LIMIT,
 		key: "project-create-from-starter-template",
-		limit: PROJECT_CREATE_LIMIT,
-		windowMs: PROJECT_CREATE_WINDOW_MS,
 	})
 	@Post("from-starter-template")
 	createFromStarterTemplate(

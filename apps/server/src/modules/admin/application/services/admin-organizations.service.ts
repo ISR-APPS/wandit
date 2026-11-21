@@ -1,7 +1,8 @@
 /**
  * Reads and changes organizations (team and personal workspaces) for the admin dashboard.
  * AdminOrganizationsController calls it. It calls AdminOrganizationsRepository,
- * CreditsService for balances and credit grants to the org pool, and
+ * CreditsService for balances and credit grants to the org pool,
+ * PaidOwnerRepository for the paid state of the pool, and
  * MembershipCleanupService after a change to viewer.
  */
 import {
@@ -28,6 +29,7 @@ import {
 	normalizeStoredRole,
 } from "@wandit/contracts";
 
+import { PaidOwnerRepository } from "../../../billing/infrastructure/persistence/paid-owner.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { orgOwner, userOwner } from "../../../credits/domain/credit-owner";
 import { MembershipCleanupService } from "../../../workspaces";
@@ -58,6 +60,8 @@ export class AdminOrganizationsService {
 			MembershipCleanupService,
 			"handleMembershipReduced"
 		>,
+		@Inject(PaidOwnerRepository)
+		private readonly paidOwners: Pick<PaidOwnerRepository, "isPaidOwner">,
 	) {}
 
 	async listOrganizations(
@@ -98,6 +102,7 @@ export class AdminOrganizationsService {
 			spentByUser,
 			attributionUserId,
 			aiSpend,
+			isPaidOwner,
 		] = await Promise.all([
 			this.repository.listMembersWithUsers(organizationId),
 			this.repository.findLatestSubscription(organizationId),
@@ -109,6 +114,7 @@ export class AdminOrganizationsService {
 			this.repository.sumMemberSpendThisMonth(organizationId, new Date()),
 			this.repository.findAttributionUserId(organizationId),
 			this.repository.sumAiSpend(organizationId),
+			this.paidOwners.isPaidOwner(pool),
 		]);
 
 		return {
@@ -147,6 +153,7 @@ export class AdminOrganizationsService {
 					: centiCreditsToCredits(defaultMemberMonthlyCreditLimit),
 			attributionUserId,
 			personalOwnerUserId: summary.personalOwnerUserId,
+			isPaidOwner,
 		};
 	}
 

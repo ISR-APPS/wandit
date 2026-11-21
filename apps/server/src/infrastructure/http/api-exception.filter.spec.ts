@@ -106,7 +106,7 @@ describe("ApiExceptionFilter backend-limit details", () => {
 	it("emits plan and limit for BACKEND_LIMIT_REACHED and drops the same body on another 403", () => {
 		const limitReached = setupHost();
 		new ApiExceptionFilter().catch(
-			new BackendLimitReachedError("pro", 1),
+			new BackendLimitReachedError(1, "user"),
 			limitReached.host,
 		);
 		expect(limitReached.send).toHaveBeenCalledWith({

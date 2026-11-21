@@ -1,3 +1,8 @@
+/**
+ * Admin payouts tab: lists payouts, builds them, and marks them paid or failed.
+ * A payment id is a Stripe invoice id (`in_`) or a top-up Checkout Session id (`cs_`).
+ * Rendered by the admin affiliates page. Calls the affiliate payout queries and mutations.
+ */
 import type {
 	AffiliatePayoutListItem,
 	AffiliatePayoutStatus,
@@ -700,7 +705,7 @@ function PayoutDetailSheet({
 							<Table>
 								<TableHeader>
 									<TableRow>
-										<TableHead>Invoice</TableHead>
+										<TableHead>Payment</TableHead>
 										<TableHead>Entry</TableHead>
 										<TableHead>Amount</TableHead>
 										<TableHead>Status</TableHead>

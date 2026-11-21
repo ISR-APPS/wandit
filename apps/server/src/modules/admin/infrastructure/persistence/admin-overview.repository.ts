@@ -1,3 +1,7 @@
+/**
+ * Raw SQL of the admin overview page: users, revenue, usage, and payment signals.
+ * AdminStatsService calls it. It reuses AdminAnalyticsRepository for the shared metrics.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "@wandit/db";
 
@@ -327,9 +331,9 @@ export class AdminOverviewRepository {
 	) {
 		// Stripe gross = one-time payment orders + subscription invoice
 		// settlements (billing_invoice_applications amount snapshots; rows
-		// predating the snapshot columns carry NULL and drop out). Subscription
-		// amounts are gross — refunds are not netted for them. Top-up sessions
-		// have no relational amount source yet and stay uncounted; affiliate
+		// predating the snapshot columns carry NULL and drop out) + Stripe
+		// top-up receipts. Amounts are gross: refunds are not netted. SlickPay
+		// and offline receipts are not USD card cash and stay out. Affiliate
 		// commission bases are not gross revenue and remain excluded.
 		const result = await client.execute<RevenueRow>(sql`
 			with bounds as (${overviewBounds(input)}),
@@ -359,6 +363,15 @@ export class AdminOverviewRepository {
 					and lower(a.currency) = 'usd'
 					and a.paid_at >= b.previous_start
 					and a.paid_at < b.current_end
+				union all
+				select t.paid_at, t.amount_cents
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.provider = 'stripe'
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
+					and t.paid_at >= b.previous_start
+					and t.paid_at < b.current_end
 			),
 			totals as (
 				select

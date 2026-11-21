@@ -63,7 +63,7 @@
 	},
 	"devicePreview": {
 		"start": "Allumer",
-		"startHint": "Utilise un vrai téléphone avec Expo Go dans ton navigateur. Cela consomme tes minutes d'appareil.",
+		"startHint": "Utilise un vrai téléphone avec Expo Go dans ton navigateur. Cela consomme tes minutes d'appareil, incluses dès la première recharge.",
 		"starting": "Démarrage de l'appareil…",
 		"timeLeft": "{time} restantes",
 		"idleWarning": "L'appareil s'arrête dans {seconds} s sans activité.",

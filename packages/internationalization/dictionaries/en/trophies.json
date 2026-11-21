@@ -1,0 +1,230 @@
+{
+	"nav": {
+		"title": "Trophies"
+	},
+	"units": {
+		"points": {
+			"one": "{count} point",
+			"other": "{count} points"
+		},
+		"weeks": {
+			"one": "{count} week",
+			"other": "{count} weeks"
+		}
+	},
+	"page": {
+		"metaTitle": "Trophies — Wandit",
+		"title": "Trophies",
+		"eyebrow": "Your trophies · personal",
+		"intro": "Trophies mark what you build and ship. They give points, never credits, and they stay yours in every workspace.",
+		"level": "Level {index}",
+		"points": "{points} in total",
+		"toNext": "{points} to {level}",
+		"maxLevel": "You reached the top level.",
+		"unlockedCount": "{unlocked} of {total} trophies",
+		"levelPath": "Level path",
+		"nextUp": "Next up",
+		"nextUpEmpty": "You earned every trophy you can see. Look for the secret ones.",
+		"trackCount": "{unlocked} of {total}",
+		"earnedOn": "Earned {date}",
+		"locked": "Locked",
+		"hiddenName": "Secret trophy",
+		"loadError": "Your trophies could not load.",
+		"retry": "Try again"
+	},
+	"summary": {
+		"title": "Your trophies",
+		"personal": "Personal",
+		"seeAll": "See all trophies",
+		"allEarned": "You earned every trophy you can see.",
+		"loadError": "Your trophies could not load."
+	},
+	"weeks": {
+		"title": "Build weeks",
+		"caption": "A build week has one build or more. Weeks run Monday to Sunday, UTC.",
+		"current": "Current streak: {weeks}",
+		"best": "Best: {weeks}",
+		"stripLabel": "{built} of the last {total} weeks have a build."
+	},
+	"toast": {
+		"unlocked": "Trophy unlocked",
+		"points": "+{points}",
+		"many": {
+			"one": "You earned {count} trophy",
+			"other": "You earned {count} trophies"
+		},
+		"manyBody": "Open your trophies to see them all.",
+		"open": "See trophies"
+	},
+	"chip": {
+		"level": "Lv {index} · {name}"
+	},
+	"levels": {
+		"kindle": "Kindle",
+		"flicker": "Flicker",
+		"flame": "Flame",
+		"blaze": "Blaze",
+		"forge": "Forge",
+		"comet": "Comet",
+		"nova": "Nova"
+	},
+	"tracks": {
+		"build": "Build",
+		"ship": "Ship",
+		"craft": "Craft",
+		"grow": "Grow",
+		"team": "Team",
+		"rhythm": "Rhythm",
+		"fuel": "Fuel",
+		"special": "Special"
+	},
+	"rarity": {
+		"common": "Common",
+		"rare": "Rare",
+		"epic": "Epic",
+		"legendary": "Legendary"
+	},
+	"fuelRule": "Spend {credits} from your personal wallet",
+	"riddles": {
+		"polyglot": "One idea, three homes. Where else can it live?",
+		"time_traveler": "Some builders go back to go forward."
+	},
+	"items": {
+		"first_project": {
+			"name": "First Light",
+			"rule": "Create your first project"
+		},
+		"projects_5": {
+			"name": "Workbench",
+			"rule": "Create {target} projects"
+		},
+		"projects_25": {
+			"name": "Studio",
+			"rule": "Create {target} projects"
+		},
+		"first_app": {
+			"name": "App Builder",
+			"rule": "Create your first app"
+		},
+		"builds_50": {
+			"name": "In the Flow",
+			"rule": "Finish {target} builds"
+		},
+		"builds_500": {
+			"name": "Deep Work",
+			"rule": "Finish {target} builds"
+		},
+		"marathon": {
+			"name": "Marathon",
+			"rule": "Send {target} messages in one project"
+		},
+		"first_publish": {
+			"name": "Liftoff",
+			"rule": "Publish a project"
+		},
+		"publishes_10": {
+			"name": "Ship It",
+			"rule": "Publish {target} times"
+		},
+		"publishes_50": {
+			"name": "Release Train",
+			"rule": "Publish {target} times"
+		},
+		"live_3": {
+			"name": "Constellation",
+			"rule": "Keep {target} projects live at the same time"
+		},
+		"own_domain": {
+			"name": "Own Your Name",
+			"rule": "Connect your own domain"
+		},
+		"mobile_build": {
+			"name": "Pocket-Sized",
+			"rule": "Build a mobile app"
+		},
+		"desktop_build": {
+			"name": "On the Desktop",
+			"rule": "Build a desktop app"
+		},
+		"polyglot": {
+			"name": "Polyglot",
+			"rule": "Build for {target} different platforms"
+		},
+		"art_director": {
+			"name": "Art Director",
+			"rule": "Design a theme with AI"
+		},
+		"images_25": {
+			"name": "Visual Storyteller",
+			"rule": "Generate {target} images"
+		},
+		"research_25": {
+			"name": "Researcher",
+			"rule": "Run {target} web searches"
+		},
+		"time_traveler": {
+			"name": "Time Traveler",
+			"rule": "Restore an earlier version"
+		},
+		"explorer": {
+			"name": "Explorer",
+			"rule": "Start from {target} different templates"
+		},
+		"open_source": {
+			"name": "Open Source",
+			"rule": "Link a project to GitHub"
+		},
+		"first_lead": {
+			"name": "First Lead",
+			"rule": "Get your first lead"
+		},
+		"leads_100": {
+			"name": "Crowd",
+			"rule": "Get {target} leads"
+		},
+		"ambassador": {
+			"name": "Ambassador",
+			"rule": "Invite a friend who signs up"
+		},
+		"mentor": {
+			"name": "Mentor",
+			"rule": "Help an invited friend start building"
+		},
+		"rainmaker": {
+			"name": "Rainmaker",
+			"rule": "An invited friend makes a first payment"
+		},
+		"team_player": {
+			"name": "Team Player",
+			"rule": "Invite a collaborator to a project"
+		},
+		"bug_hunter": {
+			"name": "Bug Hunter",
+			"rule": "Send feedback"
+		},
+		"shaped_wandit": {
+			"name": "Shaped Wandit",
+			"rule": "Get your feedback planned or shipped"
+		},
+		"steady_4": {
+			"name": "Steady",
+			"rule": "Build {target} weeks in a row"
+		},
+		"seasoned_12": {
+			"name": "Seasoned",
+			"rule": "Build {target} weeks in a row"
+		},
+		"half_year": {
+			"name": "Half-Year Forge",
+			"rule": "Build {target} weeks in a row"
+		},
+		"backer": {
+			"name": "Backer",
+			"rule": "Top up your personal wallet"
+		},
+		"early_adopter": {
+			"name": "Early Adopter",
+			"rule": "Join Wandit in its early days"
+		}
+	}
+}

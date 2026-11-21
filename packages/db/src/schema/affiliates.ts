@@ -1,3 +1,7 @@
+/**
+ * Drizzle tables of the affiliate program: programs, links, clicks, attributions, candidates, commissions, payouts.
+ * Read and written by `apps/server/src/modules/affiliates` repositories. Migrations come from this file.
+ */
 import { sql } from "drizzle-orm";
 import {
 	type AnyPgColumn,
@@ -260,10 +264,12 @@ export const affiliateInvoiceCandidates = pgTable(
 	"affiliate_invoice_candidates",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
+		/** Stripe invoice id, or the Checkout Session id (`cs_`) of a top-up. Unique: the candidate idempotency key. */
 		stripeInvoiceId: text("stripe_invoice_id").notNull(),
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		/** Stripe invoice `billing_reason`, or `topup` for a top-up Checkout Session. */
 		billingReason: text("billing_reason").notNull(),
 		baseAmountCents: integer("base_amount_cents").notNull(),
 		currency: text("currency").notNull(),
@@ -344,6 +350,7 @@ export const affiliateCommissions = pgTable(
 			(): AnyPgColumn => affiliateCommissions.id,
 			{ onDelete: "restrict" },
 		),
+		/** Stripe invoice id, or the Checkout Session id (`cs_`) of a top-up. One earning per value. */
 		stripeInvoiceId: text("stripe_invoice_id").notNull(),
 		stripeRefundId: text("stripe_refund_id"),
 		stripeDisputeId: text("stripe_dispute_id"),

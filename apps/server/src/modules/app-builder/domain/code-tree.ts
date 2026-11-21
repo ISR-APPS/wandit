@@ -4,6 +4,7 @@
  * `CodeService` calls them with the blob paths of the stored commit. A
  * project with no commit gives the `git ls-files` paths of its sandbox.
  * `McpChangesService` calls the write rule `isWritableCodePath`.
+ * `VersionsService` calls `isAgentFilePath` for the GitHub Update.
  * This file does no I/O.
  */
 import type { CodeTreeNode } from "@wandit/contracts";
@@ -64,18 +65,38 @@ export function isReadableCodePath(path: string): boolean {
 	);
 }
 
-// Folders that an `apply_changes` path must not enter, at any depth: git internals,
-// agent settings, and installed packages.
-const PROTECTED_FOLDER_NAMES = new Set([".git", ".claude", "node_modules"]);
+// The agent folder, at any depth: Claude Code loads its settings, hooks, and skills.
+const AGENT_FOLDER_NAME = ".claude";
 
-// File names that `apply_changes` must not write, at any depth. Agents load a nested
-// CLAUDE.md or AGENTS.md as instructions. pnpm and git read a nested config file too.
-const PROTECTED_FILE_NAMES = new Set([
+// Agent file names, at any depth. Agents load a nested CLAUDE.md or AGENTS.md as instructions.
+const AGENT_FILE_NAMES = new Set([
 	"CLAUDE.md",
 	"CLAUDE.local.md",
 	"AGENTS.md",
 	".mcp.json",
 	"opencode.json",
+]);
+
+/**
+ * True when `path`, relative to the worktree root, is an agent instruction or config file.
+ * `isWritableCodePath` denies these paths. The GitHub Update in `VersionsService` keeps their pre-merge state.
+ * The match is case-sensitive, like the Linux sandbox.
+ */
+export function isAgentFilePath(path: string): boolean {
+	const segments = path.split("/");
+	return (
+		segments.includes(AGENT_FOLDER_NAME) ||
+		AGENT_FILE_NAMES.has(segments[segments.length - 1] ?? "")
+	);
+}
+
+// Folders that an `apply_changes` path must not enter, at any depth: git internals
+// and installed packages. `isAgentFilePath` covers the agent folder.
+const PROTECTED_FOLDER_NAMES = new Set([".git", "node_modules"]);
+
+// File names that `apply_changes` must not write, at any depth, after the agent files.
+// pnpm and git read a nested config file too.
+const PROTECTED_FILE_NAMES = new Set([
 	".npmrc",
 	".pnpmfile.cjs",
 	".pnpmfile.mjs",
@@ -129,6 +150,7 @@ export function isWritableCodePath(path: string): boolean {
 	return (
 		!hasBadSegment &&
 		!fileName.startsWith(".env") &&
+		!isAgentFilePath(path) &&
 		!PROTECTED_FILE_NAMES.has(fileName) &&
 		!PROTECTED_ROOT_PATHS.has(path)
 	);

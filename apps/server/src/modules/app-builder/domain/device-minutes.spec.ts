@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { orgOwner, userOwner } from "../../credits/domain/credit-owner";
 import {
 	billableMinutes,
-	DEVICE_MINUTES_PER_PLAN,
+	DEVICE_MINUTES_PER_PAID_OWNER,
 	deviceMinutesLeft,
+	deviceMinutesPerMonth,
 } from "./device-minutes";
 
 const START = new Date("2026-09-26T10:00:00.000Z");
@@ -30,10 +32,32 @@ describe("billableMinutes", () => {
 	});
 });
 
+describe("deviceMinutesPerMonth", () => {
+	it.each([
+		{ isPaidOwner: false, owner: userOwner("user_1"), minutes: 0 },
+		{ isPaidOwner: false, owner: orgOwner("org_1"), minutes: 0 },
+		{
+			isPaidOwner: true,
+			owner: userOwner("user_1"),
+			minutes: DEVICE_MINUTES_PER_PAID_OWNER.user,
+		},
+		{
+			isPaidOwner: true,
+			owner: orgOwner("org_1"),
+			minutes: DEVICE_MINUTES_PER_PAID_OWNER.org,
+		},
+	])("paid=$isPaidOwner $owner.type owner gets $minutes", ({
+		isPaidOwner,
+		owner,
+		minutes,
+	}) => {
+		expect(deviceMinutesPerMonth(isPaidOwner, owner)).toBe(minutes);
+	});
+});
+
 describe("deviceMinutesLeft", () => {
 	it("subtracts the used minutes and never goes below 0", () => {
-		const limit = DEVICE_MINUTES_PER_PLAN.pro;
-		expect(deviceMinutesLeft("pro", 10)).toBe(limit - 10);
-		expect(deviceMinutesLeft("pro", limit + 15)).toBe(0);
+		expect(deviceMinutesLeft(60, 10)).toBe(50);
+		expect(deviceMinutesLeft(60, 75)).toBe(0);
 	});
 });

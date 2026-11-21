@@ -18,8 +18,8 @@
 	},
 	"v2Banner": {
 		"title": "Wandit V2 is coming soon.",
-		"body": "You will be able to build mobile and web apps. Subscribers get it first, with extra credits.",
-		"cta": "See plans"
+		"body": "You will be able to build mobile and web apps. Customers who top up get it first.",
+		"cta": "See pricing"
 	},
 	"hero": {
 		"leadStart": "Build me a",
@@ -203,14 +203,14 @@
 	"pricing": {
 		"meta": {
 			"title": "Pricing — Wandit",
-			"description": "Start free, then go Pro when you need more credits. Monthly or yearly."
+			"description": "Top up from $10. Bonus credits from $40. No subscription. Credits never expire."
 		},
 		"kicker": "Pricing",
-		"title": "Start small. Grow when you need more.",
+		"title": "Pay for what you build.",
 		"note": "Publishing is always free. AI actions, including lead collection, use credits.",
 		"free": {
 			"name": "Free",
-			"tagline": "For beta access and first projects",
+			"tagline": "Your first credits are on us. Build and publish before you pay.",
 			"price": "Free",
 			"creditsLine": {
 				"zero": "{count} free credits",
@@ -225,49 +225,99 @@
 				"Publishing always free",
 				"Lead collection uses credits",
 				"Pages in AR, FR & EN",
-				"Upgrade when you need more AI work"
+				"Top up when you need more AI work"
 			],
 			"cta": "Start free"
 		},
-		"pro": {
-			"name": "Pro",
-			"badge": "Popular",
-			"tagline": "For sellers building and iterating every month",
-			"loading": "Loading live prices",
-			"catalogUnavailable": "Live pricing is temporarily unavailable.",
-			"intervalLabel": "Billing interval",
-			"monthly": "Monthly",
-			"yearly": "Yearly",
-			"twoMonthsFree": "2 months free",
-			"tierLabel": "Monthly credit allowance",
-			"creditsUnit": "credits",
-			"perMonth": "/ month",
-			"perYear": "/ year",
-			"savings": "Save {percent}%",
+		"payg": {
+			"name": "Pay as you go",
+			"badge": "No subscription",
+			"tagline": "Pick an amount. The receipt shows every credit before you pay.",
+			"loading": "Loading prices",
+			"rate": "for {credits} credits",
+			"amountLabel": "Top-up amount",
+			"credits": "{credits} credits",
+			"range": "Top up from {min}. Choose any amount in whole US dollars up to {max}. A custom amount gets the same bonus.",
 			"features": [
-				"Fresh plan credits every month",
-				"Nine credit tiers as your workload grows",
-				"Monthly or yearly billing",
-				"Publishing stays free"
+				"Credits never expire",
+				"One-time payments, no automatic charge",
+				"Every AI model, at its real cost",
+				"A team wallet that the whole team shares"
 			],
-			"cta": "Choose Pro"
-		},
-		"business": {
-			"name": "Business",
-			"tagline": "For teams sharing one credit pool",
-			"fromPrice": "From {price}",
-			"perMonth": "/ month",
-			"features": [
-				"Everything in Pro",
-				"One shared credit pool for the whole team",
-				"Roles, invites & per-member credit limits",
-				"Unlimited seats — pay for credits, not people"
-			],
-			"cta": "Create a team workspace"
+			"cta": "Top up {price}"
 		},
 		"beta": {
 			"badge": "Beta",
 			"cta": "Join the beta"
+		},
+		"sub": {
+			"rate": "{price} = {credits}.",
+			"bonus": "Bonus credits from {price}.",
+			"terms": "No subscription. Credits never expire."
+		},
+		"meter": {
+			"title": "Choose your top-up",
+			"footnote": "Every bonus is shown before you pay.",
+			"ctaEmpty": "Choose an amount"
+		},
+		"where": {
+			"kicker": "Where credits go",
+			"title": "Clear prices for every action.",
+			"sub": "A few actions have a fixed price. AI work costs what the AI costs, and you see each charge in your activity.",
+			"columns": {
+				"action": "Action",
+				"price": "Price"
+			},
+			"groups": {
+				"fixed": "Fixed price",
+				"metered": "Metered",
+				"free": "Free"
+			},
+			"meteredNote": "The real AI cost, shown in your activity after each action.",
+			"meteredPrice": "Real AI cost",
+			"freePrice": "Free",
+			"items": {
+				"androidBuild": "Android build (APK)",
+				"desktopBuild": "Desktop build (Windows or macOS)",
+				"builderMessages": "Builder messages",
+				"images": "Images",
+				"video": "Video",
+				"publishing": "Publishing on a wandit.app address"
+			}
+		},
+		"trophies": {
+			"kicker": "Trophies",
+			"title": "Build, ship, collect.",
+			"sub": "Trophies mark what you make. They give you points and levels, never credits.",
+			"link": "See all trophies"
+		},
+		"faq": {
+			"title": "Questions about pricing",
+			"termsLink": "Read the Terms of Service",
+			"bonusCustom": {
+				"q": "Does a custom amount get a bonus?",
+				"a": "Yes. A custom amount gets the same bonus as a preset of the same size. The receipt shows the bonus before you pay."
+			},
+			"expiry": {
+				"q": "Do credits expire?",
+				"a": "No. Your credits stay in your wallet until you use them."
+			},
+			"subscription": {
+				"q": "Is there a subscription?",
+				"a": "No. Each top-up is a one-time payment. Wandit never charges you again on its own."
+			},
+			"teamWallet": {
+				"q": "How does a team wallet work?",
+				"a": "Each team has its own wallet, apart from your personal wallet. The team owner tops it up, and the work in the team's projects uses its credits."
+			},
+			"algeria": {
+				"q": "Can I pay from Algeria?",
+				"a": "Yes. In Algeria you see the price in dinars and can pay with CIB or Edahabia. When it is available, you can also ask for a cash or transfer payment, and our team calls you."
+			},
+			"refunds": {
+				"q": "Can I get a refund?",
+				"a": "Our Terms of Service explain when a refund applies."
+			}
 		}
 	},
 	"faq": {
@@ -295,7 +345,7 @@
 			},
 			{
 				"q": "How do credits work?",
-				"a": "Every AI action uses credits, and you see what each one used. Start free, then choose a plan when you need more."
+				"a": "Every AI action uses credits, and you see what each one used. Top up from $10, with bonus credits from $40. There is no subscription, and credits never expire."
 			}
 		]
 	},

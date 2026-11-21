@@ -1,13 +1,15 @@
 /**
- * Reads and writes `manual_subscription_payments`, one row per paid period of a manual subscription.
- * ManualSubscriptionsService records the rows. SlickpayPaymentsService looks up the rows of a SlickPay payment.
- * Drizzle only.
+ * Reads `manual_subscription_payments`, one row per paid period of a manual plan from before pricing v8.
+ * ManualSubscriptionsService reads the history. SlickpayPaymentsService looks up an old row of a SlickPay payment.
+ * The offline stats also read the SlickPay and offline rows of `billing_topup_receipts`. Drizzle only.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import type { ManualPaymentMethod } from "@wandit/contracts";
 import { and, desc, eq, sql } from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
-import { manualSubscriptionPayments } from "@wandit/db/schema/billing";
+import {
+	billingTopupReceipts,
+	manualSubscriptionPayments,
+} from "@wandit/db/schema/billing";
 
 import {
 	DATABASE,
@@ -16,21 +18,6 @@ import {
 
 export type ManualSubscriptionPaymentRow =
 	typeof manualSubscriptionPayments.$inferSelect;
-
-export type InsertManualSubscriptionPaymentInput = {
-	amountMinor: number;
-	currency: string;
-	idempotencyKey: string;
-	kind: ManualSubscriptionPaymentRow["kind"];
-	method: ManualPaymentMethod;
-	note: string | null;
-	periodEnd: Date;
-	periodStart: Date;
-	recordedByUserId: string;
-	reference: string | null;
-	requestId: string | null;
-	subscriptionId: string;
-};
 
 export type ManualSubscriptionPaymentAdminRow = {
 	payment: ManualSubscriptionPaymentRow;
@@ -42,46 +29,11 @@ export type ManualSubscriptionPaymentAdminRow = {
 	} | null;
 };
 
-export type ManualSubscriptionPaymentSummary = {
-	count: number;
-	lastPaymentAt: Date | null;
-};
-
-type ManualSubscriptionPaymentsClient = Pick<Database, "insert" | "select">;
+type ManualSubscriptionPaymentsClient = Pick<Database, "select">;
 
 @Injectable()
 export class ManualSubscriptionPaymentsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
-
-	async insert(
-		input: InsertManualSubscriptionPaymentInput,
-		client: ManualSubscriptionPaymentsClient = this.db,
-	): Promise<ManualSubscriptionPaymentRow> {
-		const [inserted] = await client
-			.insert(manualSubscriptionPayments)
-			.values(input)
-			.onConflictDoNothing({
-				target: manualSubscriptionPayments.idempotencyKey,
-			})
-			.returning();
-
-		if (inserted) {
-			return inserted;
-		}
-
-		const existing = await this.findByIdempotencyKey(
-			input.idempotencyKey,
-			client,
-		);
-
-		if (!existing) {
-			throw new Error(
-				"Manual subscription payment conflict did not resolve to a row",
-			);
-		}
-
-		return existing;
-	}
 
 	async findByIdempotencyKey(
 		idempotencyKey: string,
@@ -142,43 +94,51 @@ export class ManualSubscriptionPaymentsRepository {
 			);
 	}
 
-	async getSummaryBySubscription(
-		subscriptionId: string,
-		client: ManualSubscriptionPaymentsClient = this.db,
-	): Promise<ManualSubscriptionPaymentSummary> {
-		const [row] = await client
-			.select({
-				count: sql<number>`count(*)::int`,
-				lastPaymentAt: sql<Date | null>`max(${manualSubscriptionPayments.createdAt})`,
-			})
-			.from(manualSubscriptionPayments)
-			.where(eq(manualSubscriptionPayments.subscriptionId, subscriptionId));
-
-		return row ?? { count: 0, lastPaymentAt: null };
-	}
-
-	/** Recorded offline money per currency in [from, until). */
+	/**
+	 * Offline money per currency in [from, until): the old plan payments plus the SlickPay and
+	 * offline top-up receipts that are not reversed. The admin Offline billing header shows it.
+	 * Stripe receipts stay out.
+	 */
 	async sumByCurrencyBetween(
 		from: Date,
 		until: Date,
-		client: ManualSubscriptionPaymentsClient = this.db,
 	): Promise<
 		Array<{ amountMinor: number; currency: string; payments: number }>
 	> {
-		return client
-			.select({
-				amountMinor: sql<number>`coalesce(sum(${manualSubscriptionPayments.amountMinor}), 0)::int`,
-				currency: manualSubscriptionPayments.currency,
-				payments: sql<number>`count(*)::int`,
-			})
-			.from(manualSubscriptionPayments)
-			.where(
-				and(
-					sql`${manualSubscriptionPayments.createdAt} >= ${from}`,
-					sql`${manualSubscriptionPayments.createdAt} < ${until}`,
-				),
-			)
-			.groupBy(manualSubscriptionPayments.currency)
-			.orderBy(manualSubscriptionPayments.currency);
+		// Receipts store the currency in lower case, plan payments in upper case.
+		// upper() merges the two and keeps the old display ("DZD").
+		// bigint: one month of DZD centimes can pass the int range.
+		const result = await this.db.execute<{
+			amount_minor: string;
+			currency: string;
+			payments: string;
+		}>(sql`
+			select
+				upper(p.currency) as currency,
+				coalesce(sum(p.amount_minor), 0)::bigint as amount_minor,
+				count(*)::bigint as payments
+			from (
+				select m.currency, m.amount_minor
+				from ${manualSubscriptionPayments} m
+				where m.created_at >= ${from}
+					and m.created_at < ${until}
+				union all
+				select t.currency, t.amount_cents as amount_minor
+				from ${billingTopupReceipts} t
+				where t.provider in ('slickpay', 'offline')
+					-- A reversed receipt does not count: its money went back or never came.
+					and t.reversed_at is null
+					and t.paid_at >= ${from}
+					and t.paid_at < ${until}
+			) p
+			group by upper(p.currency)
+			order by upper(p.currency)
+		`);
+
+		return result.rows.map((row) => ({
+			amountMinor: Number(row.amount_minor),
+			currency: row.currency,
+			payments: Number(row.payments),
+		}));
 	}
 }

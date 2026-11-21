@@ -9,14 +9,17 @@ import {
 	type McpScope,
 	mcpScopes,
 	mcpToolErrorSchema,
+	uuidSchema,
 } from "@wandit/contracts";
 import { afterAll, describe, expect, it } from "vitest";
 import type { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 // The real role rule of `ProjectAccessService.resolve`, so each case states facts, not a role.
 import {
 	type ProjectAccessFacts,
+	type ProjectAccessService,
 	resolveProjectAccess,
 } from "../../../../projects";
+import type { AppProjectsService } from "../../../application/services/app-projects.service";
 import type { TurnsService } from "../../../application/services/turns.service";
 import type {
 	BuilderTurnRow,
@@ -69,16 +72,16 @@ const TEAM_FACTS = {
 	workspacePersonalOwnerUserId: null,
 } satisfies Partial<ProjectFacts>;
 
+// A personal project of user-1.
+const OWN_FACTS = factsOf({
+	memberRole: "owner",
+	userId: "user-1",
+	workspaceId: "org-personal-1",
+	workspacePersonalOwnerUserId: "user-1",
+});
+
 const FACTS = new Map<string, ProjectFacts>([
-	[
-		OWN_PROJECT_ID,
-		factsOf({
-			memberRole: "owner",
-			userId: "user-1",
-			workspaceId: "org-personal-1",
-			workspacePersonalOwnerUserId: "user-1",
-		}),
-	],
+	[OWN_PROJECT_ID, OWN_FACTS],
 	[FOREIGN_PROJECT_ID, factsOf({})],
 	[TEAM_PROJECT_ID, factsOf(TEAM_FACTS)],
 	// A workspace Editor on a "Can view" project is a project viewer.
@@ -109,6 +112,18 @@ const FACTS = new Map<string, ProjectFacts>([
 	[SHARED_PROJECT_ID, factsOf({ directRole: "editor" })],
 ]);
 
+// The member rows of user-1 that `findMembership` answers, by workspace id.
+const MEMBERSHIPS = new Map([
+	[
+		"org-team",
+		{ organizationId: "org-team", personalOwnerUserId: null, role: "member" },
+	],
+	[
+		"org-viewer",
+		{ organizationId: "org-viewer", personalOwnerUserId: null, role: "viewer" },
+	],
+]);
+
 const BUILD: AppBuild = {
 	commitSha: "a".repeat(40),
 	completedAt: null,
@@ -129,18 +144,23 @@ function notReached(): Promise<never> {
 
 /** The fakes that one case replaces. The others reject or answer a fixed value. */
 type ToolFakes = {
+	access?: Pick<ProjectAccessService, "resolve">;
+	appProjects?: Pick<AppProjectsService, "get" | "create">;
 	chats?: Pick<
 		ChatsRepository,
-		"findAccessibleChatByProjectId" | "listProjectChats"
+		"findAccessibleChatByProjectId" | "listProjectChats" | "listFirstTexts"
 	>;
 	turns?: Pick<TurnsService, "create" | "cancel" | "assertStreamAccess">;
-	turnRows?: Pick<BuilderTurnsRepository, "findBusyChatId" | "findCardParts">;
+	turnRows?: Pick<
+		BuilderTurnsRepository,
+		"findBusyChatId" | "findCardParts" | "findByRequestKey"
+	>;
 	rateLimits?: RateLimitStore;
 };
 
 function toolsWith(fakes: ToolFakes = {}): McpTools {
 	return new McpTools(
-		{
+		fakes.access ?? {
 			resolve: async (userId, projectId) => {
 				const facts = FACTS.get(projectId);
 				return facts === undefined || userId !== CALL.userId
@@ -148,15 +168,20 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 					: resolveProjectAccess({ ...facts, id: projectId }, userId);
 			},
 		},
-		// The only `list_projects` case names a workspace without a member row of user-1.
-		{ findMembership: async () => null },
+		// user-1 is an Editor of "org-team" and a Viewer of "org-viewer". Other workspaces have no member row.
+		{
+			findMembership: async (organizationId) =>
+				MEMBERSHIPS.get(organizationId) ?? null,
+		},
 		{ listForUser: notReached },
 		{ list: notReached, listShared: notReached },
 		fakes.chats ?? {
 			findAccessibleChatByProjectId: notReached,
+			listFirstTexts: notReached,
 			listProjectChats: notReached,
 		},
-		{ get: notReached },
+		// A gate case that reaches the create answers INTERNAL_ERROR, so it proves that no project and no credit hold exist.
+		fakes.appProjects ?? { create: notReached, get: notReached },
 		{ file: notReached, snapshot: notReached },
 		{ list: async () => ({ items: [], nextCursor: null }) },
 		fakes.turns ?? {
@@ -164,7 +189,11 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 			cancel: notReached,
 			create: notReached,
 		},
-		fakes.turnRows ?? { findBusyChatId: notReached, findCardParts: notReached },
+		fakes.turnRows ?? {
+			findBusyChatId: notReached,
+			findByRequestKey: notReached,
+			findCardParts: notReached,
+		},
 		{ wake: async () => ({ status: "running" }) },
 		{
 			apply: async () => ({ headSha: "c".repeat(40) }),
@@ -180,8 +209,11 @@ function toolsWith(fakes: ToolFakes = {}): McpTools {
 }
 
 // The controller builds one handler for each POST. Each handler prints a console.warn, so this file builds few.
-function handlerFor(tools: McpTools): ReturnType<typeof createMcpHandler> {
-	return createMcpHandler(() => tools.createServer(CALL), {
+function handlerFor(
+	tools: McpTools,
+	call: McpCallContext = CALL,
+): ReturnType<typeof createMcpHandler> {
+	return createMcpHandler(() => tools.createServer(call), {
 		legacy: "stateless",
 		responseMode: "json",
 	});
@@ -193,16 +225,28 @@ afterAll(async () => {
 	await handler.close();
 });
 
-/**
- * Calls one tool through the MCP SDK and names the outcome: "success", the tool error code,
- * or "<HTTP status> <scope>" when the SDK scope check refuses the call.
- */
+/** The outcome of `outcomeOf`, and the text of a successful answer ("" on a failure). */
+type ToolCall = { outcome: string; answerText: string };
+
 async function outcomeOf(
 	scopes: McpScope[],
 	tool: string,
 	toolArguments: Record<string, string | number | Record<string, string>[]>,
 	target: ReturnType<typeof createMcpHandler> = handler,
 ): Promise<string> {
+	return (await toolCallOf(scopes, tool, toolArguments, target)).outcome;
+}
+
+/**
+ * Calls one tool through the MCP SDK and names the outcome: "success", the tool error code,
+ * or "<HTTP status> <scope>" when the SDK scope check refuses the call.
+ */
+async function toolCallOf(
+	scopes: McpScope[],
+	tool: string,
+	toolArguments: Record<string, string | number | Record<string, string>[]>,
+	target: ReturnType<typeof createMcpHandler> = handler,
+): Promise<ToolCall> {
 	const response = await target.fetch(
 		new Request("http://localhost:3000/api/mcp", {
 			headers: {
@@ -227,24 +271,29 @@ async function outcomeOf(
 		const scope = response.headers
 			.get("www-authenticate")
 			?.match(/ scope="([^"]+)"/)?.[1];
-		return `${response.status} ${scope ?? text}`;
+		return { answerText: "", outcome: `${response.status} ${scope ?? text}` };
 	}
 	// The legacy leg answers one SSE event: "event: message", then "data: <JSON-RPC response>".
 	const message = parseJSONRPCMessage(
 		JSON.parse(text.slice(text.indexOf("data: ") + "data: ".length)),
 	);
 	if (!isJSONRPCResultResponse(message) || !isCallToolResult(message.result)) {
-		return `unexpected answer: ${text}`;
-	}
-	if (message.result.isError !== true) {
-		return "success";
+		return { answerText: "", outcome: `unexpected answer: ${text}` };
 	}
 	const [block] = message.result.content;
-	const errorText = block?.type === "text" ? block.text : "";
-	const failure = errorText.startsWith("{")
-		? mcpToolErrorSchema.safeParse(JSON.parse(errorText))
+	const blockText = block?.type === "text" ? block.text : "";
+	if (message.result.isError !== true) {
+		return { answerText: blockText, outcome: "success" };
+	}
+	const failure = blockText.startsWith("{")
+		? mcpToolErrorSchema.safeParse(JSON.parse(blockText))
 		: null;
-	return failure?.success ? failure.data.code : `unparsed error: ${errorText}`;
+	return {
+		answerText: "",
+		outcome: failure?.success
+			? failure.data.code
+			: `unparsed error: ${blockText}`,
+	};
 }
 
 const APPLY_CHANGES_INPUT = {
@@ -253,6 +302,17 @@ const APPLY_CHANGES_INPUT = {
 	message: "Edit a",
 };
 const REQUEST_KEY = "88888888-8888-4888-8888-888888888888";
+const CREATE_PROJECT_INPUT = {
+	prompt: "Build a shop",
+	requestKey: REQUEST_KEY,
+};
+// Every scope but the one in the name.
+const ALL_BUT_BUILDER_RUN = mcpScopes.filter(
+	(scope) => scope !== "builder:run",
+);
+const ALL_BUT_PROJECTS_WRITE = mcpScopes.filter(
+	(scope) => scope !== "projects:write",
+);
 const TURN_ID = "99999999-9999-4999-8999-999999999999";
 
 describe("McpTools access, role, and scope checks", () => {
@@ -406,6 +466,41 @@ describe("McpTools access, role, and scope checks", () => {
 			{ projectId: OWN_PROJECT_ID, requestKey: REQUEST_KEY },
 			"403 projects:deploy",
 		],
+		[
+			"a token without builder:run cannot create a project",
+			ALL_BUT_BUILDER_RUN,
+			"create_project",
+			CREATE_PROJECT_INPUT,
+			"403 projects:write builder:run",
+		],
+		[
+			"a token without projects:write cannot create a project",
+			ALL_BUT_PROJECTS_WRITE,
+			"create_project",
+			CREATE_PROJECT_INPUT,
+			"403 projects:write builder:run",
+		],
+		[
+			"a workspace Viewer cannot create a project",
+			[...mcpScopes],
+			"create_project",
+			{ ...CREATE_PROJECT_INPUT, workspaceId: "org-viewer" },
+			"WORKSPACE_PERMISSION_DENIED",
+		],
+		[
+			"a team without a member row cannot create a project",
+			[...mcpScopes],
+			"create_project",
+			{ ...CREATE_PROJECT_INPUT, workspaceId: "org-outsider" },
+			"WORKSPACE_NOT_FOUND",
+		],
+		[
+			"the shared list cannot own a new project",
+			[...mcpScopes],
+			"create_project",
+			{ ...CREATE_PROJECT_INPUT, workspaceId: "shared" },
+			"WORKSPACE_NOT_SUPPORTED",
+		],
 	])("%s", async (_label, scopes, tool, toolArguments, expected) => {
 		expect(await outcomeOf(scopes, tool, toolArguments)).toBe(expected);
 	});
@@ -516,6 +611,7 @@ describe("send_prompt conversation", () => {
 						projectId: OWN_PROJECT_ID,
 						userId: CALL.userId,
 					}),
+					listFirstTexts: notReached,
 					listProjectChats: async () => [
 						{
 							createdAt: new Date(1),
@@ -533,6 +629,7 @@ describe("send_prompt conversation", () => {
 				},
 				turnRows: {
 					findBusyChatId: async () => busyChatId,
+					findByRequestKey: notReached,
 					findCardParts: notReached,
 				},
 				turns: {
@@ -566,5 +663,238 @@ describe("send_prompt conversation", () => {
 
 		expect(outcome).toBe("success");
 		expect(sentChatIds).toEqual([expected]);
+	});
+});
+
+describe("create_project replay", () => {
+	/** The rows that the first call with the request key left. */
+	type FirstCall =
+		// The first turn of "Build a shop" runs.
+		| "turn started"
+		// The first turn failed: the chat holds the prompt and the error reply.
+		| "turn failed"
+		// The first call still runs: the chat holds only the prompt.
+		| "still running"
+		// The first call stopped before its turn (crash, deploy): the chat holds only a 10 min old prompt.
+		| "stopped";
+
+	/**
+	 * Tools whose create fake stores each new project id, so `resolve` then finds it, as Postgres does.
+	 * `race` makes the create fail on the primary key: `visible` leaves a project the caller can open.
+	 */
+	function replayTools(firstCall: FirstCall, race?: { visible: boolean }) {
+		const projectIds = new Set<string>();
+		let creates = 0;
+		const tools = toolsWith({
+			access: {
+				resolve: async (userId, projectId) =>
+					projectIds.has(projectId)
+						? resolveProjectAccess({ ...OWN_FACTS, id: projectId }, userId)
+						: null,
+			},
+			appProjects: {
+				create: async (_scope, _body, request) => {
+					creates += 1;
+					if (request.ids === undefined) {
+						return notReached();
+					}
+					if (race !== undefined) {
+						if (race.visible) {
+							projectIds.add(request.ids.projectId);
+						}
+						throw new Error("insert failed", { cause: { code: "23505" } });
+					}
+					projectIds.add(request.ids.projectId);
+					return {
+						...request.ids,
+						turnId: firstCall === "turn started" ? TURN_ID : null,
+					};
+				},
+				get: notReached,
+			},
+			chats: {
+				findAccessibleChatByProjectId: notReached,
+				listFirstTexts: async () => [
+					{
+						createdAt: new Date(
+							firstCall === "stopped" ? Date.now() - 10 * 60_000 : Date.now(),
+						),
+						id: "message-1",
+						role: "user",
+						text: "Build a shop",
+					},
+					...(firstCall === "turn failed"
+						? [
+								{
+									createdAt: new Date(),
+									id: "message-2",
+									role: "assistant" as const,
+									text: "",
+								},
+							]
+						: []),
+				],
+				listProjectChats: notReached,
+			},
+			turnRows: {
+				findBusyChatId: notReached,
+				findByRequestKey: async (chatId, requestKey) =>
+					firstCall === "turn started"
+						? {
+								...RUNNING_TURN,
+								chatId,
+								requestKey,
+								spec: {
+									attachments: [],
+									composer: null,
+									message: "Build a shop",
+								},
+							}
+						: null,
+				findCardParts: notReached,
+			},
+		});
+		return { createCount: () => creates, tools };
+	}
+
+	it.each<{ firstCall: FirstCall; prompt: string; expected: string }>([
+		{ firstCall: "turn started", prompt: "Build a shop", expected: "success" },
+		{
+			firstCall: "turn started",
+			prompt: "Build a blog",
+			expected: "REQUEST_KEY_REUSED",
+		},
+		{ firstCall: "turn failed", prompt: "Build a shop", expected: "success" },
+		{
+			firstCall: "turn failed",
+			prompt: "Build a blog",
+			expected: "REQUEST_KEY_REUSED",
+		},
+		// A turnId null answer here makes the agent send the prompt again and pay twice.
+		{
+			firstCall: "still running",
+			prompt: "Build a shop",
+			expected: "CREATE_IN_PROGRESS",
+		},
+		// Without a time bound, every retry answers CREATE_IN_PROGRESS for good, and the agent has no way out.
+		{ firstCall: "stopped", prompt: "Build a shop", expected: "success" },
+	])("a retry after the $firstCall state with the prompt $prompt answers $expected", async ({
+		firstCall,
+		prompt,
+		expected,
+	}) => {
+		const { createCount, tools } = replayTools(firstCall);
+		const target = handlerFor(tools);
+
+		const first = await toolCallOf(
+			[...mcpScopes],
+			"create_project",
+			CREATE_PROJECT_INPUT,
+			target,
+		);
+		const retry = await toolCallOf(
+			[...mcpScopes],
+			"create_project",
+			{ ...CREATE_PROJECT_INPUT, prompt },
+			target,
+		);
+		await target.close();
+
+		expect(first.outcome).toBe("success");
+		expect(retry.outcome).toBe(expected);
+		// The retry takes no second credit check, backend, or first turn.
+		expect(createCount()).toBe(1);
+		if (expected === "success") {
+			expect(retry.answerText).toBe(first.answerText);
+		}
+	});
+
+	// Two calls with one requestKey at the same time: the second insert hits the primary key.
+	it.each([
+		{ visible: true, expected: "CREATE_IN_PROGRESS" },
+		{ visible: false, expected: "REQUEST_KEY_REUSED" },
+	])("a unique violation answers $expected when the caller can open the project: $visible", async ({
+		visible,
+		expected,
+	}) => {
+		const target = handlerFor(replayTools("still running", { visible }).tools);
+
+		const outcome = await outcomeOf(
+			[...mcpScopes],
+			"create_project",
+			CREATE_PROJECT_INPUT,
+			target,
+		);
+		await target.close();
+
+		expect(outcome).toBe(expected);
+	});
+
+	// Money: the project goes into the team that the agent named, so the team pool pays, not the personal pool.
+	it("a team Editor creates the project in the team", async () => {
+		const owners: (string | null)[] = [];
+		const target = handlerFor(
+			toolsWith({
+				appProjects: {
+					create: async (scope, _body, request) => {
+						if (request.ids === undefined) {
+							return notReached();
+						}
+						owners.push(scope.kind === "org" ? scope.organizationId : null);
+						return { ...request.ids, turnId: TURN_ID };
+					},
+					get: notReached,
+				},
+			}),
+		);
+
+		const outcome = await outcomeOf(
+			[...mcpScopes],
+			"create_project",
+			{ ...CREATE_PROJECT_INPUT, workspaceId: "org-team" },
+			target,
+		);
+		await target.close();
+
+		expect(outcome).toBe("success");
+		expect(owners).toEqual(["org-team"]);
+	});
+
+	// Security: another user or another client with the same requestKey must never reach the same project.
+	it("derives other ids for another user and another client", async () => {
+		const ids: string[] = [];
+		const tools = toolsWith({
+			appProjects: {
+				create: async (_scope, _body, request) => {
+					if (request.ids === undefined) {
+						return notReached();
+					}
+					ids.push(request.ids.projectId, request.ids.chatId);
+					return { ...request.ids, turnId: TURN_ID };
+				},
+				get: notReached,
+			},
+		});
+		const calls: McpCallContext[] = [
+			CALL,
+			{ ...CALL, userId: "user-3" },
+			{ ...CALL, clientId: "https://chatgpt.com/oauth/codex-client-metadata" },
+		];
+
+		for (const call of calls) {
+			const target = handlerFor(tools, call);
+			expect(
+				await outcomeOf(
+					[...mcpScopes],
+					"create_project",
+					CREATE_PROJECT_INPUT,
+					target,
+				),
+			).toBe("success");
+			await target.close();
+		}
+
+		expect(new Set(ids).size).toBe(6);
+		expect(ids.every((id) => uuidSchema.safeParse(id).success)).toBe(true);
 	});
 });

@@ -23,6 +23,7 @@ function makeUser(overrides: Partial<AdminUserSummary> = {}): AdminUserSummary {
 		createdAt: "2026-08-01T09:30:00.000Z",
 		lastSeenAt: "2026-08-15T18:00:00.000Z",
 		plan: "pro",
+		isPaidOwner: true,
 		creditsBalance: 240.87,
 		creditsConsumed: 760.45,
 		projectsCount: 3,

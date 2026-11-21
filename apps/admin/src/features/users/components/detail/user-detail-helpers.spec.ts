@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	subscriptionPriceUsd,
-	subscriptionTierLabel,
-} from "./user-detail-helpers";
+import { subscriptionPriceUsd } from "./user-detail-helpers";
 
 describe("subscription pricing helpers", () => {
-	it("prices and labels a yearly Starter subscription", () => {
+	it("prices a yearly Starter subscription", () => {
 		const subscription = {
 			plan: "starter",
 			tierCredits: 60,
@@ -14,7 +11,6 @@ describe("subscription pricing helpers", () => {
 		} as const;
 
 		expect(subscriptionPriceUsd(subscription)).toBe(90);
-		expect(subscriptionTierLabel(subscription)).toBe("60 credits/mo · $90/yr");
 	});
 
 	it("keeps legacy Pro tier pricing visible", () => {

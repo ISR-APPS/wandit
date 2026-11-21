@@ -64,6 +64,8 @@ export type ProductSettings = z.infer<typeof productSettingsSchema>;
 /** The settings that the web reads before sign-in. The route is public: put no secret here. */
 export const publicSettingsSchema = productSettingsSchema
 	.pick({
+		// Always false since pricing v8 (no plans). Kept because cached web and
+		// native bundles parse it.
 		paidSubscriptionsEnabled: true,
 		topupsEnabled: true,
 		signupGrantEnabled: true,
@@ -74,7 +76,7 @@ export const publicSettingsSchema = productSettingsSchema
 		emailAuthEnabled: true,
 		// Public: the web shows/hides the "cash / transfer" tab in the plan picker.
 		manualPaymentsEnabled: true,
-		// Public: the web computes the effective access-end date for manual plans.
+		// No reader since pricing v8. Kept because cached web bundles parse it.
 		manualGraceDays: true,
 		// Public: the web resolves the V2 builder switch together with the
 		// PostHog flag `v2-builder`.
@@ -101,18 +103,18 @@ export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 /**
  * Body of the admin PATCH. `version` is the optimistic lock: a stale value gets a 409.
  * A new field must also be in the `.refine` list, or a body with only that field gets a 400.
+ * Pricing v8 removes paidSubscriptionsEnabled and manualGraceDays. Their columns stay.
+ * An old admin bundle that sends them gets the keys stripped, so such a patch fails the refine.
  */
 export const patchProductSettingsBodySchema = z
 	.object({
 		signupGrantEnabled: z.boolean().optional(),
 		signupGrantCredits: z.int().positive().optional(),
-		paidSubscriptionsEnabled: z.boolean().optional(),
 		topupsEnabled: z.boolean().optional(),
 		organizationsEnabled: z.boolean().optional(),
 		emailAuthEnabled: z.boolean().optional(),
 		lifecycleEmailsEnabled: z.boolean().optional(),
 		manualPaymentsEnabled: z.boolean().optional(),
-		manualGraceDays: z.int().min(0).max(30).optional(),
 		dzdPerUsdRate: dzdPerUsdRateSchema.optional(),
 		v2BuilderEnabled: z.boolean().optional(),
 		// The full new list, not a diff. The admin route also refuses an id with no price row.
@@ -127,13 +129,11 @@ export const patchProductSettingsBodySchema = z
 		(settings) =>
 			settings.signupGrantEnabled !== undefined ||
 			settings.signupGrantCredits !== undefined ||
-			settings.paidSubscriptionsEnabled !== undefined ||
 			settings.topupsEnabled !== undefined ||
 			settings.organizationsEnabled !== undefined ||
 			settings.emailAuthEnabled !== undefined ||
 			settings.lifecycleEmailsEnabled !== undefined ||
 			settings.manualPaymentsEnabled !== undefined ||
-			settings.manualGraceDays !== undefined ||
 			settings.dzdPerUsdRate !== undefined ||
 			settings.v2BuilderEnabled !== undefined ||
 			settings.v2DisabledModels !== undefined ||

@@ -61,9 +61,13 @@ function setup(options: {
 	subscription: SubscriptionRow;
 	paymentIntentIds: string[];
 	amountRefundedMinor: number;
-	/** A live personal manual (SlickPay or offline) subscription of the user. */
-	offlineSubscription?: SubscriptionRow;
+	/** Paid time of the newest SlickPay or offline receipt of the personal pool. */
+	offlinePaidAt?: Date;
+	/** Latest paid Stripe plan invoice. Default: `invoiceRow`. `null`: the user has none. */
+	latestInvoice?: InvoiceApplicationRow | null;
 }) {
+	const latestInvoice =
+		options.latestInvoice === undefined ? invoiceRow : options.latestInvoice;
 	const stripe = {
 		cancelSubscriptionNow: vi.fn(
 			async (_providerSubscriptionId: string, _idempotencyKey: string) =>
@@ -95,16 +99,17 @@ function setup(options: {
 	const service = new AdminUserRefundsService(
 		{
 			findInvoiceApplication: vi.fn(async () => invoiceRow),
-			findLatestPaidPersonalStripeInvoice: vi.fn(async () => ({
-				invoice: invoiceRow,
-				subscription: options.subscription,
-			})),
-		},
-		{
-			findActiveByOwnerAndProvider: vi.fn(
-				async () => options.offlineSubscription ?? null,
+			findLatestPaidPersonalStripeInvoice: vi.fn(async () =>
+				latestInvoice === null
+					? null
+					: { invoice: latestInvoice, subscription: options.subscription },
 			),
-			findById: vi.fn(async () => options.subscription),
+		},
+		{ findById: vi.fn(async () => options.subscription) },
+		{
+			findLatestPersonalOfflinePaidAt: vi.fn(
+				async () => options.offlinePaidAt ?? null,
+			),
 		},
 		stripe,
 	);
@@ -113,19 +118,43 @@ function setup(options: {
 }
 
 describe("AdminUserRefundsService.preview", () => {
-	it("offers no Stripe payment to a user on a live SlickPay or offline plan", async () => {
+	// The Stripe invoice of the fixture is paid at 2026-10-01T00:00:00Z and applied 5 s later.
+	it.each([
+		[
+			"newer than the Stripe payment",
+			true,
+			"2026-10-01T00:00:01.000Z",
+			invoiceRow,
+		],
+		[
+			"older than the Stripe payment",
+			false,
+			"2026-09-30T23:59:59.000Z",
+			invoiceRow,
+		],
+		["with no Stripe invoice", true, "2026-09-30T23:59:59.000Z", null],
+		[
+			"older than the apply time of an invoice with no paid_at",
+			false,
+			"2026-10-01T00:00:03.000Z",
+			{ ...invoiceRow, paidAt: null },
+		],
+	])("a SlickPay or offline receipt %s -> paidOffline %s", async (_label, paidOffline, offlinePaidAt, latestInvoice) => {
 		const { service, stripe } = setup({
 			amountRefundedMinor: 0,
-			offlineSubscription: subscriptionRow({ provider: "manual" }),
+			latestInvoice,
+			offlinePaidAt: new Date(offlinePaidAt),
 			paymentIntentIds: ["pi_1"],
 			subscription: subscriptionRow({ status: "canceled" }),
 		});
 
-		await expect(service.preview(USER_ID)).resolves.toEqual({
-			paidOffline: true,
-			payment: null,
-		});
-		expect(stripe.listInvoicePayments).not.toHaveBeenCalled();
+		const preview = await service.preview(USER_ID);
+
+		expect(preview.paidOffline).toBe(paidOffline);
+		expect(preview.payment === null).toBe(paidOffline);
+		expect(stripe.listInvoicePayments).toHaveBeenCalledTimes(
+			paidOffline ? 0 : 1,
+		);
 	});
 });
 

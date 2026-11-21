@@ -1,3 +1,7 @@
+/**
+ * Side sheet with the full detail of one offline request: contact, asked top-up, notes, handling.
+ * Opened from the request queue. Reads useManualRequestQuery.
+ */
 import { Link } from "@tanstack/react-router";
 import { PrinterIcon, RefreshCwIcon } from "lucide-react";
 import type { PropsWithChildren } from "react";
@@ -14,14 +18,17 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useManualRequestQuery } from "@/features/offline-billing/api/offline-billing.queries";
 import {
+	formatRequestedTopup,
 	MANUAL_COUNTRY_LABELS,
 	MANUAL_PAYMENT_METHOD_LABELS,
+	suggestedTopupCredits,
 } from "@/features/offline-billing/lib/offline-billing";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
+import { formatCreditAmount } from "@/lib/credit-format";
 
 import { ManualRequestStatusBadge } from "./offline-billing-badges";
 
@@ -153,15 +160,12 @@ function ManualRequestDetailSheetContent({
 							</DetailItem>
 						</DetailSection>
 
-						<DetailSection title="Requested plan">
-							<DetailItem label="Plan">
-								<span className="capitalize">{request.plan}</span>
+						<DetailSection title="Requested top-up">
+							<DetailItem label="Asked">
+								{formatRequestedTopup(request)}
 							</DetailItem>
-							<DetailItem label="Credit tier">
-								{request.tierCredits.toLocaleString("en-US")} credits / month
-							</DetailItem>
-							<DetailItem label="Interval">
-								{request.interval === "month" ? "Monthly" : "Yearly"}
+							<DetailItem label="Suggested credits">
+								{formatSuggestedCredits(suggestedTopupCredits(request))}
 							</DetailItem>
 							<DetailItem label="Preferred method">
 								{request.preferredPaymentMethod
@@ -271,4 +275,11 @@ function NoteBlock({ label, value }: { label: string; value: string | null }) {
 			</p>
 		</section>
 	);
+}
+
+/** "250 credits", or "Type the credits" when the request has no USD value. */
+function formatSuggestedCredits(credits: number | null): string {
+	return credits === null
+		? "Type the credits"
+		: `${formatCreditAmount(credits)} credits`;
 }

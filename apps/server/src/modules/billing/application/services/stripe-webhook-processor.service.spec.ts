@@ -10,7 +10,6 @@ import {
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type { WebhookOrderReconciler } from "../../domain/ports/webhook-order-reconciler.port";
 import type { WebhookOrderRefundHandler } from "../../domain/ports/webhook-order-refund-handler.port";
-import type { BillingChangeIntentsRepository } from "../../infrastructure/persistence/billing-change-intents.repository";
 import type {
 	BillingCheckoutAttemptRow,
 	BillingCheckoutAttemptsRepository,
@@ -34,7 +33,6 @@ import type {
 	UpsertSubscriptionInput,
 } from "../../infrastructure/persistence/subscriptions.repository";
 import type { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
-import { BillingService } from "./billing.service";
 import { PaymentRefundsService } from "./payment-refunds.service";
 import {
 	type StripeEventRouteResult,
@@ -620,7 +618,9 @@ class FakeCheckoutAttemptsRepository {
 		userId?: string;
 	}) {
 		const row = {
+			amountUsdCents: null,
 			createdAt: new Date(0),
+			credits: null,
 			id: input.id,
 			organizationId: null,
 			packId: input.packId ?? null,
@@ -653,23 +653,6 @@ class FakeSubscriptionCreditsRepository {
 			fn(this.transactionClient),
 	);
 
-	readonly findCanonicalEntitledByOwner = vi.fn(async (owner: CreditOwner) => {
-		return (
-			this.subscriptions
-				.allRows()
-				.filter(
-					(row) =>
-						(owner.type === "user"
-							? row.userId === owner.userId && row.organizationId === null
-							: row.organizationId === owner.organizationId) &&
-						["active", "trialing"].includes(row.status),
-				)
-				.sort(
-					(left, right) => right.updatedAt.getTime() - left.updatedAt.getTime(),
-				)[0] ?? null
-		);
-	});
-
 	readonly findSubscriptionByProviderId = vi.fn(
 		async (providerSubscriptionId: string) =>
 			this.subscriptions.row(providerSubscriptionId) ?? null,
@@ -687,20 +670,6 @@ class FakeSubscriptionCreditsRepository {
 			[...this.applications.values()]
 				.reverse()
 				.find((row) => row.subscriptionId === subscriptionId) ?? null,
-	);
-
-	readonly findCycleAtOrAfter = vi.fn(
-		async (subscriptionId: string, periodEnd: Date) =>
-			[...this.applications.values()]
-				.filter(
-					(row) =>
-						row.subscriptionId === subscriptionId &&
-						row.billingReason === "subscription_cycle" &&
-						row.periodEnd.getTime() >= periodEnd.getTime(),
-				)
-				.sort(
-					(left, right) => right.periodEnd.getTime() - left.periodEnd.getTime(),
-				)[0] ?? null,
 	);
 
 	readonly insertInvoiceApplication = vi.fn(
@@ -810,12 +779,6 @@ class FakeSubscriptionCreditsRepository {
 	refillSlots() {
 		return [...this.slots];
 	}
-}
-
-class FakeBillingChangeIntentsRepository {
-	readonly withUserLock = vi.fn(
-		async <T>(_userId: string, fn: (tx: unknown) => Promise<T>) => fn({}),
-	);
 }
 
 class FakeBillingCreditLedgerRepository {
@@ -943,15 +906,6 @@ class FakeBillingCreditLedgerRepository {
 }
 
 class FakeCreditsService {
-	readonly applyCappedRefill = vi.fn(async () => ({
-		carriedCredits: 0,
-		expiredCredits: 0,
-		grant: {},
-		preRefillPlanBalance: 0,
-		replayed: false,
-	}));
-	readonly expireAmount = vi.fn(async () => 0);
-	readonly expirePlanRemainder = vi.fn(async () => 0);
 	readonly getBalance = vi.fn(async () => ({
 		balance: 0,
 		plan: 0,
@@ -1080,7 +1034,6 @@ function setup(
 	const subscriptionCreditsRepository = new FakeSubscriptionCreditsRepository(
 		subscriptions,
 	);
-	const changeIntents = new FakeBillingChangeIntentsRepository();
 	const billingCreditLedger = new FakeBillingCreditLedgerRepository();
 	const credits = new FakeCreditsService();
 	const paymentProvider = new FakePaymentProvider();
@@ -1137,24 +1090,6 @@ function setup(
 		{ insertIfAbsent: vi.fn(async () => null) } as never,
 		lifecycleEvents as never,
 	);
-	const billingService = new BillingService(
-		billingCustomers as unknown as BillingCustomersRepository,
-		subscriptions as unknown as SubscriptionsRepository,
-		credits as unknown as CreditsService,
-		paymentProvider as unknown as PaymentProvider,
-		{} as never,
-		subscriptionSync,
-		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
-		changeIntents as unknown as BillingChangeIntentsRepository,
-		{
-			findByOrganizationId: async () => null,
-			setOpenCheckoutSessionId: async () => undefined,
-		} as never,
-		{
-			get: async () => ({ organizationsEnabled: false }),
-		} as never,
-		{} as never,
-	);
 	const router = new StripeEventRouter(
 		billingCustomers as unknown as BillingCustomersRepository,
 		{
@@ -1177,8 +1112,6 @@ function setup(
 		analytics,
 		billingCreditLedger,
 		billingCustomers,
-		billingService,
-		changeIntents,
 		checkoutAttempts,
 		credits,
 		lifecycleEvents,
@@ -2291,6 +2224,7 @@ describe("StripeEventRouter subscription synchronization", () => {
 			credits,
 			paymentProvider,
 			processor,
+			subscriptionCreditsRepository,
 			subscriptions,
 			webhookEvents,
 		} = setup();
@@ -2326,21 +2260,11 @@ describe("StripeEventRouter subscription synchronization", () => {
 		]);
 		expect(webhookEvents.statusOf(`evt_${eventType}`)).toBe("processed");
 
-		if (eventType === "customer.subscription.deleted") {
-			expect(credits.expirePlanRemainder).toHaveBeenCalledWith(
-				userOwner("user_1"),
-				{
-					idempotencyKey: `subdel:${providerSubscription.id}`,
-					meta: {
-						providerSubscriptionId: providerSubscription.id,
-						reason: "subscription_ended",
-					},
-				},
-				expect.anything(),
-			);
-		} else {
-			expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
-		}
+		// Pricing v8 (I5): no sync event, the deletion included, changes credits or slots.
+		expect(credits.grant).not.toHaveBeenCalled();
+		expect(
+			subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
+		).not.toHaveBeenCalled();
 	});
 
 	it("marks malformed non-string subscription customers failed and rethrows", async () => {
@@ -2448,7 +2372,7 @@ describe("StripeEventRouter invoice allowlist", () => {
 });
 
 describe("SubscriptionCreditsService invoice policy", () => {
-	it("keeps a recognized paid invoice retryable when its entitled mirror cannot be resolved", async () => {
+	it("keeps a recognized paid invoice retryable when no local subscription row exists", async () => {
 		const { processor, stripe, webhookEvents } = setup();
 		const invoice = stripeInvoice({
 			billingReason: "subscription_cycle",
@@ -2463,7 +2387,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			processor.process(
 				paidInvoiceEvent(invoice.id, "evt_missing_entitled_mirror"),
 			),
-		).rejects.toThrow("cannot resolve subscription sub_not_canonical");
+		).rejects.toThrow("has no local subscription row for sub_not_canonical");
 		expect(webhookEvents.statusOf("evt_missing_entitled_mirror")).toBe(
 			"failed",
 		);
@@ -2681,7 +2605,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 	});
 
-	it("applies one rollover-capped refill on a subscription cycle", async () => {
+	it("grants one plain plan allotment on a subscription cycle", async () => {
 		const { credits, paymentProvider, processor, stripe } = setup();
 		paymentProvider.seedSubscriptions("cus_1", [
 			stripeSubscription({
@@ -2700,10 +2624,11 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_cycle"));
 
-		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
+		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
 			50_000,
 			expect.objectContaining({
+				bucket: "plan",
 				idempotencyKey: "inv:in_cycle:grant",
 				meta: expect.objectContaining({
 					invoiceId: "in_cycle",
@@ -2712,11 +2637,9 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			}),
 			expect.anything(),
 		);
-		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
-	it("records but does not reapply a stale subscription cycle replay", async () => {
+	it("grants a late cycle invoice of an older period (I4)", async () => {
 		const { credits, processor, stripe, subscriptionCreditsRepository } =
 			setup();
 		await subscriptionCreditsRepository.seedApplication({
@@ -2741,13 +2664,12 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			paidInvoiceEvent(staleInvoice.id, "evt_stale_cycle"),
 		);
 
-		expect(credits.applyCappedRefill).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
+		expect(credits.grant).toHaveBeenCalledOnce();
 		expect(
 			subscriptionCreditsRepository.application(staleInvoice.id),
 		).toMatchObject({
 			billingReason: "subscription_cycle",
-			creditsDelta: 0,
+			creditsDelta: 25_000,
 		});
 	});
 
@@ -2807,8 +2729,6 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			}),
 			expect.anything(),
 		);
-		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
-		expect(credits.expireAmount).not.toHaveBeenCalled();
 	});
 
 	it("does not mutate credits for a same-interval downgrade invoice", async () => {
@@ -2852,13 +2772,10 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_downgrade"));
 
-		expect(credits.applyCappedRefill).not.toHaveBeenCalled();
-		expect(credits.expireAmount).not.toHaveBeenCalled();
 		expect(credits.grant).not.toHaveBeenCalled();
-		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
 	});
 
-	it("uses a capped refill and replaces yearly slots for a monthly-to-yearly update", async () => {
+	it("grants a plain allotment and replaces yearly slots for a monthly-to-yearly update", async () => {
 		const {
 			credits,
 			paymentProvider,
@@ -2899,10 +2816,11 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_interval"));
 
-		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
+		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
 			25_000,
 			expect.objectContaining({
+				bucket: "plan",
 				idempotencyKey: "inv:in_interval:grant",
 				meta: expect.objectContaining({
 					invoiceId: "in_interval",
@@ -2911,40 +2829,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			}),
 			expect.anything(),
 		);
-		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 		expect(subscriptionCreditsRepository.refillSlots()).toHaveLength(11);
-	});
-
-	it("expires plan credits when a subscription is deleted", async () => {
-		const { credits, paymentProvider, processor } = setup();
-		const subscription = stripeSubscription({
-			id: "sub_deleted",
-			lookupKey: "pro_250_month",
-			status: "canceled",
-			userId: "user_1",
-		});
-		paymentProvider.seedSubscriptions("cus_1", [subscription]);
-
-		await processor.process(
-			stripeEvent(
-				"customer.subscription.deleted",
-				subscription as unknown as Record<string, unknown>,
-				"evt_deleted",
-			),
-		);
-
-		expect(credits.expirePlanRemainder).toHaveBeenCalledWith(
-			userOwner("user_1"),
-			{
-				idempotencyKey: "subdel:sub_deleted",
-				meta: {
-					providerSubscriptionId: "sub_deleted",
-					reason: "subscription_ended",
-				},
-			},
-			expect.anything(),
-		);
 	});
 
 	it("keeps plan credits when a duplicate subscription deletion leaves an entitled mirror", async () => {
@@ -2990,12 +2875,8 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		expect(subscriptions.row(canonical.id)?.status).toBe("active");
 		expect(
 			subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(
-			subscriptions.row(deleted.id)?.id,
-			{ reason: "ownership" },
-			expect.anything(),
-		);
-		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
+		).not.toHaveBeenCalled();
+		expect(credits.grant).not.toHaveBeenCalled();
 	});
 });
 

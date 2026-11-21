@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => {
 	const modelPrices = vi.fn();
 	const reconciliation = vi.fn();
 	const reconcileRetries = vi.fn();
-	const refills = vi.fn();
 	const reservations = vi.fn();
 	const settledWithoutRefs = vi.fn();
 	const signup = vi.fn();
@@ -49,7 +48,6 @@ const mocks = vi.hoisted(() => {
 		createModelPrices: vi.fn(() => ({
 			modelPricing: { refreshFromGateway: modelPrices },
 		})),
-		createRefills: vi.fn(() => ({ refills: { sweepDueSlots: refills } })),
 		createSignup: vi.fn(() => ({ outbox: { sweep: signup } })),
 		createWebhooks: vi.fn(() => ({
 			retry: { retryEvent: webhookEvent, sweep: webhookSweep },
@@ -62,7 +60,6 @@ const mocks = vi.hoisted(() => {
 		queue: vi.fn((definition: unknown) => definition),
 		reconciliation,
 		reconcileRetries,
-		refills,
 		reservations,
 		settledWithoutRefs,
 		scheduledTask: vi.fn((definition: unknown) => definition),
@@ -95,7 +92,6 @@ vi.mock("./billing-maintenance.runtime", () => ({
 	createFinancialReconciliationRuntime: mocks.createFinancialReconciliation,
 	createModelPriceRefreshRuntime: mocks.createModelPrices,
 	createSignupGrantRuntime: mocks.createSignup,
-	createSubscriptionRefillRuntime: mocks.createRefills,
 }));
 vi.mock("./metering.runtime", () => ({
 	createTriggerMetering: mocks.createMetering,
@@ -112,7 +108,6 @@ import {
 	billingWebhookRetryEventTask,
 	billingWebhookRetrySweepTask,
 } from "./retry-billing-webhooks.task";
-import { subscriptionRefillSweepTask } from "./subscription-refill.task";
 import { financialReconciliationSweepTask } from "./sweep-financial-reconciliation.task";
 import {
 	signupGrantDeliveryTask,
@@ -138,7 +133,6 @@ type CapturedTask = {
 	ttl?: string;
 };
 
-const refill = subscriptionRefillSweepTask as unknown as CapturedTask;
 const metering = meteringReconciliationSweepTask as unknown as CapturedTask;
 const recovery = strandedMeteringRecoveryTask as unknown as CapturedTask;
 const affiliate =
@@ -157,12 +151,6 @@ const context = { ctx: { run: { id: "run_billing" } } };
 describe("billing Trigger maintenance tasks", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.refills.mockResolvedValue({
-			canceled: 0,
-			failed: 0,
-			granted: 2,
-			skipped: 1,
-		});
 		mocks.reconciliation.mockResolvedValue({
 			failed: 0,
 			pending: 1,
@@ -218,9 +206,8 @@ describe("billing Trigger maintenance tasks", () => {
 		mocks.attribution.mockResolvedValue({ id: "attribution_1" });
 	});
 
-	it("declares the eight exact UTC schedules and bounded queues", () => {
+	it("declares the seven exact UTC schedules and bounded queues", () => {
 		expect([
-			[refill.id, refill.cron, refill.ttl],
 			[financial.id, financial.cron, financial.ttl],
 			[metering.id, metering.cron, metering.ttl],
 			[recovery.id, recovery.cron, recovery.ttl],
@@ -229,11 +216,6 @@ describe("billing Trigger maintenance tasks", () => {
 			[signupSweep.id, signupSweep.cron, signupSweep.ttl],
 			[prices.id, prices.cron, prices.ttl],
 		]).toEqual([
-			[
-				"subscription-refill-sweep",
-				{ pattern: "*/10 * * * *", timezone: "UTC" },
-				"9m",
-			],
 			[
 				"financial-reconciliation-outbox-sweep",
 				{ pattern: "*/10 * * * *", timezone: "UTC" },
@@ -267,11 +249,10 @@ describe("billing Trigger maintenance tasks", () => {
 			["model-price-refresh", { pattern: "0 * * * *", timezone: "UTC" }, "59m"],
 		]);
 
-		expect(refill.queue).toMatchObject({
+		expect(financial.queue).toMatchObject({
 			concurrencyLimit: 1,
 			name: "billing-financial-maintenance",
 		});
-		expect(financial.queue).toBe(refill.queue);
 		expect(metering.queue).toMatchObject({
 			concurrencyLimit: 1,
 			name: "metering-maintenance",
@@ -296,15 +277,11 @@ describe("billing Trigger maintenance tasks", () => {
 		});
 	});
 
-	it("runs refill and batched reconciliation without per-event fan-out", async () => {
-		await expect(refill.run({ timestamp }, context)).resolves.toMatchObject({
-			granted: 2,
-		});
+	it("runs batched reconciliation without per-event fan-out", async () => {
 		await expect(metering.run({ timestamp }, context)).resolves.toMatchObject({
 			settled: { reconciled: 4 },
 		});
 
-		expect(mocks.refills).toHaveBeenCalledWith(timestamp, 1_000);
 		expect(mocks.reconciliation).toHaveBeenCalledWith(
 			new Date("2026-08-02T11:59:00.000Z"),
 			500,
@@ -317,7 +294,7 @@ describe("billing Trigger maintenance tasks", () => {
 			new Date("2026-08-02T11:30:00.000Z"),
 			100,
 		);
-		expect(mocks.close).toHaveBeenCalledTimes(2);
+		expect(mocks.close).toHaveBeenCalledTimes(1);
 	});
 
 	it("drains the financial reconciliation outbox and fails loudly when rows stay pending", async () => {
@@ -455,7 +432,7 @@ describe("billing Trigger maintenance tasks", () => {
 			throw failure;
 		});
 
-		await expect(refill.run({ timestamp }, context)).rejects.toBe(failure);
+		await expect(financial.run({ timestamp }, context)).rejects.toBe(failure);
 		expect(mocks.createDb).not.toHaveBeenCalled();
 		expect(mocks.close).not.toHaveBeenCalled();
 	});

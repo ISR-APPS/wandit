@@ -1,12 +1,11 @@
 /**
  * Shows offline requests and admin actions on the billing page.
- * Uses request queries, mutations, and the billing dialogs.
+ * Uses request queries, mutations, the note dialog, and the "Record top-up" dialog.
  */
 import { Link } from "@tanstack/react-router";
 import { OPEN_MANUAL_REQUEST_STATUSES } from "@wandit/contracts";
 import {
 	BanIcon,
-	CalendarXIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
 	EllipsisIcon,
@@ -70,22 +69,22 @@ import type {
 import { useUpdateManualRequestMutation } from "@/features/offline-billing/api/offline-billing.mutations";
 import { useManualRequestsQuery } from "@/features/offline-billing/api/offline-billing.queries";
 import {
+	formatRequestedTopup,
 	MANUAL_COUNTRY_LABELS,
 	MANUAL_PAYMENT_METHOD_LABELS,
 	MANUAL_REQUEST_STATUS_LABELS,
 } from "@/features/offline-billing/lib/offline-billing";
+import { isPlanManualRequest } from "@/features/offline-billing/lib/receipt";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
-import { EndManualSubscriptionDialog } from "./end-manual-subscription-dialog";
-import { GrantManualSubscriptionDialog } from "./grant-manual-subscription-dialog";
 import { ManualRequestDetailSheet } from "./manual-request-detail-sheet";
 import { ManualRequestNoteDialog } from "./manual-request-note-dialog";
 import { ManualRequestStatusBadge } from "./offline-billing-badges";
-import { RenewManualSubscriptionDialog } from "./renew-manual-subscription-dialog";
+import { RecordTopupDialog } from "./record-topup-dialog";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE = 25;
@@ -243,7 +242,7 @@ export function ManualRequestsTable() {
 											<TableHead>Contact</TableHead>
 											<TableHead>User</TableHead>
 											<TableHead>Workspace</TableHead>
-											<TableHead>Plan</TableHead>
+											<TableHead>Asked</TableHead>
 											<TableHead>Location & method</TableHead>
 											<TableHead>Created</TableHead>
 											<TableHead>Status</TableHead>
@@ -301,10 +300,8 @@ export function ManualRequestsTable() {
 													)}
 												</TableCell>
 												<TableCell>
-													<p className="text-sm capitalize">
-														{request.plan} ·{" "}
-														{request.tierCredits.toLocaleString("en-US")} ·{" "}
-														{request.interval}
+													<p className="text-sm">
+														{formatRequestedTopup(request)}
 													</p>
 													{request.currentSubscription ? (
 														<Badge variant="outline" className="mt-1">
@@ -409,14 +406,7 @@ export function ManualRequestsTable() {
 	);
 }
 
-type RequestActionDialog =
-	| "grant"
-	| "renew"
-	| "end"
-	| "note"
-	| "reject"
-	| "cancel"
-	| null;
+type RequestActionDialog = "topup" | "note" | "reject" | "cancel" | null;
 
 function ManualRequestActions({
 	request,
@@ -435,10 +425,6 @@ function ManualRequestActions({
 	const canAct = OPEN_MANUAL_REQUEST_STATUSES.some(
 		(status) => status === request.status,
 	);
-	const currentManualSubscription =
-		request.currentSubscription?.provider === "manual"
-			? request.currentSubscription
-			: null;
 
 	async function setStatus(
 		status: (typeof OPEN_MANUAL_REQUEST_STATUSES)[number],
@@ -484,8 +470,9 @@ function ManualRequestActions({
 							<EyeIcon />
 							View details
 						</DropdownMenuItem>
-						<DropdownMenuItem asChild>
-							{request.subscriptionId ? (
+						{/* Printed receipts exist for old plan payments and old plan requests only. */}
+						{request.subscriptionId ? (
+							<DropdownMenuItem asChild>
 								<Link
 									to="/offline-billing/$subscriptionId/receipt"
 									params={{ subscriptionId: request.subscriptionId }}
@@ -495,7 +482,9 @@ function ManualRequestActions({
 									<PrinterIcon />
 									Print receipt
 								</Link>
-							) : (
+							</DropdownMenuItem>
+						) : isPlanManualRequest(request) ? (
+							<DropdownMenuItem asChild>
 								<Link
 									to="/offline-billing/requests/$requestId/receipt"
 									params={{ requestId: request.id }}
@@ -505,8 +494,8 @@ function ManualRequestActions({
 									<PrinterIcon />
 									Print receipt
 								</Link>
-							)}
-						</DropdownMenuItem>
+							</DropdownMenuItem>
+						) : null}
 						{/* Support and admins record the call outcome on an open request. */}
 						{canUpdateRequest && canAct ? (
 							<DropdownMenuSub>
@@ -532,22 +521,10 @@ function ManualRequestActions({
 								</DropdownMenuSubContent>
 							</DropdownMenuSub>
 						) : null}
-						{canManage && canAct && currentManualSubscription ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
+						{canManage && canAct ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("topup")}>
 								<HandCoinsIcon />
-								Renew current subscription
-							</DropdownMenuItem>
-						) : null}
-						{canManage && canAct && currentManualSubscription ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("end")}>
-								<CalendarXIcon />
-								End current subscription…
-							</DropdownMenuItem>
-						) : null}
-						{canManage && canAct && !request.currentSubscription ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("grant")}>
-								<HandCoinsIcon />
-								Approve & grant
+								Record top-up
 							</DropdownMenuItem>
 						) : null}
 						{canUpdateRequest ? (
@@ -583,49 +560,14 @@ function ManualRequestActions({
 			</DropdownMenu>
 
 			{canManage ? (
-				<GrantManualSubscriptionDialog
-					open={activeDialog === "grant"}
-					onOpenChange={(open) => setActiveDialog(open ? "grant" : null)}
+				<RecordTopupDialog
+					open={activeDialog === "topup"}
+					onOpenChange={(open) => setActiveDialog(open ? "topup" : null)}
 					prefill={{
 						user: request.user,
 						organization: request.organization ?? undefined,
-						plan: request.plan,
-						tierCredits: request.tierCredits,
-						interval: request.interval,
-						requestId: request.id,
-						adminNotes: request.adminNotes,
+						request,
 					}}
-				/>
-			) : null}
-			{canManage && currentManualSubscription ? (
-				<RenewManualSubscriptionDialog
-					subscription={{
-						id: currentManualSubscription.id,
-						plan: currentManualSubscription.plan,
-						interval: currentManualSubscription.interval,
-						tierCredits: currentManualSubscription.tierCredits,
-						currentPeriodEnd: currentManualSubscription.currentPeriodEnd,
-						entitled:
-							currentManualSubscription.status === "active" ||
-							currentManualSubscription.status === "trialing",
-						ownerLabel: request.organization?.name ?? request.fullName,
-					}}
-					requested={{
-						plan: request.plan,
-						interval: request.interval,
-						tierCredits: request.tierCredits,
-					}}
-					requestId={request.id}
-					open={activeDialog === "renew"}
-					onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
-				/>
-			) : null}
-			{canManage && currentManualSubscription ? (
-				<EndManualSubscriptionDialog
-					subscriptionId={currentManualSubscription.id}
-					ownerLabel={request.organization?.name ?? request.fullName}
-					open={activeDialog === "end"}
-					onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
 				/>
 			) : null}
 			{canUpdateRequest ? (
