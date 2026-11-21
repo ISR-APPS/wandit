@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Eelgrass Trust",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#112c27",
+			"foreground": "#e5ede0",
+			"primary": "#83d9af"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "manrope",
+		"displayFont": "lora",
+		"scale": "md",
+		"radius": "sm",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f0fbf9",
+			"foreground": "#092520",
+			"card": "#ffffff",
+			"cardForeground": "#092520",
+			"popover": "#ffffff",
+			"popoverForeground": "#092520",
+			"primary": "#499f78",
+			"primaryForeground": "#04160d",
+			"secondary": "#deeae7",
+			"secondaryForeground": "#092520",
+			"muted": "#e5f0ee",
+			"mutedForeground": "#576b67",
+			"accent": "#d9f5e6",
+			"accentForeground": "#092520",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d1dedb",
+			"input": "#bdccc8",
+			"ring": "#499f78",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#e8f3f0",
+			"shadowColor": "#0c2722"
+		},
+		"dark": {
+			"background": "#092520",
+			"foreground": "#e5ede0",
+			"card": "#112c27",
+			"cardForeground": "#e5ede0",
+			"popover": "#16312c",
+			"popoverForeground": "#e5ede0",
+			"primary": "#83d9af",
+			"primaryForeground": "#04160d",
+			"secondary": "#1d362f",
+			"secondaryForeground": "#e5ede0",
+			"muted": "#17312b",
+			"mutedForeground": "#9eab9e",
+			"accent": "#193729",
+			"accentForeground": "#e5ede0",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#253d36",
+			"input": "#314840",
+			"ring": "#83d9af",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#031d19",
+			"shadowColor": "#000202"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Manrope",
+				"href": "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Lora",
+				"href": "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

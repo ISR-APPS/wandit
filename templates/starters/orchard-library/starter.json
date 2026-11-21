@@ -1,0 +1,35 @@
+{
+	"id": "orchard-library",
+	"removed": [],
+	"theme": {
+		"name": "Orchard Library",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f4d865",
+				"foreground": "#372149",
+				"primary": "#5c2b71"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "lexend",
+			"displayFont": "bricolage-grotesque",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

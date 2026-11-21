@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Paper Kite",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#f8edcb",
+			"foreground": "#302746",
+			"primary": "#aa371c"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "nunito",
+		"displayFont": "fredoka",
+		"scale": "md",
+		"radius": "xl",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f7edd0",
+			"foreground": "#302746",
+			"card": "#f8f4e5",
+			"cardForeground": "#302746",
+			"popover": "#f8f4e5",
+			"popoverForeground": "#302746",
+			"primary": "#aa371c",
+			"primaryForeground": "#ffffff",
+			"secondary": "#ecdcc0",
+			"secondaryForeground": "#302746",
+			"muted": "#f0e2c6",
+			"mutedForeground": "#7c5861",
+			"accent": "#f8dad2",
+			"accentForeground": "#302746",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#e5d0b6",
+			"input": "#d8bda7",
+			"ring": "#aa371c",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#eee5c7",
+			"shadowColor": "#231d33"
+		},
+		"dark": {
+			"background": "#191304",
+			"foreground": "#f2f0f9",
+			"card": "#201a09",
+			"cardForeground": "#f2f0f9",
+			"popover": "#241f0e",
+			"popoverForeground": "#f2f0f9",
+			"primary": "#af3c21",
+			"primaryForeground": "#ffffff",
+			"secondary": "#2e2416",
+			"secondaryForeground": "#f2f0f9",
+			"muted": "#271f10",
+			"mutedForeground": "#b0a3aa",
+			"accent": "#371b15",
+			"accentForeground": "#f2f0f9",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#362b1e",
+			"input": "#43362b",
+			"ring": "#af3c21",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#120d01",
+			"shadowColor": "#030200"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Nunito",
+				"href": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Fredoka",
+				"href": "https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

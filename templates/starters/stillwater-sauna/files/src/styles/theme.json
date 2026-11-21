@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Stillwater",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#172927",
+			"foreground": "#f4eee1",
+			"primary": "#ccdfbc"
+		},
+		"mode": "dark",
+		"primary": "look",
+		"font": "karla",
+		"displayFont": "newsreader",
+		"scale": "md",
+		"radius": "md",
+		"border": "1",
+		"shadow": "sm",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f0fbfa",
+			"foreground": "#112321",
+			"card": "#ffffff",
+			"cardForeground": "#112321",
+			"popover": "#ffffff",
+			"popoverForeground": "#112321",
+			"primary": "#849675",
+			"primaryForeground": "#0d1406",
+			"secondary": "#deeae9",
+			"secondaryForeground": "#112321",
+			"muted": "#e5f0ef",
+			"mutedForeground": "#5c6b69",
+			"accent": "#e5f2da",
+			"accentForeground": "#112321",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#d2dedc",
+			"input": "#becbc9",
+			"ring": "#849675",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#e8f3f1",
+			"shadowColor": "#142523"
+		},
+		"dark": {
+			"background": "#112321",
+			"foreground": "#f4eee1",
+			"card": "#182a28",
+			"cardForeground": "#f4eee1",
+			"popover": "#1d2f2d",
+			"popoverForeground": "#f4eee1",
+			"primary": "#ccdfbc",
+			"primaryForeground": "#0d1406",
+			"secondary": "#243530",
+			"secondaryForeground": "#f4eee1",
+			"muted": "#1e2f2c",
+			"mutedForeground": "#a9ac9e",
+			"accent": "#28351c",
+			"accentForeground": "#f4eee1",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#2b3c37",
+			"input": "#374740",
+			"ring": "#ccdfbc",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#0a1c1a",
+			"shadowColor": "#000202"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Karla",
+				"href": "https://fonts.googleapis.com/css2?family=Karla:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Newsreader",
+				"href": "https://fonts.googleapis.com/css2?family=Newsreader:wght@400;500;600;700;800&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

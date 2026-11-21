@@ -1,0 +1,33 @@
+{
+	"id": "passline-kitchen",
+	"removed": [],
+	"theme": {
+		"name": "Passline",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "miel"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "md",
+			"radius": "lg",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "contrast",
+			"activeItem": "pill",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "fill",
+			"navIcon": "plain"
+		}
+	}
+}

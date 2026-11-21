@@ -1,0 +1,33 @@
+{
+	"id": "sentry-access",
+	"removed": [],
+	"theme": {
+		"name": "Sentry Access",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "carbone"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "sm",
+			"radius": "none",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "outline",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "regular",
+			"navIcon": "plain"
+		}
+	}
+}

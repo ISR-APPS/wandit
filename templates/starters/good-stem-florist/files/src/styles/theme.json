@@ -1,0 +1,110 @@
+{
+	"version": 1,
+	"origin": "host",
+	"name": "Good Stem",
+	"selection": {
+		"source": {
+			"kind": "seeds",
+			"background": "#f7eee0",
+			"foreground": "#452c48",
+			"primary": "#793d64"
+		},
+		"mode": "light",
+		"primary": "look",
+		"font": "hanken-grotesk",
+		"displayFont": "lora",
+		"scale": "md",
+		"radius": "lg",
+		"border": "1",
+		"shadow": "none",
+		"shadowStyle": "soft",
+		"content": "full",
+		"sidebarStyle": "inset",
+		"sidebarCollapse": "icons",
+		"sidebarStart": "open",
+		"sidebarTone": "canvas",
+		"activeItem": "block",
+		"header": "blur",
+		"userMenu": "sidebar-footer",
+		"frame": "outlined",
+		"icons": "regular",
+		"navIcon": "soft"
+	},
+	"resolved": {
+		"light": {
+			"background": "#f7eee0",
+			"foreground": "#3c233f",
+			"card": "#faf5ee",
+			"cardForeground": "#3c233f",
+			"popover": "#faf5ee",
+			"popoverForeground": "#3c233f",
+			"primary": "#793d64",
+			"primaryForeground": "#ffffff",
+			"secondary": "#ebded0",
+			"secondaryForeground": "#3c233f",
+			"muted": "#efe4d5",
+			"mutedForeground": "#7b5b5e",
+			"accent": "#f5dbea",
+			"accentForeground": "#3c233f",
+			"destructive": "#cc272e",
+			"destructiveForeground": "#ffffff",
+			"border": "#e2d3c5",
+			"input": "#d4c0b4",
+			"ring": "#793d64",
+			"success": "#007e46",
+			"warning": "#a46311",
+			"info": "#196ea9",
+			"canvas": "#efe6d8",
+			"shadowColor": "#2b1b2d"
+		},
+		"dark": {
+			"background": "#191309",
+			"foreground": "#f6eff7",
+			"card": "#201a0f",
+			"cardForeground": "#f6eff7",
+			"popover": "#251e14",
+			"popoverForeground": "#f6eff7",
+			"primary": "#8c4e75",
+			"primaryForeground": "#ffffff",
+			"secondary": "#2c241b",
+			"secondaryForeground": "#f6eff7",
+			"muted": "#261f16",
+			"mutedForeground": "#b0a4a7",
+			"accent": "#331b2a",
+			"accentForeground": "#f6eff7",
+			"destructive": "#f75c61",
+			"destructiveForeground": "#1d0c0b",
+			"border": "#352b23",
+			"input": "#413730",
+			"ring": "#8c4e75",
+			"success": "#5ccb89",
+			"warning": "#f0ba59",
+			"info": "#6bbaf0",
+			"canvas": "#120c04",
+			"shadowColor": "#030100"
+		},
+		"fonts": {
+			"sans": {
+				"family": "Hanken Grotesk",
+				"href": "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+			},
+			"display": {
+				"family": "Lora",
+				"href": "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap"
+			},
+			"arabicSans": {
+				"family": "Tajawal",
+				"href": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"
+			},
+			"arabicDisplay": {
+				"family": "Changa",
+				"href": "https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700;800&display=swap"
+			}
+		},
+		"voice": {
+			"headingWeight": 600,
+			"headingTracking": "snug",
+			"numerals": "sans"
+		}
+	}
+}

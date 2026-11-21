@@ -1,0 +1,131 @@
+/* Styles the public home page of this starter.
+   The landing component imports these layout and typography rules. */
+
+.lichen {
+	background: var(--background);
+	color: var(--foreground);
+	min-height: 100svh;
+	font: 1rem / 1.5 var(--font-sans);
+}
+.lichen header,
+.lichen-controls,
+.lichen-field {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 1rem;
+	padding: 1.05rem 4vw;
+	border-block-end: 1px solid currentcolor;
+}
+.lichen header > a {
+	font:
+		bold 1.4rem / 1 ui-monospace,
+		monospace;
+	letter-spacing: -0.09em;
+}
+.lichen nav,
+.lichen-controls > fieldset {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem;
+	align-items: center;
+}
+.lichen nav {
+	gap: 1.5rem;
+}
+.lichen-main {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+.lichen-controls h1,
+.lichen-controls button,
+.lichen-field label {
+	font:
+		0.8rem / 1.2 ui-monospace,
+		monospace;
+}
+.lichen-controls button {
+	border: 1px solid currentcolor;
+	padding: 0.45rem 0.8rem;
+	cursor: pointer;
+}
+.lichen-controls button[aria-pressed="true"] {
+	background: var(--primary-foreground);
+	color: var(--primary);
+}
+.lichen-test {
+	display: grid;
+	align-items: center;
+	min-height: 28rem;
+	margin: 0;
+	padding: 3rem 4vw;
+	font-size: clamp(3.7rem, 13vw, 14rem);
+	letter-spacing: -0.085em;
+	line-height: 0.9;
+	overflow-wrap: anywhere;
+}
+.lichen-field {
+	justify-content: flex-start;
+	border-block-start: 1px solid currentcolor;
+}
+.lichen-field input {
+	border: 1px solid currentcolor;
+	padding: 0.4rem 0.65rem;
+	min-width: 0;
+	flex: 1 1 240px;
+	font-family: ui-monospace, monospace;
+}
+.lichen-family {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	border-block-end: 1px solid currentcolor;
+}
+.lichen-family article {
+	padding: 2rem 4vw;
+}
+.lichen-family article + article {
+	border-inline-start: 1px solid currentcolor;
+}
+.lichen-family article > p:first-child {
+	font-size: clamp(3rem, 7vw, 6rem);
+	line-height: 1;
+	letter-spacing: -0.09em;
+}
+.lichen-family article:nth-child(2) > p:first-child {
+	font-family: var(--font-display);
+}
+.lichen-family article:nth-child(3) > p:first-child {
+	font-family: ui-monospace, monospace;
+}
+.lichen-family h2 {
+	font-weight: 750;
+	margin-block: 0.7rem 0.2rem;
+}
+.lichen-license {
+	padding: 3rem 4vw;
+}
+.lichen-license h2 {
+	font-family: var(--font-display);
+	font-size: clamp(2rem, 6vw, 4.5rem);
+	letter-spacing: -0.055em;
+}
+.lichen-license p {
+	margin-block: 0.5rem 1.5rem;
+}
+.lichen a:hover {
+	text-decoration: underline;
+	text-underline-offset: 0.24em;
+}
+@media (max-width: 600px) {
+	.lichen-test {
+		min-height: 21rem;
+	}
+	.lichen-family {
+		grid-template-columns: 1fr;
+	}
+	.lichen-family article + article {
+		border-inline-start: 0;
+		border-block-start: 1px solid currentcolor;
+	}
+}

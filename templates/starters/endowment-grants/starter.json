@@ -1,0 +1,33 @@
+{
+	"id": "endowment-grants",
+	"removed": [],
+	"theme": {
+		"name": "Endowment",
+		"selection": {
+			"source": {
+				"kind": "look",
+				"look": "lin"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "look",
+			"displayFont": "look",
+			"scale": "lg",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "classic",
+			"sidebarCollapse": "rail",
+			"sidebarStart": "open",
+			"sidebarTone": "tint",
+			"activeItem": "bar",
+			"header": "plain",
+			"userMenu": "header",
+			"frame": "flat",
+			"icons": "thin",
+			"navIcon": "plain"
+		}
+	}
+}

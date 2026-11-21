@@ -1,0 +1,35 @@
+{
+	"id": "lichen-type",
+	"removed": [],
+	"theme": {
+		"name": "Lichen Type",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f5f1df",
+				"foreground": "#27291f",
+				"primary": "#c6db56"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "space-grotesk",
+			"displayFont": "cormorant",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

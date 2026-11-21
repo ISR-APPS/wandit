@@ -1,0 +1,35 @@
+{
+	"id": "strata-museum",
+	"removed": [],
+	"theme": {
+		"name": "Strata",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#141a16",
+				"foreground": "#ede8d8",
+				"primary": "#d1a968"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "ibm-plex-sans",
+			"displayFont": "cormorant-garamond",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

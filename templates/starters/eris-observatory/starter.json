@@ -1,0 +1,35 @@
+{
+	"id": "eris-observatory",
+	"removed": [],
+	"theme": {
+		"name": "Eris Observatory",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#16182d",
+				"foreground": "#f0edf6",
+				"primary": "#bbc0f5"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "manrope",
+			"displayFont": "unbounded",
+			"scale": "md",
+			"radius": "md",
+			"border": "1",
+			"shadow": "sm",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

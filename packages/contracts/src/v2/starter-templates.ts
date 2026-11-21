@@ -1,7 +1,7 @@
 /**
  * Vocabulary of the V2 starter templates: the kinds, the categories, and the entry schema.
  * The `/templates` search schema reads it. The entries are in `starter-template-catalog.ts`,
- * so a page that reads only these lists does not load the 50 entries.
+ * so a page that reads only these lists does not load the catalog entries.
  * `src/index.ts` exports it, so the web entry gets these short lists from the barrel it already loads.
  */
 import { z } from "zod";

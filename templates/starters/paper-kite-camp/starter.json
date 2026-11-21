@@ -1,0 +1,35 @@
+{
+	"id": "paper-kite-camp",
+	"removed": [],
+	"theme": {
+		"name": "Paper Kite",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#f8edcb",
+				"foreground": "#302746",
+				"primary": "#aa371c"
+			},
+			"mode": "light",
+			"primary": "look",
+			"font": "nunito",
+			"displayFont": "fredoka",
+			"scale": "md",
+			"radius": "xl",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}

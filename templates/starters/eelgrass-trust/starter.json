@@ -1,0 +1,35 @@
+{
+	"id": "eelgrass-trust",
+	"removed": [],
+	"theme": {
+		"name": "Eelgrass Trust",
+		"selection": {
+			"source": {
+				"kind": "seeds",
+				"background": "#112c27",
+				"foreground": "#e5ede0",
+				"primary": "#83d9af"
+			},
+			"mode": "dark",
+			"primary": "look",
+			"font": "manrope",
+			"displayFont": "lora",
+			"scale": "md",
+			"radius": "sm",
+			"border": "1",
+			"shadow": "none",
+			"shadowStyle": "soft",
+			"content": "full",
+			"sidebarStyle": "inset",
+			"sidebarCollapse": "icons",
+			"sidebarStart": "open",
+			"sidebarTone": "canvas",
+			"activeItem": "block",
+			"header": "blur",
+			"userMenu": "sidebar-footer",
+			"frame": "outlined",
+			"icons": "regular",
+			"navIcon": "soft"
+		}
+	}
+}
