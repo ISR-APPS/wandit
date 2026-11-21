@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { askUserKindSchema, worldCardSchema } from "../v1/ai-chat";
+import { aiErrorKindSchema } from "../v1/ai-errors";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
@@ -356,8 +357,13 @@ export const turnErrorDataSchema = z.object({
 	retryable: z.boolean(),
 	// The mode of the failed turn. The stored reply has no other place for it,
 	// and Retry sends a failed `security_scan` turn as a scan again.
-	// Absent on rows stored before it and on errors the relay makes.
+	// Absent on rows stored before it and when the turn spec has no valid mode.
 	mode: builderTurnModeSchema.optional(),
+	// The classified AI error kind. The web shows the `errors.ai.<kind>` sentence in the user's language.
+	// Absent on a stop, on rows stored before it, and on errors the relay makes.
+	kind: aiErrorKindSchema.optional(),
+	// Display name of the provider, for example "Anthropic". Fills `{provider}` in the sentence.
+	providerLabel: z.string().nullable().optional(),
 });
 
 /** Inferred from `turnErrorDataSchema`; `retryable` tells the UI whether a resend can help. */

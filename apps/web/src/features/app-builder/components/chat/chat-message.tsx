@@ -28,6 +28,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
 	builderTurnStatusSchema,
 	DAILY_CAP_TURN_ERROR_CODE,
+	type TurnErrorData,
 } from "@wandit/contracts";
 import { findStarterTemplate } from "@wandit/contracts/v2/starter-template-catalog";
 import { env } from "@wandit/env/web";
@@ -458,21 +459,7 @@ function MessagePartView({
 						aria-hidden
 					/>
 					<div className="min-w-0">
-						<p>
-							{/* A limit stop shows a sentence in the user's language; the
-							server text is English. The daily cap names its reset time. */}
-							{part.data.code === DAILY_CAP_TURN_ERROR_CODE
-								? t("appBuilder.chat.errors.dailyCap")
-								: part.data.code ===
-										builderTurnStatusSchema.enum.stopped_no_credits
-									? t("appBuilder.chat.errors.noCredits")
-									: part.data.code ===
-											builderTurnStatusSchema.enum.stopped_project_cap
-										? t("appBuilder.chat.errors.projectCap")
-										: t("appBuilder.chat.turnError", {
-												message: part.data.message,
-											})}
-						</p>
+						<p>{turnErrorText(part.data, t)}</p>
 						{onRetry ? (
 							<Button
 								variant="outline"
@@ -565,6 +552,49 @@ function MessagePartView({
 		default:
 			return null;
 	}
+}
+
+type Translate = ReturnType<typeof useTranslation>["t"];
+
+/**
+ * The sentence of a turn error card, in the user's language. The server text
+ * is English, so the card shows it only when no local sentence fits.
+ */
+function turnErrorText(error: TurnErrorData, t: Translate): string {
+	// A limit stop has its own sentence. The daily cap names its reset time.
+	if (error.code === DAILY_CAP_TURN_ERROR_CODE) {
+		return t("appBuilder.chat.errors.dailyCap");
+	}
+	if (error.code === builderTurnStatusSchema.enum.stopped_no_credits) {
+		return t("appBuilder.chat.errors.noCredits");
+	}
+	if (error.code === builderTurnStatusSchema.enum.stopped_project_cap) {
+		return t("appBuilder.chat.errors.projectCap");
+	}
+	// The run deadline of the server (55 min). The work stays, so the sentence asks for Continue.
+	if (error.code === "turn_timeout") {
+		return t("appBuilder.chat.errors.turnTimeout");
+	}
+	// A stall is our watchdog, not the provider: `errors.ai.timeout` blames the provider.
+	if (error.code === builderTurnStatusSchema.enum.stalled) {
+		return t("errors.ai.timeout_budget");
+	}
+	// `billing` has no `errors.ai` sentence. The connector sentences need a
+	// connector name, and a builder turn calls no connector.
+	if (
+		error.kind === undefined ||
+		error.kind === "billing" ||
+		error.kind === "connector_unreachable" ||
+		error.kind === "connector_account" ||
+		error.kind === "connector_rejected"
+	) {
+		return t("appBuilder.chat.turnError", { message: error.message });
+	}
+	return t(`errors.ai.${error.kind}`, {
+		provider:
+			error.providerLabel?.trim() ||
+			t("appBuilder.chat.errors.providerFallback"),
+	});
 }
 
 /**

@@ -1,6 +1,7 @@
 /**
  * Admin settings card for the product switches and their amounts.
  * The amounts are the signup grant, the offline grace days, and the user referral rewards.
+ * It also holds the list of V2 builder models that ops turn off during a provider incident.
  * The settings page renders it. It calls the product-settings mutation.
  */
 import {
@@ -11,6 +12,7 @@ import {
 } from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
+	BanIcon,
 	CalendarClockIcon,
 	GiftIcon,
 	Loader2Icon,
@@ -226,6 +228,7 @@ export function ProductControlsCard({
 	const [graceSubmitted, setGraceSubmitted] = useState(false);
 	const [pendingNumericSetting, setPendingNumericSetting] =
 		useState<NumericSettingKey | null>(null);
+	const [isSavingDisabledModels, setIsSavingDisabledModels] = useState(false);
 	const [conflict, setConflict] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isReloading, setIsReloading] = useState(false);
@@ -376,6 +379,30 @@ export function ProductControlsCard({
 			handleMutationError(error, () => setConflict(true));
 		} finally {
 			setPendingNumericSetting(null);
+		}
+	}
+
+	async function saveDisabledModels(modelIds: string[]) {
+		setErrorMessage(null);
+		setIsSavingDisabledModels(true);
+
+		try {
+			await mutation.mutateAsync({
+				v2DisabledModels: modelIds,
+				version: settings.version,
+			});
+			toast.success("Disabled V2 models updated.");
+		} catch (error) {
+			// The server answers 400 for an id with no price row. Its body only says "Validation failed".
+			if (isApiClientError(error) && error.status === 400) {
+				setErrorMessage(
+					"One model id has no price row. Copy the ids from the builder model list, for example google/gemini-4-neon.",
+				);
+				return;
+			}
+			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setIsSavingDisabledModels(false);
 		}
 	}
 
@@ -656,6 +683,13 @@ export function ProductControlsCard({
 					</FieldGroup>
 				</form>
 
+				<DisabledModelsForm
+					savedModelIds={settings.v2DisabledModels}
+					isLocked={mutation.isPending || conflict || !canManage}
+					isSaving={isSavingDisabledModels}
+					onSave={(modelIds) => void saveDisabledModels(modelIds)}
+				/>
+
 				{USER_REFERRAL_CREDIT_FIELDS.map((field) => (
 					<UserReferralCreditsForm
 						key={field.key}
@@ -840,6 +874,100 @@ function UserReferralCreditsForm({
 							? `Enter a whole number of credits from 1 to ${USER_REFERRAL_CREDITS_MAX.toLocaleString()}.`
 							: null}
 					</FieldError>
+				</Field>
+			</FieldGroup>
+		</form>
+	);
+}
+
+type DisabledModelsFormProps = {
+	/** `v2DisabledModels` in the settings row now: gateway model ids such as `google/gemini-4-neon`. */
+	savedModelIds: readonly string[];
+	/** True while a settings save runs, a version conflict shows, or the admin cannot manage settings. */
+	isLocked: boolean;
+	/** True while the save of this list runs. The button then shows a spinner. */
+	isSaving: boolean;
+	/** Gets the full new list, without duplicates. An empty list turns every model on again. */
+	onSave: (modelIds: string[]) => void;
+};
+
+/**
+ * The list of V2 builder models that ops turn off, as one text field.
+ * The builder hides a turned-off tier, and the API refuses a turn on it.
+ */
+function DisabledModelsForm({
+	savedModelIds,
+	isLocked,
+	isSaving,
+	onSave,
+}: DisabledModelsFormProps) {
+	const savedText = savedModelIds.join(", ");
+	const [draftText, setDraftText] = useState(savedText);
+
+	// A save or a reload changes the saved list. The draft then starts again.
+	useEffect(() => {
+		setDraftText(savedText);
+	}, [savedText]);
+
+	// Commas, spaces, and line breaks all separate the ids.
+	const draftModelIds = [
+		...new Set(draftText.split(/[\s,]+/).filter((modelId) => modelId !== "")),
+	];
+	const isChanged = draftModelIds.join(", ") !== savedText;
+
+	function handleSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+
+		if (isLocked || !isChanged) {
+			return;
+		}
+
+		onSave(draftModelIds);
+	}
+
+	return (
+		<form
+			onSubmit={handleSubmit}
+			noValidate
+			className="border-t bg-muted/20 px-5 py-5"
+		>
+			<FieldGroup>
+				<Field className="sm:grid sm:grid-cols-[minmax(0,1fr)_20rem_auto] sm:items-end">
+					<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+						<div className="flex items-center gap-2 font-medium text-sm">
+							<BanIcon aria-hidden="true" />
+							Disabled V2 models
+						</div>
+						<FieldDescription id="v2-disabled-models-description">
+							Model ids to turn off during a provider incident, separated by
+							commas. New turns on them fail within 30 seconds. The builder
+							hides their tier at the next page load. Leave empty to turn every
+							model on.
+						</FieldDescription>
+					</div>
+					<div className="flex flex-col gap-2">
+						<FieldLabel htmlFor="v2-disabled-models">Model ids</FieldLabel>
+						<Input
+							id="v2-disabled-models"
+							placeholder="google/gemini-4-neon"
+							value={draftText}
+							onChange={(event) => setDraftText(event.target.value)}
+							disabled={isLocked}
+							aria-describedby="v2-disabled-models-description"
+						/>
+					</div>
+					<Button type="submit" disabled={isLocked || !isChanged}>
+						{isSaving ? (
+							<Loader2Icon
+								data-icon="inline-start"
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<SaveIcon data-icon="inline-start" aria-hidden="true" />
+						)}
+						{isSaving ? "Saving…" : "Save list"}
+					</Button>
 				</Field>
 			</FieldGroup>
 		</form>

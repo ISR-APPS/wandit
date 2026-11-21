@@ -344,16 +344,26 @@ function isSandboxNotFound(error: unknown): boolean {
 }
 
 /**
- * A 4xx answer from the vendor. A create from a deleted snapshot gets one;
- * the vendor does not document which code.
+ * A 4xx answer from the vendor, except a 429. A create from a deleted
+ * snapshot gets one; the vendor does not document which code.
  */
 function isVendorClientError(error: unknown): boolean {
 	return (
 		error instanceof APIError &&
 		error.response.status >= 400 &&
-		error.response.status < 500
+		error.response.status < 500 &&
+		// A 429 is a rate limit, not a refused snapshot. An image boot then
+		// asks for the same vCPUs again and gets a 429 too.
+		error.response.status !== 429
 	);
 }
+
+/**
+ * The waits between the boot attempts of `start`, 30 s in all. The SDK
+ * retries for about 1.2 s only, and gives up at once on a Retry-After above
+ * 20 s. The vendor asks a rate-limited caller to retry shortly.
+ */
+const BOOT_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000] as const;
 
 /**
  * True when the workspace repository has uncommitted changes. False when it
@@ -810,6 +820,44 @@ export class VercelSandboxProvider implements SandboxProvider {
 	}
 
 	/**
+	 * The vendor `getOrCreate` of `start`, tried again after a 429 or a 5xx.
+	 * When the last attempt fails the same way, the error gets the code
+	 * `sandbox_unavailable`. The builder turn writes it as the failure code.
+	 */
+	private async bootWithRetry(
+		projectId: string,
+		params: VercelGetOrCreateParams,
+	): Promise<VercelSandboxInstance> {
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return await this.sdk.getOrCreate(params);
+			} catch (error) {
+				// Only a 429 rate limit or a 5xx can pass on a later attempt.
+				if (
+					!(error instanceof APIError) ||
+					(error.response.status !== 429 && error.response.status < 500)
+				) {
+					throw error;
+				}
+				const delayMs = BOOT_RETRY_DELAYS_MS[attempt];
+				if (delayMs === undefined) {
+					// The turn catch reads `code`. Without it, a vendor outage counts as our bug.
+					throw Object.assign(error, { code: "sandbox_unavailable" });
+				}
+				this.logger.warn("sandbox.lifecycle.boot-retry", {
+					attempt: String(attempt + 1),
+					delayMs: String(delayMs),
+					projectId,
+					status: String(error.response.status),
+				});
+				await new Promise<void>((resolve) => {
+					setTimeout(resolve, delayMs);
+				});
+			}
+		}
+	}
+
+	/**
 	 * The shared get/resume flow: the vendor `getOrCreate` resumes a stopped
 	 * sandbox, no-ops on a live one, and creates — firing `onCreate` — when
 	 * the named sandbox is gone (`not_found` or an expired snapshot).
@@ -906,7 +954,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 		} satisfies VercelGetOrCreateParams;
 		let sandbox: VercelSandboxInstance;
 		try {
-			sandbox = await this.sdk.getOrCreate(
+			sandbox = await this.bootWithRetry(
+				projectId,
 				templateSnapshotId === null
 					? { ...bootParams, image }
 					: {
@@ -926,7 +975,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 				snapshotId: templateSnapshotId,
 			});
 			templateSnapshotId = null;
-			sandbox = await this.sdk.getOrCreate({ ...bootParams, image });
+			sandbox = await this.bootWithRetry(projectId, { ...bootParams, image });
 		}
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);

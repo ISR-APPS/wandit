@@ -25,8 +25,8 @@ export const LLM_PROXY_TOKEN_TTL_SECONDS = 65 * 60;
 export type LlmProxyTokenClaimsInput = Omit<LlmProxyTokenClaims, "exp">;
 
 /**
- * Thrown for every token problem: malformed, bad signature, bad claims, or
- * expired. One class keeps token detail out of the HTTP answer.
+ * Thrown for every token problem: malformed, bad signature, or bad claims.
+ * One class keeps token detail out of the HTTP answer.
  */
 export class LlmProxyTokenError extends Error {
 	override readonly name = "LlmProxyTokenError";
@@ -75,15 +75,27 @@ export function mintLlmProxyToken(
 }
 
 /**
+ * A token with a valid signature and valid claims. An expired token still
+ * comes back, so the caller must check `isExpired`.
+ */
+export type VerifiedLlmProxyToken = {
+	claims: LlmProxyTokenClaims;
+	/** True when `claims.exp` is now or in the past. */
+	isExpired: boolean;
+};
+
+/**
  * Verifies a `payload.signature` token against every configured key and
- * returns its claims. Throws `LlmProxyTokenError` on any failure; throws
- * `ServiceUnavailableException` when no signing key is configured.
+ * returns its claims. Throws `LlmProxyTokenError` on a malformed token, a
+ * bad signature, or bad claims; throws `ServiceUnavailableException` when no
+ * signing key is configured. Expiry does not throw: `LlmProxyService`
+ * accepts an expired token for a chat with a live binding.
  */
 export function verifyLlmProxyToken(
 	token: string,
 	envLike: LlmProxyEnv,
 	nowSeconds: number = Math.floor(Date.now() / 1000),
-): LlmProxyTokenClaims {
+): VerifiedLlmProxyToken {
 	const keys = signingKeys(envLike);
 
 	// base64url never contains ".", so exactly one dot means well formed.
@@ -115,8 +127,5 @@ export function verifyLlmProxyToken(
 	if (!parsed.success) {
 		throw new LlmProxyTokenError("Invalid run token claims");
 	}
-	if (parsed.data.exp <= nowSeconds) {
-		throw new LlmProxyTokenError("Run token expired");
-	}
-	return parsed.data;
+	return { claims: parsed.data, isExpired: parsed.data.exp <= nowSeconds };
 }

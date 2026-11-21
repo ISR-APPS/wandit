@@ -28,8 +28,23 @@ Custom domains work only in production. Staging and production use the same wand
 These limits are still lifted. Restore them before V2 goes to production.
 
 - Model picks: every priced model runs on every plan. Restore a plan rule
-  for model picks: the turn check (`assertPickableModel`) and the token
+  for model picks: the turn check (`resolvePickableModel`) and the token
   `model` in the LLM proxy.
+- Set `V2_DEFAULT_MODEL=deepseek/deepseek-v4.1-flash-1017` (Standard) on the
+  API, the Trigger worker, and harness-host. A send with no model runs this
+  default. Today it is Opus 5.5, about 13 times the cost of Standard.
+
+## Turn off one model (provider incident)
+
+Use this when one tier fails for many users, for example a Google outage.
+
+1. In the admin app, open Product controls. In "Disabled models", type the
+   model id, for example `google/gemini-4-hydrogen`. Save.
+2. In about 1 minute, the web model menu hides that tier. A user who picked
+   it moves to the first tier that stays visible.
+3. A new turn on that model gets 400 `V2_MODEL_DENIED`. A running turn gets
+   403 `V2_MODEL_DISABLED` from the LLM proxy on its next model call.
+4. When the provider is healthy again, remove the id and save.
 
 ## Harness host deploys (audit P0-05)
 

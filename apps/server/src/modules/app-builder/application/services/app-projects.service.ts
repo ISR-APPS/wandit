@@ -28,6 +28,7 @@ import {
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	type CreateProjectChatResponse,
+	type ProductSettings,
 	type ProjectChatListResponse,
 	type ProjectCostCaps,
 	type TurnErrorData,
@@ -57,6 +58,7 @@ import {
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { ProductSettingsService } from "../../../settings";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { starterTemplateNoteMessage } from "../../domain/starter-template-note";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
@@ -72,8 +74,8 @@ import { TemplateVersionService } from "../../infrastructure/template/template-v
 import { TriggerApplyStarterTemplateTaskStarter } from "../../infrastructure/trigger/trigger-apply-starter-template-task-starter";
 import { BackendsService } from "./backends.service";
 import {
-	assertPickableModel,
 	HARNESS_BY_ENV,
+	resolvePickableModel,
 	TURN_HOLD_DEFAULT_CREDITS,
 	TurnsService,
 } from "./turns.service";
@@ -169,6 +171,11 @@ export class AppProjectsService {
 			TriggerApplyStarterTemplateTaskStarter,
 			"start"
 		>,
+		/** `v2DisabledModels` of the create check. `get` caches the row 30 s. */
+		@Inject(ProductSettingsService)
+		private readonly settings: {
+			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
+		},
 		/** Nest passes nothing, so the API gets the catalog and the archive folder. */
 		@Optional()
 		private readonly starterTemplates: StarterTemplateSource = STARTER_TEMPLATE_SOURCE,
@@ -191,11 +198,13 @@ export class AppProjectsService {
 		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
 		assertWanditHostedAttachments(scope.actorUserId, body.attachments);
-		// Before any row: an unpriced pick must not leave a project whose
-		// first turn already failed.
-		if (body.model !== undefined) {
-			assertPickableModel(body.model);
-		}
+		// Before any row: an unpriced or disabled model must not leave a project
+		// whose first turn already failed.
+		const model = resolvePickableModel(
+			body.model,
+			this.v2Env.V2_DEFAULT_MODEL ?? null,
+			(await this.settings.get()).v2DisabledModels,
+		);
 
 		await this.assertPayerHasCredits(scope);
 
@@ -218,7 +227,7 @@ export class AppProjectsService {
 				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,
-				model: body.model ?? this.v2Env.V2_DEFAULT_MODEL ?? null,
+				model,
 				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},

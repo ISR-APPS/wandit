@@ -25,6 +25,8 @@ function defaultRow(
 		...DEFAULT_PRODUCT_SETTINGS,
 		// Legacy DB column: still on the row, no longer a product setting.
 		earlyAccessRequired: false,
+		// Column default; DEFAULT_PRODUCT_SETTINGS leaves it to the database.
+		v2DisabledModels: [],
 		updatedAt: INITIAL_DATE,
 		updatedByUserId: null,
 		...overrides,
@@ -151,6 +153,7 @@ describe("ProductSettingsService", () => {
 			userReferralPaidCredits: 10_000,
 			userReferralsEnabled: false,
 			v2BuilderEnabled: false,
+			v2DisabledModels: [],
 			version: 1,
 		});
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(1);
