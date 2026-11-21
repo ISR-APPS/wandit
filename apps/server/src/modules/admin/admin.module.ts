@@ -12,6 +12,7 @@ import { AuditEventsRepository } from "../app-builder/infrastructure/persistence
 import { DesktopBuildsRepository } from "../app-builder/infrastructure/persistence/desktop-builds.repository";
 import { BillingWebhookEventsRepository } from "../billing/infrastructure/persistence/billing-webhook-events.repository";
 import { PaidOwnerRepository } from "../billing/infrastructure/persistence/paid-owner.repository";
+import { StarterPassesRepository } from "../billing/infrastructure/persistence/starter-passes.repository";
 import { TriggerBillingWebhookDispatcherService } from "../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { CreditsModule } from "../credits/credits.module";
 import { DomainsModule } from "../domains/domains.module";
@@ -125,6 +126,8 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		// The organization detail shows the paid state of the pool. BillingModule does not export it.
 		PaidOwnerRepository,
 		PublicationSuspensionService,
+		// The user and organization routes read, grant, and revoke the Starter pass. It needs only DATABASE.
+		StarterPassesRepository,
 		TriggerBillingWebhookDispatcherService,
 	],
 })

@@ -197,13 +197,22 @@ function setup(
 			return 1;
 		}),
 	};
+	// Like the unique index on the provider reference: the first insert returns the row, a replay returns null.
+	const receiptReferences = new Set<string>();
 	const receipts = {
-		insertIfAbsent: vi.fn(async () => {
+		insertIfAbsent: vi.fn(async (receipt: { providerReference: string }) => {
 			order.push("write-receipt");
 
-			return null;
+			if (receiptReferences.has(receipt.providerReference)) {
+				return null;
+			}
+
+			receiptReferences.add(receipt.providerReference);
+
+			return { id: `receipt:${receipt.providerReference}` };
 		}),
 	};
+	const starterPasses = { grantIfAbsent: vi.fn(async () => null) };
 	const service = new SubscriptionCreditsService(
 		customers as unknown as BillingCustomersRepository,
 		{} as never,
@@ -217,6 +226,7 @@ function setup(
 		reconciliationOutbox as never,
 		receipts as never,
 		lifecycleEvents as unknown as LifecycleEventsService,
+		starterPasses,
 	);
 
 	return {
@@ -230,6 +240,7 @@ function setup(
 		reconciliationOutbox,
 		refunds,
 		service,
+		starterPasses,
 		stripe,
 		subscriptionCreditsRepository,
 	};
@@ -356,6 +367,22 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		expect(credits.topup).toHaveBeenCalledOnce();
 		expect(attempts.markCompletedBySession).not.toHaveBeenCalled();
+	});
+
+	it("gives the pool its Starter pass with the new receipt, and writes none on a webhook replay", async () => {
+		const { creditTransaction, service, starterPasses } = setup({
+			attempt: checkoutAttempt({ status: "completed" }),
+		});
+
+		await service.grantTopup(checkoutSession());
+		await service.grantTopup(checkoutSession());
+
+		expect(starterPasses.grantIfAbsent).toHaveBeenCalledOnce();
+		expect(starterPasses.grantIfAbsent).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			{ receiptId: "receipt:cs_topup", source: "stripe" },
+			creditTransaction,
+		);
 	});
 
 	it("grants the credits of the attempt row and ignores credits in the session metadata", async () => {

@@ -5,6 +5,8 @@
 import {
 	adminProjectVersionHtmlResponseSchema,
 	adminRoutes,
+	adminStarterPassBodySchema,
+	adminStarterPassResponseSchema,
 	adminUserPagesQuerySchema,
 	adminUserPagesResponseSchema,
 	adminUserProjectsQuerySchema,
@@ -19,11 +21,13 @@ import { apiGet, apiPost, apiPut } from "@/lib/api-client";
 import type {
 	AdminListUsersResponse,
 	AdminProjectVersionHtmlResponse,
+	AdminStarterPass,
 	AdminUserPagesResponse,
 	AdminUserProjectsResponse,
 	AdminUserRefundPreview,
 	AdminUserRefundResult,
 	ChangeUserRoleInput,
+	ChangeUserStarterPassInput,
 	GrantUserCreditsInput,
 	ListUserPagesParams,
 	ListUserProjectsParams,
@@ -170,4 +174,22 @@ export async function refundUser({
 	);
 
 	return adminUserRefundResultSchema.parse(payload);
+}
+
+/** Grants or revokes the Starter pass of the personal pool. Returns the live pass after the call, null after a revoke. */
+export async function changeUserStarterPass({
+	userId,
+	action,
+	note,
+}: ChangeUserStarterPassInput): Promise<AdminStarterPass | null> {
+	const route =
+		action === "grant"
+			? adminRoutes.grantStarterPass(userId)
+			: adminRoutes.revokeStarterPass(userId);
+	const payload = await apiPost<unknown>(
+		route,
+		adminStarterPassBodySchema.parse({ note }),
+	);
+
+	return adminStarterPassResponseSchema.parse(payload).starterPass;
 }

@@ -1,7 +1,8 @@
 /**
- * SlickPay checkout for buyers in Algeria: one DZD card payment buys one wallet top-up.
+ * SlickPay checkout for buyers in Algeria: one DZD card payment buys one wallet top-up, or the Starter pass.
  * SlickpayBillingController calls localPricing, startCheckout, and confirm. The Trigger.dev sweep calls sweep.
- * It calls the SlickPay client, the slickpay_payments repository, CreditsService.topup, and the receipts repository.
+ * It calls the SlickPay client, the slickpay_payments repository, CreditsService, the receipts and Starter pass repositories.
+ * A Starter pass checkout also calls BillingService to close the open card checkouts of the pool.
  */
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
@@ -14,6 +15,7 @@ import {
 	isSlickpayInvoicePaid,
 	type SlickpayCreateInvoiceResponse,
 	type SlickpayPaymentView,
+	STARTER_PASS_USD,
 	type StartSlickpayCheckoutBody,
 	type StartSlickpayCheckoutResponse,
 	TOPUP_CREDITS_PER_USD,
@@ -24,29 +26,43 @@ import { getErrorMessage } from "@wandit/observability/error";
 import { Sentry } from "@wandit/observability/node";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
-import { ownerFromIds } from "../../../credits/domain/credit-owner";
+import {
+	type CreditOwner,
+	ownerFromIds,
+} from "../../../credits/domain/credit-owner";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
 import { WorkspacePermissionDeniedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
+import { BillingCheckoutPendingError } from "../../domain/errors/billing-checkout-pending.error";
 import {
 	SlickpayNotConfiguredError,
 	SlickpayTooManyCheckoutsError,
 	SlickpayUnavailableError,
 } from "../../domain/errors/slickpay.errors";
-import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import {
+	StarterPassNotAvailableError,
+	StarterPassSlickpayOpenError,
+} from "../../domain/errors/starter-pass.errors";
+import {
+	BillingCheckoutAttemptsRepository,
+	type BillingCheckoutAttemptTransaction,
+} from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import {
 	type ManualSubscriptionPaymentRow,
 	ManualSubscriptionPaymentsRepository,
 } from "../../infrastructure/persistence/manual-subscription-payments.repository";
 import {
+	type InsertSlickpayPaymentInput,
 	type SlickpayPaymentChanges,
 	type SlickpayPaymentRow,
 	SlickpayPaymentsRepository,
+	STARTER_PASS_HOLD_MS,
 } from "../../infrastructure/persistence/slickpay-payments.repository";
+import { StarterPassesRepository } from "../../infrastructure/persistence/starter-passes.repository";
 import {
 	SubscriptionCreditsRepository,
 	type SubscriptionCreditsTransaction,
@@ -55,6 +71,7 @@ import {
 	SLICKPAY_CLIENT,
 	type SlickpayClient,
 } from "../../infrastructure/slickpay/slickpay.client";
+import { BillingService, isBlockingTopupAttempt } from "./billing.service";
 
 // Each checkout creates a real SlickPay invoice, so one user gets at most 5 checkouts in 10 minutes.
 const CHECKOUT_LIMIT = 5;
@@ -101,6 +118,7 @@ export class SlickpayPaymentsService {
 			| "claimInvoiceCheck"
 			| "countByUserSince"
 			| "findById"
+			| "findOpenStarterPasses"
 			| "insert"
 			| "listOpen"
 			| "updateIfStatus"
@@ -124,7 +142,10 @@ export class SlickpayPaymentsService {
 			"withOwnerLock"
 		>,
 		@Inject(CreditsService)
-		private readonly credits: Pick<CreditsService, "topup">,
+		private readonly credits: Pick<
+			CreditsService,
+			"getSettledBalance" | "topup"
+		>,
 		@Inject(BillingTopupReceiptsRepository)
 		private readonly receipts: Pick<
 			BillingTopupReceiptsRepository,
@@ -132,33 +153,54 @@ export class SlickpayPaymentsService {
 		>,
 		@Inject(LifecycleEventsService)
 		private readonly lifecycleEvents: Pick<LifecycleEventsService, "enqueue">,
+		// withOwnerLock has the same advisory key as ownerLock, and its transaction type fits findOpenForOwner.
 		@Inject(BillingCheckoutAttemptsRepository)
 		private readonly checkoutAttempts: Pick<
 			BillingCheckoutAttemptsRepository,
-			"withUserLock"
+			"findOpenForOwner" | "withOwnerLock" | "withUserLock"
 		>,
 		@Inject(ProductSettingsService)
 		private readonly productSettings: Pick<ProductSettingsService, "get">,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"grantIfAbsent"
+		>,
+		// A Starter pass checkout closes the open card checkouts of the pool first.
+		@Inject(BillingService)
+		private readonly cardCheckouts: Pick<
+			BillingService,
+			"expireOpenTopupSessions"
+		>,
 	) {}
 
-	/** The answer of GET local-pricing. `countryCode` comes from the edge headers of the visitor request. */
+	/**
+	 * The answer of GET local-pricing. `countryCode` comes from the edge headers of the visitor request.
+	 * `dzdPerUsdRate` goes to every visitor. `slickpay` stays Algeria-only for old cached web bundles.
+	 */
 	async localPricing(
 		countryCode: string | null,
 	): Promise<BillingLocalPricingResponse> {
-		// Product rule: only visitors in Algeria see DZD prices and the SlickPay tab.
-		if (!this.slickpay || countryCode !== "DZ") {
-			return { slickpay: null };
+		if (!this.slickpay) {
+			return { dzdPerUsdRate: null, slickpay: null };
 		}
 
 		const settings = await this.productSettings.get();
+		// product_settings stores centi-DZD: 25000 is 250.00 DZD per 1 USD.
+		const dzdPerUsdRate = settings.dzdPerUsdRate / 100;
 
-		// product_settings stores centi-DZD: 27000 is 270.00 DZD per 1 USD.
-		return { slickpay: { dzdPerUsdRate: settings.dzdPerUsdRate / 100 } };
+		// An old web bundle reads a non-null `slickpay` as "the visitor is in Algeria".
+		return {
+			dzdPerUsdRate,
+			slickpay: countryCode === "DZ" ? { dzdPerUsdRate } : null,
+		};
 	}
 
 	/**
 	 * Inserts a payment row and creates its SlickPay invoice. The web sends the buyer to the answered URL.
 	 * The row stores the credits at checkout, so a later rate change does not change the grant.
+	 * A Starter pass body answers 409 STARTER_PASS_NOT_AVAILABLE when the pool does not need the pass.
+	 * A pool has at most one open Starter pass page: a second Starter pass request of the same buyer gets the same URL.
 	 */
 	async startCheckout(
 		user: Pick<AuthUser, "email" | "id">,
@@ -178,38 +220,41 @@ export class SlickpayPaymentsService {
 			throw new OrganizationsDisabledError();
 		}
 
-		// product_settings stores centi-DZD: 27000 is 270.00 DZD per 1 USD.
-		const amountDzd = dzdPriceFor(body.amountUsd, settings.dzdPerUsdRate / 100);
-		// The ledger counts centi-credits. topupCreditsForUsd gives whole credits.
-		const credits = creditsToCentiCredits(topupCreditsForUsd(body.amountUsd));
-		// The user lock makes the count and the insert one step, so parallel requests cannot pass the limit.
-		const row = await this.checkoutAttempts.withUserLock(
-			user.id,
-			async (tx) => {
-				const recent = await this.payments.countByUserSince(
-					user.id,
-					new Date(Date.now() - CHECKOUT_WINDOW_MS),
-					tx,
-				);
+		const amountUsd = "amountUsd" in body ? body.amountUsd : STARTER_PASS_USD;
+		// product_settings stores centi-DZD: 25000 is 250.00 DZD per 1 USD.
+		const amountDzd = dzdPriceFor(amountUsd, settings.dzdPerUsdRate / 100);
+		const input: InsertSlickpayPaymentInput = {
+			amountDzd,
+			// Whole USD (the parsed body, or STARTER_PASS_USD). The column holds USD cents.
+			amountUsdCents: amountUsd * 100,
+			// The ledger counts centi-credits. topupCreditsForUsd gives whole credits.
+			credits: creditsToCentiCredits(topupCreditsForUsd(amountUsd)),
+			dzdPerUsdRate: settings.dzdPerUsdRate,
+			organizationId,
+			userId: user.id,
+		};
+		let row: SlickpayPaymentRow;
 
-				if (recent >= CHECKOUT_LIMIT) {
-					throw new SlickpayTooManyCheckoutsError();
-				}
+		if ("starterPass" in body) {
+			const owner = ownerFromIds(user.id, organizationId);
+			// Stripe calls stay outside the owner lock: that lock also serializes every debit of the pool.
+			await this.cardCheckouts.expireOpenTopupSessions(owner);
+			const reserved = await this.checkoutAttempts.withOwnerLock(owner, (tx) =>
+				this.reserveStarterPass(owner, input, tx),
+			);
 
-				return this.payments.insert(
-					{
-						amountDzd,
-						// topupAmountUsdSchema parsed whole USD. The column holds USD cents.
-						amountUsdCents: body.amountUsd * 100,
-						credits,
-						dzdPerUsdRate: settings.dzdPerUsdRate,
-						organizationId,
-						userId: user.id,
-					},
-					tx,
-				);
-			},
-		);
+			// The buyer already has an open invoice of this pass. It stays valid, so make no second one.
+			if (reserved.paymentUrl !== null) {
+				return { paymentId: reserved.id, url: reserved.paymentUrl };
+			}
+
+			row = reserved;
+		} else {
+			// The user lock makes the count and the insert one step, so parallel requests cannot pass the limit.
+			row = await this.checkoutAttempts.withUserLock(user.id, (tx) =>
+				this.insertWithinLimit(input, tx),
+			);
+		}
 
 		// SlickPay asks for a first name and a last name. A one-word name goes in both fields.
 		const names = body.fullName.split(/\s+/);
@@ -254,6 +299,83 @@ export class SlickpayPaymentsService {
 		}
 
 		return { paymentId: row.id, url: invoice.url };
+	}
+
+	/**
+	 * Returns the open Starter pass row of the buyer, or inserts a new "created" row. Call it under the owner lock.
+	 * Card checkouts insert their attempt under the same lock, so two tabs or two team admins see each other.
+	 * Throws 409 when the pool does not need the pass, or another payment of the pass is open or in flight.
+	 */
+	private async reserveStarterPass(
+		owner: CreditOwner,
+		input: InsertSlickpayPaymentInput,
+		tx: BillingCheckoutAttemptTransaction,
+	): Promise<SlickpayPaymentRow> {
+		// The 250 DA price is only for a pool that cannot spend yet. The lock also serializes the pass grant.
+		if (!(await this.credits.getSettledBalance(owner)).starterPassRequired) {
+			throw new StarterPassNotAvailableError();
+		}
+
+		const open = await this.payments.findOpenStarterPasses(
+			owner,
+			new Date(Date.now() - STARTER_PASS_HOLD_MS),
+			tx,
+		);
+		// Only the buyer can open the return page of a row, so another team admin never gets this URL.
+		const reusable = open.find(
+			(payment) =>
+				payment.userId === input.userId &&
+				payment.status === "pending" &&
+				payment.paymentUrl !== null,
+		);
+
+		if (reusable) {
+			return reusable;
+		}
+
+		if (open.some((payment) => payment.status === "pending")) {
+			throw new StarterPassSlickpayOpenError();
+		}
+
+		// A "created" row has its invoice call in flight. A "paid" row waits for its grant.
+		if (open.length > 0) {
+			throw new BillingCheckoutPendingError();
+		}
+
+		// expireOpenTopupSessions ran before the lock. A card page that is still open, or in flight, stays payable.
+		const cardAttempts = await this.checkoutAttempts.findOpenForOwner(
+			owner,
+			"topup",
+			tx,
+		);
+
+		if (cardAttempts.some(isBlockingTopupAttempt)) {
+			throw new BillingCheckoutPendingError();
+		}
+
+		return this.insertWithinLimit(input, tx);
+	}
+
+	/**
+	 * Inserts a "created" row when the buyer started fewer than 5 checkouts in 10 minutes. Call it under a lock.
+	 * A top-up uses the user lock. A Starter pass uses the owner lock, which is the same key for a personal pool.
+	 */
+	private async insertWithinLimit(
+		input: InsertSlickpayPaymentInput,
+		tx: BillingCheckoutAttemptTransaction,
+	): Promise<SlickpayPaymentRow> {
+		// LIMIT: a team Starter pass counts under the team lock, so a parallel top-up of the same buyer can pass the limit by one. Upgrade: take the user lock in the same transaction.
+		const recent = await this.payments.countByUserSince(
+			input.userId,
+			new Date(Date.now() - CHECKOUT_WINDOW_MS),
+			tx,
+		);
+
+		if (recent >= CHECKOUT_LIMIT) {
+			throw new SlickpayTooManyCheckoutsError();
+		}
+
+		return this.payments.insert(input, tx);
 	}
 
 	/**
@@ -482,7 +604,7 @@ export class SlickpayPaymentsService {
 				},
 				tx,
 			);
-			await this.receipts.insertIfAbsent(
+			const receipt = await this.receipts.insertIfAbsent(
 				{
 					// DZD has 2 decimals in ISO 4217, so the minor unit is the centime.
 					amountCents: locked.amountDzd * 100,
@@ -499,6 +621,17 @@ export class SlickpayPaymentsService {
 				},
 				tx,
 			);
+
+			// Any paid SlickPay top-up proves a real payer. The pass goes to the pool, never to the buyer of a team row.
+			// A replay finds the receipt and writes no pass, so a pass that an admin reverse revoked does not come back.
+			if (receipt) {
+				await this.starterPasses.grantIfAbsent(
+					owner,
+					{ receiptId: receipt.id, source: "slickpay" },
+					tx,
+				);
+			}
+
 			await this.lifecycleEvents.enqueue(
 				{
 					event: "payment_completed",

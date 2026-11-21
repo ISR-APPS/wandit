@@ -11,12 +11,21 @@
 	"topUpDialog": "Recharger des crédits",
 	"insufficientTitle": "Crédits insuffisants",
 	"insufficientBody": "Cette action coûte plus de crédits que ton solde actuel.",
+	"starterPassTitle": "Obtiens le Pass Démarrage",
+	"starterPassBody": "Ton compte ne peut pas utiliser de crédits avant le Pass Démarrage. Un petit paiement protège Wandit contre les abus.",
+	"starterPassCta": "Obtenir le Pass Démarrage",
 	"outOfCredits": {
 		"title": "Tu n'as plus de crédits",
 		"body": "Recharge ton portefeuille pour continuer à créer.",
 		"memberBody": "Cet espace de travail n'a plus de crédits. Demande à un propriétaire de recharger le portefeuille.",
 		"cta": "Recharger",
-		"pausedBody": "L'achat de crédits est en pause pour le moment."
+		"pausedBody": "L'achat de crédits est en pause pour le moment.",
+		"starterPass": {
+			"title": "Ton compte a besoin du Pass Démarrage",
+			"body": "Un petit paiement débloque tes crédits et protège Wandit contre les abus.",
+			"memberBody": "Demande au propriétaire de l'équipe d'acheter le Pass Démarrage.",
+			"cta": "Obtenir le Pass Démarrage — {price}"
+		}
 	},
 	"elsewhere": {
 		"chipHint": "Vos crédits sont dans {name}",

@@ -341,7 +341,7 @@
 					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
 				],
 				"bullets": [
-					"A new account receives an initial balance of free credits. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
+					"A new account receives an initial balance of free credits. We can ask a new account to make one small first payment, the Starter pass, before it can use any credits, free credits included. Only a card payment or a SlickPay payment buys the Starter pass. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
 					"The price of an action is shown before you run it. Your balance is shown in the dashboard and updates after each action.",
 					"You buy credits with a one-time top-up, by card through Stripe, through SlickPay, or by an offline payment that we record. The price is shown before you pay, and you authorise the charge when you confirm the payment.",
 					"There is no subscription and no automatic charge. We charge you only when you confirm a top-up. Credits that you buy do not expire.",

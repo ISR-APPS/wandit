@@ -10,10 +10,13 @@ import type {
 	AdminOrganizationSubscription,
 	AdminOrganizationSummary,
 	AdminSetMemberRoleInput,
+	AdminStarterPass,
+	AdminStarterPassBody,
 	AdminWorkspaceRole,
 	adminListOrganizationsSorts,
 	WorkspaceKind,
 } from "@wandit/contracts";
+import type { StarterPassAction } from "@/features/users";
 
 export type {
 	AdminGrantCreditsInput,
@@ -24,6 +27,7 @@ export type {
 	AdminOrganizationSubscription,
 	AdminOrganizationSummary,
 	AdminSetMemberRoleInput,
+	AdminStarterPass,
 	AdminWorkspaceRole,
 	WorkspaceKind,
 };
@@ -52,4 +56,10 @@ export type GrantOrganizationCreditsInput = AdminGrantCreditsInput & {
 export type SetOrganizationMemberRoleInput = AdminSetMemberRoleInput & {
 	organizationId: string;
 	userId: string;
+};
+
+/** Staff change of the Starter pass of the team pool. Grant gives a pass, revoke ends the live pass. */
+export type ChangeOrganizationStarterPassInput = AdminStarterPassBody & {
+	organizationId: string;
+	action: StarterPassAction;
 };

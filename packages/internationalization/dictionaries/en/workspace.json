@@ -897,7 +897,12 @@
 			"receiptStoppedAt": "Build stopped at {percent}% — discarded.",
 			"receiptDismissed": "Failed build dismissed.",
 			"errorCode": "error · {code}",
-			"openPageTab": "Open the Page tab"
+			"openPageTab": "Open the Page tab",
+			"starterPass": {
+				"title": "This build needs the Starter pass.",
+				"message": "Your account cannot spend credits before the Starter pass. Your last version is safe. Get the pass, then retry.",
+				"cta": "Get the Starter pass"
+			}
 		},
 		"leadScrape": {
 			"title": "Scraping leads",

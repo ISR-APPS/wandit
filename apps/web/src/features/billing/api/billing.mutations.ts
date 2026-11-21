@@ -3,7 +3,10 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { creditsKeys } from "@/features/credits";
+import { isApiClientError } from "@/lib/api-client";
 import type {
+	CreateBillingTopupBody,
 	CreateManualSubscriptionRequestBody,
 	StartSlickpayCheckoutBody,
 } from "./billing.dto";
@@ -16,18 +19,43 @@ import {
 	startSlickpayCheckout,
 } from "./billing.services";
 
-/** Creates the SlickPay invoice. The caller records the product event, then opens the returned URL. */
+/**
+ * Reloads the wallet and the balance after a 409 STARTER_PASS_NOT_AVAILABLE.
+ * The pool already has its pass, or the switch is off. The fresh wallet moves the dialog out of the Starter pass mode.
+ */
+function useReloadWalletOnStarterPassRefusal() {
+	const queryClient = useQueryClient();
+
+	return (error: Error) => {
+		if (
+			isApiClientError(error) &&
+			error.code === "STARTER_PASS_NOT_AVAILABLE"
+		) {
+			void queryClient.invalidateQueries({ queryKey: billingKeys.wallet() });
+			void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+		}
+	};
+}
+
+/** Creates the SlickPay invoice of a top-up or of the Starter pass. The caller records the product event, then opens the URL. */
 export function useStartSlickpayCheckout() {
+	const onError = useReloadWalletOnStarterPassRefusal();
+
 	return useMutation({
 		mutationFn: (body: StartSlickpayCheckoutBody) =>
 			startSlickpayCheckout(body),
+		onError,
 	});
 }
 
-/** Opens a Stripe top-up session for an amount in whole USD. The caller emits `upgrade_clicked`, then navigates. */
+/** Opens a Stripe session for a top-up or for the Starter pass. The caller emits `upgrade_clicked`, then navigates. */
 export function useCreateBillingTopupCheckout() {
+	const onError = useReloadWalletOnStarterPassRefusal();
+
 	return useMutation({
-		mutationFn: (amountUsd: number) => createBillingTopupCheckout(amountUsd),
+		mutationFn: (body: CreateBillingTopupBody) =>
+			createBillingTopupCheckout(body),
+		onError,
 	});
 }
 

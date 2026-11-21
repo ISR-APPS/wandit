@@ -180,6 +180,14 @@ export class StripeProvider implements PaymentProvider {
 				payment_intent_data: { metadata },
 				// Cards only: a delayed method completes the session unpaid and blocks the owner for days.
 				payment_method_types: ["card"],
+				// Card testers try stolen cards on the $1 Starter pass. 3-D Secure on each card stops them.
+				...(params.requestThreeDSecure
+					? {
+							payment_method_options: {
+								card: { request_three_d_secure: "any" as const },
+							},
+						}
+					: {}),
 				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=topup&session_id={CHECKOUT_SESSION_ID}`,
 			},
 			{

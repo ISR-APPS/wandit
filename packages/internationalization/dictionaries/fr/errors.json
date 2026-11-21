@@ -42,6 +42,8 @@
 		"PAYMENT_PAST_DUE": "Un ancien paiement doit être corrigé. Ouvrez vos anciennes factures depuis la page du portefeuille.",
 		"SUBSCRIPTIONS_DISABLED": "Cette action n’est plus disponible. Rechargez votre portefeuille à la place.",
 		"TOPUPS_DISABLED": "Les recharges par carte sont en pause pour le moment.",
+		"STARTER_PASS_NOT_AVAILABLE": "Ce compte n’a pas besoin du Pass Démarrage. Choisissez une recharge normale.",
+		"STARTER_PASS_SLICKPAY_OPEN": "Un paiement SlickPay du Pass Démarrage est déjà ouvert. Terminez ce paiement, ou réessayez dans 30 minutes.",
 		"BILLING_CHECKOUT_PENDING": "Un paiement est encore en cours, ou ses crédits ne sont pas encore dans votre portefeuille. Attendez une minute, puis réessayez.",
 		"SUBSCRIPTION_CHANGE_PENDING": "Cette action n’est plus disponible. Rechargez votre portefeuille à la place.",
 		"BILLING_CHANGE_INTENT_EXPIRED": "Cette action n’est plus disponible. Rechargez votre portefeuille à la place.",

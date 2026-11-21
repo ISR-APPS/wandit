@@ -1,7 +1,7 @@
 /**
  * Offline billing for the admin app: request queue, "Record top-up", "Reverse top-up", and the receipt list.
  * AdminManualBillingController calls it. Manual plans from before pricing v8 stay readable as history.
- * It writes credits through CreditsService and rows through the receipt and request repositories.
+ * It writes credits through CreditsService, and rows through the receipt, request, and Starter pass repositories.
  */
 import {
 	BadRequestException,
@@ -58,6 +58,7 @@ import {
 	type ManualSubscriptionRequestRow,
 	ManualSubscriptionRequestsRepository,
 } from "../../infrastructure/persistence/manual-subscription-requests.repository";
+import { StarterPassesRepository } from "../../infrastructure/persistence/starter-passes.repository";
 import { SubscriptionCreditsRepository } from "../../infrastructure/persistence/subscription-credits.repository";
 import {
 	type AdminManualSubscriptionRow,
@@ -132,6 +133,11 @@ export class ManualSubscriptionsService {
 		>,
 		@Inject(LifecycleEventsService)
 		private readonly lifecycleEvents: Pick<LifecycleEventsService, "enqueue">,
+		@Inject(StarterPassesRepository)
+		private readonly starterPasses: Pick<
+			StarterPassesRepository,
+			"grantIfAbsent" | "revokeOrMoveForReceipt"
+		>,
 	) {}
 
 	/**
@@ -180,7 +186,8 @@ export class ManualSubscriptionsService {
 
 	/**
 	 * "Record top-up": money an admin collected offline becomes wallet credits, with or without a request.
-	 * A replay of the same idempotency key returns the first receipt. A replay with other values is a 409.
+	 * It also gives the pool its Starter pass. A replay of the same idempotency key returns the first receipt.
+	 * A replay with other values is a 409.
 	 */
 	async recordTopup(
 		adminId: string,
@@ -282,6 +289,13 @@ export class ManualSubscriptionsService {
 					},
 					tx,
 				);
+				// Cash collected by an admin is real money, so it unlocks the pool like a card top-up.
+				// The customer cash request keeps its 10 USD minimum, so cash never buys the 1 USD pass.
+				await this.starterPasses.grantIfAbsent(
+					owner,
+					{ receiptId: receipt.id, source: "offline" },
+					tx,
+				);
 				await this.lifecycleEvents.enqueue(
 					{
 						event: "payment_completed",
@@ -316,6 +330,7 @@ export class ManualSubscriptionsService {
 
 	/**
 	 * "Reverse top-up": takes back the credits of a SlickPay or offline receipt after a refund outside the API.
+	 * A Starter pass from this receipt moves to another live receipt of the pool, or is revoked.
 	 * A second call is a no-op that returns the same receipt. The balance can go below zero.
 	 */
 	async reverseTopup(
@@ -383,6 +398,13 @@ export class ManualSubscriptionsService {
 						`Top-up receipt ${locked.id} was reversed in parallel`,
 					);
 				}
+
+				// Money that came back must not keep the pool unlocked.
+				await this.starterPasses.revokeOrMoveForReceipt(
+					locked,
+					`receipt_reversed:${locked.id}`,
+					tx,
+				);
 			},
 		);
 

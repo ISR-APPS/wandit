@@ -1,5 +1,10 @@
+/**
+ * Fixed options and labels of the admin users feature: page sizes, sorts, filters, and Starter pass sources.
+ * The users table, its toolbar, and the user detail cards read them.
+ */
 import type {
 	AdminListUsersSort,
+	StarterPassSource,
 	UserFreeCreditsFilter,
 	UserPlanFilter,
 	UserPublishedFilter,
@@ -100,3 +105,12 @@ export const USER_PUBLISHED_FILTER_OPTIONS = [
 ] as const satisfies readonly UserFacetedFilterOption<
 	UserPublishedFilter[number]
 >[];
+
+/** Staff label of each `starter_passes.source`. Grandfathered: the pool paid before the Starter pass switch went on. */
+export const STARTER_PASS_SOURCE_LABELS = {
+	stripe: "Card",
+	slickpay: "SlickPay",
+	offline: "Offline top-up",
+	grandfathered: "Grandfathered",
+	admin: "Staff grant",
+} as const satisfies Record<StarterPassSource, string>;

@@ -124,6 +124,16 @@ export const slickpayPaymentStatus = pgEnum("slickpay_payment_status", [
 	"expired",
 ]);
 
+// Why a pool has its Starter pass. This list equals starterPassSources in packages/contracts,
+// which packages/db cannot import. The meaning of each value is there.
+export const starterPassSource = pgEnum("starter_pass_source", [
+	"stripe",
+	"slickpay",
+	"offline",
+	"grandfathered",
+	"admin",
+]);
+
 export const manualSubscriptionPaymentKind = pgEnum(
 	"manual_subscription_payment_kind",
 	["initial", "renewal"],
@@ -186,8 +196,13 @@ export const productSettings = pgTable(
 			.notNull()
 			.default(10_000),
 		manualGraceDays: integer("manual_grace_days").notNull().default(0),
-		// Hundredths of a DZD per 1 USD (27000 = 270.00 DZD/USD).
-		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull().default(27_000),
+		// Hundredths of a DZD per 1 USD (25000 = 250.00 DZD/USD).
+		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull().default(25_000),
+		// Fraud gate. On: a pool with no live row in starter_passes cannot spend credits.
+		// Off by default, so a new deploy changes nothing until an admin turns it on.
+		starterPassRequired: boolean("starter_pass_required")
+			.notNull()
+			.default(false),
 		version: integer("version").notNull().default(1),
 		updatedByUserId: text("updated_by_user_id").references(() => user.id, {
 			onDelete: "restrict",
@@ -802,6 +817,64 @@ export const billingTopupReceipts = pgTable(
 	],
 );
 
+/**
+ * Starter pass of a credit pool: the proof that the pool paid at least once.
+ * When product_settings.starter_pass_required is on, a pool with no live row cannot spend credits.
+ * The top-up grants, the admin routes, and the switch backfill write it. A live row has no `revoked_at`.
+ */
+export const starterPasses = pgTable(
+	"starter_passes",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		// The personal pool. NULL for a team pass: a team pass never holds the buyer here.
+		userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+		// The team pool. NULL for a personal pass.
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		source: starterPassSource("source").notNull(),
+		// The paid top-up that gave the pass. NULL for a grant or the backfill.
+		receiptId: uuid("receipt_id").references(() => billingTopupReceipts.id, {
+			onDelete: "set null",
+		}),
+		// The staff account of an admin grant. NULL for every other source.
+		grantedByUserId: text("granted_by_user_id").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		// The note of an admin grant, or "dev seed".
+		note: text("note"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		revokedByUserId: text("revoked_by_user_id").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		// For example `admin:{note}`, `receipt_reversed:{receiptId}`, or `dispute:{disputeId}`.
+		revokedReason: text("revoked_reason"),
+	},
+	(table) => [
+		// A pass belongs to exactly one pool: personal or team.
+		check(
+			"starter_passes_one_owner_ck",
+			sql`num_nonnulls(${table.userId}, ${table.organizationId}) = 1`,
+		),
+		// One live pass for each pool. A second grant is a no-op (ON CONFLICT DO NOTHING).
+		uniqueIndex("starter_passes_live_user_uq")
+			.on(table.userId)
+			.where(
+				sql`${table.organizationId} IS NULL AND ${table.revokedAt} IS NULL`,
+			),
+		uniqueIndex("starter_passes_live_organization_uq")
+			.on(table.organizationId)
+			.where(
+				sql`${table.organizationId} IS NOT NULL AND ${table.revokedAt} IS NULL`,
+			),
+		// A receipt reverse or a dispute finds the pass of that receipt.
+		index("starter_passes_receiptId_idx").on(table.receiptId),
+	],
+);
+
 export const betaAccessEvents = pgTable(
 	"beta_access_events",
 	{
@@ -995,7 +1068,7 @@ export const slickpayPayments = pgTable(
 		credits: integer("credits"),
 		// UNIT: whole DZD. The SlickPay invoice charges this exact amount.
 		amountDzd: integer("amount_dzd").notNull(),
-		// UNIT: centi-DZD per 1 USD (27000 = 270.00). Copy of product_settings at checkout.
+		// UNIT: centi-DZD per 1 USD (25000 = 250.00). Copy of product_settings at checkout.
 		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull(),
 		// SlickPay invoice id. NULL until SlickPay creates the invoice.
 		invoiceId: text("invoice_id"),

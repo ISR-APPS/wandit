@@ -1,5 +1,5 @@
 /**
- * "CIB / Edahabia" tab of the top-up dialog: one SlickPay payment in DZD buys one wallet top-up.
+ * "CIB / Edahabia" tab of the top-up dialog: one SlickPay payment in DZD buys one wallet top-up or the Starter pass.
  * Collects the name, phone, and city for the SlickPay invoice. The dialog gives the amount in USD.
  * Rendered by topup-dialog.tsx. Calls useStartSlickpayCheckout, then sends the browser to the SlickPay page.
  * SlickPay sends the buyer back to /billing/slickpay (pages/slickpay-return-page.tsx).
@@ -39,7 +39,9 @@ type ContactErrors = Partial<Record<keyof ContactValues, string>>;
 export type SlickpayCheckoutPanelProps = {
 	/** Whole USD that the dialog parsed. Null while the typed amount is not valid: the pay button stays locked. */
 	amountUsd: number | null;
-	/** Decimal DZD per 1 USD from GET local-pricing. */
+	/** True in the Starter pass mode of the dialog. The body then sends `starterPass: true`, and the API sets the amount. */
+	starterPass: boolean;
+	/** Decimal DZD per 1 USD from useDzdPerUsdRate. */
 	dzdPerUsdRate: number;
 	/** Name of the signed-in user. It fills the full name field at first. */
 	defaultFullName: string;
@@ -50,6 +52,7 @@ export type SlickpayCheckoutPanelProps = {
 /** On success the browser leaves the app for the SlickPay payment page. */
 export function SlickpayCheckoutPanel({
 	amountUsd,
+	starterPass,
 	dzdPerUsdRate,
 	defaultFullName,
 	surface,
@@ -83,10 +86,12 @@ export function SlickpayCheckoutPanel({
 		}
 		setRequestError(null);
 
-		const parsed = startSlickpayCheckoutBodySchema.safeParse({
-			...contact,
-			amountUsd,
-		});
+		// The Starter pass is below the top-up minimum, so it has its own body. The API charges STARTER_PASS_USD.
+		const parsed = startSlickpayCheckoutBodySchema.safeParse(
+			starterPass
+				? { ...contact, starterPass: true }
+				: { ...contact, amountUsd },
+		);
 
 		if (!parsed.success) {
 			const errors: ContactErrors = {};

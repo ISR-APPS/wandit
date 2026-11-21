@@ -794,7 +794,8 @@
 			"modelDenied": "This model is not available. Choose another model.",
 			"modelUnpriced": "This model has no price yet. Try again later.",
 			"sendFailed": "We could not send your message. Send it again.",
-			"connectionLost": "The chat lost its connection to the server."
+			"connectionLost": "The chat lost its connection to the server.",
+			"starterPassRequired": "Get the Starter pass to start building. Your credits unlock after it."
 		},
 		"building": "Building",
 		"planning": "Planning",
@@ -851,7 +852,8 @@
 				"one": "{count} request",
 				"other": "{count} requests"
 			}
-		}
+		},
+		"payerStarterPassRequired": "The workspace of this project needs the Starter pass. Ask its owner to buy it."
 	},
 	"publish": {
 		"cta": "Publish",

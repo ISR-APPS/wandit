@@ -36,6 +36,7 @@ import { BillingCreditLedgerRepository } from "../src/modules/billing/infrastruc
 import { BillingCustomersRepository } from "../src/modules/billing/infrastructure/persistence/billing-customers.repository";
 import { FinancialReconciliationOutboxRepository } from "../src/modules/billing/infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { OrganizationBillingCustomersRepository } from "../src/modules/billing/infrastructure/persistence/organization-billing-customers.repository";
+import { StarterPassesRepository } from "../src/modules/billing/infrastructure/persistence/starter-passes.repository";
 import { SubscriptionCreditsRepository } from "../src/modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../src/modules/billing/infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "../src/modules/billing/infrastructure/persistence/subscriptions.repository";
@@ -477,6 +478,7 @@ async function main(): Promise<void> {
 				new DomainsRepository(database),
 			),
 			stripeProvider,
+			new StarterPassesRepository(database),
 		),
 		new FinancialReconciliationOutboxRepository(database),
 	);

@@ -343,7 +343,7 @@
 					"Wandit fonctionne avec des crédits. Chaque action qui nous coûte de l'argent, comme générer une page, une image ou un support marketing, ou synchroniser et découvrir des prospects, consomme des crédits sur le solde de votre espace de travail."
 				],
 				"bullets": [
-					"Un nouveau compte reçoit un solde initial de crédits gratuits. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
+					"Un nouveau compte reçoit un solde initial de crédits gratuits. Nous pouvons demander à un nouveau compte un premier petit paiement, le Pass Démarrage, avant qu'il puisse utiliser des crédits, crédits gratuits compris. Seul un paiement par carte ou par SlickPay achète le Pass Démarrage. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
 					"Le prix d'une action est affiché avant que vous ne la lanciez. Votre solde est affiché dans le tableau de bord et se met à jour après chaque action.",
 					"Vous achetez des crédits par une recharge unique : par carte via Stripe, via SlickPay, ou par un paiement hors ligne que nous enregistrons. Le prix est affiché avant le paiement, et vous autorisez le débit lorsque vous confirmez le paiement.",
 					"Il n'y a ni abonnement ni prélèvement automatique. Nous vous débitons uniquement lorsque vous confirmez une recharge. Les crédits que vous achetez n'expirent pas.",

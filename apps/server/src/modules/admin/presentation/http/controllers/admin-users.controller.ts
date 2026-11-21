@@ -1,5 +1,5 @@
 /**
- * Admin API for user accounts: list, detail, credit grants, role, and ban.
+ * Admin API for user accounts: list, detail, credit grants, Starter pass, role, and ban.
  * The admin app calls these routes under /api/v1/admin/users.
  * Each handler calls AdminUsersService. AdminGuard checks the permission.
  */
@@ -22,6 +22,8 @@ import {
 	type AdminSetAdminViewsInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
+	type AdminStarterPassBody,
+	type AdminStarterPassResponse,
 	type AdminUserDetail,
 	type AdminUserPagesQuery,
 	type AdminUserPagesResponse,
@@ -32,6 +34,7 @@ import {
 	adminSetAdminViewsInputSchema,
 	adminSetBannedInputSchema,
 	adminSetRoleInputSchema,
+	adminStarterPassBodySchema,
 	adminUserPagesQuerySchema,
 	adminUserProjectsQuerySchema,
 } from "@wandit/contracts";
@@ -93,6 +96,31 @@ export class AdminUsersController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminUserDetail> {
 		return this.adminUsersService.grantCredits(admin, userId, body);
+	}
+
+	// The Starter pass unlocks credits, so it takes the credit grant permission.
+	@Post(":userId/starter-pass")
+	@AdminPermission({ users: ["read"], credits: ["grant"] })
+	@HttpCode(200)
+	grantStarterPass(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminStarterPassBodySchema))
+		body: AdminStarterPassBody,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminStarterPassResponse> {
+		return this.adminUsersService.grantStarterPass(admin, userId, body);
+	}
+
+	@Post(":userId/starter-pass/revoke")
+	@AdminPermission({ users: ["read"], credits: ["grant"] })
+	@HttpCode(200)
+	revokeStarterPass(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminStarterPassBodySchema))
+		body: AdminStarterPassBody,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminStarterPassResponse> {
+		return this.adminUsersService.revokeStarterPass(admin, userId, body);
 	}
 
 	@Post(":userId/role")

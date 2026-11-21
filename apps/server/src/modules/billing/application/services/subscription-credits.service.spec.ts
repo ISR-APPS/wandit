@@ -612,6 +612,7 @@ function setup(initial = subscription()) {
 		reconciliationOutbox as never,
 		receipts as never,
 		lifecycleEvents as unknown as LifecycleEventsService,
+		{ grantIfAbsent: vi.fn(async () => null) },
 	);
 
 	return {

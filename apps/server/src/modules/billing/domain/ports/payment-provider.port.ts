@@ -47,6 +47,8 @@ export type CreateTopupCheckoutParams = {
 	customerId: string;
 	/** Set for team top-ups: the pool that receives the credits. */
 	organizationId: string | null;
+	/** True for the Starter pass. Stripe then asks for 3-D Secure on every card, which stops card testing at $1. */
+	requestThreeDSecure: boolean;
 	userId: string;
 };
 

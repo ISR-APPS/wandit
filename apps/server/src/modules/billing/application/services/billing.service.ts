@@ -4,7 +4,7 @@
  * BillingController calls it. It calls billing repositories, CreditsService, and the payment-provider port.
  */
 import { randomUUID } from "node:crypto";
-import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	BILLING_CATALOG,
@@ -26,6 +26,7 @@ import {
 	priceLookupKey,
 	priceUsdFor,
 	purchasableTiersFor,
+	STARTER_PASS_USD,
 	TOPUP_CREDITS_PER_USD,
 	TOPUP_MAX_AMOUNT_USD,
 	TOPUP_MIN_AMOUNT_USD,
@@ -47,14 +48,22 @@ import { OrganizationsDisabledError } from "../../../settings/domain/errors/orga
 import { WorkspacePermissionDeniedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
+import { BillingCheckoutPendingError } from "../../domain/errors/billing-checkout-pending.error";
 import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
 import { NoActiveSubscriptionError } from "../../domain/errors/no-active-subscription.error";
+import {
+	StarterPassNotAvailableError,
+	StarterPassSlickpayOpenError,
+} from "../../domain/errors/starter-pass.errors";
 import {
 	PAYMENT_PROVIDER,
 	type PaymentProvider,
 } from "../../domain/ports/payment-provider.port";
 import { mapSubscriptionRow } from "../../infrastructure/mappers/subscription.mapper";
-import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import {
+	type BillingCheckoutAttemptRow,
+	BillingCheckoutAttemptsRepository,
+} from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import {
 	type BillingTopupReceiptRow,
@@ -62,6 +71,10 @@ import {
 } from "../../infrastructure/persistence/billing-topup-receipts.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import { PaidOwnerRepository } from "../../infrastructure/persistence/paid-owner.repository";
+import {
+	SlickpayPaymentsRepository,
+	STARTER_PASS_HOLD_MS,
+} from "../../infrastructure/persistence/slickpay-payments.repository";
 import { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 import { BillingCustomerService } from "./billing-customer.service";
 
@@ -102,6 +115,12 @@ export class BillingService {
 		private readonly paidOwnerRepository: PaidOwnerRepository,
 		@Inject(BillingTopupReceiptsRepository)
 		private readonly topupReceiptsRepository: BillingTopupReceiptsRepository,
+		// Open SlickPay Starter pass rows block a card Starter pass checkout of the same pool.
+		@Inject(SlickpayPaymentsRepository)
+		private readonly slickpayPaymentsRepository: Pick<
+			SlickpayPaymentsRepository,
+			"findOpenStarterPasses"
+		>,
 	) {}
 
 	/**
@@ -205,6 +224,8 @@ export class BillingService {
 			balance: this.balanceResponse(balance),
 			hasStripeCustomer: customer?.provider === "stripe",
 			isPaidOwner,
+			// The web opens the Starter pass checkout instead of the amount picker when this is true.
+			starterPassRequired: balance.starterPassRequired,
 			// A refund of older usage can make the window sum negative. The wallet shows 0 then.
 			spentLast30DaysCredits: centiCreditsToCredits(
 				Math.max(0, spentCentiCredits),
@@ -220,8 +241,10 @@ export class BillingService {
 	}
 
 	/**
-	 * Starts a Stripe Checkout of a wallet top-up and returns its URL.
+	 * Starts a Stripe Checkout of a wallet top-up, or of the Starter pass, and returns its URL.
 	 * The server computes the credits. The webhook grants the credits of the attempt row.
+	 * A Starter pass body answers 409 STARTER_PASS_NOT_AVAILABLE when the pool does not need the pass,
+	 * and 409 STARTER_PASS_SLICKPAY_OPEN while a young SlickPay Starter pass invoice of the pool is open.
 	 */
 	async topup(
 		user: AuthUser,
@@ -231,9 +254,14 @@ export class BillingService {
 		const scope = await this.resolveBillingScope(user, workspace, {
 			admission: true,
 		});
+		const isStarterPass = "starterPass" in body;
 		// A cached pricing v7 web bundle sends a pack id. Its USD price enters the amount flow.
 		const amountUsd =
-			"amountUsd" in body ? body.amountUsd : TOPUP_PACKS[body.packId].usd;
+			"amountUsd" in body
+				? body.amountUsd
+				: "starterPass" in body
+					? STARTER_PASS_USD
+					: TOPUP_PACKS[body.packId].usd;
 		const customer = scope.organizationId
 			? await this.billingCustomerService.ensureOrgCustomer(
 					scope.organizationId,
@@ -251,18 +279,34 @@ export class BillingService {
 					"topup",
 					tx,
 				);
-				const inFlightAfter = Date.now() - TOPUP_IN_FLIGHT_MS;
-				// An attempt with a session is still open here: Stripe did not expire it, or a concurrent
-				// request attached it after the expire step. A young attempt with no session is in flight.
-				// An old attempt with no session does not block: no customer has its URL.
-				const blocking = open.some(
-					(openAttempt) =>
-						openAttempt.providerSessionId !== null ||
-						openAttempt.createdAt.getTime() > inFlightAfter,
-				);
 
-				if (blocking) {
-					throw this.checkoutPendingError();
+				if (open.some(isBlockingTopupAttempt)) {
+					throw new BillingCheckoutPendingError();
+				}
+
+				// The $1 price is only for a pool that cannot spend yet. Others buy a normal top-up.
+				// The owner lock also serializes the pass grant of a webhook, so the check sees it.
+				if (
+					isStarterPass &&
+					!(await this.creditsService.getSettledBalance(scope.owner))
+						.starterPassRequired
+				) {
+					throw new StarterPassNotAvailableError();
+				}
+
+				// A pool has at most one open Starter pass page. SlickPay cannot cancel its invoice, so the card waits.
+				// SlickpayPaymentsService inserts its row under this same owner lock, so the read sees a parallel one.
+				if (
+					isStarterPass &&
+					(
+						await this.slickpayPaymentsRepository.findOpenStarterPasses(
+							scope.owner,
+							new Date(Date.now() - STARTER_PASS_HOLD_MS),
+							tx,
+						)
+					).length > 0
+				) {
+					throw new StarterPassSlickpayOpenError();
 				}
 
 				return this.checkoutAttemptsRepository.create(
@@ -298,6 +342,7 @@ export class BillingService {
 				bonusCredits: centiCreditsToCredits(attempt.credits) - baseCredits,
 				customerId: customer.providerCustomerId,
 				organizationId: attempt.organizationId,
+				requestThreeDSecure: isStarterPass,
 				userId: attempt.userId,
 			});
 		} catch (error) {
@@ -409,11 +454,12 @@ export class BillingService {
 	}
 
 	/**
-	 * Expires the open Stripe session of each open top-up attempt of the owner, before a new one.
+	 * Expires the open Stripe session of each open top-up attempt of the owner, before a new checkout.
+	 * topup and SlickpayPaymentsService (Starter pass) call it outside the owner lock. 409 when a session is paid.
 	 * An attempt with no session stays as it is: the check under the owner lock reads its age.
 	 * Never sets a session-less attempt to expired: a paid session attaches later by metadata.attemptId.
 	 */
-	private async expireOpenTopupSessions(owner: CreditOwner): Promise<void> {
+	async expireOpenTopupSessions(owner: CreditOwner): Promise<void> {
 		const attempts = await this.checkoutAttemptsRepository.findOpenForOwner(
 			owner,
 			"topup",
@@ -430,7 +476,7 @@ export class BillingService {
 
 			if (terminalStatus === "complete") {
 				// The customer paid. The webhook owns the completed transition and grants the credits.
-				throw this.checkoutPendingError();
+				throw new BillingCheckoutPendingError();
 			}
 
 			if (terminalStatus !== "expired") {
@@ -471,14 +517,6 @@ export class BillingService {
 			settledTopup: centiCreditsToCredits(balance.settledTopup),
 			topup: centiCreditsToCredits(balance.topup),
 		};
-	}
-
-	/** 409 BILLING_CHECKOUT_PENDING: a paid session waits for its webhook, or a request is in flight. */
-	private checkoutPendingError(): ConflictException {
-		return new ConflictException({
-			code: "BILLING_CHECKOUT_PENDING",
-			message: "A billing checkout is already pending",
-		});
 	}
 
 	private async handleCheckoutCreationFailure(
@@ -536,6 +574,22 @@ export class BillingService {
 	private errorMessage(error: unknown): string {
 		return error instanceof Error ? error.message : String(error);
 	}
+}
+
+/**
+ * True when an open top-up attempt blocks a new checkout of the pool. Read it under the owner lock.
+ * topup and SlickpayPaymentsService (Starter pass) call it after expireOpenTopupSessions.
+ */
+export function isBlockingTopupAttempt(
+	attempt: BillingCheckoutAttemptRow,
+): boolean {
+	// A session here means Stripe did not expire it, or a parallel request attached it after the expire step.
+	// A young attempt with no session has its Stripe call in flight.
+	// An old attempt with no session does not block: no customer has its URL.
+	return (
+		attempt.providerSessionId !== null ||
+		attempt.createdAt.getTime() > Date.now() - TOPUP_IN_FLIGHT_MS
+	);
 }
 
 /**

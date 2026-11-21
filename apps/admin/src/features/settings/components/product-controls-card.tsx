@@ -72,6 +72,7 @@ const BOOLEAN_SETTING_KEYS = [
 	"lifecycleEmailsEnabled",
 	"v2BuilderEnabled",
 	"userReferralsEnabled",
+	"starterPassRequired",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -185,6 +186,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "Each user will get an invite link in the app. The invited friend and the referrer will both receive promo credits at the referral amounts set below."
 				: "No invite link will show and no reward will be paid while this is off. Credits already paid remain available.",
+	},
+	starterPassRequired: {
+		label: "Starter pass",
+		description:
+			"Fraud gate. An account that never paid must pay $1 by card or 250 DA by CIB/Edahabia before it can spend credits.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Accounts that never paid cannot spend credits until they pay $1 by card or 250 DA by CIB/Edahabia. Turning it on grants a pass to every account that already paid. Card top-ups must be on for non-Algerian users."
+				: "Every account can spend its credits again without a Starter pass. Passes already granted stay on their accounts.",
 	},
 };
 

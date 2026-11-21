@@ -38,8 +38,11 @@ export const productSettingsSchema = z.object({
 	// Collection window in days after currentPeriodEnd for manual subscriptions;
 	// 0 = strict.
 	manualGraceDays: z.int().min(0).max(30),
-	// Admin-only DZD charged per 1 USD of catalog price for offline receipts.
+	// Decimal DZD per 1 USD (250 = 250.00, the default). SlickPay invoices, DZD prices, and offline receipts use it.
 	dzdPerUsdRate: dzdPerUsdRateSchema,
+	// Fraud gate. On: a pool with no live Starter pass cannot spend credits. Off by default.
+	// The server grants a pass to every pool that already paid when it goes from off to on.
+	starterPassRequired: z.boolean(),
 	// Opens the V2 app builder to users who also carry the PostHog flag
 	// `v2-builder`.
 	v2BuilderEnabled: z.boolean(),
@@ -93,6 +96,9 @@ export const publicSettingsSchema = productSettingsSchema
 		userReferralFriendCredits: z.number().nonnegative(),
 		userReferralActivationCredits: z.number().nonnegative(),
 		userReferralPaidCredits: z.number().nonnegative(),
+		// Public: the pricing page shows the Starter pass strip instead of "Start free" when this is on.
+		// Optional, so a new web bundle still parses the answer of an old API.
+		starterPassRequired: z.boolean().optional(),
 	});
 
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
@@ -118,6 +124,7 @@ export const patchProductSettingsBodySchema = z
 		userReferralFriendCredits: userReferralSettingCreditsSchema.optional(),
 		userReferralActivationCredits: userReferralSettingCreditsSchema.optional(),
 		userReferralPaidCredits: userReferralSettingCreditsSchema.optional(),
+		starterPassRequired: z.boolean().optional(),
 		version: z.int().positive(),
 	})
 	.refine(
@@ -134,7 +141,8 @@ export const patchProductSettingsBodySchema = z
 			settings.userReferralsEnabled !== undefined ||
 			settings.userReferralFriendCredits !== undefined ||
 			settings.userReferralActivationCredits !== undefined ||
-			settings.userReferralPaidCredits !== undefined,
+			settings.userReferralPaidCredits !== undefined ||
+			settings.starterPassRequired !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

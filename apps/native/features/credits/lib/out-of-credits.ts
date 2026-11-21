@@ -1,3 +1,8 @@
+/**
+ * Out-of-credits gate of the native composers: true when the settled balance is zero or below,
+ * or when the pool must buy the Starter pass first. The chat screen calls useOutOfCredits.
+ * It reads the credit balance query.
+ */
 import { useQuery } from "@tanstack/react-query";
 import type { CreditBalanceResponse } from "@wandit/contracts";
 
@@ -10,11 +15,16 @@ import { getCreditBalance } from "../api/credits.requests";
  * running generation is never killed mid-flight), so "out" means <= 0.
  * An unloaded/failed balance never blocks: composers fail open and let the
  * server's 402 be the authority. (Web parity: out-of-credits.ts.)
+ * A pool that needs the Starter pass is locked too, whatever its balance:
+ * the server refuses every spend of that pool.
  */
 export function isOutOfCredits(
 	balance: CreditBalanceResponse | undefined,
 ): boolean {
-	return balance !== undefined && balance.settledBalance <= 0;
+	return (
+		balance !== undefined &&
+		(balance.starterPassRequired === true || balance.settledBalance <= 0)
+	);
 }
 
 /**
@@ -24,6 +34,7 @@ export function isOutOfCredits(
  * on web) lands and the query refetches. Mounted only inside the
  * authenticated app group, so no session gate is needed; a signed-out/failed
  * fetch leaves `data` undefined and fails open.
+ * `starterPassRequired` tells the banner to sell the Starter pass, not a top-up.
  */
 export function useOutOfCredits() {
 	const balanceQuery = useQuery({
@@ -31,5 +42,8 @@ export function useOutOfCredits() {
 		queryFn: getCreditBalance,
 	});
 
-	return { outOfCredits: isOutOfCredits(balanceQuery.data) };
+	return {
+		outOfCredits: isOutOfCredits(balanceQuery.data),
+		starterPassRequired: balanceQuery.data?.starterPassRequired === true,
+	};
 }

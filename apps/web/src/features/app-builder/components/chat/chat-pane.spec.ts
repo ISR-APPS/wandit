@@ -155,6 +155,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						targets: [],
 						isReadOnly: false,
 						payerOutOfCredits: false,
+						payerStarterPassRequired: false,
 						isPayerActiveWorkspace: true,
 						onRemoveTarget: vi.fn(),
 						isSending: false,

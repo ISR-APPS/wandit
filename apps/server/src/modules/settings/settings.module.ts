@@ -6,6 +6,7 @@ import { Global, Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AdminSecurityModule } from "../admin/admin-security.module";
+import { StarterPassesRepository } from "../billing/infrastructure/persistence/starter-passes.repository";
 import { ProductSettingsService } from "./application/services/product-settings.service";
 import { ProductSettingsRepository } from "./infrastructure/persistence/product-settings.repository";
 import { AdminSettingsController } from "./presentation/http/controllers/admin-settings.controller";
@@ -32,6 +33,8 @@ import { TopupsEnabledGuard } from "./presentation/http/guards/topups-enabled.gu
 		OrganizationsEnabledGuard,
 		ProductSettingsRepository,
 		ProductSettingsService,
+		// The settings PATCH runs the pass backfill. BillingModule imports this module, so it cannot import BillingModule back.
+		StarterPassesRepository,
 		TopupsEnabledGuard,
 	],
 })

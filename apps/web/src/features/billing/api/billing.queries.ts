@@ -1,5 +1,5 @@
 // TanStack Query keys and read hooks for the wallet, the payment history, the
-// top-up status, the offline request, the DZD pricing of Algeria, and SlickPay payments.
+// top-up status, the offline request, the DZD rate, and SlickPay payments.
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -82,13 +82,24 @@ export function useManualSubscriptionRequestQuery() {
 	});
 }
 
-/** SlickPay rate for visitors in Algeria. `data.slickpay` is null for all other visitors. */
+/** The DZD rate of GET local-pricing. Read the rate with useDzdPerUsdRate, not from `data` directly. */
 export function useLocalPricingQuery() {
 	return useQuery({
 		queryKey: billingKeys.localPricing(),
 		queryFn: getLocalPricing,
 		staleTime: LOCAL_PRICING_STALE_TIME_MS,
 	});
+}
+
+/**
+ * Decimal DZD per 1 USD for every visitor. The prices show DZD next to USD, and the SlickPay tab shows, only when it is not null.
+ * Null while the answer loads, after an error, or when the API has no SlickPay key.
+ */
+export function useDzdPerUsdRate(): number | null {
+	const { data } = useLocalPricingQuery();
+
+	// An API from before the Starter pass sends the rate only in `slickpay`, and only to visitors in Algeria.
+	return data?.dzdPerUsdRate ?? data?.slickpay?.dzdPerUsdRate ?? null;
 }
 
 /**

@@ -166,6 +166,7 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 1000,
 			settledPromo: 100,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 		expect(snapshot.settledBalance).toBe(
@@ -212,6 +213,7 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 963,
 			settledPromo: 100,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
 	});
@@ -230,8 +232,50 @@ describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 			settledPlan: 0,
 			settledPromo: 0,
 			settledTopup: 0,
+			starterPassRequired: false,
 			topup: 0,
 		});
+	});
+
+	it.each([
+		{
+			owner: userOwner("user-1"),
+			pool: '(("starter_passes"."user_id" = $4 and "starter_passes"."organization_id" is null) and',
+		},
+		{
+			owner: orgOwner("org-1"),
+			pool: '("starter_passes"."organization_id" = $3 and',
+		},
+	])("reads the Starter pass gate of the $owner.type pool in the same statement", async ({
+		owner,
+		pool,
+	}) => {
+		const repository = new CreditsRepository(db as Database);
+		const { client, executed } = fakeClient({
+			hold_plan: 0,
+			hold_promo: 0,
+			hold_topup: 0,
+			plan: 0,
+			promo: 2000,
+			starter_pass_required: true,
+			topup: 0,
+		});
+
+		await expect(
+			repository.getSettledBalanceSnapshot(owner, client),
+		).resolves.toMatchObject({
+			settledBalance: 2000,
+			starterPassRequired: true,
+		});
+
+		const { statement } = render(executed[0]);
+		// The switch AND no live pass of this pool. A revoked pass does not count.
+		expect(statement).toContain(
+			'coalesce(( select "product_settings"."starter_pass_required" from "product_settings" where "product_settings"."id" = 1 ),',
+		);
+		expect(statement).toContain(
+			`), false) and not exists ( select 1 from "starter_passes" where ${pool} "starter_passes"."revoked_at" is null) ) as starter_pass_required`,
+		);
 	});
 });
 

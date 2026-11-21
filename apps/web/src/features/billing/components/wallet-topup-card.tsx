@@ -11,9 +11,15 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { useState } from "react";
 
-import { useBillingPaymentsQuery } from "@/features/billing/api/billing.queries";
+import {
+	useBillingPaymentsQuery,
+	useDzdPerUsdRate,
+} from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { formatUsd } from "@/features/billing/lib/price-format";
+import {
+	formatLocalPrice,
+	formatUsd,
+} from "@/features/billing/lib/price-format";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
 import { TOPUP_DEFAULT_AMOUNT_USD } from "@/features/billing/lib/topup-amount";
 import { KeycapButton } from "@/features/landing";
@@ -35,6 +41,7 @@ export function WalletTopupCard({ wallet, className }: WalletTopupCardProps) {
 	const { openTopup } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
 	const paymentsQuery = useBillingPaymentsQuery();
+	const dzdPerUsdRate = useDzdPerUsdRate();
 	const limits = wallet.topup;
 	// Null until the user picks or types. Inside, `amountUsd` is null while the typed text is not valid.
 	const [picked, setPicked] = useState<{ amountUsd: number | null } | null>(
@@ -96,6 +103,11 @@ export function WalletTopupCard({ wallet, className }: WalletTopupCardProps) {
 					amountUsd={amountUsd}
 					tone="paper"
 					size="compact"
+					localPriceLabel={
+						amountUsd !== null && dzdPerUsdRate !== null
+							? formatLocalPrice(amountUsd, locale, dzdPerUsdRate)
+							: undefined
+					}
 					onAmountUsdChange={changeAmount}
 				/>
 			</div>

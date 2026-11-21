@@ -1,8 +1,11 @@
 /**
  * Purchase kill-switch view for the credits chip, the out-of-credits banner, and the credits dialogs.
- * It reads the public settings and the SlickPay local pricing of the visitor.
+ * It reads the public settings and the DZD rate of GET local-pricing.
  */
-import { useLocalPricingQuery } from "@/features/billing/api/billing.queries";
+import {
+	useDzdPerUsdRate,
+	useLocalPricingQuery,
+} from "@/features/billing/api/billing.queries";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 
 /**
@@ -14,6 +17,7 @@ import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries
 export function usePurchasesEnabled(): boolean | undefined {
 	const settingsQuery = usePublicSettingsQuery();
 	const localPricingQuery = useLocalPricingQuery();
+	const dzdPerUsdRate = useDzdPerUsdRate();
 
 	if (!settingsQuery.data) return undefined;
 
@@ -24,10 +28,10 @@ export function usePurchasesEnabled(): boolean | undefined {
 		return true;
 	}
 
-	// SlickPay does not depend on the switches above: it is on when the API has a key and the visitor is in Algeria.
+	// SlickPay does not depend on the switches above: it is on when the API has a key, so it sends a DZD rate.
 	if (!localPricingQuery.data) {
 		return localPricingQuery.isError ? false : undefined;
 	}
 
-	return localPricingQuery.data.slickpay !== null;
+	return dzdPerUsdRate !== null;
 }

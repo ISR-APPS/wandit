@@ -24,7 +24,8 @@
 		"tryHint": "Try: COD page for a vintage watch →",
 		"tryPrompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields.",
 		"createProjectError": "Couldn't create the project. Try again.",
-		"greetingNeutral": "What are we launching today?"
+		"greetingNeutral": "What are we launching today?",
+		"starterPassRequired": "Your account needs the Starter pass. Open your wallet on the web to get it."
 	},
 	"drawer": {
 		"signOut": "Sign out",
@@ -377,7 +378,8 @@
 		"betaNote": "Your wallet. Credits never expire.",
 		"bucketPlan": "Included",
 		"bucketPromo": "Promo",
-		"bucketTopup": "Top-up"
+		"bucketTopup": "Top-up",
+		"starterPassCta": "Get the Starter pass"
 	},
 	"projectSheet": {
 		"viewsLabel": "Project views",

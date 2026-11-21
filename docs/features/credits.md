@@ -2,6 +2,11 @@
 
 > **Superseded by pricing v8 on 2026-11-12:** see [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md). There are no plans now; this file stays as history.
 
+> **Spend rule (Starter pass, 2026-11-20):** when the admin switch `product_settings.starter_pass_required` is on,
+> a pool with no live `starter_passes` row cannot start new spend. The pool keeps its credits, but they stay locked.
+> The pool buys the pass for 1 USD by card, or by SlickPay in DZD (250 DZD at the default rate). See
+> [`pricing-v8-pay-as-you-go.md`](pricing-v8-pay-as-you-go.md) section 14.
+
 > **SUPERSEDED (billing v2):** this document describes the pre-v2 slice and no
 > longer matches the shipped system. Current truth:
 > `docs/features/billing.md` and `docs/features/pricing-v6-starter-plan.md`.

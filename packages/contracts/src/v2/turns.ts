@@ -186,6 +186,8 @@ export const turnEstimateResponseSchema = z.object({
 			isActor: z.boolean(),
 			// True when the payer pool has no credits for a new turn.
 			outOfCredits: z.boolean(),
+			// True when the payer pool must buy the Starter pass before a turn. Optional: older servers omit it.
+			starterPassRequired: z.boolean().optional(),
 		})
 		.optional(),
 });

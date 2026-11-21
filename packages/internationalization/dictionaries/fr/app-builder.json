@@ -794,7 +794,8 @@
 			"modelDenied": "Ce modèle n'est pas disponible. Choisis un autre modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
 			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
-			"connectionLost": "Le chat a perdu la connexion au serveur."
+			"connectionLost": "Le chat a perdu la connexion au serveur.",
+			"starterPassRequired": "Obtenez le Pass Démarrage pour commencer à créer. Vos crédits se débloquent ensuite."
 		},
 		"building": "En création",
 		"planning": "En planification",
@@ -851,7 +852,8 @@
 				"one": "{count} requête",
 				"other": "{count} requêtes"
 			}
-		}
+		},
+		"payerStarterPassRequired": "L'espace de travail de ce projet a besoin du Pass Démarrage. Demandez à son propriétaire de l'acheter."
 	},
 	"publish": {
 		"cta": "Publier",

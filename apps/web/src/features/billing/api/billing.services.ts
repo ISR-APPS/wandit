@@ -62,15 +62,15 @@ export async function getManualSubscriptionRequest(): Promise<ManualSubscription
 }
 
 /**
- * Opens a Stripe Checkout Session for a wallet top-up of `amountUsd` whole USD.
+ * Opens a Stripe Checkout Session for a wallet top-up (`{ amountUsd }`) or for the Starter pass (`{ starterPass: true }`).
  * The API computes the credits. The caller sends the browser to the returned URL.
  */
 export async function createBillingTopupCheckout(
-	amountUsd: number,
+	body: CreateBillingTopupBody,
 ): Promise<BillingCheckoutResponse> {
 	const payload = await ApiService.post<unknown, CreateBillingTopupBody>(
 		billingRoutes.topup,
-		{ amountUsd },
+		body,
 	);
 
 	return billingCheckoutResponseSchema.parse(payload);

@@ -1,6 +1,6 @@
 /**
  * Page where Stripe sends the buyer back: /billing/success?purpose=<purpose>&session_id=<id>.
- * Rendered by routes/_auth/billing.success.tsx. A top-up polls its status, an order polls the order.
+ * Rendered by routes/_auth/billing_.success.tsx. A top-up polls its status, an order polls the order.
  * `purpose=subscription` stays for one release, for a checkout opened before pricing v8.
  */
 import { useQueryClient } from "@tanstack/react-query";

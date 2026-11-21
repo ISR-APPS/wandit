@@ -21,6 +21,7 @@ import type {
 import type { FileUIPart } from "ai";
 import { useEffect, useMemo, useState } from "react";
 
+import { isStarterPassRequiredError } from "@/features/credits";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { chatHistoryQuery } from "../api/app-builder.queries";
@@ -172,6 +173,10 @@ export function turnErrorKey(
 	isSendRefused: boolean,
 ): TranslationKey | null {
 	if (isApiClientError(error)) {
+		// The pool has credits but no Starter pass, so "no credits" would be false.
+		if (isStarterPassRequiredError(error)) {
+			return "appBuilder.chat.errors.starterPassRequired";
+		}
 		// A bare 402 arrives as HTTP_402 when the answer carries no error envelope.
 		if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) {
 			return "appBuilder.chat.errors.noCredits";

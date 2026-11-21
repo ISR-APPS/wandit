@@ -84,7 +84,7 @@
 		"title": "Bon à savoir",
 		"newAccounts": "Seuls les nouveaux comptes comptent. Ton ami doit s'inscrire avec ton lien.",
 		"window": "Ton ami a {days} pour utiliser {min}. Cette récompense vaut pour {friends} au maximum tous les {days}.",
-		"noCash": "Les crédits n'ont aucune valeur monétaire.",
+		"noCash": "Les crédits n'ont aucune valeur monétaire. Si un compte doit acheter le Pass Démarrage, ses crédits se débloquent après ce paiement.",
 		"abuse": "Les faux comptes et les doublons perdent leurs récompenses."
 	},
 	"card": {

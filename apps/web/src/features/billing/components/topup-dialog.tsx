@@ -1,11 +1,14 @@
 /**
  * The top-up dialog: one amount in whole USD, its receipt, then a payment tab (card, CIB / Edahabia, or cash / transfer).
+ * While the wallet says `starterPassRequired`, it sells only the Starter pass: a fixed price, card and CIB / Edahabia only.
  * BillingModalProvider mounts it once for the whole app. It names the wallet that gets the credits.
- * Reads the wallet, the public settings, and the local pricing. The card tab calls useCreateBillingTopupCheckout.
+ * Reads the wallet, the public settings, and the DZD rate. The card tab calls useCreateBillingTopupCheckout.
  * The credits on screen come from topupQuoteForUsd only. The server grants the same quote.
  */
 import {
+	type CreateBillingTopupBody,
 	type ProductEventSurface,
+	STARTER_PASS_USD,
 	smallestTopupCovering,
 	topupQuoteForUsd,
 } from "@wandit/contracts";
@@ -32,7 +35,7 @@ import { useSession } from "@/features/auth";
 import { useCreateBillingTopupCheckout } from "@/features/billing/api/billing.mutations";
 import {
 	useBillingWalletQuery,
-	useLocalPricingQuery,
+	useDzdPerUsdRate,
 } from "@/features/billing/api/billing.queries";
 import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
 import {
@@ -53,6 +56,7 @@ import { getApiErrorMessage } from "@/lib/api-client";
 import { formatNumber, useDictionary, useTranslation } from "@/lib/i18n";
 import { ManualPaymentRequestPanel } from "./manual-payment-request-panel";
 import { SlickpayCheckoutPanel } from "./slickpay-checkout-panel";
+import { StarterPassSummary } from "./starter-pass-card";
 import { TopupAmountPicker } from "./topup-amount-picker";
 import { TopupReceipt } from "./topup-receipt";
 
@@ -75,6 +79,11 @@ type TopupDialogProps = {
 	availableCredits?: number;
 	/** Decimal credits that running generations hold, from the same 402 answer. */
 	heldCredits?: number;
+	/**
+	 * True when a 402 said `starter_pass_required` for a pool that the viewer cannot pay for (canBuyForPayer is false).
+	 * The dialog then only tells the viewer to ask the owner.
+	 */
+	askOwnerForStarterPass?: boolean;
 };
 
 /** Mounted once by BillingModalProvider. The body remounts on each open, so the amount and the forms start empty. */
@@ -107,15 +116,18 @@ function TopupDialogBody({
 	requiredCredits,
 	availableCredits,
 	heldCredits,
+	askOwnerForStarterPass = false,
 	onClose,
 }: Omit<TopupDialogProps, "open" | "onOpenChange"> & { onClose: () => void }) {
 	const { locale, t } = useTranslation();
-	const copy = useDictionary().billing.topup;
+	const dictionary = useDictionary();
+	const copy = dictionary.billing.topup;
+	const starterCopy = dictionary.billing.starterPass;
 	const { activeWorkspace, actorCanManageBilling, isPersonal } = useWorkspace();
 	const { data: session } = useSession();
 	const walletQuery = useBillingWalletQuery();
 	const settingsQuery = usePublicSettingsQuery();
-	const localPricingQuery = useLocalPricingQuery();
+	const dzdPerUsdRate = useDzdPerUsdRate();
 	const purchasesEnabled = usePurchasesEnabled();
 	const topup = useCreateBillingTopupCheckout();
 	// Decimal credits that the refused action misses: running generations hold part of the settled balance.
@@ -140,14 +152,29 @@ function TopupDialogBody({
 		? copy.personalWallet
 		: t("billing.topup.teamWallet", { name: activeWorkspace?.name ?? "" });
 
+	// The pool must buy the Starter pass first. A wallet from an older API has no flag: the normal top-up shows.
+	const starterMode = walletQuery.data?.starterPassRequired === true;
+
 	const header = (
 		<DialogHeader>
 			<DialogTitle className="font-bold font-grotesk text-xl tracking-[-0.03em]">
-				{copy.title}
+				{starterMode ? starterCopy.dialogTitle : copy.title}
 			</DialogTitle>
 			<DialogDescription>{walletText}</DialogDescription>
 		</DialogHeader>
 	);
+
+	// Only the owner of the pool can buy its pass. The viewer must ask the owner.
+	if (askOwnerForStarterPass || (!actorCanManageBilling && starterMode)) {
+		return (
+			<DialogHeader>
+				<DialogTitle className="font-bold font-grotesk text-xl tracking-[-0.03em]">
+					{starterCopy.dialogTitle}
+				</DialogTitle>
+				<DialogDescription>{starterCopy.askOwner}</DialogDescription>
+			</DialogHeader>
+		);
+	}
 
 	if (!actorCanManageBilling) {
 		return (
@@ -188,11 +215,12 @@ function TopupDialogBody({
 	}
 
 	const limits = walletQuery.data.topup;
-	const slickpayRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
 	const available: Record<TopupPaymentMethod, boolean> = {
 		card: limits.enabled,
-		slickpay: slickpayRate !== null,
-		offline: settingsQuery.data.manualPaymentsEnabled,
+		// The API sends a DZD rate only when it has a SlickPay key, so the rate means "SlickPay is on".
+		slickpay: dzdPerUsdRate !== null,
+		// Cash on delivery never buys the Starter pass (founder rule). The API offline body also needs 10 USD or more.
+		offline: !starterMode && settingsQuery.data.manualPaymentsEnabled,
 	};
 	const method =
 		selectedMethod && available[selectedMethod]
@@ -217,8 +245,8 @@ function TopupDialogBody({
 			tone="paper"
 			size="compact"
 			localPriceLabel={
-				amountUsd !== null && slickpayRate !== null
-					? formatLocalPrice(amountUsd, locale, slickpayRate)
+				amountUsd !== null && dzdPerUsdRate !== null
+					? formatLocalPrice(amountUsd, locale, dzdPerUsdRate)
 					: undefined
 			}
 			onAmountUsdChange={setAmountUsd}
@@ -228,6 +256,26 @@ function TopupDialogBody({
 	// SlickPay can still turn on while the local pricing loads. Do not say "open soon" before it settles.
 	if (method === null && purchasesEnabled === undefined) {
 		return loading;
+	}
+
+	// No method sells the pass: the API refuses cash for it, so the dialog shows only the price.
+	if (starterMode && method === null) {
+		return (
+			<>
+				{header}
+				<StarterPassSummary
+					promoCredits={walletQuery.data.balance.settledPromo}
+				/>
+				<DialogNotice
+					title={starterCopy.unavailableTitle}
+					body={starterCopy.unavailableBody}
+				>
+					<Button type="button" variant="outline" onClick={onClose}>
+						{copy.close}
+					</Button>
+				</DialogNotice>
+			</>
+		);
 	}
 
 	// No method is on: the user still sees the prices, but cannot pay yet.
@@ -250,13 +298,20 @@ function TopupDialogBody({
 	const isRedirecting = topup.isPending || topup.isSuccess;
 	const defaultFullName = session?.user.name ?? "";
 
+	// The Starter pass has a fixed price. The picker and the receipt do not show in that mode.
+	const payAmountUsd = starterMode ? STARTER_PASS_USD : amountUsd;
+
 	const payByCard = () => {
-		if (amountUsd === null || isRedirecting) {
+		if (payAmountUsd === null || isRedirecting) {
 			return;
 		}
 		setCardError(null);
+		// The Starter pass is below the top-up minimum, so it has its own body. The API charges STARTER_PASS_USD.
+		const body: CreateBillingTopupBody = starterMode
+			? { starterPass: true }
+			: { amountUsd: payAmountUsd };
 		void topup
-			.mutateAsync(amountUsd)
+			.mutateAsync(body)
 			.then(({ url }) => completeCardCheckoutStart(url, surface))
 			.catch((error) => setCardError(getApiErrorMessage(error)));
 	};
@@ -271,7 +326,10 @@ function TopupDialogBody({
 		<>
 			{header}
 
-			{requiredCredits !== undefined && availableCredits !== undefined ? (
+			{/* In the Starter pass mode the pool can have credits. The shortfall numbers would not explain the refusal. */}
+			{!starterMode &&
+			requiredCredits !== undefined &&
+			availableCredits !== undefined ? (
 				<div className="grid grid-cols-2 gap-3 rounded-2xl bg-ember/[0.06] p-3.5 ring-1 ring-ember/25">
 					{/* An old server or a cached 402 can give no shortfall. The metrics below then stand alone. */}
 					{shortfallCredits !== null && shortfallCredits > 0 ? (
@@ -307,8 +365,16 @@ function TopupDialogBody({
 				</div>
 			) : null}
 
-			{picker}
-			{receipt}
+			{starterMode ? (
+				<StarterPassSummary
+					promoCredits={walletQuery.data.balance.settledPromo}
+				/>
+			) : (
+				<>
+					{picker}
+					{receipt}
+				</>
+			)}
 
 			<Tabs
 				value={method}
@@ -352,38 +418,54 @@ function TopupDialogBody({
 							</p>
 						) : null}
 						<DialogFooter>
+							{/* Stripe charges US dollars, so the card button names only the USD price. */}
 							<KeycapButton
 								type="button"
 								size="md"
 								className="focus-visible:outline-ember"
-								disabled={amountUsd === null || isRedirecting}
+								disabled={payAmountUsd === null || isRedirecting}
 								onClick={payByCard}
 							>
 								<CreditCard aria-hidden className="size-4" />
 								{isRedirecting
 									? copy.card.redirecting
-									: amountUsd === null
+									: payAmountUsd === null
 										? t("billing.page.topup")
 										: t("billing.topup.payAction", {
-												amount: formatUsd(amountUsd, locale),
+												amount: formatUsd(payAmountUsd, locale),
 												credits: creditsText(
-													topupQuoteForUsd(amountUsd).credits,
+													topupQuoteForUsd(payAmountUsd).credits,
 												),
 											})}
 							</KeycapButton>
 						</DialogFooter>
+						{/* The DZD price is an estimate at the live rate. The line says that Stripe charges USD. */}
+						{payAmountUsd !== null && dzdPerUsdRate !== null ? (
+							<p className="text-end text-muted-foreground text-xs">
+								<bdi>
+									{t("billing.topup.card.dzdEstimate", {
+										amount: formatLocalPrice(
+											payAmountUsd,
+											locale,
+											dzdPerUsdRate,
+										),
+									})}
+								</bdi>
+							</p>
+						) : null}
 					</TabsContent>
 				) : null}
 				{/* forceMount keeps the typed SlickPay and offline forms when the user switches tabs. */}
-				{slickpayRate !== null ? (
+				{dzdPerUsdRate !== null ? (
 					<TabsContent
 						value="slickpay"
 						forceMount
 						className="pt-2 data-[state=inactive]:hidden"
 					>
 						<SlickpayCheckoutPanel
-							amountUsd={amountUsd}
-							dzdPerUsdRate={slickpayRate}
+							amountUsd={payAmountUsd}
+							starterPass={starterMode}
+							dzdPerUsdRate={dzdPerUsdRate}
 							defaultFullName={defaultFullName}
 							surface={surface}
 						/>
@@ -398,7 +480,7 @@ function TopupDialogBody({
 						<ManualPaymentRequestPanel
 							amountUsd={amountUsd}
 							defaultFullName={defaultFullName}
-							dzdPerUsdRate={slickpayRate}
+							dzdPerUsdRate={dzdPerUsdRate}
 							onClose={onClose}
 							surface={surface}
 						/>

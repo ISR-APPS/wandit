@@ -897,7 +897,12 @@
 			"receiptStoppedAt": "Génération arrêtée à {percent}% — abandonnée.",
 			"receiptDismissed": "Génération échouée ignorée.",
 			"errorCode": "erreur · {code}",
-			"openPageTab": "Ouvrir l'onglet Page"
+			"openPageTab": "Ouvrir l'onglet Page",
+			"starterPass": {
+				"title": "Cette génération a besoin du Pass Démarrage.",
+				"message": "Ton compte ne peut pas utiliser de crédits avant le Pass Démarrage. Ta dernière version est intacte. Obtiens le pass, puis réessaie.",
+				"cta": "Obtenir le Pass Démarrage"
+			}
 		},
 		"leadScrape": {
 			"title": "Recherche de prospects",

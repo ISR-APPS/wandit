@@ -1,15 +1,15 @@
 /**
- * Metric tiles of the dashboard overview: revenue, old MRR, tokens, and totals.
+ * Metric tiles of the dashboard overview: revenue, Starter passes, tokens, and totals.
  * OverviewPage renders it with the snapshot of the overview stats query.
  */
 import type { LucideIcon } from "lucide-react";
 import {
-	CircleDollarSignIcon,
 	CoinsIcon,
 	Globe2Icon,
 	HeartPulseIcon,
 	ImagesIcon,
 	MinusIcon,
+	TicketCheckIcon,
 	TrendingDownIcon,
 	TrendingUpIcon,
 	UserRoundPlusIcon,
@@ -99,13 +99,17 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			icon: WalletCardsIcon,
 		},
 		{
-			key: "mrr",
-			label: "MRR",
+			key: "starter-passes",
+			label: "Starter passes",
 			tooltip:
-				"History (plans ended): monthly recurring revenue of the subscriptions that are still live, at list price. Pay as you go has no recurring revenue, so this number goes to zero after the cutover.",
-			value: formatOverviewRoundedUsdMinor(snapshot.mrrMinor),
-			description: "History (plans ended)",
-			icon: CircleDollarSignIcon,
+				"Starter passes bought in the selected range: $1 by card or by SlickPay at the DZD rate. Staff grants, offline top-ups, and the grandfather backfill do not count.",
+			// An older API omits the count. The tile then shows a dash, not a false zero.
+			value:
+				totals.starterPassesInRange === undefined
+					? "—"
+					: formatOverviewWholeNumber(totals.starterPassesInRange),
+			description: "Bought by card or SlickPay",
+			icon: TicketCheckIcon,
 		},
 		{
 			key: "tokens",

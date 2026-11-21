@@ -1,10 +1,12 @@
 /**
  * Maps admin user rows of the repositories to the admin API contract.
- * AdminUsersService calls it. Ledger sums go from centi-credits to decimal credits here.
+ * AdminUsersService calls it. AdminOrganizationsService calls `mapAdminStarterPass`.
+ * Ledger sums go from centi-credits to decimal credits here.
  */
 import {
 	type AdminAiSpend,
 	type AdminCreditLedgerEntry,
+	type AdminStarterPass,
 	type AdminUserDetail,
 	type AdminUserPlan,
 	type AdminUserProject,
@@ -21,6 +23,7 @@ import type {
 	AdminAiSpendRow,
 	AdminCreditLedgerRow,
 	AdminProjectRow,
+	AdminStarterPassRow,
 	AdminSubscriptionRow,
 	AdminUserDetailRow,
 	AdminUserSummaryRow,
@@ -45,10 +48,27 @@ export function mapAdminUserSummary(
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
 		plan: normalizePlan(row.plan),
 		isPaidOwner: row.isPaidOwner,
+		starterPass:
+			row.starterPass === null ? null : mapAdminStarterPass(row.starterPass),
 		// Ledger sums are integer centi-credits; the API carries decimal credits.
 		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
 		creditsConsumed: centiCreditsToCredits(Number(row.creditsConsumed)),
 		projectsCount: Number(row.projectsCount),
+	};
+}
+
+/**
+ * Maps a live Starter pass to the API shape. The user summary and the user and organization routes call it.
+ * The JSON subquery gives `createdAt` as a Postgres timestamp text, so it goes through `toIso`.
+ */
+export function mapAdminStarterPass(
+	row: AdminStarterPassRow,
+): AdminStarterPass {
+	return {
+		source: row.source,
+		createdAt: toIso(row.createdAt),
+		grantedByUserId: row.grantedByUserId,
+		note: row.note,
 	};
 }
 

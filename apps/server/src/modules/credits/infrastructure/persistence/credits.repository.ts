@@ -10,6 +10,7 @@ import {
 	type PaginationQuery,
 } from "@wandit/contracts";
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "@wandit/db";
+import { productSettings, starterPasses } from "@wandit/db/schema/billing";
 import {
 	aiUsageEvents,
 	type aiUsageOperation,
@@ -23,6 +24,7 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { livePassOfOwner } from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import {
 	type CreditOwner,
 	creditOwnerLockValue,
@@ -47,6 +49,11 @@ export type SettledBalanceSnapshot = CreditBalance & {
 	settledPlan: number;
 	settledPromo: number;
 	settledTopup: number;
+	/**
+	 * True when `product_settings.starter_pass_required` is on and the pool has no live `starter_passes` row.
+	 * The reserve admission refuses then. It comes from the same statement as the sums.
+	 */
+	starterPassRequired: boolean;
 };
 
 /** One activity feed row, still in integer centi-credits and raw DB enums. */
@@ -281,6 +288,8 @@ export class CreditsRepository {
 	 * `reserve:<eventId>:<bucket>`, one row per bucket the spend order touched)
 	 * of the owner's in-flight events. settledBalance is the sum of the three
 	 * settled buckets. UNIT: integer centi-credits.
+	 * starter_pass_required is false when the settings row is missing: a fresh database has the switch off.
+	 * The settings id is the literal 1: the check product_settings_singleton_id_ck allows no other row.
 	 */
 	async getSettledBalanceSnapshot(
 		owner: CreditOwner,
@@ -319,8 +328,16 @@ export class CreditsRepository {
 				coalesce((select total from ledger where bucket = 'topup'), 0) as topup,
 				coalesce((select total from holds where bucket = 'plan'), 0) as hold_plan,
 				coalesce((select total from holds where bucket = 'promo'), 0) as hold_promo,
-				coalesce((select total from holds where bucket = 'topup'), 0) as hold_topup
+				coalesce((select total from holds where bucket = 'topup'), 0) as hold_topup,
+				coalesce((
+					select ${productSettings.starterPassRequired} from ${productSettings}
+					where ${productSettings.id} = 1
+				), false) and not exists (
+					select 1 from ${starterPasses}
+					where ${livePassOfOwner(owner)}
+				) as starter_pass_required
 		`);
+		// SAFETY: the select above names these seven columns; each value is parsed below.
 		const row = result.rows[0] as
 			| {
 					hold_plan: unknown;
@@ -328,6 +345,7 @@ export class CreditsRepository {
 					hold_topup: unknown;
 					plan: unknown;
 					promo: unknown;
+					starter_pass_required: unknown;
 					topup: unknown;
 			  }
 			| undefined;
@@ -346,6 +364,7 @@ export class CreditsRepository {
 			settledPlan,
 			settledPromo,
 			settledTopup,
+			starterPassRequired: row?.starter_pass_required === true,
 			topup,
 		};
 	}

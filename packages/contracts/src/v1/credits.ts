@@ -73,6 +73,9 @@ export const creditBalanceResponseSchema = z.object({
 	settledPlan: z.number(),
 	settledPromo: z.number(),
 	settledTopup: z.number(),
+	// True when the pool must buy the Starter pass before it can spend: the switch is on and the pool has no live pass.
+	// Optional, so a new client still parses the answer of an old API.
+	starterPassRequired: z.boolean().optional(),
 });
 
 export type CreditBalanceResponse = z.infer<typeof creditBalanceResponseSchema>;

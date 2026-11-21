@@ -73,7 +73,8 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			// Convenience precheck only (see create-precheck.ts): any positive
 			// balance may start a run; the server performs the atomic reservation
 			// and remains authoritative if this cached balance is stale.
-			const precheck = precheckCreateBalance(balanceQuery.data?.settledBalance);
+			// "insufficient" opens the dialog. It shows the Starter pass copy when the pool needs the pass.
+			const precheck = precheckCreateBalance(balanceQuery.data);
 			if (precheck === "balance-unavailable") {
 				toast.error(
 					balanceQuery.error
@@ -145,7 +146,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			return true;
 		},
 		[
-			balanceQuery.data?.settledBalance,
+			balanceQuery.data,
 			balanceQuery.error,
 			createProject,
 			navigate,

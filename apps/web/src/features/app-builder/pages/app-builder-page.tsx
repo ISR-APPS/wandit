@@ -288,6 +288,13 @@ export default function AppBuilderPage({
 		nextTurnEstimate === undefined
 			? false
 			: nextTurnEstimate.payer?.outOfCredits;
+	// Same rule. A payer of an API without the Starter pass field needs no pass.
+	const payerStarterPassRequired =
+		nextTurnEstimate === undefined
+			? false
+			: nextTurnEstimate.payer === undefined
+				? undefined
+				: nextTurnEstimate.payer.starterPassRequired === true;
 	// The project's workspace pool pays for its turns (workspaces-sharing.md 4).
 	const isPayerActiveWorkspace =
 		project.access === undefined ||
@@ -405,6 +412,7 @@ export default function AppBuilderPage({
 			targets={targets}
 			isReadOnly={!canEdit}
 			payerOutOfCredits={payerOutOfCredits}
+			payerStarterPassRequired={payerStarterPassRequired}
 			isPayerActiveWorkspace={isPayerActiveWorkspace}
 			onRemoveTarget={(index) =>
 				setPicked({

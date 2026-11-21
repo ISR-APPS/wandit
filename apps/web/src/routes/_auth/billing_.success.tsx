@@ -1,3 +1,8 @@
+/**
+ * /billing/success: Stripe sends the buyer here after a card payment, with ?purpose and ?session_id.
+ * The "_" after "billing" keeps this route out of the /billing page, which has no outlet for child routes.
+ * Without it, the wallet page shows and a buyer can pay the Starter pass a second time.
+ */
 import { createFileRoute } from "@tanstack/react-router";
 import { CHECKOUT_PURPOSE, type CheckoutPurpose } from "@wandit/contracts";
 
@@ -8,7 +13,7 @@ type BillingSuccessSearch = {
 	session_id: string | undefined;
 };
 
-export const Route = createFileRoute("/_auth/billing/success")({
+export const Route = createFileRoute("/_auth/billing_/success")({
 	validateSearch: (search: Record<string, unknown>): BillingSuccessSearch => ({
 		purpose:
 			search.purpose === CHECKOUT_PURPOSE.subscription ||

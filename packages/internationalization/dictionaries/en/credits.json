@@ -11,12 +11,21 @@
 	"topUpDialog": "Top up credits",
 	"insufficientTitle": "Not enough credits",
 	"insufficientBody": "This action costs more credits than you currently have.",
+	"starterPassTitle": "Get the Starter pass",
+	"starterPassBody": "Your account cannot spend credits before the Starter pass. One small payment keeps Wandit free of abuse.",
+	"starterPassCta": "Get the Starter pass",
 	"outOfCredits": {
 		"title": "You're out of credits",
 		"body": "Top up your wallet to keep building.",
 		"memberBody": "This workspace is out of credits. Ask a workspace owner to top up.",
 		"cta": "Top up",
-		"pausedBody": "Credit purchases are paused for now."
+		"pausedBody": "Credit purchases are paused for now.",
+		"starterPass": {
+			"title": "Your account needs the Starter pass",
+			"body": "One small payment unlocks your credits and keeps Wandit free of abuse.",
+			"memberBody": "Ask the team owner to buy the Starter pass.",
+			"cta": "Get the Starter pass — {price}"
+		}
 	},
 	"elsewhere": {
 		"chipHint": "Your credits are in {name}",

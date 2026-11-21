@@ -1,5 +1,5 @@
 /**
- * Admin API for team organizations: list, detail, credit grants, and member roles.
+ * Admin API for team organizations: list, detail, credit grants, Starter pass, and member roles.
  * The admin app calls these routes under /api/v1/admin/organizations.
  * Each handler calls AdminOrganizationsService. AdminGuard checks the permission.
  */
@@ -21,9 +21,12 @@ import {
 	type AdminListOrganizationsResponse,
 	type AdminOrganizationDetail,
 	type AdminSetMemberRoleInput,
+	type AdminStarterPassBody,
+	type AdminStarterPassResponse,
 	adminGrantCreditsInputSchema,
 	adminListOrganizationsQuerySchema,
 	adminSetMemberRoleInputSchema,
+	adminStarterPassBodySchema,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
@@ -67,6 +70,39 @@ export class AdminOrganizationsController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminOrganizationDetail> {
 		return this.adminOrganizationsService.grantCredits(
+			admin,
+			organizationId,
+			body,
+		);
+	}
+
+	// The Starter pass unlocks credits, so it takes the credit grant permission.
+	@Post(":organizationId/starter-pass")
+	@AdminPermission({ organizations: ["read"], credits: ["grant"] })
+	@HttpCode(200)
+	grantStarterPass(
+		@Param("organizationId") organizationId: string,
+		@Body(new ZodValidationPipe(adminStarterPassBodySchema))
+		body: AdminStarterPassBody,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminStarterPassResponse> {
+		return this.adminOrganizationsService.grantStarterPass(
+			admin,
+			organizationId,
+			body,
+		);
+	}
+
+	@Post(":organizationId/starter-pass/revoke")
+	@AdminPermission({ organizations: ["read"], credits: ["grant"] })
+	@HttpCode(200)
+	revokeStarterPass(
+		@Param("organizationId") organizationId: string,
+		@Body(new ZodValidationPipe(adminStarterPassBodySchema))
+		body: AdminStarterPassBody,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminStarterPassResponse> {
+		return this.adminOrganizationsService.revokeStarterPass(
 			admin,
 			organizationId,
 			body,

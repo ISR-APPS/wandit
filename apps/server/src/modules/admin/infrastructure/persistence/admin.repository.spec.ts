@@ -444,9 +444,10 @@ describe("AdminRepository user-list queries", () => {
 		]);
 	});
 
-	// A top-up alone makes a user paid, so "free credits" excludes it too.
+	// A top-up of 10 USD or more alone makes a user paid, so "free credits" excludes it too.
+	// The 1 USD Starter pass top-up does not make a user paid.
 	const neverPaidPredicate =
-		'not (exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" not in (\'incomplete\', \'incomplete_expired\')) or exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."bucket" = \'topup\' and "credit_ledger"."kind" = \'topup\'))';
+		'not (exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" not in (\'incomplete\', \'incomplete_expired\')) or exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."bucket" = \'topup\' and "credit_ledger"."kind" = \'topup\' and "credit_ledger"."delta" >= $?))';
 	const signupFreeCreditsGrantPredicate =
 		'exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'grant\' and "credit_ledger"."bucket" = \'promo\' and "credit_ledger"."idempotency_key" = \'signup:\' || "user"."id")';
 	const personalCreditsBalanceExpression =
@@ -477,7 +478,8 @@ describe("AdminRepository user-list queries", () => {
 		expect(countSql).toContain(
 			`${personalCreditsBalanceExpression} ${balanceComparison}`,
 		);
-		expect(count.params).toEqual([]);
+		// 10 000 centi-credits: the credits of a 10 USD top-up.
+		expect(count.params).toEqual([10_000]);
 	});
 
 	it("ORs consumed and available balances while retaining never-paid and signup-grant requirements", () => {
@@ -498,7 +500,8 @@ describe("AdminRepository user-list queries", () => {
 		expect(countSql).toContain(
 			`(${personalCreditsBalanceExpression} <= 0 or ${personalCreditsBalanceExpression} > 0)`,
 		);
-		expect(count.params).toEqual([]);
+		// 10 000 centi-credits: the credits of a 10 USD top-up.
+		expect(count.params).toEqual([10_000]);
 	});
 
 	it("treats all values selected in each dimension as no filter", () => {

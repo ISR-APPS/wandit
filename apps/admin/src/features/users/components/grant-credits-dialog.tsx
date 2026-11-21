@@ -1,3 +1,7 @@
+/**
+ * "Grant credits" dialog for the personal wallet of one user.
+ * The users table row actions and the user detail page open it. It calls useGrantCreditsMutation.
+ */
 import { Loader2Icon, WalletCardsIcon } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -152,6 +156,13 @@ export function GrantCreditsDialog({
 								Current balance: {formatCreditBalance(user.creditsBalance)}{" "}
 								credits.
 							</FieldDescription>
+							{/* Null: the API says the pool has no pass. Undefined: an older API, so no note. */}
+							{user.starterPass === null ? (
+								<FieldDescription>
+									No Starter pass. While the Starter pass switch is on, credits
+									stay locked until the Starter pass.
+								</FieldDescription>
+							) : null}
 							<FieldError>
 								{submitted && !amountIsValid
 									? "Enter an amount between 0.01 and 1,000,000, in 0.01 steps."

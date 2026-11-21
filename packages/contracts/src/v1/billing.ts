@@ -157,6 +157,30 @@ export const TOPUP_MAX_AMOUNT_USD = 1000;
 /** Base rate of pricing v8: whole credits for 1 USD, before the bonus. Same for personal and team wallets. */
 export const TOPUP_CREDITS_PER_USD = 10;
 
+/**
+ * Price of the Starter pass, in whole USD. It is below TOPUP_MIN_AMOUNT_USD on purpose.
+ * Credits: topupCreditsForUsd(STARTER_PASS_USD) = 10. DZD price: dzdPriceFor(STARTER_PASS_USD, rate).
+ * Only card (Stripe) and SlickPay sell it. Cash on delivery never does.
+ */
+export const STARTER_PASS_USD = 1;
+
+/**
+ * Values of `starter_passes.source`, the reason a pool has its pass.
+ * stripe and slickpay: a paid top-up. offline: an admin-recorded top-up. grandfathered: the pool paid before the switch.
+ * admin: an admin grant, or the dev seed.
+ */
+export const starterPassSources = [
+	"stripe",
+	"slickpay",
+	"offline",
+	"grandfathered",
+	"admin",
+] as const;
+
+export const starterPassSourceSchema = z.enum(starterPassSources);
+
+export type StarterPassSource = z.infer<typeof starterPassSourceSchema>;
+
 /** One step of the volume bonus. A top-up of `minAmountUsd` whole USD or more gets `bonusPercent` of its base credits. */
 export type TopupBonusTier = {
 	readonly minAmountUsd: number;
@@ -510,12 +534,13 @@ export type BillingSubscriptionViewResponse = z.infer<
 >;
 
 /**
- * Body of POST billingRoutes.topup. The new web sends `{ amountUsd }`.
- * `{ packId }` comes from a cached pricing v7 web bundle, for one release only.
- * Strict objects: a body with both keys, or an unknown key, is a 400.
+ * Body of POST billingRoutes.topup. The new web sends `{ amountUsd }`, or `{ starterPass: true }` for the Starter pass.
+ * The Starter pass amount is always STARTER_PASS_USD. `{ packId }` comes from a cached pricing v7 web bundle, for one release only.
+ * Strict objects: a body with two of these keys, or an unknown key, is a 400.
  */
 export const createBillingTopupBodySchema = z.union([
 	z.strictObject({ amountUsd: topupAmountUsdSchema }),
+	z.strictObject({ starterPass: z.literal(true) }),
 	z.strictObject({ packId: topupPackIdSchema }),
 ]);
 
@@ -532,6 +557,9 @@ export const billingWalletResponseSchema = z.object({
 	balance: creditBalanceResponseSchema,
 	// True when the pool has a top-up ledger row, or had a subscription.
 	isPaidOwner: z.boolean(),
+	// True when the pool must buy the Starter pass before it can spend: the switch is on and the pool has no live pass.
+	// Optional, so a new web bundle still parses the answer of an old API.
+	starterPassRequired: z.boolean().optional(),
 	// True when the pool has a Stripe customer, so the portal shows old invoices.
 	hasStripeCustomer: z.boolean(),
 	// Decimal display credits: net consumption of this wallet in the last 30 days (consume minus refunds).
@@ -829,7 +857,7 @@ export type ManualSubscriptionRequestViewResponse = z.infer<
 
 /**
  * Converts a USD amount (a top-up amount, or a plan price from priceUsdFor) to whole DZD.
- * dzdPerUsdRate is decimal DZD per 1 USD (270 = 270.00), not the stored centi-DZD value.
+ * dzdPerUsdRate is decimal DZD per 1 USD (250 = 250.00), not the stored centi-DZD value.
  * The API invoice, the web prices, and the admin receipts all call it, so their amounts agree.
  */
 export function dzdPriceFor(priceUsd: number, dzdPerUsdRate: number): number {
@@ -839,29 +867,46 @@ export function dzdPriceFor(priceUsd: number, dzdPerUsdRate: number): number {
 /** Answer of GET billingRoutes.localPricing. It depends on the visitor IP country, so it is never cached. */
 export const billingLocalPricingResponseSchema = z.object({
 	// null outside Algeria, or when the API has no SlickPay key. Then the web shows USD and Stripe.
+	// Keep it Algeria-only: an old cached web bundle reads a non-null value as "the visitor is in Algeria".
 	slickpay: z
 		.object({
-			// Decimal DZD per 1 USD (270 = 270.00). Pass it to dzdPriceFor.
+			// Decimal DZD per 1 USD (250 = 250.00). Pass it to dzdPriceFor.
 			dzdPerUsdRate: dzdPerUsdRateSchema,
 		})
 		.nullable(),
+	// Decimal DZD per 1 USD for every visitor, so the web shows DZD prices next to USD prices.
+	// null when the API has no SlickPay key. Optional, so a new web bundle still parses an old API answer.
+	dzdPerUsdRate: dzdPerUsdRateSchema.nullable().optional(),
 });
 
 export type BillingLocalPricingResponse = z.infer<
 	typeof billingLocalPricingResponseSchema
 >;
 
-/**
- * Body of POST billingRoutes.slickpayCheckout: a top-up of `amountUsd` whole USD, charged in DZD.
- * fullName, phone, and city go on the SlickPay invoice. A pricing v7 plan body fails with a 400.
- */
-export const startSlickpayCheckoutBodySchema = z.object({
-	amountUsd: topupAmountUsdSchema,
+/** Buyer contact of a SlickPay invoice. Both body variants below share it. */
+const slickpayBuyerContactSchema = z.object({
 	fullName: z.string().trim().min(2).max(120),
 	phone: phoneSchema,
 	// City or wilaya in Algeria.
 	city: z.string().trim().min(1).max(120),
 });
+
+/**
+ * Body of POST billingRoutes.slickpayCheckout, charged in DZD. fullName, phone, and city go on the SlickPay invoice.
+ * Either a top-up of `amountUsd` whole USD, or `starterPass: true` for the Starter pass (STARTER_PASS_USD).
+ * A pricing v7 plan body fails with a 400.
+ */
+// Strict objects: a body with both `amountUsd` and `starterPass` fails, like the Stripe top-up body.
+export const startSlickpayCheckoutBodySchema = z.union([
+	z.strictObject({
+		...slickpayBuyerContactSchema.shape,
+		amountUsd: topupAmountUsdSchema,
+	}),
+	z.strictObject({
+		...slickpayBuyerContactSchema.shape,
+		starterPass: z.literal(true),
+	}),
+]);
 
 export type StartSlickpayCheckoutBody = z.infer<
 	typeof startSlickpayCheckoutBodySchema

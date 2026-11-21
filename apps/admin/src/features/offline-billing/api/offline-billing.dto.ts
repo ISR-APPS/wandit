@@ -21,6 +21,7 @@ import {
 	type AdminManualSubscriptionDetail,
 	type AdminManualSubscriptionStatusFilter,
 	type AdminRecordTopupInput,
+	type AdminStarterPass,
 	type AdminTopupReceipt,
 	type AdminUpdateManualRequestBody,
 	adminListManualRequestsResponseSchema,
@@ -48,6 +49,7 @@ export type {
 	AdminManualSubscriptionDetail,
 	AdminManualSubscriptionStatusFilter,
 	AdminRecordTopupInput,
+	AdminStarterPass,
 	AdminTopupReceipt,
 	AdminUpdateManualRequestBody,
 };

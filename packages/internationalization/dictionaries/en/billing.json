@@ -101,7 +101,8 @@
 		},
 		"card": {
 			"description": "Pay in US dollars on the secure Stripe page. You pay one time.",
-			"redirecting": "Opening Stripe…"
+			"redirecting": "Opening Stripe…",
+			"dzdEstimate": "That is about {amount}. Stripe charges US dollars."
 		},
 		"slickpay": {
 			"description": "Pay in Algerian dinars on the secure SlickPay page. You pay one time.",
@@ -198,6 +199,18 @@
 		"shortfall": "You are {credits} short. {amount} covers it.",
 		"openSoon": "Top-ups open soon",
 		"youGetWithBonus": "You get {credits} (+{bonus} bonus)"
+	},
+	"starterPass": {
+		"title": "Starter pass",
+		"dialogTitle": "Get the Starter pass",
+		"why": "Wandit asks for one small real payment before you use credits. It keeps fake accounts and abuse away.",
+		"youGet": "You get {credits}.",
+		"welcomeUnlock": "Your welcome credits unlock too.",
+		"methods": "Pay by card or with CIB / Edahabia. A cash or transfer payment does not buy the Starter pass.",
+		"cta": "Get the Starter pass · {price}",
+		"askOwner": "The credits of this wallet stay locked until its owner buys the Starter pass. Ask the owner to buy it.",
+		"unavailableTitle": "The Starter pass is not open now",
+		"unavailableBody": "Card and CIB / Edahabia payments are closed for now. Try again later."
 	},
 	"offlineRequest": {
 		"title": "Offline top-up request pending",

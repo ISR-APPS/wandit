@@ -17,6 +17,11 @@ credits with one of three payment methods:
 
 The three switches are independent. The rate is 10 credits for 1 USD for each method.
 
+A fourth switch, `product_settings.starter_pass_required` (admin Settings, Product controls, toggle "Starter pass"), is a
+fraud gate. When it is on, a pool that never paid must buy the Starter pass (1 USD by card, or
+250 DZD by SlickPay at the default rate) before it can spend credits. Cash on delivery does not
+sell the pass. See "Starter pass" below and pricing v8 section 14.
+
 Old Stripe subscriptions stay readable until the cutover script ends them (pricing v8 section 9).
 Their invoices, refunds, and disputes still work.
 
@@ -27,6 +32,7 @@ Their invoices, refunds, and disputes still work.
 - **The server computes the credits.** The amount rules are in `@wandit/contracts`
   (`TOPUP_PRESET_AMOUNTS_USD`, `TOPUP_MIN_AMOUNT_USD` = 10, `TOPUP_MAX_AMOUNT_USD` = 1000,
   `TOPUP_CREDITS_PER_USD` = 10, `topupCreditsForUsd`). The web count is display only.
+  `STARTER_PASS_USD` = 1 is below the minimum on purpose. Only a `starterPass: true` body uses it.
 - **Stripe top-ups use `price_data`.** No lookup-key Price and no seed is necessary for a top-up.
 - **Webhooks are the source of truth** for payment state. The return page only reads the result.
 - **Currency:** Stripe is USD and cards only. SlickPay is DZD. Offline receipts keep the currency
@@ -36,7 +42,8 @@ Their invoices, refunds, and disputes still work.
 
 ### Stripe flow (`BillingService.topup`)
 
-1. The body is `{ amountUsd }` (whole USD, 10 to 1000). For one release the API also accepts
+1. The body is `{ amountUsd }` (whole USD, 10 to 1000), or `{ starterPass: true }`. The Starter
+   pass amount is always `STARTER_PASS_USD` (1 USD, 10 credits). For one release the API also accepts
    `{ packId }` from a cached v7 web bundle. The API maps the pack to its USD price (25, 100,
    250) and then uses the same 10-credits-for-1-USD rate.
 2. Open attempt of the same owner (before the lock, then under the owner lock):
@@ -47,12 +54,16 @@ Their invoices, refunds, and disputes still work.
    - It has no session and is older than 5 minutes: the API ignores it and does not set it to
      `expired`. A later webhook attaches it by `metadata.attemptId`.
 3. Under the owner lock, the API inserts a `billing_checkout_attempts` row with `purpose = topup`,
-   `amount_usd_cents`, and `credits` (centi-credits).
+   `amount_usd_cents`, and `credits` (centi-credits). For a Starter pass body, the API first reads
+   the pool balance under the same lock. If the pool does not need the pass, it answers 409
+   `STARTER_PASS_NOT_AVAILABLE`.
 4. `createTopupCheckout` creates the session: `price_data` in USD, product name "Wandit credits",
    `payment_method_types: ["card"]`, `adaptive_pricing` off, metadata `attemptId`, `purpose`,
    `userId`, and `organizationId` on the session and on the payment intent. The success URL is
    `/billing/success?purpose=topup&session_id={CHECKOUT_SESSION_ID}`. The Stripe idempotency key
-   comes from the attempt row only, so a replay sends the same request.
+   comes from the attempt row only, so a replay sends the same request. A Starter pass session also
+   sets `payment_method_options.card.request_three_d_secure = "any"`. Card testers try stolen
+   cards on a 1 USD price, and 3-D Secure stops them.
 5. The webhook verifies the session (see "Webhooks") and grants the credits of the attempt row.
    It never reads credits from Stripe metadata.
 6. The return page polls `GET /billing/topup/status?sessionId=` until the status is `credited`.
@@ -62,7 +73,10 @@ Their invoices, refunds, and disputes still work.
 One transaction: `CreditsService.topup` (bucket `topup`, key `topup:{sessionId}`), one row in
 `billing_topup_receipts`, and the reconciliation outbox row. Then the router calls
 `AffiliateCommissionService.handlePaidTopup`. The grant also enqueues the lifecycle event
-`payment_completed` with `interval: "topup"`.
+`payment_completed` with `interval: "topup"`. A new receipt also gives the credit pool its
+Starter pass (source `stripe`), in the same transaction, if the pool has no live pass. This is
+true for each card top-up, not only for the 1 USD pass. A webhook replay finds the receipt and
+writes no pass. A top-up below 10 USD earns no affiliate commission.
 
 An attempt with an amount goes to the amount checks: currency `usd`,
 `amount_subtotal = attempt.amount_usd_cents`, and `total_details.amount_discount = 0`. An old v7
@@ -81,10 +95,32 @@ receipt. It is null for a receipt with no charge id.
 
 ### Paid owner
 
-`PaidOwnerRepository.isPaidOwner(owner)` is true when the pool has a ledger row of kind `topup`,
-or a `subscriptions` row whose status is not `incomplete` or `incomplete_expired`. V2 backends,
+`PaidOwnerRepository.isPaidOwner(owner)` is true when the pool has a ledger row of kind `topup`
+of `PAID_OWNER_MIN_TOPUP_CENTI_CREDITS` or more (100 credits, the credits of a 10 USD top-up), or a
+`subscriptions` row whose status is not `incomplete` or `incomplete_expired`. V2 backends,
 V2 device minutes, the project move, the page badge gate, and the lifecycle dispatcher read it.
-A full refund of the only top-up keeps the owner paid.
+A full refund of the only top-up keeps the owner paid. The 1 USD Starter pass does not make a
+paid owner. The admin users list has a SQL copy of the rule with the same constant.
+
+### Starter pass
+
+A pass is one row of `starter_passes`. `StarterPassesRepository` writes it. One pool has at most
+one live pass (`revoked_at` NULL). A team pass has `organization_id` set and `user_id` NULL.
+
+- Gate: `CreditsRepository.getSettledBalanceSnapshot` computes `starterPassRequired` in the same
+  statement as the sums. It is true when the switch is on and the pool has no live pass.
+  `CreditsService.consume` with `admission: "requirePositiveBalance"` then throws the usual 402
+  `INSUFFICIENT_CREDITS` with `details.reason = "starter_pass_required"`. The V2 project create
+  refuses the same way. Settle and completion debits do not check the pass.
+- Read: `GET /credits/balance`, `GET /billing/wallet`, and the V2 turn estimate payer block carry
+  `starterPassRequired` (optional in the contracts).
+- Writers: each new card, SlickPay, and admin-recorded offline receipt (source `stripe`,
+  `slickpay`, `offline`), an admin grant (source `admin`), the dev seed, and the backfill of the
+  switch (source `grandfathered`).
+- Revokers: "Reverse top-up", a Stripe dispute (`charge.dispute.created`), and an admin revoke.
+  The first two move the pass to another live receipt of the pool when one exists.
+
+The full rules and the rollout runbook are in pricing v8 section 14.
 
 ## Data model (packages/db)
 
@@ -128,13 +164,13 @@ Endpoints (authed by the global guard unless `@Public`):
 |---|---|
 | `GET /api/v1/billing/plans` | Public. Old v7 catalog, unchanged for one release: cached web bundles call it. |
 | `GET /api/v1/billing/subscription` | Old v7 read, unchanged for one release. |
-| `GET /api/v1/billing/wallet` | `{ balance, isPaidOwner, hasStripeCustomer, spentLast30DaysCredits, topup: { enabled, presetAmountsUsd, minAmountUsd, maxAmountUsd, creditsPerUsd } }` for the active workspace. Each member can read it. |
-| `POST /api/v1/billing/topup` | `{ amountUsd }` (or a v7 `{ packId }`) → `{ url }`. Guards: `TopupsEnabledGuard`, `WebOriginWriteGuard`, `billing: manage`. |
+| `GET /api/v1/billing/wallet` | `{ balance, isPaidOwner, starterPassRequired, hasStripeCustomer, spentLast30DaysCredits, topup: { enabled, presetAmountsUsd, minAmountUsd, maxAmountUsd, creditsPerUsd } }` for the active workspace. Each member can read it. |
+| `POST /api/v1/billing/topup` | `{ amountUsd }`, `{ starterPass: true }`, or a v7 `{ packId }` → `{ url }`. A Starter pass body for a pool that does not need it gives 409 `STARTER_PASS_NOT_AVAILABLE`. Guards: `TopupsEnabledGuard`, `WebOriginWriteGuard`, `billing: manage`. |
 | `GET /api/v1/billing/topup/status` | Query `sessionId` (`cs_…`) → `{ status: "pending" }` or `{ status: "credited", credits }` (decimal credits, bonus included). `credits` is null for an old pack receipt with an unknown pack id. Finds the receipt by session id and the caller's user id. |
 | `GET /api/v1/billing/payments` | The last 50 receipts of the pool. Guard: `billing: manage`. |
 | `POST /api/v1/billing/portal` | Restricted Billing Portal, for old invoices and the payment method. Guard: `billing: manage`. |
-| `GET /api/v1/billing/local-pricing` | Public. A `slickpay` value that is not null shows DZD prices and the SlickPay tab. |
-| `POST /api/v1/billing/slickpay/checkout` | `{ amountUsd }` → SlickPay invoice URL. Guards: `WebOriginWriteGuard`, `billing: manage`. |
+| `GET /api/v1/billing/local-pricing` | Public. `{ dzdPerUsdRate, slickpay }`. `dzdPerUsdRate` goes to every visitor when SlickPay has a key: the web then shows DZD prices and the SlickPay tab. `slickpay` stays Algeria-only for old web bundles. |
+| `POST /api/v1/billing/slickpay/checkout` | `{ amountUsd, ...contact }` or `{ starterPass: true, ...contact }` → SlickPay invoice URL. Same 409 rule as the card. Guards: `WebOriginWriteGuard`, `billing: manage`. |
 | `POST /api/v1/billing/slickpay/payments/:id/confirm` | Reads the invoice state from SlickPay and fulfils a paid row. Guard: `WebOriginWriteGuard`. |
 | `GET /api/v1/billing/manual-request` | The open offline request of the owner, or null. |
 | `POST /api/v1/billing/manual-request` | `{ amountUsd, ...contact }`. Guards: `WebOriginWriteGuard`, `ManualPaymentsEnabledGuard`, `billing: manage`. |
@@ -147,7 +183,10 @@ Removed in pricing v8: `POST /billing/checkout`, `/change/preview`, `/change`, `
 Admin routes (`/api/v1/admin`, billing module): `GET manual-requests`, `GET manual-requests/:id`,
 `PATCH manual-requests/:id`, `GET manual-subscriptions` and `GET manual-subscriptions/:id` (history),
 `GET topup-receipts` (`billing: read`), `POST topup-receipts` ("Record top-up", `billing: manage`),
-and `POST topup-receipts/reverse` ("Reverse top-up", `billing: manage`).
+and `POST topup-receipts/reverse` ("Reverse top-up", `billing: manage`). The admin module adds
+`POST users/:userId/starter-pass`, `POST users/:userId/starter-pass/revoke`,
+`POST organizations/:organizationId/starter-pass`, and `POST organizations/:organizationId/starter-pass/revoke`
+(`credits: grant`, body `{ note }`, 3 to 500 characters).
 
 ## Webhooks
 
@@ -169,7 +208,7 @@ Bootstrap gets `rawBody: true` (Nest native support on the Fastify adapter); the
 | `payment_intent.succeeded`, `.payment_failed`, `.canceled` | The order reconciler. |
 | `charge.refunded` | Record the billing history. Revoke the purchased credits of the charge in proportion. Affiliate clawback. Order refund. |
 | `charge.refund.updated`, `refund.updated`, `refund.failed` | Refund state of the charge and the order. Affiliate clawback. |
-| `charge.dispute.created` | Revoke the purchased credits of the charge. Affiliate clawback. |
+| `charge.dispute.created` | Revoke the purchased credits of the charge. Affiliate clawback. Take the Starter pass of the receipt: move it to another live receipt of the pool, else revoke it (reason `dispute:{disputeId}`). |
 | `charge.dispute.closed` | On won, warning-closed, or prevented: restore only the excess revocation. |
 | anything else | Mark `skipped`, 200. |
 

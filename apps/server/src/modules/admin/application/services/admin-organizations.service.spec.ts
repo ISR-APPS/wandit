@@ -3,8 +3,14 @@ import type { MembershipReduction } from "@wandit/auth";
 import type { CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
+import type {
+	StarterPassGrant,
+	StarterPassRevocation,
+	StarterPassRow,
+} from "../../../billing/infrastructure/persistence/starter-passes.repository";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
+import type { AdminTransaction } from "../../infrastructure/persistence/admin.repository";
 import type {
 	AdminOrganizationMemberRow,
 	AdminOrganizationSummaryRow,
@@ -206,18 +212,79 @@ class FakeMembershipCleanup {
 	}
 }
 
+// Team passes in memory. Like the partial unique index, a pool keeps at most one live pass.
+class InMemoryStarterPasses {
+	rows: StarterPassRow[] = [];
+
+	async findLive(owner: CreditOwner) {
+		return this.rows.find((row) => this.isLiveOf(row, owner)) ?? null;
+	}
+
+	async grantIfAbsent(owner: CreditOwner, grant: StarterPassGrant) {
+		if (this.rows.some((row) => this.isLiveOf(row, owner))) {
+			return null;
+		}
+
+		const row: StarterPassRow = {
+			id: `pass_${this.rows.length + 1}`,
+			userId: owner.type === "user" ? owner.userId : null,
+			organizationId: owner.type === "org" ? owner.organizationId : null,
+			source: grant.source,
+			receiptId: grant.receiptId ?? null,
+			grantedByUserId: grant.grantedByUserId ?? null,
+			note: grant.note ?? null,
+			createdAt: new Date("2026-11-20T10:00:00.000Z"),
+			revokedAt: null,
+			revokedByUserId: null,
+			revokedReason: null,
+		};
+		this.rows.push(row);
+
+		return row;
+	}
+
+	async revokeLive(owner: CreditOwner, revocation: StarterPassRevocation) {
+		const row = this.rows.find((entry) => this.isLiveOf(entry, owner));
+
+		if (!row) {
+			return null;
+		}
+
+		row.revokedAt = new Date("2026-11-21T10:00:00.000Z");
+		row.revokedByUserId = revocation.revokedByUserId ?? null;
+		row.revokedReason = revocation.reason;
+
+		return row;
+	}
+
+	private isLiveOf(row: StarterPassRow, owner: CreditOwner) {
+		return (
+			row.revokedAt === null &&
+			owner.type === "org" &&
+			row.organizationId === owner.organizationId
+		);
+	}
+}
+
 function build() {
 	const repository = new InMemoryOrgsRepository();
 	const credits = new FakeCreditsService();
 	const cleanup = new FakeMembershipCleanup();
+	const starterPasses = new InMemoryStarterPasses();
 	const service = new AdminOrganizationsService(
 		repository as unknown as AdminOrganizationsRepository,
 		credits as unknown as CreditsService,
 		cleanup,
 		{ isPaidOwner: async () => true },
+		starterPasses,
+		{
+			withCreditOwnerLock: (_owner, fn) =>
+				// SAFETY: the in-memory starter passes ignore the transaction client.
+				fn({} as AdminTransaction),
+		},
 	);
 
-	return { cleanup, credits, repository, service };
+	return { cleanup, credits, repository, service, starterPasses };
 }
 
 describe("AdminOrganizationsService", () => {
@@ -271,6 +338,26 @@ describe("AdminOrganizationsService", () => {
 		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
+	it("returns the live pass on a second grant and writes no second row", async () => {
+		const { service, starterPasses } = build();
+
+		const first = await service.grantStarterPass(ADMIN, ORG_ID, {
+			note: "Paid by bank transfer",
+		});
+		const second = await service.grantStarterPass(ADMIN, ORG_ID, {
+			note: "Double click",
+		});
+
+		expect(first.starterPass).toEqual({
+			source: "admin",
+			createdAt: "2026-11-20T10:00:00.000Z",
+			grantedByUserId: "admin_1",
+			note: "Paid by bank transfer",
+		});
+		expect(second).toEqual(first);
+		expect(starterPasses.rows).toHaveLength(1);
+	});
+
 	it("grants promo credits to the ORG pool under a namespaced idempotency key", async () => {
 		const { credits, service } = build();
 
@@ -301,6 +388,20 @@ describe("AdminOrganizationsService", () => {
 			}),
 		).rejects.toBeInstanceOf(BadRequestException);
 		expect(credits.grants).toEqual([]);
+	});
+
+	it.each([
+		"support",
+		"user,support",
+	])("rejects a Starter pass grant by a %s account that belongs to the org", async (role) => {
+		const { service, starterPasses } = build();
+
+		await expect(
+			service.grantStarterPass({ id: "user_b", role }, ORG_ID, {
+				note: "Free pass for my team",
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(starterPasses.rows).toEqual([]);
 	});
 
 	it("lets support grant to an org it does not belong to", async () => {

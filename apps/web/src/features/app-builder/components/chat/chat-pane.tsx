@@ -10,7 +10,7 @@
  * shows a refused send or a lost stream. It has a Reconnect button when
  * `onReconnect` is set.
  * When the agent asks the user something, the request tray opens on top of
- * the composer. While the payer has no credits, the send locks and a
+ * the composer. While the payer has no credits or needs the Starter pass, the send locks and a
  * strip shows above the composer: the upgrade strip when the payer is the
  * active workspace, else a note to ask the owner. While the host applies a
  * starter template, the send locks and a hint shows there. While GitHub has commits
@@ -93,6 +93,11 @@ export type ChatPaneProps = {
 	 * payer: the pane then reads the pool of the active workspace, as before.
 	 */
 	payerOutOfCredits: boolean | undefined;
+	/**
+	 * True when the paying pool must buy the Starter pass first, from the `payer` field of the
+	 * turn estimate. Undefined when an older API sends no payer: the pane then reads the active workspace pool.
+	 */
+	payerStarterPassRequired: boolean | undefined;
 	/** True when the paying pool is the active workspace pool. Only then the upgrade strip can sell the credits that unlock the send. */
 	isPayerActiveWorkspace: boolean;
 	/** Removes the target at this index of `targets`. */
@@ -193,6 +198,7 @@ export function ChatPane({
 	targets,
 	isReadOnly,
 	payerOutOfCredits,
+	payerStarterPassRequired,
 	isPayerActiveWorkspace,
 	onRemoveTarget,
 	isSending,
@@ -244,9 +250,13 @@ export function ChatPane({
 	const lastMessageId = messages.at(-1)?.id;
 	// The balance of the active workspace. An older API sends no payer state,
 	// and then this pool counts, as before sharing.
-	const { outOfCredits: isActivePoolEmpty } = useOutOfCredits();
+	const activePool = useOutOfCredits();
 	// A shared project can bill another pool than the active workspace (workspaces-sharing.md 4).
-	const outOfCredits = payerOutOfCredits ?? isActivePoolEmpty;
+	const starterPassRequired =
+		payerStarterPassRequired ?? activePool.starterPassRequired;
+	// Product rule: a pool with no Starter pass cannot spend, so its credits do not unlock the send.
+	const outOfCredits =
+		(payerOutOfCredits ?? activePool.outOfCredits) || starterPassRequired;
 	// Product rule: one conversation at a time uses the project. The API
 	// refuses a turn of this conversation while another one holds it.
 	const otherBusyChatId = busyChatId === openChatId ? null : busyChatId;
@@ -531,7 +541,11 @@ export function ChatPane({
 					</div>
 				) : !isReadOnly && outOfCredits ? (
 					isPayerActiveWorkspace ? (
-						<OutOfCreditsBanner active className="mb-2">
+						<OutOfCreditsBanner
+							active
+							starterPassRequired={starterPassRequired}
+							className="mb-2"
+						>
 							{null}
 						</OutOfCreditsBanner>
 					) : (
@@ -540,7 +554,11 @@ export function ChatPane({
 							role="status"
 							className="mb-2 rounded-[1.25rem] bg-primary/10 px-4 py-2 text-xs"
 						>
-							{t("sharing.credits.payerEmpty")}
+							{t(
+								starterPassRequired
+									? "appBuilder.chat.payerStarterPassRequired"
+									: "sharing.credits.payerEmpty",
+							)}
 						</p>
 					)
 				) : isStarterTemplateApplying ? (

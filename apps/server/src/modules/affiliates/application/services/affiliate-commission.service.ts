@@ -5,6 +5,7 @@
  * Reads the top-up payer from `BillingCheckoutAttemptsRepository`.
  */
 import { Inject, Injectable } from "@nestjs/common";
+import { TOPUP_MIN_AMOUNT_USD } from "@wandit/contracts";
 import type Stripe from "stripe";
 
 import { BillingCheckoutAttemptsRepository } from "../../../billing/infrastructure/persistence/billing-checkout-attempts.repository";
@@ -87,6 +88,17 @@ export class AffiliateCommissionService {
 		const session = await this.stripeProvider.retrieveCheckoutSession(
 			eventSession.id,
 		);
+
+		// Fraud rule: a top-up below 10 USD, such as the 1 USD Starter pass, earns no commission.
+		// It writes no candidate, so the one fixed earning of a program stays for a real top-up.
+		if (
+			session.currency?.toLowerCase() === "usd" &&
+			session.amount_total !== null &&
+			session.amount_total < TOPUP_MIN_AMOUNT_USD * 100
+		) {
+			return false;
+		}
+
 		const userId = await this.earningUserIdForCustomer(
 			this.expandableId(session.customer),
 			`Stripe checkout session ${session.id}`,

@@ -69,6 +69,8 @@ export class ProductSettingsService {
 			paidSubscriptionsEnabled: false,
 			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
+			// The pricing page shows the Starter pass strip instead of "Start free" when this is on.
+			starterPassRequired: settings.starterPassRequired,
 			topupsEnabled: settings.topupsEnabled,
 			// Centi-credits to decimal credits: the web shows the three referral amounts.
 			userReferralActivationCredits: centiCreditsToCredits(
@@ -91,7 +93,7 @@ export class ProductSettingsService {
 		updatedByUserId: string,
 	): Promise<ProductSettingsUpdateResponse> {
 		const { version: expectedVersion, ...changes } = input;
-		const updated = await this.settingsRepository.updateIfVersion({
+		const update = await this.settingsRepository.updateIfVersion({
 			changes,
 			expectedVersion,
 			updatedByUserId,
@@ -99,15 +101,21 @@ export class ProductSettingsService {
 
 		this.invalidate();
 
-		if (!updated) {
+		if (!update) {
 			throw new SettingsVersionConflictError();
 		}
 
 		this.logger.log(
-			`product_settings_updated admin=${updatedByUserId} version=${updated.version} fields=${Object.keys(changes).sort().join(",")}`,
+			`product_settings_updated admin=${updatedByUserId} version=${update.row.version} fields=${Object.keys(changes).sort().join(",")}`,
 		);
 
-		const settings = mapProductSettingsRow(updated);
+		if (update.grandfatheredPasses > 0) {
+			this.logger.log(
+				`starter_pass_required_enabled admin=${updatedByUserId} grandfathered_passes=${update.grandfatheredPasses}`,
+			);
+		}
+
+		const settings = mapProductSettingsRow(update.row);
 
 		// Decide-enable flow: a PATCH that turns the grant on reports the users
 		// skipped while it was off. The backfill is a separate, explicit action.
