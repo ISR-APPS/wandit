@@ -13,6 +13,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type {
 	BuilderThinking,
+	BuilderTurnAction,
 	BuilderTurnMode,
 	ChatMessage,
 	PreviewTarget,
@@ -80,6 +81,8 @@ export type BuilderThreadState = {
 		answers: TurnQuestionAnswer[];
 		/** Files of a typed message that also answers a skipped round. */
 		files?: FileUIPart[];
+		/** The @-tag of that typed message. */
+		action?: BuilderTurnAction;
 	}) => Promise<boolean>;
 	/** Aborts the stream, then posts the turn cancel. Rejects with ApiClientError. */
 	cancel: () => Promise<void>;
@@ -374,7 +377,10 @@ export function useBuilderThread(
 	const sendTurn = (input: BuilderChatSend) => {
 		// A send with no mode runs in the mode of the toggle. With an open plan,
 		// a build turn approves the whole plan, so a preview fix must not send one.
-		const mode = input.mode ?? (isPlanMode ? "plan" : "build");
+		// A clone tag runs only in a build turn: the API refuses it in Plan Mode.
+		const mode =
+			input.mode ??
+			(isPlanMode && input.action?.kind !== "clone_site" ? "plan" : "build");
 		// Until the created frame of the new turn arrives, the toggle and the
 		// header chip show the mode of this send.
 		setPlanModePick(mode === "plan");
@@ -421,8 +427,8 @@ export function useBuilderThread(
 					historyQuery.error ?? undefined,
 					t,
 				),
-		send: ({ text, files, mode }, targets) =>
-			sendTurn({ text, files, targets, mode }),
+		send: ({ text, files, mode, action }, targets) =>
+			sendTurn({ text, files, targets, mode, action }),
 		// No mode, so a build turn: only a build turn pauses on an approval.
 		decideApproval: (approvalId, approved) =>
 			void chat.send({
@@ -431,8 +437,8 @@ export function useBuilderThread(
 				model: sentModel,
 				thinking,
 			}),
-		answerQuestions: ({ message, answers, files }) =>
-			sendTurn({ text: message, answers, files }),
+		answerQuestions: ({ message, answers, files, action }) =>
+			sendTurn({ text: message, answers, files, action }),
 		cancel: chat.cancel,
 		reconnect,
 		isReady: chatId !== undefined && isHistorySettled,

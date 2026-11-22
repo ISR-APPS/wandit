@@ -10,6 +10,7 @@
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+	BuilderTurnAction,
 	ChatUsageResponse,
 	ComposerMetadata,
 	FileRef,
@@ -82,6 +83,12 @@ const CHAT_TITLE_MAX_CHARS = 80;
 
 // The text parts of one `messages` row, joined by a line break. A row that has no text part gives ''.
 const MESSAGE_TEXT_SQL = sql<string>`coalesce((select string_agg(part->>'text', E'\\n') from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'text'), '')`;
+
+// The `data-action` part of a user row as one line, like "[@Web search]". Null without the part.
+// The labels are the English menu names: the recap reader is the agent, not the user.
+const MESSAGE_ACTION_LINE_SQL = sql<
+	string | null
+>`(select '[@' || case part->'data'->>'kind' when 'web_search' then 'Web search' when 'deep_search' then 'Deep search' when 'clone_site' then 'Clone website: ' || (part->'data'->>'url') end || ']' from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'data-action' limit 1)`;
 
 type UiMessageToInsert = {
 	id: string;
@@ -271,7 +278,7 @@ export class ChatsRepository {
 
 	/**
 	 * The last `limit` messages of a chat, newest first, as plain text: the
-	 * text parts joined, nothing else. The builder-turn task reads it for the
+	 * @-tag line, then the text parts joined. The builder-turn task reads it for the
 	 * recap of a lost agent session. Assistant rows hold 44–80 KB of parts,
 	 * so the database extracts the text and the row count has a limit (X6).
 	 */
@@ -280,7 +287,9 @@ export class ChatsRepository {
 			.select({
 				id: messages.id,
 				role: messages.role,
-				text: MESSAGE_TEXT_SQL,
+				// A clone tag can be the whole message, so the recap keeps the tag line.
+				// `concat_ws` skips a null line, and gives '' when both lines are null.
+				text: sql<string>`concat_ws(E'\\n', ${MESSAGE_ACTION_LINE_SQL}, nullif(${MESSAGE_TEXT_SQL}, ''))`,
 			})
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
@@ -431,11 +440,13 @@ export class ChatsRepository {
 	/**
 	 * V2 turn user message. Same parts layout as the project-create path —
 	 * file parts BEFORE the text part — plus the `builder_turns` FK so the
-	 * history filter can hide its in-flight assistant answer. The elements
-	 * picked in the preview go last, as one `data-targets` part, so the
-	 * bubble shows them after a reload.
+	 * history filter can hide its in-flight assistant answer. The @-tag goes
+	 * after the text as one `data-action` part. The elements picked in the
+	 * preview go last, as one `data-targets` part. The bubble shows both after a reload.
 	 */
 	async insertTurnUserMessage(input: {
+		/** The @-tag of the sources menu, already checked by `createTurnRequestSchema`. */
+		action?: BuilderTurnAction;
 		attachments?: FileRef[];
 		chatId: string;
 		composer?: ComposerMetadata;
@@ -468,6 +479,10 @@ export class ChatsRepository {
 									type: "text",
 								},
 							]
+						: []),
+					// The `turnActionDataPartSchema` shape; the web hydration parses it.
+					...(input.action !== undefined
+						? [{ data: input.action, id: "action", type: "data-action" }]
 						: []),
 					// The `turnTargetsDataPartSchema` shape; the web hydration parses it.
 					...(input.targets !== undefined && input.targets.length > 0

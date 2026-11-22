@@ -47,7 +47,7 @@ describe("openChatOf", () => {
 		title: "Build a shop",
 		createdAt: "2026-11-01T08:00:00.000Z",
 		lastMessageAt: "2026-11-01T08:05:00.000Z",
-		model: "google/gemini-4-hydrogen",
+		model: "zai/glm-5.3",
 	};
 	const newerChat = {
 		id: crypto.randomUUID(),
@@ -67,7 +67,7 @@ describe("openChatOf", () => {
 			expected: {
 				id: olderChat.id,
 				isOldest: true,
-				lockedModelId: "google/gemini-4-hydrogen",
+				lockedModelId: "zai/glm-5.3",
 			},
 		},
 		{
@@ -268,7 +268,7 @@ describe("readBuilderModel", () => {
 			priceRow(STANDARD),
 			priceRow(`${STANDARD}-fast`),
 			priceRow("anthropic/claude-opus-5.5"),
-			priceRow("zai/glm-5.3"),
+			priceRow("google/gemini-4-hydrogen"),
 		],
 	};
 
@@ -293,13 +293,18 @@ describe("readBuilderModel", () => {
 			list,
 		],
 		["the Fast row of a tier", `${STANDARD}-fast`, `${STANDARD}-fast`, list],
-		["a listed pick outside the tiers", STANDARD, "zai/glm-5.3", list],
+		[
+			"a listed pick outside the tiers",
+			STANDARD,
+			"google/gemini-4-hydrogen",
+			list,
+		],
 		["an unknown pick", STANDARD, "openai/removed", list],
 		[
 			"no pick and no listed tier",
 			undefined,
 			null,
-			{ ...list, models: [priceRow("zai/glm-5.3")] },
+			{ ...list, models: [priceRow("google/gemini-4-hydrogen")] },
 		],
 	])("reads %s as %j", (_, expected, stored, models) => {
 		if (stored !== null) {
@@ -452,13 +457,13 @@ describe("baseModelIdOf and fastModelOf", () => {
 
 describe("hasThinkingControl", () => {
 	const STANDARD = "deepseek/deepseek-v4.1-flash-1017";
-	const HIGH = "google/gemini-4-hydrogen";
+	const HIGH = "zai/glm-5.3";
 	const models = [
 		priceRow(STANDARD),
 		priceRow(`${STANDARD}-fast`),
 		priceRow(HIGH),
 		priceRow(`${HIGH}-fast`),
-		priceRow("zai/glm-5.3"),
+		priceRow("google/gemini-4-hydrogen"),
 	];
 
 	// The page sends a level only on true, and Deep costs more credits.
@@ -467,7 +472,7 @@ describe("hasThinkingControl", () => {
 		["a High Fast pick", models, `${HIGH}-fast`, true],
 		["a Standard pick", models, STANDARD, false],
 		["a Standard Fast pick", models, `${STANDARD}-fast`, false],
-		["a model outside the tiers", models, "zai/glm-5.3", false],
+		["a model outside the tiers", models, "google/gemini-4-hydrogen", false],
 		["no model pick: the picker hides", models, undefined, false],
 		["a list that is not loaded", undefined, HIGH, false],
 	])("answers for %s", (_, list, modelId, expected) => {

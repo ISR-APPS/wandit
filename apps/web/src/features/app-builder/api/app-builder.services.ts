@@ -13,6 +13,7 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type BuilderModelsResponse,
+	type BuilderTurnAction,
 	type BuilderTurnMode,
 	builderModelsResponseSchema,
 	type CancelTurnResponse,
@@ -72,6 +73,8 @@ export type SendBuilderMessageInput = {
 	 * fix, `security_scan` for "Run security scan" and its Retry. Absent: useBuilderThread uses the Plan toggle.
 	 */
 	mode?: BuilderTurnMode;
+	/** The @-tag of the composer sources menu, also on a Retry. Absent: the agent picks its tools. */
+	action?: BuilderTurnAction;
 };
 
 /**

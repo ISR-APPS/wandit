@@ -116,6 +116,7 @@
 		"micError": "Impossible de transcrire l'audio. Réessaie.",
 		"addMenuLabel": "Ajouter du contexte",
 		"addSkillLabel": "Ajouter une compétence",
+		"addSkillHint": "Des guides qui orientent l’agent",
 		"attachLabel": "Joindre",
 		"attachHint": "Joindre des images, vidéos, fichiers audio, PDF, documents ou tableurs",
 		"connectApps": "Connecter des applications",

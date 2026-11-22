@@ -6,6 +6,7 @@
 import type {
 	AppLanguage,
 	BuilderThinking,
+	BuilderTurnAction,
 	BuilderTurnMode,
 	ComposerMetadata,
 	CreateAppProjectRequest,
@@ -30,6 +31,8 @@ export type CreateAppProjectInput = {
 	model?: string;
 	/** Thinking level of the first turn, from sentThinkingOf. Absent runs "balanced". */
 	thinking?: BuilderThinking;
+	/** The @-tag of the sources menu for the first turn. Absent: no forced action. */
+	action?: BuilderTurnAction;
 };
 
 /**
@@ -55,5 +58,6 @@ export function toCreateAppProjectBody(
 		mode: input.mode,
 		model: input.model,
 		thinking: input.thinking,
+		action: input.action,
 	};
 }

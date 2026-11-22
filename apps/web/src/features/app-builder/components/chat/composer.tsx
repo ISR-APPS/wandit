@@ -1,13 +1,15 @@
 /**
  * Prompt box of the builder chat, a white card: the request tray slot, the
- * chips of the preview picks, the files, and the long pastes, the textarea,
- * then the add menu (a file or an image), the Plan chip, the Clone chip of a
- * web project, the model menu with the thinking row inside (after the
- * first turn, a lock chip with a Fast mode row too), the credit estimate, the context ring, dictation, and
- * send. While the tray shows, send becomes the answer button of the tray.
- * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft joined to
- * the pasted texts, and the uploaded files; a send that the API refuses puts
- * them back. Uploads and pastes go through the projects feature.
+ * chips of the preview picks, the files, and the long pastes, the textarea
+ * with its @-tag, then the sources menu (files, web search, deep search, and
+ * clone website for a web project; "@" opens it too), the Plan chip, the
+ * model menu with the thinking row inside (after the first turn, a lock chip
+ * with a Fast mode row too), the credit estimate, the context ring,
+ * dictation, and send. While the tray shows, send becomes the answer button
+ * of the tray. Rendered by chat-pane.tsx. Calls `onSend` with the trimmed
+ * draft joined to the pasted texts, the uploaded files, and the tag; a send
+ * that the API refuses puts them back. Uploads and pastes go through the
+ * projects feature.
  */
 
 import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
@@ -15,24 +17,11 @@ import { ArticleIcon } from "@phosphor-icons/react/Article";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
-import { ImageIcon } from "@phosphor-icons/react/Image";
 import { MicrophoneIcon } from "@phosphor-icons/react/Microphone";
-import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
-import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { XIcon } from "@phosphor-icons/react/X";
-import {
-	ATTACHMENT_MEDIA_TYPES,
-	builderMessageMaxLength,
-	type PreviewTarget,
-} from "@wandit/contracts";
+import { builderMessageMaxLength, type PreviewTarget } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@wandit/ui/components/dropdown-menu";
 import { Textarea } from "@wandit/ui/components/textarea";
 import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
@@ -49,9 +38,9 @@ import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
 import {
-	ATTACHMENT_ACCEPT,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
+	BUILDER_ATTACHMENT_ACCEPT,
 	describePastedText,
 	joinPastedText,
 	type PastedText,
@@ -63,12 +52,17 @@ import { formatNumber, type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { ContextUsage } from "../../lib/turn-parts";
 import type { BuilderModelPick } from "../../lib/use-builder-model-pick";
-import { BuilderModelPicker, PROMPT_CHIP_CLASS } from "../builder-model-picker";
-import { CloneSiteChip } from "../clone-site-chip";
+import { BuilderModelPicker } from "../builder-model-picker";
 import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
 import { ContextRing } from "./context-ring";
 import { type ModelLock, ModelLockChip } from "./model-lock-chip";
+import {
+	canSendWithAction,
+	InlineActionTag,
+	PromptSourcesMenu,
+	usePromptSources,
+} from "./prompt-sources-menu";
 import { TargetChip } from "./target-chip";
 
 /**
@@ -114,7 +108,7 @@ export type ComposerProps = {
 	modelPick: BuilderModelPick;
 	/** The locked model of the open conversation, from the page through the chat pane. Null before the first turn. Set, the lock chip shows in place of the menu. */
 	modelLock: ModelLock | null;
-	/** True for a web project, from the page through the chat pane. Shows the Clone chip, which locks and hides like the Plan chip. */
+	/** True for a web project, from the page through the chat pane. The sources menu then lists "Clone website". */
 	canCloneSite: boolean;
 	/** How full the model context is, from contextUsageOf through the chat pane. Null renders no ring: no turn wrote a count yet. The ring hides while the tray shows. */
 	contextUsage: ContextUsage | null;
@@ -124,11 +118,6 @@ export type ComposerProps = {
 
 /** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
 const MAX_FILES = 6;
-
-/** The image types of the upload allow-list, for the "Add an image" picker. */
-const IMAGE_ACCEPT = ATTACHMENT_MEDIA_TYPES.filter((type) =>
-	type.startsWith("image/"),
-).join(",");
 
 /** One file chip above the textarea. */
 type ComposerFile = {
@@ -204,7 +193,22 @@ export function Composer({
 	};
 	const [files, setFiles] = useState<ComposerFile[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const imageInputRef = useRef<HTMLInputElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const sources = usePromptSources({
+		draft,
+		setDraft,
+		textareaRef,
+		canCloneSite,
+		filesBlockedReason:
+			files.length >= MAX_FILES
+				? t("appBuilder.chat.sourcesMenu.filesFull", { max: MAX_FILES })
+				: null,
+		onAddFiles: () => fileInputRef.current?.click(),
+		// A Plan turn has no capture tool, so the clone needs a build turn.
+		onPickClone: () => onPlanModeChange(false),
+	});
+	// The tray answer takes text only, so the tag waits, hidden, for the next message.
+	const action = submitOverride ? null : sources.action;
 	// The unmount cleanup reads the chips of the last render.
 	const filesRef = useRef(files);
 	useEffect(() => {
@@ -239,7 +243,7 @@ export function Composer({
 	// an empty draft. A message waits for its uploads.
 	const canSend = submitOverride
 		? !submitOverride.disabled && !isSending
-		: (message.length > 0 || readyParts.length > 0) &&
+		: canSendWithAction(action, message.length > 0, readyParts.length > 0) &&
 			!isUploading &&
 			!isSending;
 	// The tray answer button needs the room of the ring, like the room of the Plan chip.
@@ -347,7 +351,12 @@ export function Composer({
 			});
 		} else {
 			const sentFiles = files;
-			void onSend({ text: message, files: readyParts }).then((isAccepted) => {
+			const sentAction = action;
+			void onSend({
+				text: message,
+				files: readyParts,
+				...(sentAction ? { action: sentAction } : {}),
+			}).then((isAccepted) => {
 				if (isAccepted) {
 					revokePreviews(sentFiles);
 					return;
@@ -356,15 +365,20 @@ export function Composer({
 				const restoredFiles = [...sentFiles, ...filesRef.current];
 				revokePreviews(restoredFiles.slice(MAX_FILES));
 				setFiles(restoredFiles.slice(0, MAX_FILES));
+				// A tag picked while the send waited is newer, so it stays.
+				sources.setAction((current) => current ?? sentAction);
 				restoreText();
 			});
 			setFiles([]);
+			sources.setAction(null);
 		}
 		setPastedTexts([]);
 		setDraft("");
 	}
 
 	function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+		// The open "@" menu takes Enter and the arrows; Backspace at the start removes the tag.
+		if (!submitOverride && sources.handleKeyDown(event)) return;
 		// Enter sends. Shift+Enter, and Enter that ends an IME composition, insert a newline.
 		if (
 			event.key !== "Enter" ||
@@ -392,8 +406,8 @@ export function Composer({
 		// That edge is 16 px under the card, or lower when the cost line shows.
 		<div className="flex flex-col overflow-hidden rounded-[24px] border border-night/[0.1] bg-white shadow-[0_1px_2px_rgb(11_16_51/0.05),0_10px_28px_-14px_rgb(11_16_51/0.22)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:shadow-[0_14px_36px_-14px_rgb(209_96_34/0.5)] focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.1] dark:bg-white/[0.05] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:shadow-[0_14px_40px_-14px_rgb(250_171_63/0.35)] dark:focus-within:ring-spark/15">
 			{topSlot}
-			{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
-			<div className="flex flex-col px-3.5 pt-3.5 pb-3">
+			{/* The padding sits here, not on the card, so the tray reaches the card edges. The tag floats in this box. */}
+			<div className="relative flex flex-col px-3.5 pt-3.5 pb-3">
 				{targets.length > 0 ? (
 					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
 						{targets.map((target, index) => (
@@ -430,16 +444,33 @@ export function Composer({
 						))}
 					</div>
 				) : null}
+				{action ? (
+					<InlineActionTag
+						action={action}
+						textareaRef={textareaRef}
+						onRemove={() => sources.setAction(null)}
+					/>
+				) : null}
 				{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
 				<Textarea
+					ref={textareaRef}
 					rows={1}
 					// The turn route refuses a longer message or typed answer.
 					maxLength={builderMessageMaxLength}
-					dir="auto"
+					// With a tag, the text takes the UI side, like the tag (InlineActionTag).
+					dir={action ? undefined : "auto"}
 					value={draft}
 					placeholder={placeholder}
 					disabled={isSending}
-					onChange={(event) => setDraft(event.target.value)}
+					onChange={(event) => {
+						setDraft(event.target.value);
+						if (!submitOverride) {
+							sources.trackDraft(
+								event.target.value,
+								event.target.selectionStart,
+							);
+						}
+					}}
 					onKeyDown={onKeyDown}
 					onPaste={onPaste}
 					className="max-h-40 min-h-[52px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
@@ -448,76 +479,31 @@ export function Composer({
 					ref={fileInputRef}
 					type="file"
 					multiple
-					accept={ATTACHMENT_ACCEPT}
-					onChange={addFiles}
-					className="hidden"
-				/>
-				<input
-					ref={imageInputRef}
-					type="file"
-					multiple
-					accept={IMAGE_ACCEPT}
+					accept={BUILDER_ATTACHMENT_ACCEPT}
 					onChange={addFiles}
 					className="hidden"
 				/>
 				{/* The row is a size container: the estimate reads the row width below. */}
 				<div className="@container mt-1 flex items-center gap-1.5">
-					<DropdownMenu>
-						<IconAction label={t("appBuilder.chat.addContext")}>
-							<DropdownMenuTrigger asChild>
-								<Button
-									variant="outline"
-									size="icon-sm"
-									disabled={files.length >= MAX_FILES}
-									className={cn(
-										PROMPT_CHIP_CLASS,
-										"text-night dark:text-foreground",
-									)}
-								>
-									<PlusIcon weight="bold" className="size-4" aria-hidden />
-								</Button>
-							</DropdownMenuTrigger>
-						</IconAction>
-						<DropdownMenuContent align="start" sideOffset={8} className="w-60">
-							<DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-								<PaperclipIcon weight="duotone" aria-hidden />
-								{t("appBuilder.chat.attach")}
-							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
-								<ImageIcon weight="duotone" aria-hidden />
-								{t("appBuilder.chat.attachImage")}
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
 					{/* The tray answer button needs this room. The answers keep the mode and the model; the skip X shows the chips again. */}
 					{submitOverride ? null : (
 						<>
+							<PromptSourcesMenu sources={sources} />
 							<PlanModeToggle
 								isPlanMode={isPlanMode}
-								onPlanModeChange={onPlanModeChange}
+								onPlanModeChange={(isOn) => {
+									// A Plan turn has no capture tool, so Plan Mode drops a clone tag.
+									if (isOn && sources.action?.kind === "clone_site") {
+										sources.setAction(null);
+									}
+									onPlanModeChange(isOn);
+								}}
 								disabled={isSending}
 								// A row under 380 px shows only the icon, so the ring, dictation, and
 								// send fit in the default 400 px column. The tooltip and the screen
 								// reader still give the name.
 								labelClassName="@max-[380px]:sr-only"
 							/>
-							{canCloneSite ? (
-								<CloneSiteChip
-									onCloneRequest={(cloneRequest) => {
-										// The request goes first, so the text that the user typed reads as its details.
-										setDraft(
-											trimmed === ""
-												? cloneRequest
-												: `${cloneRequest}\n${draft}`,
-										);
-										// A Plan turn has no capture tool, so the clone needs a build turn.
-										onPlanModeChange(false);
-									}}
-									disabled={isSending}
-									// The same rule as the Plan chip: a row under 380 px shows only the icon.
-									labelClassName="@max-[380px]:sr-only"
-								/>
-							) : null}
 							{/* Product rule: after its first turn, a conversation keeps its model tier. */}
 							{modelLock === null ? (
 								<BuilderModelPicker pick={modelPick} disabled={isSending} />

@@ -197,6 +197,8 @@ const builtinToolInputSchema = z.object({
 	url: z.string().optional(),
 	prompt: z.string().optional(),
 	skill: z.string().optional(),
+	// The `web_search` host tool: "standard" or "deep". A string keeps the row of an unknown value.
+	depth: z.string().optional(),
 });
 
 type BuiltinToolInput = z.infer<typeof builtinToolInputSchema>;
@@ -475,7 +477,8 @@ function stepContentOf(
 				description: input.description ?? null,
 				detail: capLines(linesOf(input.command ?? "", "context")),
 			};
-		case "web": {
+		case "web":
+		case "deepSearch": {
 			const host = input.url === undefined ? null : hostOf(input.url);
 			return {
 				target: host,
@@ -584,9 +587,13 @@ export function stepOf(part: ToolPart, isLive: boolean): Step | null {
 	}
 	const state = stepStateOf(part, isLive);
 	if (state === null) return null;
-	const kind = STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other";
 	const parsed = builtinToolInputSchema.safeParse(part.input);
 	const input: BuiltinToolInput = parsed.success ? parsed.data : {};
+	// A deep search is the same tool with another input, but it takes longer, so its row says so.
+	const kind =
+		toolName === "web_search" && input.depth === "deep"
+			? "deepSearch"
+			: (STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other");
 	const content = stepContentOf(toolName, kind, input, part.input);
 	// A run row shows the end of the output, also of a failed call. Other
 	// rows show the start of the error text.
@@ -1131,9 +1138,9 @@ function assistantPartsOf(
 
 /**
  * Maps the turn messages to the card messages. A user message keeps its
- * text, file, and `data-targets` parts. It drops when it has no text and no
- * file (an approval answer sends an empty message; the approval card shows
- * the decision). An
+ * text, file, `data-targets`, and `data-action` parts. It drops when it has
+ * no text, no file, and no @-tag (an approval answer sends an empty message;
+ * the approval card shows the decision). An
  * assistant message keeps its parts in stream order (see assistantPartsOf).
  * `isRunning` is true while a turn streams: only the last message is live.
  */
@@ -1148,15 +1155,19 @@ export function toBuilderMessages(
 					part,
 				): part is Extract<
 					TurnMessagePart,
-					{ type: "text" | "file" | "data-targets" }
+					{ type: "text" | "file" | "data-targets" | "data-action" }
 				> =>
 					part.type === "text" ||
 					part.type === "file" ||
-					part.type === "data-targets",
+					part.type === "data-targets" ||
+					part.type === "data-action",
 			);
+			// A clone tag alone is a full request: its bubble shows the tag.
 			if (
 				messageTextOf(message).length === 0 &&
-				!parts.some((part) => part.type === "file")
+				!parts.some(
+					(part) => part.type === "file" || part.type === "data-action",
+				)
 			) {
 				return [];
 			}

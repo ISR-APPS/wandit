@@ -40,6 +40,7 @@ import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
+	type BuilderTurnAction,
 	type ChatCostResponse,
 	DAILY_CAP_TURN_ERROR_CODE,
 	type PreviewTarget,
@@ -141,6 +142,8 @@ export type ChatPaneProps = {
 		answers: TurnQuestionAnswer[];
 		/** Files of a typed message that also answers a skipped round. */
 		files?: FileUIPart[];
+		/** The @-tag of that typed message. */
+		action?: BuilderTurnAction;
 	}) => Promise<boolean>;
 	/**
 	 * State of the Plan toggle, from useBuilderThread. While a turn runs, it
@@ -153,7 +156,7 @@ export type ChatPaneProps = {
 	modelPick: BuilderModelPick;
 	/** The locked model of the open conversation, made by the page. Null before its first turn. Set, the composer shows a lock chip, not the menu. */
 	modelLock: ModelLock | null;
-	/** True for a web project, from `project.kind` in the page. The composer then shows the Clone chip. */
+	/** True for a web project, from `project.kind` in the page. The sources menu of the composer then lists "Clone website". */
 	canCloneSite: boolean;
 	/** The full cost of the chat, from the chat cost query of the page. Absent while it loads or after it failed: the line hides. */
 	chatCost?: ChatCostResponse;
@@ -598,6 +601,7 @@ export function ChatPane({
 										message: input.text,
 										answers,
 										files: input.files,
+										action: input.action,
 									});
 						}}
 						onDraftChange={setDraft}
@@ -687,6 +691,8 @@ function retryInputOf(
 		files: userMessage.parts.filter(
 			(part): part is FileUIPart => part.type === "file",
 		),
+		// The @-tag goes again too, so a failed clone retries as a clone.
+		action: userMessage.parts.find((part) => part.type === "data-action")?.data,
 		// A failed scan retries as a scan. With no mode, the toggle makes it a
 		// build turn with write tools. Other modes keep the toggle: a build approves an open plan.
 		...(error.data.mode === "security_scan"

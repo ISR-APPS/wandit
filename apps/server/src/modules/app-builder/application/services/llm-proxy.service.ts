@@ -4,6 +4,8 @@
  * run token, rejects a revoked run, and checks the model (allow-list and
  * the admin disabled list), the rate limit, and the spend caps. It
  * forwards the body to the provider and streams the answer back. A Paper body loses the blocks that Paper refuses.
+ * A body for a model with text-only hosts (`zai/`) gets text in place of each
+ * image and PDF block: a vision model describes the image, and unpdf extracts the PDF.
  * Every body loses the Claude Code identity: the persona line, the model
  * bullets, and the model sentences. The Wandit persona line takes their place.
  * The thinking level of the token sets the Messages effort: `light` lowers it,
@@ -15,6 +17,8 @@
  * A second controller for the OpenAI-compatible inbound format can reuse
  * it unchanged.
  */
+import { createHash } from "node:crypto";
+
 import {
 	Inject,
 	Injectable,
@@ -28,9 +32,11 @@ import {
 	type ProductSettings,
 	uuidSchema,
 } from "@wandit/contracts";
+import { getErrorMessage } from "@wandit/observability/error";
 import { Sentry } from "@wandit/observability/nestjs";
 import { z } from "zod";
 
+import { extractAttachmentText } from "../../../ai-chat/agent/attachment-text";
 import { ProductSettingsService } from "../../../settings";
 import {
 	type AnthropicAssistantMessage,
@@ -65,6 +71,17 @@ import {
 	type LlmSpendCounterStore,
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
+import {
+	BLOCK_TEXT_CACHE_TTL_SEC,
+	type BlockTextCache,
+	RedisBlockTextCache,
+} from "../../infrastructure/redis/redis-block-text-cache";
+import {
+	IMAGE_DESCRIBER_MODEL,
+	IMAGE_DESCRIBER_PROVIDER,
+	type ImageDescription,
+	LlmProxyImageDescriber,
+} from "./llm-proxy-image-describer.service";
 import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	LlmProxyTokenError,
@@ -132,9 +149,13 @@ const anthropicRequestBodySchema = z.looseObject({
 	model: z.string().min(1).optional(),
 });
 
-// The `messages` of a request, for the Paper rewrite, the thinking retry, and
-// the identity rewrite. Only the `role`, the block `type` and `text`, and the
-// blocks nested in a `tool_result` are read; other fields pass through.
+// One block nested in a `tool_result`. Only its `type` is read; other fields pass through.
+const anthropicInnerBlockSchema = z.looseObject({ type: z.string() });
+
+// The `messages` of a request, for the Paper rewrite, the text-only host
+// rewrite, the thinking retry, and the identity rewrite. Only the `role`, the
+// block `type` and `text`, and the blocks nested in a `tool_result` are read;
+// other fields pass through.
 const anthropicMessagesSchema = z.array(
 	z.looseObject({
 		role: z.string(),
@@ -145,13 +166,85 @@ const anthropicMessagesSchema = z.array(
 					type: z.string(),
 					text: z.string().optional(),
 					content: z
-						.union([z.string(), z.array(z.looseObject({ type: z.string() }))])
+						.union([z.string(), z.array(anthropicInnerBlockSchema)])
 						.optional(),
 				}),
 			),
 		]),
 	}),
 );
+
+type AnthropicMessages = z.infer<typeof anthropicMessagesSchema>;
+
+type AnthropicInnerBlock = z.infer<typeof anthropicInnerBlockSchema>;
+
+// Model id prefixes whose gateway hosts refuse image input. Gateway probe of
+// 2026-11-22 (Anthropic Messages endpoint): zai/glm-5.3 reads image and PDF
+// blocks on baseten only. Fireworks answers 400 "Invalid image or video input".
+// Deepinfra answers 400 "does not accept image input". The gateway falls over
+// to them, so one image block fails the whole request. DeepSeek stays out: it
+// read images and PDFs on baseten, fireworks, and deepinfra.
+// LIMIT: a static list; a new text-only host fails until someone adds its prefix.
+// Upgrade: read the gateway endpoints of each model and their input modalities.
+const TEXT_ONLY_HOST_MODEL_PREFIXES = ["zai/"] as const;
+
+// A base64 `image` block. The Read tool of Claude Code sends one for a png, jpg, gif, or webp file.
+const base64ImageBlockSchema = z.object({
+	type: z.literal("image"),
+	source: z.object({
+		type: z.literal("base64"),
+		media_type: z.string(),
+		data: z.string(),
+	}),
+});
+
+// A base64 PDF `document` block. The Read tool of Claude Code sends one for a PDF file.
+const base64PdfBlockSchema = z.object({
+	type: z.literal("document"),
+	source: z.object({
+		type: z.literal("base64"),
+		media_type: z.literal("application/pdf"),
+		data: z.string(),
+	}),
+});
+
+// The prompt cache breakpoint of a block. The text block in its place keeps
+// it, so the cached prefix ends at the same place.
+const cacheControlSchema = z.object({
+	cache_control: z.looseObject({ type: z.string() }),
+});
+
+// The first line of an image description, so the model knows where the text comes from.
+const IMAGE_DESCRIPTION_HEADER =
+	"[Image description by a vision model: this model cannot see images.]";
+
+// The first line of an extracted PDF text.
+const PDF_TEXT_HEADER =
+	"[PDF text, extracted: this model cannot read PDF files.]";
+
+// Takes the place of an image that the describer could not read. The raw image never goes to a text-only host.
+const IMAGE_UNREADABLE_TEXT =
+	"[Image omitted: the image could not be described, and this model cannot see images.]";
+
+// The last line of a description that stopped at the output cap, so the model knows that parts are missing.
+const IMAGE_DESCRIPTION_CUT_LINE =
+	"[The description stops here: it reached its length limit.]";
+
+// 10 min, the TTL of an image the describer could not read. One agent loop sends the image on many
+// requests; without this, each request pays a new call and waits up to 30 s. A later turn tries again.
+const IMAGE_UNREADABLE_CACHE_TTL_SEC = 10 * 60;
+
+// Takes the place of a document with no text to extract, or of a document that is not a base64 PDF.
+const DOCUMENT_UNREADABLE_TEXT =
+	"[Document omitted: its text could not be extracted, and this model cannot read documents.]";
+
+// Marks the `llm_proxy_requests` row of a describer call. The other rows of the turn carry the builder model.
+const IMAGE_DESCRIPTION_ROW_REASON = "image_description";
+
+// The decoded bytes of one image or PDF block, with their hex sha256: the key of the block text cache.
+type BlockSource =
+	| { kind: "image"; mediaType: string; bytes: Buffer; sha256: string }
+	| { kind: "pdf"; bytes: Buffer; sha256: string };
 
 // Paper answers 400 to a PDF `document` block and to any `thinking` or
 // `redacted_thinking` block in the history (Paper docs). Paper sends no
@@ -247,6 +340,12 @@ export class LlmProxyService {
 		private readonly settings: {
 			get(): Promise<Pick<ProductSettings, "v2DisabledModels">>;
 		},
+		// The text of each image and PDF block for a text-only host model, by the sha256 of its bytes.
+		@Inject(RedisBlockTextCache)
+		private readonly blockTexts: BlockTextCache,
+		// The vision model call that describes one image for a text-only host model.
+		@Inject(LlmProxyImageDescriber)
+		private readonly imageDescriber: Pick<LlmProxyImageDescriber, "describe">,
 	) {}
 
 	/**
@@ -539,6 +638,211 @@ export class LlmProxyService {
 		return value;
 	}
 
+	/**
+	 * The `messages` of a request to a text-only host model, with a text block in
+	 * place of each image and document block, also inside a `tool_result`.
+	 * The same bytes always give the same text, so the prompt cache still hits.
+	 * Returns null when the field does not parse or has no such block.
+	 */
+	private async textOnlyHostMessages(
+		messages: unknown,
+		input: LlmProxyInboundRequest,
+		claims: LlmProxyTokenClaims,
+	): Promise<AnthropicMessages | null> {
+		const parsed = anthropicMessagesSchema.safeParse(messages);
+		if (!parsed.success) {
+			return null;
+		}
+		const blocks = imageAndDocumentBlocksOf(parsed.data);
+		if (blocks.length === 0) {
+			return null;
+		}
+		// Keyed by the block object: the rewrite below walks the same parsed objects.
+		const sourceOfBlock = new Map<AnthropicInnerBlock, BlockSource>();
+		const sourceBySha = new Map<string, BlockSource>();
+		for (const block of blocks) {
+			const source = blockSourceOf(block);
+			if (source !== null) {
+				sourceOfBlock.set(block, source);
+				sourceBySha.set(source.sha256, source);
+			}
+		}
+		const texts = await this.blockTexts.getMany([...sourceBySha.keys()]);
+		// The new blocks of one request load in parallel, so the request waits for the slowest one only.
+		// LIMIT: no cap on parallel describer calls; a first request with 30 new images makes 30 calls.
+		// Upgrade: a small pool of concurrent calls.
+		await Promise.all(
+			[...sourceBySha.values()]
+				.filter((source) => !texts.has(source.sha256))
+				.map(async (source) => {
+					texts.set(
+						source.sha256,
+						await this.blockTextOf(source, input, claims),
+					);
+				}),
+		);
+		return withTextInPlaceOfBlocks(parsed.data, (block) => {
+			const source = sourceOfBlock.get(block);
+			const text = source === undefined ? undefined : texts.get(source.sha256);
+			return (
+				text ??
+				(block.type === "image"
+					? IMAGE_UNREADABLE_TEXT
+					: DOCUMENT_UNREADABLE_TEXT)
+			);
+		});
+	}
+
+	/**
+	 * The text of one block that is not in the cache. A PDF gets its extracted
+	 * text, an image gets a description. A good text goes into the cache for 7 days.
+	 * A describer failure or an empty answer gives the fixed text, cached for 10 minutes only.
+	 */
+	private async blockTextOf(
+		source: BlockSource,
+		input: LlmProxyInboundRequest,
+		claims: LlmProxyTokenClaims,
+	): Promise<string> {
+		if (source.kind === "pdf") {
+			const extracted = await extractAttachmentText(
+				source.bytes,
+				"application/pdf",
+			);
+			// The extraction gives the same answer for the same bytes, so a failure is cached too.
+			const text =
+				"error" in extracted || extracted.text.trim() === ""
+					? DOCUMENT_UNREADABLE_TEXT
+					: `${PDF_TEXT_HEADER}\n${extracted.text}`;
+			if ("error" in extracted) {
+				this.logger.warn("llm-proxy.pdf-text-failed", {
+					runId: claims.runId,
+					turnId: claims.turnId,
+					bytes: source.bytes.length,
+					message: extracted.error,
+				});
+			}
+			await this.blockTexts.set(source.sha256, text, BLOCK_TEXT_CACHE_TTL_SEC);
+			return text;
+		}
+		let description: ImageDescription;
+		try {
+			description = await this.imageDescriber.describe(
+				{ mediaType: source.mediaType, bytes: source.bytes },
+				{ userId: claims.userId, organizationId: claims.workspaceId },
+			);
+		} catch (error) {
+			// LIMIT: a call that failed after the provider read the image writes no row,
+			// so its cost stays unbilled. Upgrade: read the usage from the error.
+			this.logger.warn("llm-proxy.image-description-failed", {
+				runId: claims.runId,
+				turnId: claims.turnId,
+				model: IMAGE_DESCRIBER_MODEL,
+				mediaType: source.mediaType,
+				bytes: source.bytes.length,
+				message: getErrorMessage(error),
+			});
+			await this.blockTexts.set(
+				source.sha256,
+				IMAGE_UNREADABLE_TEXT,
+				IMAGE_UNREADABLE_CACHE_TTL_SEC,
+			);
+			return IMAGE_UNREADABLE_TEXT;
+		}
+		await this.recordImageDescription(input, claims, description);
+		if (description.text === "") {
+			this.logger.warn("llm-proxy.image-description-empty", {
+				runId: claims.runId,
+				turnId: claims.turnId,
+				model: IMAGE_DESCRIBER_MODEL,
+				mediaType: source.mediaType,
+				finishReason: description.finishReason,
+			});
+			// The call is billed already. The cache stops the next requests of the loop from paying again.
+			await this.blockTexts.set(
+				source.sha256,
+				IMAGE_UNREADABLE_TEXT,
+				IMAGE_UNREADABLE_CACHE_TTL_SEC,
+			);
+			return IMAGE_UNREADABLE_TEXT;
+		}
+		if (description.finishReason === "length") {
+			// A cut text shows that the output cap is too small for this kind of image.
+			this.logger.warn("llm-proxy.image-description-cut", {
+				runId: claims.runId,
+				turnId: claims.turnId,
+				model: IMAGE_DESCRIBER_MODEL,
+				outputTokens: description.usage.outputTokens,
+			});
+		}
+		// A cut text is still useful. It is cached like a full text, so the loop pays once.
+		const text =
+			description.finishReason === "length"
+				? `${IMAGE_DESCRIPTION_HEADER}\n${description.text}\n${IMAGE_DESCRIPTION_CUT_LINE}`
+				: `${IMAGE_DESCRIPTION_HEADER}\n${description.text}`;
+		await this.blockTexts.set(source.sha256, text, BLOCK_TEXT_CACHE_TTL_SEC);
+		return text;
+	}
+
+	/**
+	 * Bills one describer call to the turn: one more `llm_proxy_requests` row,
+	 * which the turn settle sums with the other rows, and the spend counters.
+	 */
+	private async recordImageDescription(
+		input: LlmProxyInboundRequest,
+		claims: LlmProxyTokenClaims,
+		description: ImageDescription,
+	): Promise<void> {
+		try {
+			await this.requests.insert({
+				runId: claims.runId,
+				turnId: claims.turnId,
+				userId: claims.userId,
+				projectId: claims.projectId,
+				organizationId: claims.workspaceId,
+				provider: IMAGE_DESCRIBER_PROVIDER,
+				model: IMAGE_DESCRIBER_MODEL,
+				inboundFormat: "anthropic",
+				inputTokens: description.usage.inputTokens,
+				outputTokens: description.usage.outputTokens,
+				cacheReadTokens: description.usage.cacheReadTokens,
+				cacheWriteTokens: description.usage.cacheWriteTokens,
+				usdMicros: description.usdMicros,
+				status: "ok",
+				reason: IMAGE_DESCRIPTION_ROW_REASON,
+				upstreamRequestId: description.generationId,
+				claudeSessionId: input.claudeSessionId ?? null,
+				latencyMs: description.latencyMs,
+			});
+		} catch (error) {
+			// A lost row loses the charge, so alert. The request still goes on with the description.
+			this.logger.error(
+				`llm_proxy_requests describer insert failed for run ${claims.runId}`,
+				getErrorMessage(error),
+			);
+			Sentry.captureException(error, {
+				tags: { feature: "llm-proxy", runId: claims.runId },
+			});
+			return;
+		}
+		if (description.usdMicros !== null && description.usdMicros > 0) {
+			await this.addSpend(claims, description.usdMicros);
+		}
+	}
+
+	// Adds a priced call to the run and the user spend counters. The run key
+	// outlives the token by the grace window, at least one minute.
+	private async addSpend(
+		claims: LlmProxyTokenClaims,
+		usdMicros: number,
+	): Promise<void> {
+		const ttlSeconds = Math.max(
+			claims.exp + RUN_SPEND_TTL_GRACE_SECONDS - Math.floor(Date.now() / 1000),
+			60,
+		);
+		await this.counters.addRunSpend(claims.runId, usdMicros, ttlSeconds);
+		await this.counters.addUserSpend(claims.userId, utcDayKey(), usdMicros);
+	}
+
 	private async forwardAndAccount(
 		input: LlmProxyInboundRequest,
 		reply: LlmProxyReply,
@@ -558,24 +862,28 @@ export class LlmProxyService {
 		const url = `${base}${path}${input.queryString ? `?${input.queryString}` : ""}`;
 
 		// A Paper id never matches the inbound id (the proxy drops its prefix),
-		// so a Paper body is always rewritten, also its refused blocks. The
+		// so a Paper body is always rewritten, also its refused blocks. A text-only
+		// host model gets text in place of its image and PDF blocks. The
 		// thinking retry starts from its own messages.
-		const paperMessages =
+		const blockSafeMessages =
 			retryMessages ??
-			(upstream.provider === PAPER_INSTRUMENTS_PROVIDER &&
-			bodyJson !== undefined
-				? paperSafeMessages(bodyJson.messages)
-				: null);
+			(bodyJson === undefined
+				? null
+				: upstream.provider === PAPER_INSTRUMENTS_PROVIDER
+					? paperSafeMessages(bodyJson.messages)
+					: hasTextOnlyHosts(modelId)
+						? await this.textOnlyHostMessages(bodyJson.messages, input, claims)
+						: null);
 		// The Claude Code preset names the vendor, the harness, and the model.
 		// Every tier reads it, and Wandit sells the builder under its own name.
-		// The rewrite runs on top of the Paper or the retry output.
+		// The rewrite runs on top of the Paper, the text-only host, or the retry output.
 		const system =
 			bodyJson === undefined ? null : wanditSystem(bodyJson.system);
 		const messages =
 			bodyJson === undefined
 				? null
-				: (wanditUserMessages(paperMessages ?? bodyJson.messages) ??
-					paperMessages);
+				: (wanditUserMessages(blockSafeMessages ?? bodyJson.messages) ??
+					blockSafeMessages);
 		// The thinking control of the turn. A count_tokens call has no effort to change.
 		const outputConfig =
 			bodyJson === undefined || input.endpoint === "count_tokens"
@@ -1222,14 +1530,7 @@ export class LlmProxyService {
 			return;
 		}
 		if (usdMicros > 0) {
-			const ttlSeconds = Math.max(
-				claims.exp +
-					RUN_SPEND_TTL_GRACE_SECONDS -
-					Math.floor(Date.now() / 1000),
-				60,
-			);
-			await this.counters.addRunSpend(claims.runId, usdMicros, ttlSeconds);
-			await this.counters.addUserSpend(claims.userId, utcDayKey(), usdMicros);
+			await this.addSpend(claims, usdMicros);
 		}
 		this.logger.log({
 			event: "llm_proxy_request",
@@ -1281,6 +1582,104 @@ function paperSafeMessages(
 					...block,
 					content: block.content.map((inner) =>
 						isRefused(inner) ? PAPER_OMITTED_BLOCK : inner,
+					),
+				};
+			}
+			return block;
+		});
+		return { ...message, content };
+	});
+}
+
+// True for a model id that starts with a prefix of `TEXT_ONLY_HOST_MODEL_PREFIXES`.
+function hasTextOnlyHosts(modelId: string): boolean {
+	return TEXT_ONLY_HOST_MODEL_PREFIXES.some((prefix) =>
+		modelId.startsWith(prefix),
+	);
+}
+
+// The block types that a text-only host refuses.
+function isImageOrDocument(block: { type: string }): boolean {
+	return block.type === "image" || block.type === "document";
+}
+
+// Every image and document block of the messages, top level and inside a `tool_result`.
+function imageAndDocumentBlocksOf(
+	messages: AnthropicMessages,
+): AnthropicInnerBlock[] {
+	return messages.flatMap((message) =>
+		Array.isArray(message.content)
+			? message.content.flatMap((block) =>
+					isImageOrDocument(block)
+						? [block]
+						: Array.isArray(block.content)
+							? block.content.filter(isImageOrDocument)
+							: [],
+				)
+			: [],
+	);
+}
+
+// The decoded bytes of a base64 image or base64 PDF block. Null for any other
+// source (a URL, a file id, a text document): that block gets a fixed text.
+function blockSourceOf(block: AnthropicInnerBlock): BlockSource | null {
+	const image = base64ImageBlockSchema.safeParse(block);
+	if (image.success) {
+		const bytes = Buffer.from(image.data.source.data, "base64");
+		return {
+			kind: "image",
+			mediaType: image.data.source.media_type,
+			bytes,
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+		};
+	}
+	const pdf = base64PdfBlockSchema.safeParse(block);
+	if (pdf.success) {
+		const bytes = Buffer.from(pdf.data.source.data, "base64");
+		return {
+			kind: "pdf",
+			bytes,
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+		};
+	}
+	return null;
+}
+
+/**
+ * The messages with a text block in place of each image and document block,
+ * top level and inside a `tool_result`, the same walk as `paperSafeMessages`.
+ * `textOf` gives the text of one block. The text block keeps its `cache_control`.
+ */
+function withTextInPlaceOfBlocks(
+	messages: AnthropicMessages,
+	textOf: (block: AnthropicInnerBlock) => string,
+): AnthropicMessages {
+	const textBlockFor = (block: AnthropicInnerBlock) => {
+		const cacheControl = cacheControlSchema.safeParse(block);
+		return {
+			type: "text",
+			text: textOf(block),
+			...(cacheControl.success
+				? { cache_control: cacheControl.data.cache_control }
+				: {}),
+		};
+	};
+	return messages.map((message) => {
+		if (!Array.isArray(message.content)) {
+			return message;
+		}
+		const content = message.content.map((block) => {
+			if (isImageOrDocument(block)) {
+				return textBlockFor(block);
+			}
+			if (
+				Array.isArray(block.content) &&
+				block.content.some(isImageOrDocument)
+			) {
+				return {
+					...block,
+					content: block.content.map((inner) =>
+						isImageOrDocument(inner) ? textBlockFor(inner) : inner,
 					),
 				};
 			}

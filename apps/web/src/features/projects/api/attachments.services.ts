@@ -16,6 +16,7 @@
 import {
 	ATTACHMENT_MEDIA_TYPES,
 	attachmentsRoutes,
+	isBuilderAttachmentMediaType,
 	type UploadAttachmentResponse,
 	uploadAttachmentResponseSchema,
 } from "@wandit/contracts";
@@ -27,6 +28,17 @@ import { apiClient, isApiClientError } from "@/lib/api-client";
  *  unreliable mime for CSV and Office documents. */
 export const ATTACHMENT_ACCEPT = [
 	...ATTACHMENT_MEDIA_TYPES,
+	".csv",
+	".docx",
+	".xlsx",
+].join(",");
+
+/**
+ * The accept list of the V2 builder boxes: `ATTACHMENT_ACCEPT` without video
+ * and audio. The builder turn and project routes refuse those two kinds.
+ */
+export const BUILDER_ATTACHMENT_ACCEPT = [
+	...ATTACHMENT_MEDIA_TYPES.filter(isBuilderAttachmentMediaType),
 	".csv",
 	".docx",
 	".xlsx",

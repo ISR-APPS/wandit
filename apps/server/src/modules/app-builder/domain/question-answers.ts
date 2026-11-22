@@ -3,7 +3,8 @@
  * agent reads. builder-turn.runtime.ts calls it when a turn continues a
  * paused one: the `ask_user` and `present_plan` tool results, the built-in
  * `askUserQuestions` result, the text a fresh session or a mode switch gets
- * instead, and the sandbox path of an answer file. Pure functions, no I/O.
+ * instead, and the sandbox path of an answer file or a composer attachment.
+ * Pure functions, no I/O.
  */
 import type {
 	AskUserHostToolOutput,
@@ -366,16 +367,20 @@ export function modeSwitchPromptOf(input: {
 }
 
 /**
- * The project-relative copy path of one Wandit upload URL, or null when the
+ * The copy path of one Wandit upload URL in `folder`, or null when the
  * URL does not end in `<uuid>/<sanitized file name>`. The uuid prefix keeps
- * two uploads with the same file name apart.
+ * two uploads with the same file name apart. Answer files use the
+ * project-relative default; composer attachments pass an absolute /tmp folder.
  */
-export function uploadCopyPath(url: string): string | null {
+export function uploadCopyPath(
+	url: string,
+	folder = "public/uploads",
+): string | null {
 	const segments = new URL(url).pathname.split("/").filter(Boolean);
 	const filename = segments.at(-1);
 	const uuid = segments.at(-2);
 	// Security check: only the sanitized upload name reaches the sandbox
-	// path, so a crafted URL cannot write outside public/uploads/.
+	// path, so a crafted URL cannot write outside `folder`.
 	if (
 		filename === undefined ||
 		uuid === undefined ||
@@ -384,5 +389,5 @@ export function uploadCopyPath(url: string): string | null {
 	) {
 		return null;
 	}
-	return `public/uploads/${uuid.slice(0, 8)}-${filename}`;
+	return `${folder}/${uuid.slice(0, 8)}-${filename}`;
 }

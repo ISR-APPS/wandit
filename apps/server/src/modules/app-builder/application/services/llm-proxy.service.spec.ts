@@ -10,11 +10,17 @@ import type { LlmGeneration } from "../../infrastructure/langfuse/langfuse-expor
 import type { NewLlmProxyRequest } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
 import { LLM_PROXY_DAILY_USER_CAP_USD } from "../../infrastructure/redis/llm-spend-counters";
+import type { BlockTextCache } from "../../infrastructure/redis/redis-block-text-cache";
 import {
 	type LlmProxyInboundRequest,
 	type LlmProxyReply,
 	LlmProxyService,
 } from "./llm-proxy.service";
+import type {
+	DescribedImage,
+	ImageDescription,
+	LlmProxyImageDescriber,
+} from "./llm-proxy-image-describer.service";
 import {
 	type LlmProxyTokenClaimsInput,
 	mintLlmProxyToken,
@@ -161,13 +167,50 @@ function makeEnv(baseUrl: string): LlmProxyEnv {
 	};
 }
 
+// A describer that records each image and answers with `answer`.
+function fakeDescriber(answer: () => Promise<ImageDescription>): {
+	described: DescribedImage[];
+	describer: Pick<LlmProxyImageDescriber, "describe">;
+} {
+	const described: DescribedImage[] = [];
+	return {
+		described,
+		describer: {
+			describe: async (image) => {
+				described.push(image);
+				return answer();
+			},
+		},
+	};
+}
+
+// The answer of a describer call that went well: 1 000 input and 200 output tokens for 1 100 micros.
+const BLUE_BUTTON_DESCRIPTION: ImageDescription = {
+	text: 'A blue button with the text "Buy".',
+	usage: {
+		inputTokens: 1000,
+		outputTokens: 200,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		cacheWrite5mTokens: 0,
+	},
+	usdMicros: 1100,
+	finishReason: "stop",
+	generationId: "gen_describe_1",
+	latencyMs: 900,
+};
+
 // `now` is the clock of the fake counters, in epoch ms. A TTL spec moves it.
 // `v2DisabledModels` is the admin list of models that ops turned off.
+// `imageDescriber` describes the images for a text-only host model.
 function makeService(
 	env: LlmProxyEnv,
 	upstreamFetch: typeof fetch = fetch,
 	now: () => number = Date.now,
 	v2DisabledModels: string[] = [],
+	imageDescriber: Pick<LlmProxyImageDescriber, "describe"> = fakeDescriber(
+		async () => BLUE_BUTTON_DESCRIPTION,
+	).describer,
 ) {
 	const counters = new FakeLlmSpendCounters(now);
 	const inserted: NewLlmProxyRequest[] = [];
@@ -179,6 +222,22 @@ function makeService(
 	};
 	// Each Langfuse generation the service sends; content collection is on.
 	const generations: LlmGeneration[] = [];
+	// The block text cache, by sha256 of the block bytes, and the TTL of each entry in seconds.
+	const blockTexts = new Map<string, string>();
+	const blockTextTtls = new Map<string, number>();
+	const blockTextCache: BlockTextCache = {
+		getMany: async (sha256s) =>
+			new Map(
+				sha256s.flatMap((sha256) => {
+					const text = blockTexts.get(sha256);
+					return text === undefined ? [] : [[sha256, text] as const];
+				}),
+			),
+		set: async (sha256, text, ttlSec) => {
+			blockTexts.set(sha256, text);
+			blockTextTtls.set(sha256, ttlSec);
+		},
+	};
 	const service = new LlmProxyService(
 		env,
 		counters,
@@ -190,8 +249,17 @@ function makeService(
 			},
 		},
 		{ get: async () => ({ v2DisabledModels }) },
+		blockTextCache,
+		imageDescriber,
 	);
-	return { counters, generations, inserted, service };
+	return {
+		blockTexts,
+		blockTextTtls,
+		counters,
+		generations,
+		inserted,
+		service,
+	};
 }
 
 function token(
@@ -777,6 +845,247 @@ describe("LlmProxyService", () => {
 		});
 		// Langfuse gets the rewrite the model read, not the inbound body.
 		expect(generations[0]?.forwardedBody.toString("utf8")).toBe(sent[0]?.body);
+	});
+
+	describe("a model with text-only hosts", () => {
+		const gatewayEnv: LlmProxyEnv = {
+			...makeEnv("https://ai-gateway.vercel.sh"),
+			AI_GATEWAY_API_KEY: "gateway-key",
+		};
+		const jsonUsage = () =>
+			new Response(
+				JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		const pngImage = {
+			type: "image",
+			source: {
+				type: "base64",
+				media_type: "image/png",
+				data: Buffer.from("png-bytes-of-the-band").toString("base64"),
+			},
+		};
+		// The Read tool of Claude Code puts the cache breakpoint on its last block.
+		const webpImage = {
+			type: "image",
+			source: {
+				type: "base64",
+				media_type: "image/webp",
+				data: Buffer.from("webp-bytes-of-the-diff").toString("base64"),
+			},
+			cache_control: { type: "ephemeral" },
+		};
+		const toolUse = { type: "tool_use", id: "tu_1", name: "Read", input: {} };
+		const bodyWithImages = (model: string) =>
+			Buffer.from(
+				JSON.stringify({
+					model,
+					messages: [
+						{
+							role: "user",
+							content: [{ type: "text", text: "Clone this" }, pngImage],
+						},
+						{ role: "assistant", content: [toolUse] },
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "tu_1",
+									content: [{ type: "text", text: "Image file" }, webpImage],
+								},
+							],
+						},
+					],
+				}),
+				"utf8",
+			);
+		const described = {
+			type: "text",
+			text: expect.stringContaining('A blue button with the text "Buy".'),
+		};
+
+		it("turns a top-level image and a tool_result image into description text, bills the describer, and keeps the other blocks", async () => {
+			const { upstreamFetch, sent } = scriptedFetch([jsonUsage]);
+			const describer = fakeDescriber(async () => BLUE_BUTTON_DESCRIPTION);
+			const { counters, inserted, service } = makeService(
+				gatewayEnv,
+				upstreamFetch,
+				Date.now,
+				[],
+				describer.describer,
+			);
+			const { input } = inbound(gatewayEnv, {
+				body: bodyWithImages("zai/glm-5.3"),
+			});
+
+			await service.proxyAnthropic(input, new FakeReply());
+
+			expect(JSON.parse(sent[0]?.body ?? "{}")).toEqual({
+				model: "zai/glm-5.3",
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: "Clone this" }, described],
+					},
+					{ role: "assistant", content: [toolUse] },
+					{
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: "tu_1",
+								content: [
+									{ type: "text", text: "Image file" },
+									{ ...described, cache_control: { type: "ephemeral" } },
+								],
+							},
+						],
+					},
+				],
+			});
+			expect(describer.described.map((image) => image.mediaType)).toEqual([
+				"image/png",
+				"image/webp",
+			]);
+			// Two describer rows bill the turn, then the row of the builder request.
+			expect(
+				inserted.filter((row) => row.reason === "image_description"),
+			).toEqual([
+				expect.objectContaining({
+					model: "google/gemini-3-flash",
+					status: "ok",
+					usdMicros: 1100,
+					turnId: claimsInput.turnId,
+				}),
+				expect.objectContaining({ usdMicros: 1100 }),
+			]);
+			expect(inserted.at(-1)?.model).toBe("zai/glm-5.3");
+			expect(await counters.readRunSpend("run_test")).toBeGreaterThanOrEqual(
+				2200,
+			);
+		});
+
+		it("reads a description from the cache without a second describer call, and sends the same bytes again", async () => {
+			const { upstreamFetch, sent } = scriptedFetch([jsonUsage, jsonUsage]);
+			const describer = fakeDescriber(async () => BLUE_BUTTON_DESCRIPTION);
+			const { service } = makeService(
+				gatewayEnv,
+				upstreamFetch,
+				Date.now,
+				[],
+				describer.describer,
+			);
+
+			for (let call = 0; call < 2; call += 1) {
+				const { input } = inbound(gatewayEnv, {
+					body: bodyWithImages("zai/glm-5.3"),
+				});
+				await service.proxyAnthropic(input, new FakeReply());
+			}
+
+			expect(describer.described).toHaveLength(2);
+			// The prompt cache of the second call hits only on the same bytes.
+			expect(sent[1]?.body).toBe(sent[0]?.body);
+		});
+
+		it("puts the fixed text in place of the image when the describer fails, and caches it for 10 minutes only", async () => {
+			const { upstreamFetch, sent } = scriptedFetch([jsonUsage, jsonUsage]);
+			const describer = fakeDescriber(async () => {
+				throw new Error("gateway timeout");
+			});
+			const { blockTextTtls, inserted, service } = makeService(
+				gatewayEnv,
+				upstreamFetch,
+				Date.now,
+				[],
+				describer.describer,
+			);
+
+			for (let call = 0; call < 2; call += 1) {
+				const { input } = inbound(gatewayEnv, {
+					body: bodyWithImages("zai/glm-5.3-fast"),
+				});
+				await service.proxyAnthropic(input, new FakeReply());
+			}
+
+			const sentBody = sent[0]?.body ?? "";
+			expect(sentBody).not.toContain('"type":"image"');
+			expect(
+				sentBody.match(/Image omitted: the image could not be described/g),
+			).toHaveLength(2);
+			// The second request of the loop does not wait for the describer again.
+			expect(describer.described).toHaveLength(2);
+			expect(sent[1]?.body).toBe(sentBody);
+			expect([...blockTextTtls.values()]).toEqual([600, 600]);
+			expect(inserted.map((row) => row.model)).toEqual([
+				"zai/glm-5.3-fast",
+				"zai/glm-5.3-fast",
+			]);
+		});
+
+		it.each([
+			{
+				name: "an empty answer caches the fixed text for 10 minutes",
+				answer: { ...BLUE_BUTTON_DESCRIPTION, text: "" },
+				sentText: "Image omitted: the image could not be described",
+				ttlSec: 600,
+			},
+			{
+				name: "an answer cut at the output cap caches the text with a cut line for 7 days",
+				answer: { ...BLUE_BUTTON_DESCRIPTION, finishReason: "length" as const },
+				sentText: "The description stops here",
+				ttlSec: 604_800,
+			},
+		])("$name, so one image is billed once", async ({
+			answer,
+			sentText,
+			ttlSec,
+		}) => {
+			const { upstreamFetch, sent } = scriptedFetch([jsonUsage, jsonUsage]);
+			const describer = fakeDescriber(async () => answer);
+			const { blockTextTtls, inserted, service } = makeService(
+				gatewayEnv,
+				upstreamFetch,
+				Date.now,
+				[],
+				describer.describer,
+			);
+
+			for (let call = 0; call < 2; call += 1) {
+				const { input } = inbound(gatewayEnv, {
+					body: bodyWithImages("zai/glm-5.3"),
+				});
+				await service.proxyAnthropic(input, new FakeReply());
+			}
+
+			expect(sent[0]?.body).toContain(sentText);
+			expect(sent[1]?.body).toBe(sent[0]?.body);
+			expect(describer.described).toHaveLength(2);
+			expect([...blockTextTtls.values()]).toEqual([ttlSec, ttlSec]);
+			expect(
+				inserted.filter((row) => row.reason === "image_description"),
+			).toHaveLength(2);
+		});
+
+		it("forwards the request of a model outside the set untouched", async () => {
+			const { upstreamFetch, sent } = scriptedFetch([jsonUsage]);
+			const describer = fakeDescriber(async () => BLUE_BUTTON_DESCRIPTION);
+			const { service } = makeService(
+				gatewayEnv,
+				upstreamFetch,
+				Date.now,
+				[],
+				describer.describer,
+			);
+			const body = bodyWithImages("deepseek/deepseek-v4.1-flash-1017");
+			const { input } = inbound(gatewayEnv, { body });
+
+			await service.proxyAnthropic(input, new FakeReply());
+
+			expect(sent[0]?.body).toBe(body.toString("utf8"));
+			expect(describer.described).toHaveLength(0);
+		});
 	});
 
 	it("sends the Claude Code session id to the gateway as x-session-id", async () => {
@@ -1393,6 +1702,8 @@ describe("LlmProxyService", () => {
 				fetch,
 				null,
 				{ get: async () => ({ v2DisabledModels: [] }) },
+				{ getMany: async () => new Map(), set: async () => undefined },
+				fakeDescriber(async () => BLUE_BUTTON_DESCRIPTION).describer,
 			);
 
 			await service.proxyAnthropic(inbound(env).input, new FakeReply());

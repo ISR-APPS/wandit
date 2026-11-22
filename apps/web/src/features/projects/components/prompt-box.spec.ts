@@ -64,6 +64,14 @@ vi.mock("../api/attachments.services", async () => {
 			".docx",
 			".xlsx",
 		].join(","),
+		BUILDER_ATTACHMENT_ACCEPT: [
+			...contracts.ATTACHMENT_MEDIA_TYPES.filter(
+				contracts.isBuilderAttachmentMediaType,
+			),
+			".csv",
+			".docx",
+			".xlsx",
+		].join(","),
 		ATTACHMENT_MAX_BYTES: defaultMaxBytes,
 		attachmentMaxBytesFor: (mediaType: string) => {
 			if (mediaType.startsWith("video/")) return 50 * 1024 * 1024;

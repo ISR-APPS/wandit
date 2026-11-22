@@ -12,6 +12,7 @@ import type {
 	BillingPlanId,
 	BuilderTurnMode,
 	BuilderTurnStatus,
+	FileRef,
 	GateFinding,
 	HarnessPendingInteraction,
 	HarnessResumeEnvelope,
@@ -48,6 +49,7 @@ import {
 	type UIMessage,
 	type UIMessageChunk,
 } from "ai";
+import { extractAttachmentText } from "../modules/ai-chat/agent/attachment-text";
 import {
 	mobileWorldCards,
 	worldCardOf,
@@ -130,6 +132,13 @@ import {
 	assertCurrentTurn,
 	StaleTurnError,
 } from "../modules/app-builder/domain/turn-queue";
+import {
+	ATTACHMENT_COPY_ROOT_DIR,
+	type AttachmentCopy,
+	attachedFilesTextOf,
+	attachmentKindOf,
+	turnActionLineOf,
+} from "../modules/app-builder/domain/turn-sources";
 import type {
 	CommitTurnDeps,
 	CommitTurnInput,
@@ -274,6 +283,7 @@ const CONTEXT_TOO_LONG_PATTERN = /Prompt is too long/u;
 const LEGACY_LLM_TOKEN_PLAN: BillingPlanId = "business";
 // 15 MB, the image upload limit. A bigger answer file is a video or an
 // audio file, and a copy in public/ grows every commit of the app repo.
+// The composer attachment copy uses the same cap.
 const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
 // 5 s between two status reads of a waking backend, like the provision poll.
 const BACKEND_WAKE_POLL_MS = 5_000;
@@ -1987,112 +1997,6 @@ export async function runBuilderTurn(
 		const didOtherChatRunLast =
 			previousRunChatId !== null && previousRunChatId !== chatId;
 
-		// The user's words, then the attachment URLs. A message with text keeps
-		// its files too: the agent only sees what the prompt names. Answer
-		// files count as attachments here too.
-		const sentFiles = [
-			...spec.attachments,
-			...spec.answers.flatMap((answer) => answer.files),
-		];
-		const fileLines = sentFiles.map((attachment) => attachment.url).join("\n");
-		// The elements the user picked in the preview name the JSX to change
-		// (WANDIT-203). JSON quotes the label, so its text cannot break the line.
-		const targetLines = spec.targets.map(
-			(target) =>
-				`- ${target.src} (${target.tag} ${JSON.stringify(target.label)})`,
-		);
-		// The host lines stay outside the user's words, so only `words` changes.
-		const promptAround = (words: string): string => {
-			const requestText =
-				spec.message.trim().length > 0
-					? sentFiles.length > 0
-						? `${words}\n\nAttached files:\n${fileLines}`
-						: words
-					: sentFiles.length > 0
-						? `See the attached files.\n${fileLines}`
-						: // An approval or answers alone have no text: the cards carry them.
-							"Continue.";
-			return targetLines.length > 0
-				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
-				: requestText;
-		};
-		const prompt = promptAround(userMessageBlockOf(spec.message));
-		// The user's own words: the message, the file URLs, and the picked
-		// preview elements. "Continue." is not one. A mode switch prompt and
-		// the `present_plan` result use them.
-		const userWords =
-			spec.message.trim().length > 0 ||
-			sentFiles.length > 0 ||
-			targetLines.length > 0
-				? prompt
-				: "";
-		// The pending cards of a suspended turn make a `continue` input.
-		// `spec.answers`, the message text, and `spec.approval` carry the
-		// answers.
-		let continuation: Extract<HarnessTurnInput, { kind: "continue" }> | null =
-			null;
-		// The prompt a fresh session gets when the suspended one cannot
-		// resume: the answers still reach the agent. Set after the answer
-		// files are in the sandbox, so it can name their paths.
-		let continuationFallbackPrompt: string | null = null;
-		if (resumeState !== null && resumeState.pending.length > 0) {
-			// The built-in card matches an option label on the plain words, so it gets no tags.
-			// Its tool result is data, like the `ask_user` text.
-			const text = promptAround(spec.message).trim();
-			const toolResults: HarnessQuestionResult[] = [];
-			const approvals: { approvalId: string; approved: boolean }[] = [];
-			for (const interaction of resumeState.pending) {
-				if (
-					interaction.kind === "question" &&
-					interaction.tool === "ask_user"
-				) {
-					toolResults.push({
-						output: askUserOutputOf(interaction, spec.answers, {
-							attachments: spec.attachments,
-							message: spec.message,
-						}),
-						tool: "ask_user",
-						toolCallId: interaction.toolCallId,
-					});
-				} else if (interaction.kind === "plan") {
-					// A typed message on a plan card asks for changes. "Build this
-					// plan" sends a build turn: the mode switch below handles it.
-					toolResults.push({
-						output: { feedback: userWords },
-						tool: "present_plan",
-						toolCallId: interaction.toolCallId,
-					});
-				} else if (interaction.kind === "question") {
-					// A chat paused on the built-in tool before `ask_user` existed:
-					// the tray answers each card, a plain message the first one.
-					const result = builtinQuestionResultOf(
-						interaction,
-						spec.answers,
-						text,
-					);
-					if (result !== null) {
-						toolResults.push(result);
-					}
-				} else {
-					// An approval the body does not name counts as denied.
-					const approved =
-						spec.approval?.approvalId === interaction.approvalId
-							? spec.approval.approved
-							: false;
-					approvals.push({
-						approvalId: interaction.approvalId,
-						approved,
-					});
-				}
-			}
-			continuation = {
-				approvals,
-				kind: "continue",
-				signal: ownAbort.signal,
-				toolResults,
-			};
-		}
-
 		const caps = await deps.caps.findByProjectId(projectId);
 		perTurnCapCredits = caps?.perTurnCapCredits ?? DEFAULT_PER_TURN_CAP_CREDITS;
 		monthlyCapCredits = caps?.monthlyCapCredits ?? null;
@@ -2325,6 +2229,128 @@ export async function runBuilderTurn(
 			});
 		}
 		stamps.sandboxEnd = deps.now();
+		// The composer attachments enter the sandbox before the prompt names
+		// their paths. The prompt text needs the live sandbox, so it is built here.
+		const attachmentCopies = await copyComposerAttachments(
+			{ logger, readUpload: deps.readUpload, sandbox, turnId },
+			spec.attachments,
+		);
+		// The user's words, then the attachment block. A message with text keeps
+		// its files too: the agent only sees what the prompt names. Answer
+		// files count as attachments here too.
+		const answerFileUrls = spec.answers.flatMap((answer) =>
+			answer.files.map((file) => file.url),
+		);
+		const hasFiles = attachmentCopies.length > 0 || answerFileUrls.length > 0;
+		const filesText = attachedFilesTextOf(attachmentCopies, answerFileUrls);
+		// The @-tag of the sources menu: one host line in front of the request.
+		const actionLine =
+			spec.action === undefined ? null : turnActionLineOf(spec.action);
+		// The elements the user picked in the preview name the JSX to change
+		// (WANDIT-203). JSON quotes the label, so its text cannot break the line.
+		const targetLines = spec.targets.map(
+			(target) =>
+				`- ${target.src} (${target.tag} ${JSON.stringify(target.label)})`,
+		);
+		// The host lines stay outside the user's words, so only `words` changes.
+		const promptAround = (words: string): string => {
+			const userText =
+				spec.message.trim().length > 0
+					? hasFiles
+						? `${words}\n\n${filesText}`
+						: words
+					: hasFiles
+						? filesText
+						: null;
+			// An empty clone turn carries its request in the action line alone.
+			const requestText =
+				actionLine === null
+					? // An approval or answers alone have no text: the cards carry them.
+						(userText ?? "Continue.")
+					: userText === null
+						? actionLine
+						: `${actionLine}\n\n${userText}`;
+			return targetLines.length > 0
+				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
+				: requestText;
+		};
+		const prompt = promptAround(userMessageBlockOf(spec.message));
+		// The user's own words: the message, the files, the @-tag, and the
+		// picked preview elements. "Continue." is not one. A mode switch
+		// prompt and the `present_plan` result use them.
+		const userWords =
+			spec.message.trim().length > 0 ||
+			hasFiles ||
+			actionLine !== null ||
+			targetLines.length > 0
+				? prompt
+				: "";
+		// The pending cards of a suspended turn make a `continue` input.
+		// `spec.answers`, the message text, and `spec.approval` carry the
+		// answers.
+		let continuation: Extract<HarnessTurnInput, { kind: "continue" }> | null =
+			null;
+		// The prompt a fresh session gets when the suspended one cannot
+		// resume: the answers still reach the agent. Set after the answer
+		// files are in the sandbox, so it can name their paths.
+		let continuationFallbackPrompt: string | null = null;
+		if (resumeState !== null && resumeState.pending.length > 0) {
+			// The built-in card matches an option label on the plain words, so it gets no tags.
+			// Its tool result is data, like the `ask_user` text.
+			const text = promptAround(spec.message).trim();
+			const toolResults: HarnessQuestionResult[] = [];
+			const approvals: { approvalId: string; approved: boolean }[] = [];
+			for (const interaction of resumeState.pending) {
+				if (
+					interaction.kind === "question" &&
+					interaction.tool === "ask_user"
+				) {
+					toolResults.push({
+						output: askUserOutputOf(interaction, spec.answers, {
+							attachments: spec.attachments,
+							message: spec.message,
+						}),
+						tool: "ask_user",
+						toolCallId: interaction.toolCallId,
+					});
+				} else if (interaction.kind === "plan") {
+					// A typed message on a plan card asks for changes. "Build this
+					// plan" sends a build turn: the mode switch below handles it.
+					toolResults.push({
+						output: { feedback: userWords },
+						tool: "present_plan",
+						toolCallId: interaction.toolCallId,
+					});
+				} else if (interaction.kind === "question") {
+					// A chat paused on the built-in tool before `ask_user` existed:
+					// the tray answers each card, a plain message the first one.
+					const result = builtinQuestionResultOf(
+						interaction,
+						spec.answers,
+						text,
+					);
+					if (result !== null) {
+						toolResults.push(result);
+					}
+				} else {
+					// An approval the body does not name counts as denied.
+					const approved =
+						spec.approval?.approvalId === interaction.approvalId
+							? spec.approval.approved
+							: false;
+					approvals.push({
+						approvalId: interaction.approvalId,
+						approved,
+					});
+				}
+			}
+			continuation = {
+				approvals,
+				kind: "continue",
+				signal: ownAbort.signal,
+				toolResults,
+			};
+		}
 		// The answer files and the picked theme enter the sandbox before the
 		// agent reads the answers, so the tool result and the fallback text
 		// name their paths and the theme.
@@ -3464,11 +3490,11 @@ async function codeCheckOf(
 	return { check: { reason: null, state: "ok" }, findings: parsed.findings };
 }
 
-/** What the answer file copy needs from the run. */
+/** What the answer file and composer attachment copies need from the run. */
 type AnswerCopyContext = {
 	logger: BuilderTurnLogger;
 	readUpload: BuilderTurnDeps["readUpload"];
-	/** The live project sandbox; the copy goes under its `workspaceDir`. */
+	/** The live project sandbox. Answer files go under its `workspaceDir`, attachments under /tmp. */
 	sandbox: SandboxHandle;
 	turnId: string;
 };
@@ -3534,6 +3560,82 @@ async function copyAnswerFile(
 		});
 		return null;
 	}
+}
+
+/**
+ * Copies the composer attachments into the sandbox, in parallel, under
+ * ATTACHMENT_COPY_ROOT_DIR. Images and documents get a copy; documents and
+ * PDFs also get their extracted text next to it as `<file>.txt`. Video,
+ * audio, and unknown types stay URL-only. A failed copy keeps the URL line.
+ */
+async function copyComposerAttachments(
+	context: AnswerCopyContext,
+	attachments: readonly FileRef[],
+): Promise<AttachmentCopy[]> {
+	// The first 8 chars of the turn id keep the paths short for the agent.
+	const folder = `${ATTACHMENT_COPY_ROOT_DIR}/${context.turnId.slice(0, 8)}`;
+	return Promise.all(
+		attachments.map(async (file): Promise<AttachmentCopy> => {
+			const urlOnly = {
+				mediaType: file.mediaType,
+				path: null,
+				textPath: null,
+				url: file.url,
+			};
+			const kind = attachmentKindOf(file.mediaType);
+			if (kind === null || kind === "media") {
+				return urlOnly;
+			}
+			// The logs name the turn and the media type, never the user's URL or file name.
+			const warn = (reason: string): AttachmentCopy => {
+				context.logger.warn("builder-turn.attachment-copy-failed", {
+					mediaType: file.mediaType,
+					reason,
+					turnId: context.turnId,
+				});
+				return urlOnly;
+			};
+			// Security check: only the sanitized upload name reaches the sandbox path.
+			const path = uploadCopyPath(file.url, folder);
+			if (path === null) {
+				return warn("not an upload url");
+			}
+			try {
+				const bytes = await context.readUpload(file.url);
+				if (bytes === null || bytes.byteLength > ANSWER_FILE_MAX_BYTES) {
+					return warn(bytes === null ? "no upload object" : "file too big");
+				}
+				const extracted =
+					kind === "image"
+						? null
+						: await extractAttachmentText(bytes, file.mediaType);
+				if (extracted !== null && "error" in extracted) {
+					// The copy still goes in; the prompt says that the text is missing.
+					context.logger.warn("builder-turn.attachment-text-failed", {
+						mediaType: file.mediaType,
+						turnId: context.turnId,
+					});
+				}
+				const textFile =
+					extracted !== null && "text" in extracted
+						? { content: extracted.text, path: `${path}.txt` }
+						: null;
+				await context.sandbox.writeFiles([
+					{ content: bytes, path },
+					...(textFile === null ? [] : [textFile]),
+				]);
+				return { ...urlOnly, path, textPath: textFile?.path ?? null };
+			} catch (error) {
+				// The turn goes on: the agent still gets the URL of the file.
+				context.logger.warn("builder-turn.attachment-copy-failed", {
+					mediaType: file.mediaType,
+					message: messageOf(error),
+					turnId: context.turnId,
+				});
+				return urlOnly;
+			}
+		}),
+	);
 }
 
 /** What the theme file steps of a web-app@1.1.0+ or desktop-app turn need from the run. */
