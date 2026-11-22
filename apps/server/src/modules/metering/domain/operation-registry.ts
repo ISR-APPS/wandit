@@ -77,6 +77,14 @@ export const THEME_DESIGN_RESERVE_FLOOR_CREDITS = 50;
  */
 export const WEB_SEARCH_CREDITS = 60;
 /**
+ * The price of one `web_search` call with depth "deep", in centi-credits (0.8 credit).
+ * Exa "deep" costs $12 per 1,000 searches (up to 10 results) plus $1 per 1,000
+ * pages of text. The worst case, 10 results with text, costs $0.022. That is
+ * about 69 cc at $0.032 per credit (pricing v7), so 80 cc covers every input.
+ * It settles under the `web_search` operation. This is a default price.
+ */
+export const DEEP_WEB_SEARCH_CREDITS = 80;
+/**
  * The price of one `web_fetch` host tool call that reaches Firecrawl, in
  * centi-credits (0.2 credit). The worst case is a PDF of 5 pages on the
  * Standard plan: $0.00495, about 15.5 cc at $0.032 per credit.
@@ -613,6 +621,14 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/media-generations/application/services/video-director.ts",
+	},
+	{
+		// The LLM proxy describes images for a text-only model and writes a priced proxy row on the turn.
+		billing: { billedInto: "agent_session", kind: "helper" },
+		id: "llm-proxy-image-describer-helper",
+		marker: "const result = await generateText({",
+		source:
+			"apps/server/src/modules/app-builder/application/services/llm-proxy-image-describer.service.ts",
 	},
 	{
 		billing: { billedInto: "chat", kind: "helper" },

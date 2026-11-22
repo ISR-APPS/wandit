@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
-import { WEB_SEARCH_CREDITS } from "../../../metering/domain/operation-registry";
+import {
+	DEEP_WEB_SEARCH_CREDITS,
+	WEB_SEARCH_CREDITS,
+} from "../../../metering/domain/operation-registry";
 import type { HostToolContext } from "../../domain/ports/host-tools";
 import type { SandboxHandle } from "../../domain/ports/sandbox-provider";
 import {
+	BUILDER_MAX_DEEP_WEB_SEARCHES_PER_TURN,
 	BUILDER_MAX_WEB_SEARCHES_PER_TURN,
 	createWebSearchTool,
 	type SearchWeb,
@@ -80,9 +84,9 @@ function setup(
 	if (execute === undefined) {
 		throw new Error("web_search must define execute");
 	}
-	const search = () =>
+	const search = (depth: "standard" | "deep" = "standard") =>
 		execute(
-			{ numResults: 5, query: "react useEffect cleanup" },
+			{ depth, numResults: 5, query: "react useEffect cleanup" },
 			{ context: {}, messages: [], toolCallId: "tc-1" },
 		);
 	return { metering, search, searchWeb };
@@ -122,6 +126,43 @@ describe("createWebSearchTool", () => {
 			}),
 		);
 		expect(metering.refund).not.toHaveBeenCalled();
+	});
+
+	it("reserves and settles a deep search at the deep price and returns the Exa answer", async () => {
+		const { metering, search, searchWeb } = setup({
+			searchWeb: async () => ({
+				response: {
+					output: { content: "Return a cleanup function from the effect." },
+					results: [{ url: "https://react.dev/learn" }],
+				},
+				status: "ok",
+			}),
+		});
+
+		const output = await search("deep");
+
+		expect(output).toMatchObject({
+			answer: "Return a cleanup function from the effect.",
+			status: "ok",
+		});
+		expect(searchWeb).toHaveBeenCalledWith(
+			expect.objectContaining({ type: "deep" }),
+			undefined,
+		);
+		expect(metering.reserve).toHaveBeenCalledWith(
+			"web_search",
+			expect.anything(),
+			expect.objectContaining({ credits: DEEP_WEB_SEARCH_CREDITS }),
+		);
+		expect(metering.settle).toHaveBeenCalledWith(
+			"evt_child_1",
+			expect.objectContaining({
+				finalCredits: DEEP_WEB_SEARCH_CREDITS,
+				pricingSnapshot: expect.objectContaining({
+					creditsPerUnit: DEEP_WEB_SEARCH_CREDITS,
+				}),
+			}),
+		);
 	});
 
 	it.each([
@@ -226,5 +267,25 @@ describe("createWebSearchTool", () => {
 			BUILDER_MAX_WEB_SEARCHES_PER_TURN,
 		);
 		expect(searchWeb).toHaveBeenCalledTimes(BUILDER_MAX_WEB_SEARCHES_PER_TURN);
+	});
+
+	it("stops a deep search over the deep cap, but a standard search still runs", async () => {
+		const { search, searchWeb } = setup();
+
+		for (
+			let call = 0;
+			call < BUILDER_MAX_DEEP_WEB_SEARCHES_PER_TURN;
+			call += 1
+		) {
+			await search("deep");
+		}
+		const overCap = await search("deep");
+		const standard = await search("standard");
+
+		expect(overCap).toMatchObject({ status: "failed" });
+		expect(standard).toMatchObject({ status: "ok" });
+		expect(searchWeb).toHaveBeenCalledTimes(
+			BUILDER_MAX_DEEP_WEB_SEARCHES_PER_TURN + 1,
+		);
 	});
 });

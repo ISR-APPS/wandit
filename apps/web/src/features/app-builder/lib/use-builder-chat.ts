@@ -20,6 +20,7 @@ import { useChat } from "@ai-sdk/react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	type BuilderThinking,
+	type BuilderTurnAction,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	createTurnResponseSchema,
@@ -73,6 +74,8 @@ export type BuilderChatSend = {
 	mode?: BuilderTurnMode;
 	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
 	targets?: PreviewTarget[];
+	/** The @-tag of the sources menu. It goes in the turn body and on the user message as a `data-action` part. */
+	action?: BuilderTurnAction;
 };
 
 /**
@@ -466,11 +469,19 @@ export function useBuilderChat(
 			setRefusedSendChatId(null);
 			// Files first, then the text, as the AI SDK orders `{ text, files }`.
 			// The bubble shows the chips from the targets part; the transport reads
-			// the targets of the turn body from it too.
+			// the targets of the turn body from it too. The action part has the
+			// order of the stored user row, so a reload shows the same bubble.
 			const parts: TurnMessagePart[] = [
 				...(sendInput.files ?? []),
 				{ type: "text", text: sendInput.text },
 			];
+			if (sendInput.action) {
+				parts.push({
+					type: "data-action",
+					id: "action",
+					data: sendInput.action,
+				});
+			}
 			if (sendInput.targets?.length) {
 				parts.push({
 					type: "data-targets",
@@ -492,6 +503,7 @@ export function useBuilderChat(
 						...(sendInput.model ? { model: sendInput.model } : {}),
 						...(sendInput.mode ? { mode: sendInput.mode } : {}),
 						...(sendInput.thinking ? { thinking: sendInput.thinking } : {}),
+						...(sendInput.action ? { action: sendInput.action } : {}),
 					},
 				},
 			);

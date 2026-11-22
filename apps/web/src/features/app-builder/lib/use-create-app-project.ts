@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type {
 	BuilderThinking,
+	BuilderTurnAction,
 	BuilderTurnMode,
 	ComposerMetadata,
 	UploadAttachmentResponse,
@@ -33,11 +34,12 @@ import { unlockTurnEndSound } from "./turn-end-sound";
 
 /** What the dashboard reads: the same four fields as the V1 hook result. */
 export type UseCreateAppProjectWithPromptResult = {
-	/** Resolves true when the server kept the project, even if navigation failed. */
+	/** Resolves true when the server kept the project, even if navigation failed. `action` is the @-tag of the prompt box. */
 	create: (
 		prompt: string,
 		composer?: ComposerMetadata,
 		attachments?: UploadAttachmentResponse[],
+		action?: BuilderTurnAction,
 	) => Promise<boolean>;
 	isCreating: boolean;
 	/** True after a 402, or when the pool needs the Starter pass: the dashboard opens the insufficient credits dialog. */
@@ -73,6 +75,7 @@ function useAppProjectCreateFlow(
 			prompt: string,
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
+			action?: BuilderTurnAction,
 		) => {
 			// The server starts the first turn before the builder page opens. So the
 			// create click starts the audio of the turn end sound, as Safari needs.
@@ -98,6 +101,7 @@ function useAppProjectCreateFlow(
 						mode,
 						model,
 						thinking,
+						action,
 					}),
 				);
 			} catch (error) {

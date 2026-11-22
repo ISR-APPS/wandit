@@ -11,7 +11,7 @@ import {
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	Composer,
@@ -69,7 +69,26 @@ function typeAndEnter(textarea: HTMLTextAreaElement, value: string) {
 	fireEvent.keyDown(textarea, { key: "Enter" });
 }
 
-afterEach(cleanup);
+// jsdom has no layout: no ResizeObserver for the popover and the @-tag, and
+// no scrollIntoView for the active row of the sources menu (cmdk).
+class ResizeObserverStub implements ResizeObserver {
+	disconnect() {}
+	observe() {}
+	takeRecords(): ResizeObserverEntry[] {
+		return [];
+	}
+	unobserve() {}
+}
+
+beforeEach(() => {
+	vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+	Element.prototype.scrollIntoView = vi.fn();
+});
+
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
 describe("Composer", () => {
 	it("sends the trimmed draft on Enter and clears it", () => {
@@ -80,6 +99,41 @@ describe("Composer", () => {
 			files: [],
 		});
 		expect(textarea.value).toBe("");
+	});
+
+	it("sends the @-tag picked with Enter as the action, then clears it", () => {
+		const { onSend, textarea } = renderComposer();
+		fireEvent.change(textarea, { target: { value: "@web" } });
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(textarea.value).toBe("");
+		expect(
+			screen.getByRole("button", { name: "Remove @Web search" }),
+		).toBeTruthy();
+		typeAndEnter(textarea, "Latest React version");
+		expect(onSend).toHaveBeenCalledWith({
+			text: "Latest React version",
+			files: [],
+			action: { kind: "web_search" },
+		});
+		expect(
+			screen.queryByRole("button", { name: "Remove @Web search" }),
+		).toBeNull();
+	});
+
+	it("removes the tag on Backspace at the start of the textarea", () => {
+		const { textarea } = renderComposer();
+		fireEvent.change(textarea, { target: { value: "@deep" } });
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		fireEvent.keyDown(textarea, { key: "Backspace" });
+		expect(
+			screen.queryByRole("button", { name: "Remove @Deep search" }),
+		).toBeNull();
+	});
+
+	it("keeps an @ after a letter as text, like an email, and opens no menu", () => {
+		const { onSend, textarea } = renderComposer();
+		typeAndEnter(textarea, "Ping a@web");
+		expect(onSend).toHaveBeenCalledWith({ text: "Ping a@web", files: [] });
 	});
 
 	it("never sends a whitespace-only draft", () => {

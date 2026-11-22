@@ -219,7 +219,12 @@ export class AppProjectsService {
 		const projectId = request.ids?.projectId ?? randomUUID();
 		const chatId = request.ids?.chatId ?? randomUUID();
 		const messageId = randomUUID();
-		const derivedName = deriveProjectName(body.prompt);
+		// A clone tag can carry the whole request. The cloned site then names the project.
+		const namePrompt =
+			body.prompt.trim() === "" && body.action?.kind === "clone_site"
+				? `Clone of ${new URL(body.action.url).hostname}`
+				: body.prompt;
+		const derivedName = deriveProjectName(namePrompt);
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 
 		// Only a desktop app has a native shell. Its engine never changes after
@@ -239,6 +244,7 @@ export class AppProjectsService {
 				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},
+			action: body.action,
 			attachments: body.attachments,
 			chatId,
 			composer: body.composer,
@@ -259,6 +265,7 @@ export class AppProjectsService {
 				scope,
 				projectId,
 				{
+					action: body.action,
 					attachments: body.attachments,
 					chatId,
 					composer: body.composer,
@@ -292,7 +299,7 @@ export class AppProjectsService {
 				attachments: body.attachments,
 				derivedName,
 				projectId,
-				prompt: body.prompt,
+				prompt: namePrompt,
 				scope,
 			})
 			.catch((error: unknown) => {

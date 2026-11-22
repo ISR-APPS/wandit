@@ -6,7 +6,6 @@
  * the app engine needs.
  */
 import { z } from "zod";
-import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { projectSchema } from "../v1/projects";
 import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
@@ -16,9 +15,12 @@ import {
 	targetPlatformSchema,
 } from "../v1/shared/target-platform";
 import {
+	builderAttachmentSchema,
 	builderMessageMaxLength,
 	builderThinkingSchema,
+	builderTurnActionSchema,
 	builderTurnModeSchema,
+	isActionAllowedInMode,
 } from "./turns";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
@@ -58,7 +60,7 @@ export const createAppProjectRequestSchema = z
 	.object({
 		prompt: z.string().max(builderMessageMaxLength),
 		composer: composerMetadataSchema.optional(),
-		attachments: z.array(fileRefSchema).max(6).optional(),
+		attachments: z.array(builderAttachmentSchema).max(6).optional(),
 		targetPlatform: targetPlatformSchema.default("web"),
 		// Native shell of a desktop app. Absent on a desktop create: the server
 		// stores "tauri". The engine never changes after the create.
@@ -73,13 +75,28 @@ export const createAppProjectRequestSchema = z
 		// The thinking level of the first turn, same rule as `thinking` of the
 		// create-turn body. Absent: "balanced".
 		thinking: builderThinkingSchema.optional(),
+		// The @-tag of the sources menu for the first turn. Absent: no forced action.
+		action: builderTurnActionSchema.optional(),
 	})
 	.refine(
 		(body) =>
-			body.prompt.trim().length > 0 || (body.attachments?.length ?? 0) > 0,
+			body.prompt.trim().length > 0 ||
+			(body.attachments?.length ?? 0) > 0 ||
+			// A clone tag carries its own request: the URL.
+			body.action?.kind === "clone_site",
 		{
-			message: "prompt or at least one attachment is required",
+			message: "prompt, an attachment, or a clone tag is required",
 			path: ["prompt"],
+		},
+	)
+	// `capture_site` exists only in a build turn of a web project.
+	.refine(
+		(body) =>
+			isActionAllowedInMode(body.action, body.mode) &&
+			(body.action?.kind !== "clone_site" || body.targetPlatform === "web"),
+		{
+			message: "clone_site needs a build turn of a web project",
+			path: ["action"],
 		},
 	)
 	// Only a desktop project has a native shell, so only it can select an engine.

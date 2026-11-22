@@ -14,6 +14,7 @@ import { starterTemplateIdSchema, uuidSchema } from "../v1/shared/primitives";
 import {
 	askUserHostToolActionSchema,
 	presentPlanHostToolInputSchema,
+	publicWebUrlSchema,
 } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 import {
@@ -83,6 +84,52 @@ export type BuilderThinking = z.infer<typeof builderThinkingSchema>;
 // LIMIT: 8 answers of 50K chars can pass the 1 MiB body limit. Upgrade: a total cap per round.
 export const builderMessageMaxLength = 50_000;
 
+/**
+ * True for a media type that a builder composer accepts. Video and audio are
+ * refused: no builder model and no agent tool can open them. The v1 chat keeps them.
+ */
+export function isBuilderAttachmentMediaType(mediaType: string): boolean {
+	return !mediaType.startsWith("video/") && !mediaType.startsWith("audio/");
+}
+
+/** One composer file of a builder turn or a builder project create. */
+export const builderAttachmentSchema = fileRefSchema.refine(
+	(file) => isBuilderAttachmentMediaType(file.mediaType),
+	"video and audio files are not accepted",
+);
+
+/**
+ * The @-tag the user picked in the sources menu of a composer. The task
+ * turns it into one host line in front of the prompt, so the agent runs
+ * that action: `web_search` and `deep_search` call the `web_search` tool,
+ * and `clone_site` calls `capture_site` with `url`. One tag per message.
+ */
+export const builderTurnActionSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("web_search") }),
+	z.object({ kind: z.literal("deep_search") }),
+	z.object({
+		kind: z.literal("clone_site"),
+		// The page to clone. The same guard as the `capture_site` input.
+		url: publicWebUrlSchema,
+	}),
+]);
+
+/** One composer @-tag; see `builderTurnActionSchema`. */
+export type BuilderTurnAction = z.infer<typeof builderTurnActionSchema>;
+
+/**
+ * True when a body can run with this action and mode. `capture_site` exists
+ * only in a build turn, so a clone never runs in Plan Mode or a scan.
+ */
+export function isActionAllowedInMode(
+	action: BuilderTurnAction | undefined,
+	mode: BuilderTurnMode | undefined,
+): boolean {
+	return (
+		action?.kind !== "clone_site" || mode === undefined || mode === "build"
+	);
+}
+
 /** The answer to a `data-approval` card: the card id and the decision. */
 export const turnApprovalAnswerSchema = z.object({
 	approvalId: z.string().min(1),
@@ -126,7 +173,7 @@ export const createTurnRequestSchema = z
 	.object({
 		chatId: uuidSchema,
 		message: z.string().max(builderMessageMaxLength),
-		attachments: z.array(fileRefSchema).max(6).optional(),
+		attachments: z.array(builderAttachmentSchema).max(6).optional(),
 		composer: composerMetadataSchema.optional(),
 		// The model the user picked; absent means the deploy default. Any
 		// model with a price row is legal (`GET /api/v2/models` lists them).
@@ -150,18 +197,27 @@ export const createTurnRequestSchema = z
 			.min(1)
 			.max(PREVIEW_TARGETS_MAX)
 			.optional(),
+		// The @-tag of the sources menu. Absent: no forced action.
+		action: builderTurnActionSchema.optional(),
 	})
 	.refine(
 		(body) =>
 			body.message.trim().length > 0 ||
 			(body.attachments?.length ?? 0) > 0 ||
 			body.approval !== undefined ||
-			body.answers !== undefined,
+			body.answers !== undefined ||
+			// A clone tag carries its own request: the URL.
+			body.action?.kind === "clone_site",
 		{
-			message: "message, an attachment, an approval, or an answer is required",
+			message:
+				"message, an attachment, an approval, an answer, or a clone tag is required",
 			path: ["message"],
 		},
-	);
+	)
+	.refine((body) => isActionAllowedInMode(body.action, body.mode), {
+		message: "clone_site needs a build turn",
+		path: ["action"],
+	});
 
 /** TypeScript create-turn body. */
 export type CreateTurnRequest = z.infer<typeof createTurnRequestSchema>;
@@ -667,6 +723,16 @@ export const turnTargetsDataPartSchema = z.object({
 	data: turnTargetsDataSchema,
 });
 
+/**
+ * The `data-action` part of a user message: the @-tag the user picked. The
+ * API stores it in the user row, so the bubble shows the tag after a reload.
+ */
+export const turnActionDataPartSchema = z.object({
+	type: z.literal("data-action"),
+	id: z.literal("action"),
+	data: builderTurnActionSchema,
+});
+
 /** The picks of one user message, 1 to 10, in pick order. */
 export type TurnTargetsData = z.infer<typeof turnTargetsDataSchema>;
 
@@ -788,6 +854,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnPlanDataPartSchema,
 	turnThoughtDataPartSchema,
 	turnTargetsDataPartSchema,
+	turnActionDataPartSchema,
 	turnSummaryDataPartSchema,
 	turnContextDataPartSchema,
 	turnSecurityReportDataPartSchema,
@@ -812,6 +879,7 @@ export type TurnDataParts = {
 	plan: TurnPlanData;
 	thought: TurnThoughtData;
 	targets: TurnTargetsData;
+	action: BuilderTurnAction;
 	// The input type: live parts skip the zod parse, so `mode` can be absent
 	// on a summary from a worker before Plan Mode.
 	"turn-summary": z.input<typeof turnSummaryDataSchema>;

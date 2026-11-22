@@ -548,6 +548,10 @@
 				"fetch": "Opened",
 				"running": "Browsing the web"
 			},
+			"deepSearch": {
+				"done": "Deep search",
+				"running": "Researching the web"
+			},
 			"clone": {
 				"running": "Matching the original site",
 				"capture": "Captured",
@@ -608,19 +612,36 @@
 			"cancel": "Cancel"
 		},
 		"clone": {
-			"toggle": {
-				"label": "Clone",
-				"hint": "Copy a public web page into this project."
-			},
 			"urlLabel": "Page address",
-			"urlPlaceholder": "https://example.com",
+			"urlPlaceholder": "example.com",
 			"urlInvalid": "Enter a public web address.",
 			"confirm": "Use this page",
-			"notice": "Clone only pages that you own or have permission to copy.",
-			"message": "Clone this website: {url}"
+			"notice": "Clone only pages that you own or have permission to copy."
+		},
+		"sourcesMenu": {
+			"files": {
+				"title": "Add photos & files",
+				"hint": "Images, PDFs, and documents"
+			},
+			"filesFull": "You can add up to {max} files",
+			"webSearch": {
+				"title": "Web search",
+				"hint": "Real-time info from the web"
+			},
+			"deepSearch": {
+				"title": "Deep search",
+				"hint": "Slower, researched answer from many sources"
+			},
+			"clone": {
+				"title": "Clone website",
+				"hint": "Copy the design of a public site"
+			},
+			"footer": "Type to search sources & files",
+			"footerTip": "Tip: type @ in your message to open this menu",
+			"back": "Back",
+			"removeTag": "Remove {label}"
 		},
 		"placeholder": "Ask Wandit…",
-		"attach": "Attach a file",
 		"estimate": {
 			"one": "{count} credit",
 			"other": "{count} credits"
@@ -710,6 +731,7 @@
 			"explore": "Looking at your project",
 			"run": "Checking your app",
 			"web": "Searching the web",
+			"deepSearch": "Researching the web",
 			"clone": "Copying the website",
 			"image": "Creating an image",
 			"database": "Updating the database",
@@ -758,7 +780,6 @@
 		},
 		"elapsed": "{seconds}s",
 		"addContext": "Add context",
-		"attachImage": "Add an image",
 		"attachScreen": "Reference a screen",
 		"dictate": "Dictate",
 		"turnError": "The turn stopped: {message}",

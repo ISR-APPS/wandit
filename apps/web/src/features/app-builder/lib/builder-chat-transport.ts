@@ -9,6 +9,7 @@
 import {
 	appBuilderRoutes,
 	builderThinkingSchema,
+	builderTurnActionSchema,
 	builderTurnModeSchema,
 	type ChatMessage,
 	type CreateTurnRequest,
@@ -37,9 +38,9 @@ import type { TurnMessage } from "../api/dto";
 /**
  * Extras `sendMessage` passes through `options.body`: an answer to a
  * `data-approval` card, the answers to the open `data-question` cards, the
- * paid model this turn runs on, the turn mode of the Plan toggle, or the
- * thinking level. The SDK types the field loosely, so the schema keeps the
- * boundary typed.
+ * paid model this turn runs on, the turn mode of the Plan toggle, the
+ * thinking level, or the @-tag of the sources menu. The SDK types the field
+ * loosely, so the schema keeps the boundary typed.
  */
 const turnSendOptionsSchema = z.object({
 	approval: turnApprovalAnswerSchema.optional(),
@@ -47,6 +48,7 @@ const turnSendOptionsSchema = z.object({
 	model: z.string().min(1).optional(),
 	mode: builderTurnModeSchema.optional(),
 	thinking: builderThinkingSchema.optional(),
+	action: builderTurnActionSchema.optional(),
 });
 
 /**
@@ -104,7 +106,7 @@ export function createBuilderChatTransport(input: {
 				part.type === "data-targets" ? part.data.targets : [],
 			);
 			// The SDK always passes an object here (resolvedBody + options.body).
-			// A malformed approval, answer, model, mode, or thinking must throw. parse throws,
+			// A malformed approval, answer, model, mode, thinking, or action must throw. parse throws,
 			// and useChat surfaces the ZodError as `error`; a plain turn would
 			// hide the bug.
 			const extras = turnSendOptionsSchema.parse(body);
@@ -120,6 +122,7 @@ export function createBuilderChatTransport(input: {
 					...(extras.model ? { model: extras.model } : {}),
 					...(extras.mode ? { mode: extras.mode } : {}),
 					...(extras.thinking ? { thinking: extras.thinking } : {}),
+					...(extras.action ? { action: extras.action } : {}),
 					...(targets.length > 0 ? { targets } : {}),
 				} satisfies CreateTurnRequest,
 				headers: { ...headers, ...workspaceScopeHeaders() },

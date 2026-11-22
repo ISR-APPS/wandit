@@ -360,10 +360,11 @@ export type BuilderTier = {
 /**
  * Stops of the model slider, from the cheapest to the strongest. Zack picks
  * the models. The server price table must list each one, or the tier hides.
+ * A chat that ran on an old tier model keeps it: lib/model-labels.ts still names it.
  */
 export const BUILDER_TIERS: readonly BuilderTier[] = [
 	{ id: "standard", modelId: "deepseek/deepseek-v4.1-flash-1017" },
-	{ id: "high", modelId: "google/gemini-4-hydrogen" },
+	{ id: "high", modelId: "zai/glm-5.3" },
 	{ id: "max", modelId: "google/gemini-4-neon" },
 	{ id: "nuclear", modelId: "anthropic/claude-opus-5.5" },
 ];

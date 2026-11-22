@@ -9,6 +9,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	AppLanguage,
+	BuilderTurnAction,
 	ComposerMetadata,
 	DesktopEngine,
 	FileRef,
@@ -305,6 +306,8 @@ export class ProjectsRepository {
 			/** Catalog id of the starter template the project starts from. Absent for a project from a prompt. */
 			starterTemplateId?: string;
 		};
+		/** The @-tag of the first V2 turn, already checked by `createAppProjectRequestSchema`. */
+		action?: BuilderTurnAction;
 		attachments?: FileRef[];
 		chatId: string;
 		composer?: ComposerMetadata;
@@ -384,6 +387,10 @@ export class ProjectsRepository {
 										type: "text",
 									},
 								]
+							: []),
+						// The `turnActionDataPartSchema` shape, after the text, as in `insertTurnUserMessage`.
+						...(input.action !== undefined
+							? [{ data: input.action, id: "action", type: "data-action" }]
 							: []),
 					],
 					role: "user",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicWebUrlSchema } from "./host-tools";
+import { publicWebAddressSchema, publicWebUrlSchema } from "./host-tools";
 
 describe("publicWebUrlSchema", () => {
 	// A URL that passes goes to Firecrawl, so each refused row is a private host or a credential.
@@ -20,5 +20,25 @@ describe("publicWebUrlSchema", () => {
 		[`https://example.com/${"a".repeat(481)}`, false],
 	])("parses %s as public: %s", (url, isPublic) => {
 		expect(publicWebUrlSchema.safeParse(url).success).toBe(isPublic);
+	});
+});
+
+describe("publicWebAddressSchema", () => {
+	// A typed address without a scheme gets https://. The added scheme must not open a private host.
+	it.each([
+		["website.shop.dz", "https://website.shop.dz"],
+		["  www.example.com/pricing ", "https://www.example.com/pricing"],
+		["http://example.com/", "http://example.com/"],
+		["HTTPS://Example.com", "HTTPS://Example.com"],
+		["ftp://example.com", null],
+		["localhost:3000", null],
+		["192.168.1.1", null],
+		// The parser reads "mailto" as a user name, so the credential check refuses it.
+		["mailto:me@example.com", null],
+		["javascript:alert(1)", null],
+		["example", null],
+	])("parses %s to %s", (address, expected) => {
+		const parsed = publicWebAddressSchema.safeParse(address);
+		expect(parsed.success ? parsed.data : null).toBe(expected);
 	});
 });

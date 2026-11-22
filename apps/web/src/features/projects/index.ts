@@ -24,6 +24,7 @@ export {
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
+	BUILDER_ATTACHMENT_ACCEPT,
 	uploadAttachment,
 } from "./api/attachments.services";
 export type { Project, ProjectStatus } from "./api/dto";

@@ -116,6 +116,7 @@
 		"micError": "Could not transcribe the audio. Please try again.",
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
+		"addSkillHint": "Playbooks that guide the agent",
 		"attachLabel": "Attach",
 		"attachHint": "Attach images, video, audio, PDFs, docs or spreadsheets",
 		"connectApps": "Connect apps",

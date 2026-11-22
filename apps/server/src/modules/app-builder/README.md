@@ -1406,17 +1406,22 @@ releases per-turn clients (none today — connectors land in a follow-up).
   refunds, and a `failed`/`unavailable` result returns to the agent
   instead of throwing. `null` `holdEventId` answers `failed` — a paid
   tool never runs unbilled.
-- `web_search` searches the web through Exa (`POST /search`, type
-  `auto`) to confirm a current doc, API, version, or error text. The
-  registry adds it only when `EXA_API_KEY` exists, in build and Plan Mode
-  turns, never in a security scan. Each call reserves a fixed-price
-  `web_search` child under the turn hold (`WEB_SEARCH_CREDITS`, a default
-  price; key `builder-turn-web-search:<turnId>:<n>`). A success settles
-  it with the Exa `costDollars.total` as the provider cost; a failure or
-  a throw refunds it. At most 20 calls per turn
-  (`BUILDER_MAX_WEB_SEARCHES_PER_TURN`); the text of each result is cut
-  to 2,000 chars. The log line holds no query text. A result keeps
-  the Exa `favicon` only when it is an `https:` URL.
+- `web_search` searches the web through Exa (`POST /search`) to confirm
+  a current doc, API, version, or error text. The registry adds it only
+  when `EXA_API_KEY` exists, in build and Plan Mode turns, never in a
+  security scan. The input `depth` picks the Exa type: `standard` sends
+  type `auto` (30 s timeout); `deep` sends type `deep` with a text
+  `outputSchema` (60 s timeout) and returns the Exa `output.content` as
+  `answer`, cut to 4,000 chars. Each call reserves a fixed-price
+  `web_search` child under the turn hold (`WEB_SEARCH_CREDITS`, or
+  `DEEP_WEB_SEARCH_CREDITS` for deep; default prices; key
+  `builder-turn-web-search:<turnId>:<n>`). A success settles it at the
+  same price with the Exa `costDollars.total` as the provider cost, and
+  `rawUsage.exaSearchType` records the type; a failure or a throw refunds
+  it. At most 20 calls per turn (`BUILDER_MAX_WEB_SEARCHES_PER_TURN`), of
+  which at most 5 are deep (`BUILDER_MAX_DEEP_WEB_SEARCHES_PER_TURN`); the
+  text of each result is cut to 2,000 chars. The log line holds no query
+  text. A result keeps the Exa `favicon` only when it is an `https:` URL.
 - `web_fetch` reads one public web page as markdown through Firecrawl
   (`POST /v2/scrape`). The registry adds it only when `FIRECRAWL_API_KEY`
   exists, in build and Plan Mode turns, never in a security scan. The

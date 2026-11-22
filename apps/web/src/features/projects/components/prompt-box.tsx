@@ -3,8 +3,9 @@
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
  * mode menu picks the app type, web, mobile, desktop, or desktop 2 (Electron), through `platformChoice`,
- * the Plan chip of the app-builder feature sets `planChoice`, its Clone chip
- * writes a clone request into the draft of a web app, and its
+ * the Plan chip of the app-builder feature sets `planChoice`, its sources
+ * menu ("+" or "@") adds files and skills or puts one @-tag in the textarea
+ * (web search, deep search, or clone website for a web app), and its
  * model menu with its thinking row sets `modelChoice`. With `acceptsLongText`, a long paste becomes
  * a text chip that goes with the prompt (lib/pasted-text.ts).
  * Calls the attachments upload service and the voice dictation hook.
@@ -38,6 +39,7 @@ import { TargetIcon } from "@phosphor-icons/react/Target";
 import { TruckIcon } from "@phosphor-icons/react/Truck";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import {
+	type BuilderTurnAction,
 	builderMessageMaxLength,
 	type ComposerMetadata,
 	projectPromptMaxLength,
@@ -98,8 +100,11 @@ import { Spark } from "@/components/logo";
 import {
 	type BuilderModelPick,
 	BuilderModelPicker,
-	CloneSiteChip,
+	canSendWithAction,
+	InlineActionTag,
 	PlanModeToggle,
+	PromptSourcesMenu,
+	usePromptSources,
 } from "@/features/app-builder";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
@@ -110,6 +115,7 @@ import {
 	ATTACHMENT_ACCEPT,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
+	BUILDER_ATTACHMENT_ACCEPT,
 	uploadAttachment,
 } from "../api/attachments.services";
 import { MAX_VISIBLE_SKILLS } from "../lib/constants";
@@ -214,6 +220,11 @@ export type ComposerAttachment = {
 /** Contract §7.2 allowlist mirrored client-side for instant feedback. */
 const ALLOWED_ATTACHMENT_TYPES = new Set(ATTACHMENT_ACCEPT.split(","));
 
+/** The same list for a V2 create: no video or audio, which the builder routes refuse. */
+const ALLOWED_BUILDER_ATTACHMENT_TYPES = new Set(
+	BUILDER_ATTACHMENT_ACCEPT.split(","),
+);
+
 /** createProject caps `attachments` at 6 (contract Appendix C). */
 const MAX_ATTACHMENTS = 6;
 
@@ -243,9 +254,13 @@ function effectiveMediaType(file: File): string {
 	return EXTENSION_MEDIA_TYPES[extension] ?? file.type;
 }
 
-function toComposerAttachment(file: File): ComposerAttachment {
+/** `allowedTypes` is `ALLOWED_ATTACHMENT_TYPES`, or the builder list for a V2 create. */
+function toComposerAttachment(
+	file: File,
+	allowedTypes: ReadonlySet<string>,
+): ComposerAttachment {
 	const mediaType = effectiveMediaType(file);
-	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(mediaType);
+	const unsupported = !allowedTypes.has(mediaType);
 	const tooLarge = file.size > attachmentMaxBytesFor(mediaType);
 	return {
 		id: crypto.randomUUID(),
@@ -1546,11 +1561,13 @@ export type PromptBoxProps = {
 	/** A `false` return or rejected Promise means nothing was sent, so the box
 	 * keeps its draft even with clearOnSubmit. The composer metadata mirrors the
 	 * current mode/output/skills/option UI state; attachments are the
-	 * successfully uploaded assets (empty when disabled or not attached). */
+	 * successfully uploaded assets (empty when disabled or not attached).
+	 * `action` is the @-tag of the sources menu, only for a V2 create. */
 	onSubmit: (
 		prompt: string,
 		composer: ComposerMetadata,
 		attachments: UploadAttachmentResponse[],
+		action?: BuilderTurnAction,
 		// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
 	) => void | boolean | Promise<void | boolean>;
 	/** Enables the "+" attach flow (upload to R2, chips, submit forwarding).
@@ -1610,9 +1627,9 @@ export type PromptBoxProps = {
 };
 
 /**
- * The prompt box. With `platformChoice` it is a V2 create: the app type menu,
- * the Plan chip, the Clone chip of a web app, and the model menu replace the
- * V1 mode menu, connectors, and output settings.
+ * The prompt box. With `platformChoice` it is a V2 create: the sources menu,
+ * the app type menu, the Plan chip, and the model menu replace the V1 "+"
+ * menu, mode menu, connectors, and output settings.
  */
 export function PromptBox({
 	onSubmit,
@@ -1665,9 +1682,70 @@ export function PromptBox({
 	const [isLocallySubmitting, setIsLocallySubmitting] = useState(false);
 	const [connectorsOpen, setConnectorsOpen] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	// The whole box. The dashboard opens the sources menu under it.
+	const boxRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const submitInFlightRef = useRef(false);
 	const fileDragDepthRef = useRef(0);
+	// Product rule: only a web app can copy a web page. The constant removes the
+	// clone row from the production bundle.
+	const canCloneSite =
+		__V2_BUILDER_IN_BUILD__ && platformChoice?.value === "web";
+	// A V2 create refuses video and audio: no builder model or agent tool opens them.
+	const isBuilderCreate =
+		__V2_BUILDER_IN_BUILD__ && platformChoice !== undefined;
+	const sources = usePromptSources({
+		draft: value,
+		setDraft: (next) => {
+			setValue(next);
+			onValueChange?.(joinPastedText(next, pastedTexts));
+		},
+		textareaRef,
+		canCloneSite,
+		filesBlockedReason: !attachmentsEnabled
+			? t("projects.promptBox.attachments.signInFirst")
+			: attachments.length >= MAX_ATTACHMENTS
+				? t("appBuilder.chat.sourcesMenu.filesFull", { max: MAX_ATTACHMENTS })
+				: null,
+		onAddFiles: () => fileInputRef.current?.click(),
+		// A Plan turn has no capture tool, so the clone needs a build turn.
+		onPickClone: () => planChoice?.onChange(false),
+		skills: {
+			title: pb.addSkillLabel,
+			hint: pb.addSkillHint,
+			groups: SKILL_FILE_GROUPS.map((group) => ({
+				id: group.id,
+				label: pb.skillGroups[group.id].label,
+				skills: group.skills.map((skill) => ({
+					id: skill.id,
+					label: pb.skills[skill.id].label,
+					hint: pb.skills[skill.id].description,
+					isSelected: selectedSkillIds.includes(skill.id),
+				})),
+			})),
+			// No focus move here: the menu stays open for the next pick.
+			onToggle: (skillId) => {
+				const skill = ALL_SKILL_FILES.find((entry) => entry.id === skillId);
+				if (!skill) return;
+				setSelectedSkillIds((current) =>
+					current.includes(skill.id)
+						? current.filter((id) => id !== skill.id)
+						: [...current, skill.id],
+				);
+			},
+		},
+	});
+	// Only a web app can copy a web page. The ModePicker and the heading token
+	// both change the app type, so the rule watches canCloneSite.
+	useEffect(() => {
+		if (!canCloneSite) {
+			sources.setAction((current) =>
+				current?.kind === "clone_site" ? null : current,
+			);
+		}
+	}, [canCloneSite, sources.setAction]);
+	// Only a V2 create has the menu. The tray answer hides the tag, like the chips.
+	const action = platformChoice && !submitOverride ? sources.action : null;
 
 	// Mirror for unmount cleanup — object URLs leak without an explicit revoke.
 	const attachmentsRef = useRef(attachments);
@@ -1705,7 +1783,11 @@ export function PromptBox({
 		hasAttachmentCapacity;
 	// The text the box sends. It is the trimmed draft while no paste chip exists.
 	const prompt = joinPastedText(value, pastedTexts);
-	const hasRequiredInput = prompt.length > 0 || readyAttachments.length > 0;
+	const hasRequiredInput = canSendWithAction(
+		action,
+		prompt.length > 0,
+		readyAttachments.length > 0,
+	);
 	const tooLongText = t("projects.promptBox.attachments.textTooLong", {
 		max: formatNumber(builderMessageMaxLength, locale),
 	});
@@ -1740,6 +1822,7 @@ export function PromptBox({
 		attachedSkills.length,
 		attachments.length,
 		pastedTexts.length,
+		action,
 	]);
 
 	const runUpload = useCallback(async (id: string, file: File) => {
@@ -1771,7 +1854,14 @@ export function PromptBox({
 			if (room <= 0) return;
 			const picked = Array.from(files).slice(0, room);
 			if (picked.length === 0) return;
-			const next = picked.map(toComposerAttachment);
+			const next = picked.map((file) =>
+				toComposerAttachment(
+					file,
+					isBuilderCreate
+						? ALLOWED_BUILDER_ATTACHMENT_TYPES
+						: ALLOWED_ATTACHMENT_TYPES,
+				),
+			);
 			setAttachments((current) =>
 				[...current, ...next].slice(0, MAX_ATTACHMENTS),
 			);
@@ -1781,7 +1871,7 @@ export function PromptBox({
 				}
 			}
 		},
-		[runUpload],
+		[isBuilderCreate, runUpload],
 	);
 
 	const handleFileDragEnter = useCallback(
@@ -1921,6 +2011,9 @@ export function PromptBox({
 		const next = e.target.value;
 		setValue(next);
 		onValueChange?.(joinPastedText(next, pastedTexts));
+		if (platformChoice && !submitOverride) {
+			sources.trackDraft(next, e.target.selectionStart);
+		}
 		resize();
 	};
 
@@ -1982,11 +2075,7 @@ export function PromptBox({
 			return;
 		}
 
-		if (
-			submissionPending ||
-			hasUploadingAttachment ||
-			(prompt.length === 0 && readyAttachments.length === 0)
-		) {
+		if (submissionPending || hasUploadingAttachment || !hasRequiredInput) {
 			return;
 		}
 		const uploadedAttachments = readyAttachments.flatMap((attachment) =>
@@ -1999,13 +2088,15 @@ export function PromptBox({
 				prompt,
 				buildComposer(),
 				uploadedAttachments,
+				action ?? undefined,
 			);
 			if (result !== false) {
-				// The paste chips are part of the draft, so they clear with it.
+				// The paste chips and the tag are part of the draft, so they clear with it.
 				if (clearOnSubmit) {
 					setValue("");
 					setPastedTexts([]);
 					onValueChange?.("");
+					sources.setAction(null);
 					clearAttachments();
 					// A skill applies to the message it was picked for. Dropping the
 					// chips keeps the playbooks out of every later system prompt; the
@@ -2031,6 +2122,8 @@ export function PromptBox({
 		submitOverride?.label ?? t("projects.promptBox.submitLabel");
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		// The open "@" menu takes Enter and the arrows; Backspace at the start removes the tag.
+		if (platformChoice && !submitOverride && sources.handleKeyDown(e)) return;
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			void handleSubmit();
@@ -2082,6 +2175,7 @@ export function PromptBox({
 	const box = (
 		// biome-ignore lint/a11y/noStaticElementInteractions: file drag-and-drop enhances the existing keyboard-accessible attachment picker
 		<div
+			ref={boxRef}
 			className="group/prompt relative"
 			onDragEnter={handleFileDragEnter}
 			onDragOver={handleFileDragOver}
@@ -2131,7 +2225,9 @@ export function PromptBox({
 						ref={fileInputRef}
 						type="file"
 						multiple
-						accept={ATTACHMENT_ACCEPT}
+						accept={
+							isBuilderCreate ? BUILDER_ATTACHMENT_ACCEPT : ATTACHMENT_ACCEPT
+						}
 						className="hidden"
 						onChange={(event) => {
 							if (event.target.files) handleFilesPicked(event.target.files);
@@ -2140,9 +2236,17 @@ export function PromptBox({
 						}}
 					/>
 				) : null}
+				{action ? (
+					<InlineActionTag
+						action={action}
+						textareaRef={textareaRef}
+						onRemove={() => sources.setAction(null)}
+					/>
+				) : null}
 				<InputGroupTextarea
 					ref={textareaRef}
-					dir="auto"
+					// With a tag, the text takes the UI side, like the tag (InlineActionTag).
+					dir={action ? undefined : "auto"}
 					value={value}
 					onChange={handleChange}
 					onKeyDown={handleKeyDown}
@@ -2175,18 +2279,30 @@ export function PromptBox({
 					)}
 				>
 					<TooltipProvider>
-						<AddContextMenu
-							selectedSkillIds={selectedSkillIds}
-							onToggleSkill={toggleSkillFile}
-							attachmentsEnabled={attachmentsEnabled}
-							onAttach={() => fileInputRef.current?.click()}
-							connectorsEnabled={Boolean(session)}
-							// Product rule: a V2 create offers only files and skills, no connectors.
-							onConnectApps={
-								platformChoice ? undefined : () => setConnectorsOpen(true)
-							}
-							isHero={isHero}
-						/>
+						{/* The constant removes the sources menu from the production bundle. The tray answer hides it, like the chips. */}
+						{__V2_BUILDER_IN_BUILD__ && platformChoice ? (
+							submitOverride ? null : (
+								<PromptSourcesMenu
+									sources={sources}
+									size={isHero ? "md" : "sm"}
+									// The hero box sits mid-page with room below it. The workspace box sits at the screen bottom.
+									belowElementRef={isHero ? boxRef : undefined}
+								/>
+							)
+						) : (
+							<AddContextMenu
+								selectedSkillIds={selectedSkillIds}
+								onToggleSkill={toggleSkillFile}
+								attachmentsEnabled={attachmentsEnabled}
+								onAttach={() => fileInputRef.current?.click()}
+								connectorsEnabled={Boolean(session)}
+								// Product rule: a V2 create offers only files and skills, no connectors.
+								onConnectApps={
+									platformChoice ? undefined : () => setConnectorsOpen(true)
+								}
+								isHero={isHero}
+							/>
+						)}
 						{platformChoice ? (
 							<ModePicker
 								options={PLATFORM_MODES.map((platform) => ({
@@ -2213,24 +2329,12 @@ export function PromptBox({
 						{__V2_BUILDER_IN_BUILD__ && platformChoice && planChoice ? (
 							<PlanModeToggle
 								isPlanMode={planChoice.value}
-								onPlanModeChange={planChoice.onChange}
-								disabled={submissionPending || disabled}
-								size={isHero ? "md" : "sm"}
-							/>
-						) : null}
-						{/* The same constant removes the Clone chip from the production bundle. Product rule: only a web app can copy a web page. */}
-						{__V2_BUILDER_IN_BUILD__ && platformChoice?.value === "web" ? (
-							<CloneSiteChip
-								onCloneRequest={(cloneRequest) => {
-									// The request goes first, so the text that the user typed reads as its details.
-									const next =
-										value.trim() === ""
-											? cloneRequest
-											: `${cloneRequest}\n${value}`;
-									setValue(next);
-									onValueChange?.(joinPastedText(next, pastedTexts));
-									// A Plan turn has no capture tool, so the clone needs a build turn.
-									planChoice?.onChange(false);
+								onPlanModeChange={(isOn) => {
+									// A Plan turn has no capture tool, so Plan Mode drops a clone tag.
+									if (isOn && sources.action?.kind === "clone_site") {
+										sources.setAction(null);
+									}
+									planChoice.onChange(isOn);
 								}}
 								disabled={submissionPending || disabled}
 								size={isHero ? "md" : "sm"}

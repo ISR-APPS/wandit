@@ -321,6 +321,8 @@ export const webSearchHostToolInputSchema = z.object({
 	// Search only these sites, for example "react.dev" for the React docs.
 	// 253 chars is the DNS limit of a host name.
 	includeDomains: z.array(z.string().min(1).max(253)).max(10).optional(),
+	// "deep" runs an Exa deep search: slower, more sources, a written answer, and a higher price.
+	depth: z.enum(["standard", "deep"]).default("standard"),
 });
 
 /** Parsed `web_search` input; the tool execute body reads this shape. */
@@ -329,12 +331,14 @@ export type WebSearchHostToolInput = z.infer<
 >;
 
 /**
- * Output of the `web_search` host tool. `text` of a result is cut to a fixed
- * length by the tool. `failed` and `unavailable` carry a message for the agent.
+ * Output of the `web_search` host tool. The tool cuts `text` of a result and
+ * `answer` to a fixed length. `failed` and `unavailable` carry a message for the agent.
  */
 export const webSearchHostToolOutputSchema = z.discriminatedUnion("status", [
 	z.object({
 		status: z.literal("ok"),
+		// The answer that Exa writes from its sources. Only a "deep" search has it.
+		answer: z.string().optional(),
 		results: z.array(
 			z.object({
 				title: z.string(),
@@ -416,6 +420,21 @@ export const publicWebUrlSchema = z
 	// 500 chars hold a long docs URL and limit the data that a URL can carry out.
 	.max(500)
 	.refine(isPublicWebUrl, "must be a public http(s) URL");
+
+/**
+ * A site address that a user types, such as `website.shop.dz`. An address
+ * without a scheme gets `https://`. The output is a `publicWebUrlSchema` URL.
+ * The "Clone website" step of the web app uses it.
+ */
+export const publicWebAddressSchema = z
+	.string()
+	.trim()
+	// A scheme is letters, digits, "+", "-", or "." before "://". `ftp://x.com` keeps
+	// its scheme, so the URL check refuses it.
+	.transform((address) =>
+		/^[a-z][a-z\d+.-]*:\/\//i.test(address) ? address : `https://${address}`,
+	)
+	.pipe(publicWebUrlSchema);
 
 /**
  * Input of the `web_fetch` host tool. The agent reads one web page as
@@ -727,7 +746,7 @@ export type SuggestFollowUpsHostToolInput = z.infer<
 
 /**
  * The fields of a 2xx answer of Exa `POST /search` that the `web_search` tool
- * reads (https://docs.exa.ai/reference/search, read 2026-11-19). Exa can send
+ * reads (https://docs.exa.ai/reference/search, read 2026-11-22). Exa can send
  * more fields; zod drops them.
  */
 export const exaSearchResponseSchema = z.object({
@@ -746,6 +765,15 @@ export const exaSearchResponseSchema = z.object({
 	),
 	// The estimated cost of this request, in US dollars.
 	costDollars: z.object({ total: z.number().nonnegative() }).optional(),
+	// Present only when the request sends `outputSchema`, which a deep search does.
+	output: z
+		.object({
+			// The request asks for a text answer, so this is a string. Other content
+			// becomes undefined on purpose: the results still hold the sources.
+			content: z.string().optional().catch(undefined),
+		})
+		// A null output gives no answer; the paid results still reach the agent.
+		.nullish(),
 });
 
 /** Parsed Exa search answer; the Exa client returns it to the tool. */

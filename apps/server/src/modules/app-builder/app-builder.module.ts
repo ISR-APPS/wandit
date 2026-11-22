@@ -45,6 +45,7 @@ import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { LlmProxyImageDescriber } from "./application/services/llm-proxy-image-describer.service";
 import { McpChangesService } from "./application/services/mcp-changes.service";
 import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
@@ -114,6 +115,7 @@ import { SecurityScansRepository } from "./infrastructure/persistence/security-s
 import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
+import { RedisBlockTextCache } from "./infrastructure/redis/redis-block-text-cache";
 import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
 import { RedisTurnEventReader } from "./infrastructure/redis/redis-turn-events";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
@@ -282,6 +284,7 @@ export function createCloudSupabaseClient(
 		GithubAppClient,
 		GithubConnectionsRepository,
 		GithubProjectService,
+		LlmProxyImageDescriber,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
@@ -298,6 +301,7 @@ export function createCloudSupabaseClient(
 		ProjectSecretsRepository,
 		ProjectSecretsService,
 		PublishService,
+		RedisBlockTextCache,
 		RedisRateLimitGuard,
 		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,

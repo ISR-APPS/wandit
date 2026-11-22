@@ -20,7 +20,10 @@ import {
 	type ProjectScope,
 	projectScopeFrom,
 } from "../../../projects/domain/project-scope";
-import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import type {
+	ProjectQueryRow,
+	ProjectsRepository,
+} from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
 import type {
 	TurnRunHandle,
@@ -210,6 +213,12 @@ function setup(
 		),
 	};
 	const projects = {
+		// Only the clone tag check reads the project row, and only its framework.
+		findByIdForScope: vi.fn(
+			async (): Promise<Pick<ProjectQueryRow, "framework"> | null> => ({
+				framework: "web-app",
+			}),
+		),
 		findEngineByIdForScope: vi.fn<ProjectsRepository["findEngineByIdForScope"]>(
 			async () => "v2_app",
 		),
@@ -319,6 +328,20 @@ describe("TurnsService.create", () => {
 		await expect(service.create(SCOPE, "project-1", BODY)).rejects.toThrow(
 			NotFoundException,
 		);
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects a clone tag on a project that is not a web app, before the hold", async () => {
+		const { metering, projects, service, turns } = setup();
+		projects.findByIdForScope.mockResolvedValue({ framework: "mobile-app" });
+
+		await expect(
+			service.create(SCOPE, "project-1", {
+				...BODY,
+				action: { kind: "clone_site", url: "https://example.com/" },
+			}),
+		).rejects.toThrow(BadRequestException);
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 		expect(turns.create).not.toHaveBeenCalled();
 	});

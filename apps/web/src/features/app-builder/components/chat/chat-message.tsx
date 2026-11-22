@@ -1,8 +1,8 @@
 /**
  * One message of the builder thread. A user message is a soft ink bubble at
- * the end side; a long one folds, with a Show more button. Its files sit
- * above it, and the chips of its preview picks sit above the files. An
- * assistant message starts with the Wandit byline.
+ * the end side; a long one folds, with a Show more button. Its @-tag starts
+ * the bubble. Its files sit above it, and the chips of its preview picks sit
+ * above the files. An assistant message starts with the Wandit byline.
  * In the production view, one summary line opens the details panel. A strip
  * of thumbnails follows it: the image files the agent read, for example its
  * screenshots, and the images it made. A click on a thumbnail also opens the
@@ -26,6 +26,7 @@ import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
+	type BuilderTurnAction,
 	builderTurnStatusSchema,
 	DAILY_CAP_TURN_ERROR_CODE,
 	type TurnErrorData,
@@ -58,6 +59,7 @@ import {
 	SourcesButton,
 } from "./message-sources";
 import { PlanCard } from "./plan-card";
+import { ActionTag } from "./prompt-sources-menu";
 import { QuestionReceipt } from "./question-receipt";
 import { SecurityReportCard } from "./security-report-card";
 import { StepRow } from "./step-row";
@@ -81,19 +83,36 @@ const USER_BUBBLE_CLASS =
 	"max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-night/[0.06] px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.08] dark:text-foreground";
 
 /** The text bubble of a user message. A text over `USER_TEXT_FOLD_MIN_LENGTH` chars folds to 12 lines. */
-function UserTextBubble({ text }: { text: string }) {
+function UserTextBubble({
+	text,
+	action,
+}: {
+	text: string;
+	/** The @-tag of the message, from its `data-action` part. It starts the first line. */
+	action: BuilderTurnAction | null;
+}) {
 	const { t } = useTranslation();
 	const [isExpanded, setIsExpanded] = useState(false);
+	// The space keeps the tag apart from the first word, like the gap in the composer.
+	const tag = action ? (
+		<>
+			<ActionTag action={action} />{" "}
+		</>
+	) : null;
 	if (text.length <= USER_TEXT_FOLD_MIN_LENGTH) {
 		return (
 			<div dir="auto" className={USER_BUBBLE_CLASS}>
+				{tag}
 				{text}
 			</div>
 		);
 	}
 	return (
 		<div dir="auto" className={USER_BUBBLE_CLASS}>
-			<div className={cn(!isExpanded && "line-clamp-12")}>{text}</div>
+			<div className={cn(!isExpanded && "line-clamp-12")}>
+				{tag}
+				{text}
+			</div>
 			<button
 				type="button"
 				aria-expanded={isExpanded}
@@ -155,6 +174,8 @@ export function ChatMessageView({
 		const targets = message.parts.flatMap((part) =>
 			part.type === "data-targets" ? part.data.targets : [],
 		);
+		const action =
+			message.parts.find((part) => part.type === "data-action")?.data ?? null;
 		return (
 			<div className="flex flex-col items-end gap-1.5">
 				{targets.length > 0 ? (
@@ -174,8 +195,10 @@ export function ChatMessageView({
 						))}
 					</div>
 				) : null}
-				{/* A message with files only has no text bubble. */}
-				{text !== "" ? <UserTextBubble text={text} /> : null}
+				{/* A message with files only has no text bubble. A clone tag alone has one. */}
+				{text !== "" || action !== null ? (
+					<UserTextBubble text={text} action={action} />
+				) : null}
 			</div>
 		);
 	}

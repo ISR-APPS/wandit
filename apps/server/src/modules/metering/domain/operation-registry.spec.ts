@@ -47,6 +47,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"project-title-helper",
 	"higgsfield-prompt-refine-helper",
 	"video-director-helper",
+	"llm-proxy-image-describer-helper",
 	"chat-tool-call-repair-helper",
 ] as const;
 
@@ -176,6 +177,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateObject",
 		source:
 			"apps/server/src/modules/app-builder/application/services/app-theme-design.service.ts",
+	},
+	{
+		count: 1,
+		name: "generateText",
+		source:
+			"apps/server/src/modules/app-builder/application/services/llm-proxy-image-describer.service.ts",
 	},
 	{
 		count: 1,

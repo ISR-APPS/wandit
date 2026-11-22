@@ -11,6 +11,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type BuilderThinking,
+	type BuilderTurnAction,
 	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	type ComposerMetadata,
@@ -90,6 +91,8 @@ export type BuilderTurnSpec = {
 	mode: BuilderTurnMode;
 	/** Thinking level of the turn. The runtime puts it in the proxy token, and the proxy maps it to an effort. */
 	thinking: BuilderThinking;
+	/** The @-tag of the sources menu. The runtime forces that action. Absent without a tag. */
+	action?: BuilderTurnAction;
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */

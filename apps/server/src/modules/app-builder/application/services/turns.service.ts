@@ -4,7 +4,7 @@
  * end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * chat model lock, the model check (price row, disabled list), the monthly cap, the per-actor
+ * clone tag check, the chat model lock, the model check (price row, disabled list), the monthly cap, the per-actor
  * turn limit, then the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
@@ -34,6 +34,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
+	isActionAllowedInMode,
 	type ProductSettings,
 	type TurnEstimateResponse,
 } from "@wandit/contracts";
@@ -107,6 +108,7 @@ import {
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { AuditEventsService, type AuditRecord } from "./audit-events.service";
 import { BackendsService } from "./backends.service";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "./llm-proxy-token.service";
@@ -242,7 +244,8 @@ export class TurnsService {
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project that
 	 * another conversation holds answers 409 BUILDER_OTHER_CHAT_BUSY. A project
 	 * whose last turn waits on an approval card answers 409
-	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A chat
+	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A clone tag
+	 * outside a build turn of a web project answers 400 V2_ACTION_NOT_ALLOWED. A chat
 	 * after its first turn keeps its model tier: another tier answers 409
 	 * V2_MODEL_LOCKED, a locked model with no price row 409 V2_MODEL_RETIRED.
 	 * The Fast row of the tier stays allowed in both directions, but not
@@ -320,6 +323,12 @@ export class TurnsService {
 		) {
 			throw new BuilderApprovalPendingError();
 		}
+
+		// The Plan toggle of the composer; a client without it builds.
+		// An approval answers a paused build call, so it always stays a
+		// build turn. A plan turn would drop that call as a mode switch.
+		const mode = body.approval === undefined ? (body.mode ?? "build") : "build";
+		await this.assertActionAllowed(scope, projectId, body.action, mode);
 
 		const turnId = randomUUID();
 		// A pre-written first message (project create) keeps its id; every
@@ -453,15 +462,13 @@ export class TurnsService {
 				model,
 			);
 			const spec: BuilderTurnSpec = {
+				action: body.action,
 				answers: body.answers ?? [],
 				approval: body.approval,
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,
 				message: body.message,
-				// The Plan toggle of the composer; a client without it builds.
-				// An approval answers a paused build call, so it always stays a
-				// build turn. A plan turn would drop that call as a mode switch.
-				mode: body.approval === undefined ? (body.mode ?? "build") : "build",
+				mode,
 				targets: body.targets ?? [],
 				thinking: body.thinking ?? "balanced",
 			};
@@ -549,6 +556,7 @@ export class TurnsService {
 
 			if (options.existingMessageId === undefined) {
 				await this.chats.insertTurnUserMessage({
+					action: body.action,
 					attachments: body.attachments,
 					chatId: body.chatId,
 					composer: body.composer,
@@ -914,6 +922,36 @@ export class TurnsService {
 		}
 
 		return turn;
+	}
+
+	/**
+	 * Refuses a clone tag with 400 V2_ACTION_NOT_ALLOWED before the credit hold.
+	 * `capture_site` exists only in a build turn of a `web-app` project
+	 * (`BuilderHostToolRegistry.build`), so a mobile or desktop clone cannot run.
+	 */
+	private async assertActionAllowed(
+		scope: ProjectScope,
+		projectId: string,
+		action: CreateTurnRequest["action"],
+		mode: BuilderTurnSpec["mode"],
+	): Promise<void> {
+		if (action?.kind !== "clone_site") {
+			return;
+		}
+		if (!isActionAllowedInMode(action, mode)) {
+			throw new BadRequestException({
+				code: "V2_ACTION_NOT_ALLOWED",
+				message: "Clone website needs a build turn",
+			});
+		}
+		const project = await this.projects.findByIdForScope(scope, projectId);
+		// The same check as the `siteClone` tool set of the host tool registry.
+		if (project?.framework !== TEMPLATE_PROFILES.web.framework) {
+			throw new BadRequestException({
+				code: "V2_ACTION_NOT_ALLOWED",
+				message: "Clone website needs a web project",
+			});
+		}
 	}
 
 	/**

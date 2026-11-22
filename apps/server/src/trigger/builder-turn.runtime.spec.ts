@@ -3330,16 +3330,22 @@ describe("runBuilderTurn", () => {
 		expect(world.thumbnails).toEqual(expected);
 	});
 
-	it("sends the attachment URLs together with the message text", async () => {
+	it("copies the composer attachments into /tmp and names their paths", async () => {
 		const world = makeWorld();
+		const logoBytes = new Uint8Array([137, 80, 78, 71]);
+		const csvUrl = UPLOAD_URL.replace("logo.png", "prices.csv");
+		const missingUrl = UPLOAD_URL.replace("logo.png", "missing.png");
+		const videoUrl = UPLOAD_URL.replace("logo.png", "clip.mp4");
+		world.uploads.set(UPLOAD_URL, logoBytes);
+		world.uploads.set(csvUrl, new TextEncoder().encode("name,price\ntea,3"));
+		world.uploads.set(videoUrl, new Uint8Array([0, 0, 0, 24]));
 		world.turns.row = fakeTurnRow({
 			spec: {
 				attachments: [
-					{
-						filename: "shot.png",
-						mediaType: "image/png",
-						url: "https://files.test/shot.png",
-					},
+					{ mediaType: "image/png", url: UPLOAD_URL },
+					{ mediaType: "text/csv", url: csvUrl },
+					{ mediaType: "image/png", url: missingUrl },
+					{ mediaType: "video/mp4", url: videoUrl },
 				],
 				composer: null,
 				message: "Make it look like this",
@@ -3349,11 +3355,56 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		expect(world.harness.streamCalls[0]?.input).toMatchObject({
-			kind: "prompt",
-			prompt:
-				"<user_message>Make it look like this</user_message>\n\nAttached files:\nhttps://files.test/shot.png",
+		const folder = "/tmp/wandit/attachments/11111111";
+		const sandbox = await world.sandboxes.getOrCreate(
+			PROJECT_ID,
+			WARM_SANDBOX_OPTIONS,
+		);
+		expect(await sandbox.readFile(`${folder}/0d1f2a3b-logo.png`)).toEqual(
+			logoBytes,
+		);
+		expect(
+			new TextDecoder().decode(
+				(await sandbox.readFile(`${folder}/0d1f2a3b-prices.csv.txt`)) ??
+					undefined,
+			),
+		).toBe("name,price\ntea,3");
+		// Video stays URL-only: no copy grows the sandbox.
+		expect(await sandbox.readFile(`${folder}/0d1f2a3b-clip.mp4`)).toBeNull();
+		const turnInput = world.harness.streamCalls[0]?.input;
+		const prompt = turnInput?.kind === "prompt" ? turnInput.prompt : "";
+		expect(prompt).toMatch(
+			/^<user_message>Make it look like this<\/user_message>\n\n/u,
+		);
+		expect(prompt).toContain(`${folder}/0d1f2a3b-logo.png`);
+		expect(prompt).toContain(`${folder}/0d1f2a3b-prices.csv.txt`);
+		expect(prompt).toContain(missingUrl);
+		expect(prompt).toContain(videoUrl);
+		// The failed copy never fails the turn: the harness still runs, and the copy only warns.
+		expect(turnInput?.kind).toBe("prompt");
+		expect(world.warnings).toContain("builder-turn.attachment-copy-failed");
+	});
+
+	it("sends an empty clone turn as the clone line alone", async () => {
+		const world = makeWorld();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				action: { kind: "clone_site", url: "https://example.com/" },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
 		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const turnInput = world.harness.streamCalls[0]?.input;
+		const prompt = turnInput?.kind === "prompt" ? turnInput.prompt : "";
+		expect(prompt).toContain('"https://example.com/"');
+		expect(prompt).toContain("capture_site");
+		expect(prompt).not.toContain("Continue.");
+		expect(prompt).not.toContain("<user_message>");
 	});
 
 	it.each([
@@ -3732,7 +3783,7 @@ describe("runBuilderTurn", () => {
 				{
 					answers: {
 						"question-1": {
-							freeform: "See the attached files.\nhttps://files.test/shot.png",
+							freeform: expect.stringContaining("https://files.test/shot.png"),
 							optionIds: [],
 						},
 					},
